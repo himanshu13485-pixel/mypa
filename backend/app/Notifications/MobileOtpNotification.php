@@ -23,9 +23,11 @@ class MobileOtpNotification extends Notification
 
     public function toDatabase(object $notifiable): array
     {
+        $action = $this->otp->purpose === 'login' ? 'login' : 'verification';
+
         return [
             'kind' => 'mobile_otp',
-            'message' => "Your My PA verification code is {$this->otp->code}. It expires in "
+            'message' => "Your My PA {$action} code is {$this->otp->code}. It expires in "
                 . (int) now()->diffInMinutes($this->otp->expires_at) . ' minutes.',
             'code' => $this->otp->code,
             'mobile' => $this->otp->mobile,

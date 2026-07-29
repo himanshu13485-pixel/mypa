@@ -29,7 +29,9 @@ class AuthController extends Controller
             'username' => ['required', 'string', 'min:4', 'max:20', 'regex:/^[a-zA-Z0-9]+$/'],
             // Email is optional — it can be added later from the profile.
             'email' => ['nullable', 'string', 'email', 'max:255', 'unique:users,email'],
-            'password' => ['required', 'confirmed', PasswordRule::min(8)->letters()->numbers()],
+            // Passwordless signup: the account is secured by mobile OTP; a
+            // password can optionally be set later from Settings.
+            'password' => ['nullable', 'confirmed', PasswordRule::min(8)->letters()->numbers()],
             'date_of_birth' => ['nullable', 'date', 'before:today'],
             'gender' => ['nullable', 'string', 'max:32'],
             'country' => ['nullable', 'string', 'max:64'],
@@ -60,7 +62,7 @@ class AuthController extends Controller
                 'email' => $data['email'] ?? null,
                 'mobile' => $fullMobile,
                 'country_code' => $data['country_code'],
-                'password' => $data['password'],
+                'password' => $data['password'] ?? null,
             ]);
 
             $user->profile()->create([
@@ -202,6 +204,12 @@ class AuthController extends Controller
         $identifier = trim($credentials['identifier'] ?? $credentials['email']);
         $user = $this->resolveUser($identifier);
 
+        if ($user && $user->password === null) {
+            throw ValidationException::withMessages([
+                'identifier' => ['This account has no password — use "Login with code" instead, or set a password in Settings.'],
+            ]);
+        }
+
         if (! $user || ! Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'identifier' => ['The provided credentials are incorrect.'],
@@ -218,6 +226,60 @@ class AuthController extends Controller
 
         $token = $user->createToken($credentials['device_name'] ?? 'web')->plainTextToken;
 
+        $this->recordLogin($request, $user);
+
+        return response()->json([
+            'message' => 'Login successful.',
+            'data' => new UserResource($user->load(['profile', 'settings', 'appId', 'roles'])),
+            'token' => $token,
+            'must_change_password' => (bool) $user->force_password_change,
+        ]);
+    }
+
+    /**
+     * Passwordless login, step 1: request a one-time code. Delivered app-to-app
+     * (in-app inbox on any signed-in device; admins can view/relay it).
+     */
+    public function requestLoginOtp(Request $request, \App\Services\MobileOtpService $otps): JsonResponse
+    {
+        $data = $request->validate(['identifier' => ['required', 'string', 'max:255']]);
+
+        $user = $this->resolveUser(trim($data['identifier']));
+
+        if ($user && $user->status !== 'suspended') {
+            $otps->issue($user, $user->mobile, 'login');
+        }
+
+        // Uniform response — never leak whether the identifier exists.
+        return response()->json([
+            'message' => 'If the account exists, a login code has been sent to its app inbox.',
+        ]);
+    }
+
+    /** Passwordless login, step 2: exchange the code for a session token. */
+    public function loginWithOtp(Request $request, \App\Services\MobileOtpService $otps): JsonResponse
+    {
+        $credentials = $request->validate([
+            'identifier' => ['required', 'string', 'max:255'],
+            'code' => ['required', 'string', 'max:8'],
+            'device_name' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $user = $this->resolveUser(trim($credentials['identifier']));
+
+        if (! $user || $user->status === 'suspended') {
+            throw ValidationException::withMessages([
+                'identifier' => ['The provided credentials are incorrect.'],
+            ]);
+        }
+
+        $otps->verify($user, $credentials['code'], 'login');
+
+        // A successful OTP login also proves possession → mobile is verified.
+        $user->forceFill(['mobile_verified_at' => $user->mobile_verified_at ?? now()])->save();
+        $user->update(['last_login_at' => now()]);
+
+        $token = $user->createToken($credentials['device_name'] ?? 'web')->plainTextToken;
         $this->recordLogin($request, $user);
 
         return response()->json([
@@ -278,16 +340,23 @@ class AuthController extends Controller
 
     public function changePassword(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'current_password' => ['required', 'current_password'],
-            'password' => ['required', 'confirmed', PasswordRule::min(8)->letters()->numbers()],
-        ]);
-
         $user = $request->user();
+
+        // First-time set (passwordless account) needs no current password.
+        $rules = ['password' => ['required', 'confirmed', PasswordRule::min(8)->letters()->numbers()]];
+        if ($user->password !== null) {
+            $rules['current_password'] = ['required', 'current_password'];
+        }
+        $data = $request->validate($rules);
+
         $user->update(['password' => $data['password'], 'force_password_change' => false]);
 
-        // Revoke every other session/token.
-        $user->tokens()->where('id', '!=', $user->currentAccessToken()->id)->delete();
+        // Revoke every other session/token (transient tokens have no id).
+        $current = $user->currentAccessToken();
+        $currentId = $current instanceof \Laravel\Sanctum\PersonalAccessToken ? $current->id : null;
+        $user->tokens()
+            ->when($currentId !== null, fn ($q) => $q->where('id', '!=', $currentId))
+            ->delete();
 
         return response()->json(['message' => 'Password changed.']);
     }

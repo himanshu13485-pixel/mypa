@@ -180,6 +180,74 @@ class IdentityTest extends TestCase
         ])->assertOk();
     }
 
+    // --- Passwordless accounts & OTP login ------------------------------------
+
+    protected function registerPasswordless(array $overrides = []): \Illuminate\Testing\TestResponse
+    {
+        return $this->postJson('/api/v1/auth/register', array_merge([
+            'name' => 'Kiran Rao',
+            'country_code' => '+91',
+            'mobile' => '9123456789',
+            'username' => 'kiranrao',
+        ], $overrides));
+    }
+
+    public function test_registration_without_password_and_otp_login(): void
+    {
+        $this->registerPasswordless()->assertCreated();
+        $user = User::where('username', 'kiranrao')->first();
+        $this->assertNull($user->password);
+
+        // Password login is refused with guidance.
+        $this->postJson('/api/v1/auth/login', [
+            'identifier' => 'kiranrao', 'password' => 'Whatever123',
+        ])->assertUnprocessable();
+
+        // Unknown identifiers get a uniform response (no account enumeration).
+        $this->postJson('/api/v1/auth/otp/request', ['identifier' => 'ghostuser'])->assertOk();
+
+        // OTP login: request → code lands in the app inbox → exchange for a token.
+        $this->postJson('/api/v1/auth/otp/request', ['identifier' => 'kiranrao'])->assertOk();
+
+        $code = \App\Models\MobileOtp::where('user_id', $user->id)
+            ->where('purpose', 'login')->whereNull('consumed_at')->latest()->first()->code;
+
+        // Wrong code rejected.
+        $this->postJson('/api/v1/auth/otp/login', [
+            'identifier' => 'kiranrao', 'code' => '000000',
+        ])->assertUnprocessable();
+
+        $login = $this->postJson('/api/v1/auth/otp/login', [
+            'identifier' => 'kiranrao', 'code' => $code,
+        ]);
+        $login->assertOk()->assertJsonStructure(['token']);
+
+        // OTP login proves possession → mobile auto-verified.
+        $this->assertNotNull($user->fresh()->mobile_verified_at);
+    }
+
+    public function test_passwordless_user_can_set_password_then_change_requires_current(): void
+    {
+        $this->registerPasswordless()->assertCreated();
+        $user = User::where('username', 'kiranrao')->first();
+
+        // First-time set: no current password needed.
+        $this->actingAs($user)->postJson('/api/v1/auth/change-password', [
+            'password' => 'FirstPass123',
+            'password_confirmation' => 'FirstPass123',
+        ])->assertOk();
+
+        $this->postJson('/api/v1/auth/login', [
+            'identifier' => 'kiranrao', 'password' => 'FirstPass123',
+        ])->assertOk();
+
+        // Subsequent changes require the current password again.
+        $this->actingAs($user->fresh())->postJson('/api/v1/auth/change-password', [
+            'password' => 'SecondPass123',
+            'password_confirmation' => 'SecondPass123',
+        ])->assertUnprocessable();
+    }
+
     // --- Change requests ------------------------------------------------------
 
     protected function makeApprover(string $role = 'subadmin'): User

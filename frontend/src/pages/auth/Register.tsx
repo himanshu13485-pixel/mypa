@@ -16,8 +16,6 @@ export default function Register() {
     country_code: '+91',
     mobile: '',
     username: '',
-    password: '',
-    password_confirmation: '',
     account_type: 'personal',
   })
   const [usernameTouched, setUsernameTouched] = useState(false)
@@ -202,22 +200,6 @@ export default function Register() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Password</Label>
-                <Input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} required />
-              </div>
-              <div>
-                <Label>Confirm password</Label>
-                <Input
-                  type="password"
-                  value={form.password_confirmation}
-                  onChange={(e) => set('password_confirmation', e.target.value)}
-                  required
-                />
-              </div>
-            </div>
-
             <div>
               <Label>Account type</Label>
               <Select value={form.account_type} onChange={(e) => set('account_type', e.target.value)}>
@@ -230,7 +212,8 @@ export default function Register() {
               {loading ? 'Creating account…' : 'Continue'}
             </Button>
             <p className="text-center text-[11px] text-slate-400">
-              You can add an email address later from Settings for email login.
+              No password needed — your account is secured by mobile OTP.
+              You can add a password or email later from Settings.
             </p>
             <p className="text-center text-xs">
               Already have an account?{' '}

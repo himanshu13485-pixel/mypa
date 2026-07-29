@@ -39,6 +39,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/login', [AuthController::class, 'login']);
         Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
         Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
+        Route::post('/auth/otp/request', [AuthController::class, 'requestLoginOtp']);
+        Route::post('/auth/otp/login', [AuthController::class, 'loginWithOtp']);
     });
 
     Route::get('/auth/suggest-username', [AuthController::class, 'suggestUsername'])

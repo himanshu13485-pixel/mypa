@@ -2,6 +2,24 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-30 — Passwordless signup & OTP login ✅ (user-requested)
+
+- [x] Password removed from signup: an account is created with just name + mobile +
+      username and secured entirely by the mobile OTP verified inline at signup
+- [x] "Login with code" mode on the sign-in page: enter mobile/username/email →
+      a one-time code goes to the account's app inbox (visible on signed-in devices
+      and to admins) → exchange for a session; successful OTP login also marks the
+      mobile verified
+- [x] Password becomes optional: Settings shows "Set a password (optional)" for
+      passwordless accounts (no current-password needed the first time); subsequent
+      changes require the current password as before
+- [x] Password login on a passwordless account returns clear guidance and the login
+      page auto-switches to the code mode
+- [x] Fix: change-password no longer breaks under Sanctum transient tokens
+
+**Verified:** 122 backend tests green (533 assertions); live run
+(register without password → request login code → OTP login).
+
 ## 2026-07-30 — Signup refinements ✅ (user-requested)
 
 - [x] **Fixed:** registration failed with "The timezone field must be a valid timezone"

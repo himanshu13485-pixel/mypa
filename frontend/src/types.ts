@@ -26,6 +26,7 @@ export interface User {
     privacy: Record<string, 'everyone' | 'connections' | 'nobody'>
   }
   must_change_password?: boolean
+  has_password?: boolean
   username?: string | null
   country_code?: string | null
   mobile_verified?: boolean

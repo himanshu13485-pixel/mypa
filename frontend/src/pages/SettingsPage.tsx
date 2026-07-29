@@ -265,7 +265,12 @@ export default function SettingsPage() {
   })
 
   const passwordMutation = useMutation({
-    mutationFn: () => auth.changePassword(passwordForm),
+    mutationFn: () =>
+      auth.changePassword(
+        user?.has_password === false
+          ? { password: passwordForm.password, password_confirmation: passwordForm.password_confirmation }
+          : passwordForm,
+      ),
     onSuccess: () => {
       setPasswordForm({ current_password: '', password: '', password_confirmation: '' })
       setMsg('password', 'Password changed. Other sessions were signed out.')
@@ -408,9 +413,18 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
-        <h2 className="mb-3 text-sm font-semibold">Change password</h2>
+        <h2 className="mb-3 text-sm font-semibold">
+          {user?.has_password === false ? 'Set a password (optional)' : 'Change password'}
+        </h2>
+        {user?.has_password === false && (
+          <p className="mb-3 text-xs text-slate-400">
+            Your account currently signs in with OTP codes only. Setting a password adds a second
+            way to log in.
+          </p>
+        )}
         <ErrorNote message={messages.password?.includes('.') && !messages.password.startsWith('Password changed') ? messages.password : null} />
         <div className="grid gap-3 sm:grid-cols-3">
+          {user?.has_password !== false && (
           <div>
             <Label>Current password</Label>
             <Input
@@ -419,6 +433,7 @@ export default function SettingsPage() {
               onChange={(e) => setPasswordForm({ ...passwordForm, current_password: e.target.value })}
             />
           </div>
+          )}
           <div>
             <Label>New password</Label>
             <Input
