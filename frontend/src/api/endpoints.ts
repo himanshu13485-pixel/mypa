@@ -1,8 +1,9 @@
 import { api } from './client'
 import type {
-  AdminStats, AppNotification, BrowseResult, CalendarEvent, CalendarFeedTask,
-  CallInfo, Category, ChatMessage, Connection, ConversationItem,
-  DashboardSummary, FileItem, GroupItem, Note, Paginated, ReportSummary, Task, User,
+  AdminStats, AppNotification, BillItem, BrowseResult, CalendarEvent,
+  CalendarFeedTask, CallInfo, Category, ChatMessage, Connection,
+  ConversationItem, DashboardSummary, FileItem, GoalItem, GroupItem, HabitItem,
+  MySubscription, Note, Paginated, PlanInfo, ReportSummary, Task, User,
 } from '../types'
 
 // --- Auth -------------------------------------------------------------------
@@ -230,6 +231,55 @@ export const calls = {
   signal: (uuid: string, signal: 'offer' | 'answer' | 'ice', payload: Record<string, unknown>) =>
     api.post(`/calls/${uuid}/signal`, { signal, payload }),
   history: () => api.get<Paginated<CallInfo>>('/calls/history').then((r) => r.data),
+}
+
+// --- Habits -----------------------------------------------------------------
+
+export const habits = {
+  list: () => api.get<{ data: HabitItem[] }>('/habits').then((r) => r.data.data),
+  create: (payload: Record<string, unknown>) =>
+    api.post<{ data: HabitItem }>('/habits', payload).then((r) => r.data.data),
+  update: (uuid: string, payload: Record<string, unknown>) =>
+    api.put<{ data: HabitItem }>(`/habits/${uuid}`, payload).then((r) => r.data.data),
+  remove: (uuid: string) => api.delete(`/habits/${uuid}`),
+  log: (uuid: string, payload: Record<string, unknown> = {}) =>
+    api.post<{ data: HabitItem }>(`/habits/${uuid}/log`, payload).then((r) => r.data.data),
+}
+
+// --- Goals ------------------------------------------------------------------
+
+export const goals = {
+  list: () => api.get<{ data: GoalItem[] }>('/goals').then((r) => r.data.data),
+  create: (payload: Record<string, unknown>) =>
+    api.post<{ data: GoalItem }>('/goals', payload).then((r) => r.data.data),
+  update: (uuid: string, payload: Record<string, unknown>) =>
+    api.put<{ data: GoalItem }>(`/goals/${uuid}`, payload).then((r) => r.data.data),
+  remove: (uuid: string) => api.delete(`/goals/${uuid}`),
+  addMilestone: (uuid: string, title: string, due_on?: string) =>
+    api.post<{ data: GoalItem }>(`/goals/${uuid}/milestones`, { title, due_on }).then((r) => r.data.data),
+  toggleMilestone: (uuid: string, id: number) =>
+    api.post<{ data: GoalItem }>(`/goals/${uuid}/milestones/${id}/toggle`).then((r) => r.data.data),
+  removeMilestone: (uuid: string, id: number) => api.delete(`/goals/${uuid}/milestones/${id}`),
+}
+
+// --- Bills ------------------------------------------------------------------
+
+export const bills = {
+  list: (status?: string) =>
+    api.get<Paginated<BillItem>>('/bills', { params: status ? { status } : {} }).then((r) => r.data),
+  create: (payload: Record<string, unknown>) =>
+    api.post<{ data: BillItem }>('/bills', payload).then((r) => r.data.data),
+  update: (uuid: string, payload: Record<string, unknown>) =>
+    api.put<{ data: BillItem }>(`/bills/${uuid}`, payload).then((r) => r.data.data),
+  remove: (uuid: string) => api.delete(`/bills/${uuid}`),
+  pay: (uuid: string) => api.post(`/bills/${uuid}/pay`).then((r) => r.data),
+}
+
+// --- Subscription -----------------------------------------------------------
+
+export const subscription = {
+  plans: () => api.get<{ data: PlanInfo[] }>('/plans').then((r) => r.data.data),
+  mine: () => api.get<{ data: MySubscription }>('/subscription').then((r) => r.data.data),
 }
 
 // --- Reports ----------------------------------------------------------------

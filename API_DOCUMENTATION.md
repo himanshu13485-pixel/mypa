@@ -207,6 +207,47 @@ Intents: `create_task` (title, due_at in user-local time, priority, repeat_confi
 category hint, reminder offsets), `complete_task` (fuzzy-matched open task), `query_tasks`
 (filters for the tasks list), `unknown`.
 
+## Habits
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /habits | with streaks, today status, 7-day strip |
+| POST/PUT/DELETE | /habits[/{uuid}] | name, frequency (daily/weekly/monthly), target_per_period, color |
+| POST | /habits/{uuid}/log | `{}` increments today; `{count}` sets (0 removes); `{date}` backfills |
+
+## Goals
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /goals | own + group goals; progress derived from milestones |
+| POST/PUT/DELETE | /goals[/{uuid}] | type, target_date, motivation, group_uuid, milestones[] |
+| POST | /goals/{uuid}/milestones | add |
+| POST | /goals/{uuid}/milestones/{id}/toggle | all-done auto-completes the goal |
+| DELETE | /goals/{uuid}/milestones/{id} | |
+
+## Bills
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /bills?status=unpaid | own + group bills, unpaid first |
+| POST/PUT/DELETE | /bills[/{uuid}] | amount, due_on, repeat_frequency, remind_days_before |
+| POST | /bills/{uuid}/pay | recurring bills spawn the next occurrence |
+
+Daily scheduler job `mypa:send-bill-reminders` notifies within each bill's reminder window.
+
+## Plans & Subscription
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /plans | public; active+public plans with limits/features |
+| GET | /subscription | current plan (defaults to Free), status, usage (tasks/storage/groups) |
+| GET | /admin/plans | all plans incl. private (admin) |
+| PUT | /admin/plans/{slug} | edit prices/limits/features (super admin) |
+| POST | /admin/users/{uuid}/plan | { plan_slug, months?, note? } manual assignment (audited) |
+
+Plan limits are enforced server-side (tasks, storage, groups, group members);
+blocked requests return 422 with a `message` and an `upgrade_plan` hint.
+
 ## Planned (later phases)
-Habits, goals, bill reminders,
-subscription/payment endpoints (see spec §34.19), webhook `POST /api/webhooks/cashfree`.
+Cashfree payments: checkout, webhooks `POST /api/webhooks/cashfree`, invoices,
+coupons, refunds (spec §34).

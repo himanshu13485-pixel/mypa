@@ -77,7 +77,8 @@ class FileController extends Controller
     public function usage(Request $request): JsonResponse
     {
         $used = (int) File::where('user_id', $request->user()->id)->sum('size');
-        $limit = (int) config('mypa.files.storage_limit_bytes');
+        $limit = (int) app(\App\Services\SubscriptionEntitlementService::class)
+            ->storageLimitBytes($request->user());
 
         return response()->json([
             'data' => [
@@ -103,12 +104,19 @@ class FileController extends Controller
             ? Folder::where('uuid', $request->input('folder_uuid'))->where('user_id', $user->id)->firstOrFail()
             : null;
 
-        // Storage quota check
+        // Storage quota check (plan-driven)
+        $entitlements = app(\App\Services\SubscriptionEntitlementService::class);
         $incoming = collect($request->file('files'))->sum(fn ($f) => $f->getSize());
-        $used = (int) File::where('user_id', $user->id)->sum('size');
-        if ($used + $incoming > (int) config('mypa.files.storage_limit_bytes')) {
+        if (! $entitlements->canUploadBytes($user, (int) $incoming)) {
+            $upgrade = $entitlements->planWithHigherLimit(
+                'storage_bytes',
+                (int) $entitlements->storageLimitBytes($user),
+            );
+
             return response()->json([
-                'message' => 'Storage limit reached. Delete some files or upgrade your plan.',
+                'message' => 'Storage limit reached. Delete some files'
+                    . ($upgrade ? " or upgrade to {$upgrade->name} for more storage." : '.'),
+                'upgrade_plan' => $upgrade?->slug,
             ], 422);
         }
 

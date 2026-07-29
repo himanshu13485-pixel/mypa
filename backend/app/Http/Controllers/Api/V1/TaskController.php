@@ -84,6 +84,20 @@ class TaskController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $entitlements = app(\App\Services\SubscriptionEntitlementService::class);
+        if (! $entitlements->canCreateTask($request->user())) {
+            $upgrade = $entitlements->planWithHigherLimit(
+                'max_tasks',
+                (int) $entitlements->planFor($request->user())->limit('max_tasks'),
+            );
+
+            return response()->json([
+                'message' => 'You have reached your plan\'s task limit.'
+                    . ($upgrade ? " Upgrade to {$upgrade->name} for more tasks." : ''),
+                'upgrade_plan' => $upgrade?->slug,
+            ], 422);
+        }
+
         $data = $this->validated($request);
 
         $task = DB::transaction(function () use ($request, $data) {

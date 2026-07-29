@@ -16,6 +16,9 @@ import NotesPage from './pages/NotesPage'
 import FilesPage from './pages/FilesPage'
 import GroupsPage from './pages/GroupsPage'
 import ReportsPage from './pages/ReportsPage'
+import HabitsPage from './pages/HabitsPage'
+import GoalsPage from './pages/GoalsPage'
+import BillsPage from './pages/BillsPage'
 import SettingsPage from './pages/SettingsPage'
 import AdminPage from './pages/admin/AdminPage'
 
@@ -44,6 +47,9 @@ export default function App() {
           <Route path="/notes" element={<NotesPage />} />
           <Route path="/files" element={<FilesPage />} />
           <Route path="/groups" element={<GroupsPage />} />
+          <Route path="/habits" element={<HabitsPage />} />
+          <Route path="/goals" element={<GoalsPage />} />
+          <Route path="/bills" element={<BillsPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route

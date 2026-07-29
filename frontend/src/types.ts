@@ -257,6 +257,82 @@ export interface ReportSummary {
 
 export const GROUP_TYPES = ['family', 'team', 'business', 'other'] as const
 
+export interface HabitItem {
+  uuid: string
+  name: string
+  description?: string | null
+  frequency: 'daily' | 'weekly' | 'monthly'
+  target_per_period: number
+  icon?: string | null
+  color?: string | null
+  reminder_time?: string | null
+  is_archived: boolean
+  today_count: number
+  done_today: boolean
+  streak: number
+  total_completions: number
+  week: { date: string; count: number }[]
+}
+
+export interface GoalItem {
+  uuid: string
+  title: string
+  description?: string | null
+  type: string
+  target_date?: string | null
+  status: 'active' | 'completed' | 'abandoned'
+  progress: number
+  motivation?: string | null
+  is_own: boolean
+  group?: { uuid: string; name: string } | null
+  milestones: { id: number; title: string; due_on?: string | null; is_done: boolean }[]
+  completed_at?: string | null
+  created_at?: string
+}
+
+export interface BillItem {
+  uuid: string
+  name: string
+  category?: string | null
+  amount?: string | number | null
+  currency: string
+  due_on: string
+  status: 'unpaid' | 'paid'
+  is_overdue: boolean
+  repeat_frequency?: string | null
+  payment_account?: string | null
+  remind_days_before: number
+  notes?: string | null
+  is_own: boolean
+  group?: { uuid: string; name: string } | null
+  paid_at?: string | null
+}
+
+export interface PlanInfo {
+  slug: string
+  name: string
+  description?: string | null
+  monthly_price: string | number
+  annual_price: string | number
+  currency: string
+  trial_days: number
+  limits: Record<string, number | null>
+  features: Record<string, boolean>
+  is_recommended: boolean
+}
+
+export interface MySubscription {
+  plan: PlanInfo
+  status: string
+  started_at?: string | null
+  trial_ends_at?: string | null
+  ends_at?: string | null
+  usage: Record<string, { used: number; limit: number | null }>
+}
+
+export const GOAL_TYPES = ['personal', 'family', 'work', 'health', 'financial'] as const
+export const BILL_FREQUENCIES = ['weekly', 'monthly', 'quarterly', 'half_yearly', 'yearly'] as const
+
 export interface ConversationItem {
   uuid: string
   type: 'direct' | 'group'

@@ -4,6 +4,18 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Added — 2026-07-30 (Phase 6)
+- Habits with streak tracking, per-period targets, 7-day heat strip, one-tap logging.
+- Goals with milestones, derived progress, auto-completion, group goals.
+- Bill reminders: recurring bills, mark-paid-spawns-next, daily reminder job.
+- Subscription architecture: 6 seeded plans, entitlement service with backend
+  limit enforcement (tasks/storage/groups/members), public plans API,
+  usage dashboard in Settings, admin plan management + manual assignment.
+
+### Fixed — 2026-07-30
+- Habit streak computation could loop forever when a habit had no target set.
+- Habit day-logs were duplicated instead of updated (date/time comparison).
+
 ### Added — 2026-07-29 (Phase 5)
 - Voice assistant: floating mic on every page, browser speech recognition in
   English (en-IN) and Hindi (hi-IN) with typed fallback.

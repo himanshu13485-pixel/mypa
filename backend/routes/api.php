@@ -25,6 +25,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
 
+    // Public pricing
+    Route::get('/plans', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'plans'])
+        ->middleware('throttle:30,1');
+
     // --- Public auth (strictly throttled) --------------------------------
     Route::middleware('throttle:10,1')->group(function () {
         Route::post('/auth/register', [AuthController::class, 'register']);
@@ -154,6 +158,32 @@ Route::prefix('v1')->group(function () {
         Route::post('/calls/{call}/end', [CallController::class, 'end']);
         Route::post('/calls/{call}/signal', [CallController::class, 'signal']);
 
+        // Habits
+        Route::get('/habits', [\App\Http\Controllers\Api\V1\HabitController::class, 'index']);
+        Route::post('/habits', [\App\Http\Controllers\Api\V1\HabitController::class, 'store']);
+        Route::put('/habits/{habit}', [\App\Http\Controllers\Api\V1\HabitController::class, 'update']);
+        Route::delete('/habits/{habit}', [\App\Http\Controllers\Api\V1\HabitController::class, 'destroy']);
+        Route::post('/habits/{habit}/log', [\App\Http\Controllers\Api\V1\HabitController::class, 'log']);
+
+        // Goals
+        Route::get('/goals', [\App\Http\Controllers\Api\V1\GoalController::class, 'index']);
+        Route::post('/goals', [\App\Http\Controllers\Api\V1\GoalController::class, 'store']);
+        Route::put('/goals/{goal}', [\App\Http\Controllers\Api\V1\GoalController::class, 'update']);
+        Route::delete('/goals/{goal}', [\App\Http\Controllers\Api\V1\GoalController::class, 'destroy']);
+        Route::post('/goals/{goal}/milestones', [\App\Http\Controllers\Api\V1\GoalController::class, 'addMilestone']);
+        Route::post('/goals/{goal}/milestones/{milestoneId}/toggle', [\App\Http\Controllers\Api\V1\GoalController::class, 'toggleMilestone']);
+        Route::delete('/goals/{goal}/milestones/{milestoneId}', [\App\Http\Controllers\Api\V1\GoalController::class, 'deleteMilestone']);
+
+        // Bills
+        Route::get('/bills', [\App\Http\Controllers\Api\V1\BillController::class, 'index']);
+        Route::post('/bills', [\App\Http\Controllers\Api\V1\BillController::class, 'store']);
+        Route::put('/bills/{bill}', [\App\Http\Controllers\Api\V1\BillController::class, 'update']);
+        Route::delete('/bills/{bill}', [\App\Http\Controllers\Api\V1\BillController::class, 'destroy']);
+        Route::post('/bills/{bill}/pay', [\App\Http\Controllers\Api\V1\BillController::class, 'markPaid']);
+
+        // Subscription
+        Route::get('/subscription', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'mySubscription']);
+
         // Voice assistant
         Route::post('/voice/interpret', [\App\Http\Controllers\Api\V1\VoiceController::class, 'interpret']);
         Route::post('/voice/transcribe', [\App\Http\Controllers\Api\V1\VoiceController::class, 'transcribe']);
@@ -174,6 +204,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/users/{user}/activate', [AdminUserController::class, 'activate']);
             Route::post('/users/{user}/roles', [AdminUserController::class, 'syncRoles']);
             Route::post('/users/{user}/app-id/regenerate', [AdminUserController::class, 'regenerateAppId']);
+            Route::get('/plans', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'index']);
+            Route::put('/plans/{plan}', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'update']);
+            Route::post('/users/{user}/plan', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'assign']);
             Route::get('/roles', [RoleController::class, 'roles']);
             Route::get('/permissions', [RoleController::class, 'permissions']);
             Route::get('/login-histories', [RoleController::class, 'loginHistories']);

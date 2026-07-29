@@ -25,6 +25,20 @@ class GroupController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $entitlements = app(\App\Services\SubscriptionEntitlementService::class);
+        if (! $entitlements->canCreateGroup($request->user())) {
+            $upgrade = $entitlements->planWithHigherLimit(
+                'max_groups',
+                (int) $entitlements->planFor($request->user())->limit('max_groups'),
+            );
+
+            return response()->json([
+                'message' => 'You have reached your plan\'s group limit.'
+                    . ($upgrade ? " Upgrade to {$upgrade->name} for more groups." : ''),
+                'upgrade_plan' => $upgrade?->slug,
+            ], 422);
+        }
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'type' => ['sometimes', 'in:' . implode(',', Group::TYPES)],
@@ -115,6 +129,13 @@ class GroupController extends Controller
 
         if ($group->members()->where('users.id', $target->id)->exists()) {
             return response()->json(['message' => 'This user is already a member.'], 409);
+        }
+
+        $entitlements = app(\App\Services\SubscriptionEntitlementService::class);
+        if (! $entitlements->canAddGroupMember($request->user(), $group)) {
+            return response()->json([
+                'message' => "The group owner's plan has reached its member limit. Upgrade the plan to add more members.",
+            ], 422);
         }
 
         $group->members()->attach($target->id, [

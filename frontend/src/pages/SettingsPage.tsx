@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { auth, profile as profileApi } from '../api/endpoints'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { auth, profile as profileApi, subscription as subscriptionApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card, ErrorNote, Input, Label, Select } from '../components/ui'
@@ -63,9 +63,62 @@ export default function SettingsPage() {
     onError: (err) => setMsg('password', errorMessage(err)),
   })
 
+  const { data: mySub } = useQuery({ queryKey: ['my-subscription'], queryFn: subscriptionApi.mine })
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB']
+    const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+    return `${(bytes / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+  }
+
   return (
     <div className="max-w-3xl space-y-6">
       <h1 className="text-lg font-semibold">Settings</h1>
+
+      {mySub && (
+        <Card>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Subscription</h2>
+            <span className="rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-700 dark:bg-brand-950 dark:text-brand-300">
+              {mySub.plan.name} plan
+            </span>
+          </div>
+          {mySub.plan.description && (
+            <p className="mb-3 text-xs text-slate-500">{mySub.plan.description}</p>
+          )}
+          <div className="space-y-3">
+            {Object.entries(mySub.usage).map(([key, { used, limit }]) => {
+              const isStorage = key === 'storage'
+              const pct = limit ? Math.min(100, (used / limit) * 100) : 0
+              return (
+                <div key={key}>
+                  <div className="mb-1 flex justify-between text-xs text-slate-500">
+                    <span className="capitalize">{key}</span>
+                    <span>
+                      {isStorage ? formatBytes(used) : used}
+                      {' / '}
+                      {limit === null ? 'unlimited' : isStorage ? formatBytes(limit) : limit}
+                    </span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                    <div
+                      className={pct >= 90 ? 'h-full rounded-full bg-red-500' : 'h-full rounded-full bg-brand-500'}
+                      style={{ width: limit === null ? '4%' : `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          {mySub.plan.slug === 'free' && (
+            <p className="mt-3 text-xs text-slate-400">
+              Paid plans with more storage, groups and features are coming soon — online payments
+              will be enabled in a later update.
+            </p>
+          )}
+        </Card>
+      )}
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold">Profile</h2>

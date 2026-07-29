@@ -2,6 +2,47 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-30 — Phase 6 complete ✅
+
+**Habits**
+- [x] Daily/weekly/monthly habits with per-period targets, colors, archive
+- [x] One-tap logging (increment / set / un-log), backfill by date
+- [x] Streak engine (consecutive periods meeting target; in-progress today doesn't break it)
+- [x] 7-day heat strip, totals; habit cards UI
+- [x] Fixed: infinite streak loop when target was null (0 >= null is true in PHP)
+      — model defaults + guard added
+
+**Goals**
+- [x] Goals with types (personal/family/work/health/financial), target dates, motivation
+- [x] Milestones with toggle; progress derived from milestones; auto-complete
+      when all milestones done; group goals visible to members
+- [x] Goals UI with progress bars and inline milestone management
+
+**Bills**
+- [x] Bills with amount/category/account, due dates, group sharing
+- [x] Recurring frequencies (weekly→yearly); mark-paid spawns the next occurrence
+- [x] Daily `mypa:send-bill-reminders` (08:00) notifies within each bill's
+      reminder window (database + email)
+- [x] Bills UI with unpaid/paid filters and overdue highlighting
+
+**Subscription architecture (pre-Cashfree)**
+- [x] 6 seeded plans (Free/Personal/Family/Professional/Business/Enterprise) with
+      JSON limits + features — prices/limits editable via admin API, never hardcoded in UI
+- [x] `SubscriptionEntitlementService`: plan resolution (active/trial, expiry fallback
+      to Free), limit checks, usage reporting, upgrade-plan hints
+- [x] Backend enforcement: task limit, storage quota (replaces static config),
+      group count, group member count — 422 with upgrade hint
+- [x] `GET /plans` (public), `GET /subscription` (plan + usage)
+- [x] Admin: list/edit plans (super admin), manually assign a user's plan with audit note
+- [x] Settings page shows current plan + usage meters
+
+**Verified:** 90 backend tests green (351 assertions); frontend build clean.
+
+## Next: Phase 7
+- Hardening: rate-limit review, security pass, performance, PWA manifest
+- Docs completion & production readiness
+- Then Phase 8: Cashfree payments (spec §34) on top of this plan architecture
+
 ## 2026-07-29 — Phase 5 complete ✅
 
 **Voice task creation (English + Hindi)**
