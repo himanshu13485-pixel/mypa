@@ -4,6 +4,15 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Added — 2026-07-29 (Phase 5)
+- Voice assistant: floating mic on every page, browser speech recognition in
+  English (en-IN) and Hindi (hi-IN) with typed fallback.
+- Bilingual command interpreter: create tasks/reminders with natural dates,
+  repeats, reminder offsets, priorities and category hints; complete tasks by
+  name; query/filter tasks — always with an editable review step before saving.
+- Text-to-speech confirmations; STT provider abstraction (Whisper/Google/Azure
+  ready) with `POST /voice/transcribe` stub.
+
 ### Added — 2026-07-29 (Phase 4)
 - Real-time layer: Laravel Reverb WebSockets with Sanctum-authenticated private channels.
 - Chat: direct + group conversations, privacy checks, replies, edits, delete for

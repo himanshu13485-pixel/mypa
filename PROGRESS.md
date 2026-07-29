@@ -2,6 +2,35 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-29 — Phase 5 complete ✅
+
+**Voice task creation (English + Hindi)**
+- [x] `VoiceCommandService`: rule-based intent parser — create task/reminder,
+      mark-task-completed (fuzzy title match against open tasks), query tasks
+      (important/pending/completed/overdue/today filters)
+- [x] `VoiceDateParser`: today/tomorrow/day-after, next <weekday>, "in X minutes/hours/days",
+      "at 3 PM", Hindi equivalents (आज/कल/परसों, अगले सोमवार, शाम 5 बजे, "3 दिन बाद"),
+      Unicode-safe word boundaries for Devanagari
+- [x] Extras parsed: repeat (daily/weekly/monthly/yearly + हर दिन/हफ्ते/महीने/साल),
+      reminder offsets ("three days before the due date" / "तीन दिन पहले"),
+      priority/important, category hints (family/work/bills/… → seeded categories)
+- [x] `POST /voice/interpret` returns a reviewable structured command + spoken reply
+      (never executes directly); `POST /voice/transcribe` stub (501) behind
+      `SpeechToTextInterface` so Whisper/Google/Azure can be plugged in server-side
+- [x] Floating voice assistant (all pages): browser SpeechRecognition (en-IN / hi-IN),
+      language toggle, live transcript, typed fallback for unsupported browsers,
+      editable review card (title/due/priority/important), confirm-to-save,
+      speechSynthesis confirmations in the selected language
+- [x] Query intent deep-links into the tasks page filters
+
+**Verified:** 77 backend tests green (298 assertions) incl. all spec example commands
+(EN + HI); live interpret round-trip tested; frontend build clean.
+
+## Next: Phase 6
+- Habits & goals modules with streaks and milestones
+- Bill/expense reminders
+- Subscription architecture (plans, entitlements) — pre-Cashfree
+
 ## 2026-07-29 — Phase 4 complete ✅
 
 **Real-time infrastructure**

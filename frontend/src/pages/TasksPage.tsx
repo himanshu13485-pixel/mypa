@@ -86,7 +86,7 @@ export default function TasksPage() {
 
   const filters = useMemo(() => {
     const f: Record<string, string> = {}
-    for (const key of ['status', 'priority', 'category', 'important', 'overdue', 'q', 'assigned_to_me']) {
+    for (const key of ['status', 'priority', 'category', 'group', 'important', 'overdue', 'q', 'assigned_to_me', 'date_from', 'date_to']) {
       const v = params.get(key)
       if (v) f[key] = v
     }

@@ -154,6 +154,10 @@ Route::prefix('v1')->group(function () {
         Route::post('/calls/{call}/end', [CallController::class, 'end']);
         Route::post('/calls/{call}/signal', [CallController::class, 'signal']);
 
+        // Voice assistant
+        Route::post('/voice/interpret', [\App\Http\Controllers\Api\V1\VoiceController::class, 'interpret']);
+        Route::post('/voice/transcribe', [\App\Http\Controllers\Api\V1\VoiceController::class, 'transcribe']);
+
         // Reports
         Route::get('/reports/summary', [ReportController::class, 'summary']);
         Route::get('/reports/productivity', [ReportController::class, 'productivity']);

@@ -10,6 +10,7 @@ import { auth } from '../api/endpoints'
 import { isAdmin, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
 import { CallProvider } from './CallManager'
+import VoiceAssistant from './VoiceAssistant'
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -161,6 +162,7 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+      <VoiceAssistant />
     </div>
     </CallProvider>
   )

@@ -12,7 +12,12 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        //
+        // Default STT: browser Web Speech API (no server audio processing).
+        // Bind a Whisper/Google/Azure implementation here to enable server STT.
+        $this->app->bind(
+            \App\Services\Voice\SpeechToTextInterface::class,
+            \App\Services\Voice\BrowserSpeechProvider::class,
+        );
     }
 
     public function boot(): void

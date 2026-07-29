@@ -196,6 +196,17 @@ Channels: `private-conversation.{uuid}` (`message.sent`, `message.updated`),
 | POST | /calls/{uuid}/signal | { signal: offer\|answer\|ice, payload } relayed to peer |
 | GET | /calls/history | direction, duration, missed flag |
 
+## Voice Assistant
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| POST | /voice/interpret | { transcript, language: en\|hi } → { intent, data, speech } — nothing is saved; the client shows a review card and then calls the normal task APIs |
+| POST | /voice/transcribe | 501 until a server STT provider is bound to `SpeechToTextInterface` (browser Web Speech API is the default recognizer) |
+
+Intents: `create_task` (title, due_at in user-local time, priority, repeat_config,
+category hint, reminder offsets), `complete_task` (fuzzy-matched open task), `query_tasks`
+(filters for the tasks list), `unknown`.
+
 ## Planned (later phases)
-Voice task creation, habits, goals,
+Habits, goals, bill reminders,
 subscription/payment endpoints (see spec §34.19), webhook `POST /api/webhooks/cashfree`.
