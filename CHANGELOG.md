@@ -4,6 +4,18 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Added — 2026-07-30 (Phase 8 — final)
+- Cashfree payment gateway behind a gateway abstraction: sandbox/production by
+  env, checkout with backend-calculated GST + coupons, official JS SDK checkout.
+- Idempotent server-side payment verification with strict amount/currency
+  matching; signature-verified, deduped, queued webhooks.
+- Invoices (numbered, printable HTML), payment history, refunds (admin,
+  partial/full), coupons administration.
+- Subscription lifecycle: cancel at period end, daily expiry to Free plan,
+  renewal reminders (15/7/3/1/0 days), stale order cleanup.
+- Public /pricing page, checkout dialog, payment status page, billing history
+  in Settings.
+
 ### Added — 2026-07-30 (Phase 7)
 - Forced password change for accounts with default credentials (Super Admin seeded
   with flag; banner + login flag until changed).

@@ -2,6 +2,42 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-30 — Phase 8 complete ✅ — ALL SPEC PHASES DONE 🎉
+
+**Cashfree payments (spec §34)**
+- [x] Billing schema: payment_orders, payments, payment_webhooks, invoices,
+      coupons, coupon_usages, refunds — all money as integer paise (zero float math)
+- [x] `PaymentGatewayInterface` abstraction; `CashfreePaymentGateway` (sandbox/production
+      by env, PG orders API, credentials backend-only); `FakePaymentGateway` bound in tests
+- [x] Checkout: backend-only price calculation (base → coupon → GST), duplicate-click
+      order reuse, 30-min order expiry, 503 until Cashfree is configured
+- [x] Coupons: fixed/percent with caps, min order, plan/frequency restrictions,
+      global + per-user usage limits, new-users-only, backend validation
+- [x] Verification: gateway-authoritative status fetch, strict amount+currency match
+      (mismatch → failed + audit log), row-locked idempotent activation —
+      one payment, one subscription period, one invoice regardless of redirect/webhook races
+- [x] Webhooks: HMAC-SHA256 signature verification (401 on invalid), dedupe by content
+      hash, queued processing with retries, full webhook log for admins
+- [x] Invoices: MYPA-INV-YYYY-##### numbering, buyer/seller snapshot, printable HTML
+- [x] Lifecycle: cancel-at-period-end, daily expiry (→ Free plan + notification),
+      renewal reminders at 15/7/3/1/0 days, stale order cleanup
+- [x] Refunds: super-admin only, partial/full with over-refund guard, gateway execution,
+      payment status rollup, audited
+- [x] Admin billing: payments search, webhook log, coupons CRUD
+- [x] Frontend: public /pricing (monthly/annual toggle with savings, recommended badge,
+      limits/features from the API), checkout dialog with live quote + coupon + terms
+      acceptance + official Cashfree JS SDK, /payment/status verification page with
+      polling, billing history + printable invoices in Settings
+
+**Verified:** 108 backend tests green (431 assertions, 13 new billing tests
+covering quotes/tax, coupons, idempotent activation, amount tampering, webhook
+signature+dedupe, invoices, cancellation lifecycle, renewal reminders, refunds);
+frontend build clean.
+
+**The full spec (§1–§34) is now implemented.** Remaining go-live steps are
+operational: Cashfree merchant onboarding (sandbox → production) and server
+deployment per DEPLOYMENT.md.
+
 ## 2026-07-30 — Phase 7 complete ✅
 
 **Security hardening**

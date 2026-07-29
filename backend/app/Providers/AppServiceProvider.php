@@ -18,6 +18,15 @@ class AppServiceProvider extends ServiceProvider
             \App\Services\Voice\SpeechToTextInterface::class,
             \App\Services\Voice\BrowserSpeechProvider::class,
         );
+
+        // Payment gateway abstraction: Cashfree in real environments, the fake
+        // gateway in the test suite (spec §34.23 — no real payment calls in tests).
+        $this->app->singleton(
+            \App\Services\Billing\PaymentGatewayInterface::class,
+            fn () => $this->app->environment('testing')
+                ? new \App\Services\Billing\FakePaymentGateway
+                : new \App\Services\Billing\CashfreePaymentGateway,
+        );
     }
 
     public function boot(): void

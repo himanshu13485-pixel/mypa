@@ -248,6 +248,29 @@ Daily scheduler job `mypa:send-bill-reminders` notifies within each bill's remin
 Plan limits are enforced server-side (tasks, storage, groups, group members);
 blocked requests return 422 with a `message` and an `upgrade_plan` hint.
 
-## Planned (later phases)
-Cashfree payments: checkout, webhooks `POST /api/webhooks/cashfree`, invoices,
-coupons, refunds (spec §34).
+## Billing & Payments (Cashfree)
+
+All amounts are calculated on the backend in integer paise; API responses show
+decimal strings. Sandbox/production is selected by `CASHFREE_ENV`.
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| POST | /subscription/quote | { plan_slug, frequency, coupon? } → base/discount/tax/total (validates coupon) |
+| POST | /subscription/checkout | creates internal + Cashfree order → { order_uuid, payment_session_id, gateway_mode }; duplicate clicks reuse the pending order; 503 when Cashfree isn't configured |
+| POST | /payments/{order}/verify | server-side verification (pollable); activates the plan only on gateway-confirmed PAID with exact amount+currency match |
+| GET | /payments | payment history with refund totals |
+| GET | /invoices · /invoices/{uuid} | list + printable HTML invoice (browser print → PDF) |
+| POST | /subscription/cancel | cancel at period end (access retained until ends_at) |
+| POST | /api/webhooks/cashfree | unauthenticated; HMAC signature verified (x-webhook-signature/timestamp), stored + deduped, processed via queue |
+
+**Admin** (`/admin/billing/*`): payments search, webhook log, coupons CRUD
+(fixed paise / percent basis-points with caps, plan/frequency restrictions, usage
+limits), refunds (super admin, partial/full with over-refund guard).
+
+**Lifecycle:** `mypa:subscription-lifecycle` (daily 07:30) expires ended
+subscriptions (→ Free plan + notification), sends renewal reminders at
+15/7/3/1/0 days, and cleans stale checkout orders.
+
+**Frontend:** `/pricing` (public), checkout dialog using the official Cashfree
+JS SDK (`sdk.cashfree.com/js/v3`), `/payment/status?order=` verification page,
+billing history + invoices in Settings.

@@ -26,6 +26,8 @@ const BillsPage = lazy(() => import('./pages/BillsPage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminPage = lazy(() => import('./pages/admin/AdminPage'))
+const PricingPage = lazy(() => import('./pages/PricingPage'))
+const PaymentStatusPage = lazy(() => import('./pages/PaymentStatusPage'))
 
 export default function App() {
   return (
@@ -36,6 +38,15 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route
+            path="/payment/status"
+            element={
+              <RequireAuth>
+                <PaymentStatusPage />
+              </RequireAuth>
+            }
+          />
           <Route
             element={
               <RequireAuth>

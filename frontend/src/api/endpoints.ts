@@ -1,9 +1,10 @@
 import { api } from './client'
 import type {
-  AdminStats, AppNotification, BillItem, BrowseResult, CalendarEvent,
-  CalendarFeedTask, CallInfo, Category, ChatMessage, Connection,
-  ConversationItem, DashboardSummary, FileItem, GoalItem, GroupItem, HabitItem,
-  MySubscription, Note, Paginated, PlanInfo, ReportSummary, Task, User,
+  AdminStats, AppNotification, BillItem, BillingQuote, BrowseResult,
+  CalendarEvent, CalendarFeedTask, CallInfo, Category, ChatMessage,
+  CheckoutSession, Connection, ConversationItem, DashboardSummary, FileItem,
+  GoalItem, GroupItem, HabitItem, InvoiceRecord, MySubscription, Note,
+  Paginated, PaymentRecord, PlanInfo, ReportSummary, Task, User,
 } from '../types'
 
 // --- Auth -------------------------------------------------------------------
@@ -280,6 +281,20 @@ export const bills = {
 export const subscription = {
   plans: () => api.get<{ data: PlanInfo[] }>('/plans').then((r) => r.data.data),
   mine: () => api.get<{ data: MySubscription }>('/subscription').then((r) => r.data.data),
+  quote: (plan_slug: string, frequency: 'monthly' | 'annual', coupon?: string) =>
+    api.post<{ data: BillingQuote }>('/subscription/quote', { plan_slug, frequency, coupon: coupon || null })
+      .then((r) => r.data.data),
+  checkout: (plan_slug: string, frequency: 'monthly' | 'annual', coupon?: string) =>
+    api.post<{ data: CheckoutSession }>('/subscription/checkout', { plan_slug, frequency, coupon: coupon || null })
+      .then((r) => r.data.data),
+  verify: (orderUuid: string) =>
+    api.post<{ data: { order_uuid: string; status: string; plan: string; total: string; paid_at?: string } }>(
+      `/payments/${orderUuid}/verify`,
+    ).then((r) => r.data.data),
+  cancel: () => api.post('/subscription/cancel').then((r) => r.data),
+  payments: () => api.get<Paginated<PaymentRecord>>('/payments').then((r) => r.data),
+  invoices: () => api.get<Paginated<InvoiceRecord>>('/invoices').then((r) => r.data),
+  invoiceUrl: (uuid: string) => `/api/v1/invoices/${uuid}`,
 }
 
 // --- Reports ----------------------------------------------------------------

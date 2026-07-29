@@ -11,6 +11,9 @@ Schedule::command('mypa:generate-recurring')->hourly()->withoutOverlapping();
 // Bill reminders: once per day, morning.
 Schedule::command('mypa:send-bill-reminders')->dailyAt('08:00')->withoutOverlapping();
 
+// Subscription lifecycle: expiry, renewal reminders, stale order cleanup.
+Schedule::command('mypa:subscription-lifecycle')->dailyAt('07:30')->withoutOverlapping();
+
 // Housekeeping: purge read notifications older than 60 days.
 Schedule::call(function () {
     \Illuminate\Support\Facades\DB::table('notifications')

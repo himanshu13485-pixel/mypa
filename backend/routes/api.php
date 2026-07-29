@@ -23,6 +23,10 @@ use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\TaskController;
 use Illuminate\Support\Facades\Route;
 
+// Gateway webhooks (unauthenticated; protected by signature verification).
+Route::post('/webhooks/cashfree', [\App\Http\Controllers\Api\WebhookController::class, 'cashfree'])
+    ->middleware('throttle:120,1');
+
 Route::prefix('v1')->group(function () {
 
     // Public pricing
@@ -181,8 +185,17 @@ Route::prefix('v1')->group(function () {
         Route::delete('/bills/{bill}', [\App\Http\Controllers\Api\V1\BillController::class, 'destroy']);
         Route::post('/bills/{bill}/pay', [\App\Http\Controllers\Api\V1\BillController::class, 'markPaid']);
 
-        // Subscription
+        // Subscription & billing
         Route::get('/subscription', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'mySubscription']);
+        Route::post('/subscription/quote', [\App\Http\Controllers\Api\V1\BillingController::class, 'quote']);
+        Route::post('/subscription/checkout', [\App\Http\Controllers\Api\V1\BillingController::class, 'checkout'])
+            ->middleware('throttle:10,1');
+        Route::post('/subscription/cancel', [\App\Http\Controllers\Api\V1\BillingController::class, 'cancelSubscription']);
+        Route::post('/payments/{order}/verify', [\App\Http\Controllers\Api\V1\BillingController::class, 'verifyOrder'])
+            ->middleware('throttle:30,1');
+        Route::get('/payments', [\App\Http\Controllers\Api\V1\BillingController::class, 'payments']);
+        Route::get('/invoices', [\App\Http\Controllers\Api\V1\BillingController::class, 'invoices']);
+        Route::get('/invoices/{invoice}', [\App\Http\Controllers\Api\V1\BillingController::class, 'invoiceView']);
 
         // Voice assistant
         Route::post('/voice/interpret', [\App\Http\Controllers\Api\V1\VoiceController::class, 'interpret']);
@@ -211,6 +224,15 @@ Route::prefix('v1')->group(function () {
             Route::get('/permissions', [RoleController::class, 'permissions']);
             Route::get('/login-histories', [RoleController::class, 'loginHistories']);
             Route::get('/audit-logs', [RoleController::class, 'auditLogs']);
+
+            // Billing administration
+            Route::get('/billing/payments', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'payments']);
+            Route::get('/billing/webhooks', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'webhooks']);
+            Route::get('/billing/coupons', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'coupons']);
+            Route::post('/billing/coupons', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'storeCoupon']);
+            Route::put('/billing/coupons/{coupon:code}', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'updateCoupon']);
+            Route::get('/billing/refunds', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'refunds']);
+            Route::post('/billing/payments/{payment}/refund', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'createRefund']);
         });
     });
 });

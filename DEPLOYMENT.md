@@ -137,5 +137,24 @@ subdomain `api.your-domain.com` with `FRONTEND_URL` set accordingly.)
   `QUEUE_CONNECTION=redis`, and configure Reverb scaling (Redis ≥ 6.2).
 - Server-side speech-to-text is off by default (browser Web Speech API is used);
   bind a Whisper/Google/Azure implementation to `SpeechToTextInterface` to enable.
-- Online payments are NOT enabled — the Cashfree module (Phase 8) adds checkout,
-  webhooks, and invoices on top of the existing plan/entitlement architecture.
+## 8. Enabling Cashfree payments
+
+Payments stay disabled (checkout returns 503) until credentials are configured.
+
+1. Create a Cashfree merchant account (cashfree.com) and complete KYC.
+2. In the Cashfree dashboard, copy the **sandbox** App ID + Secret Key first.
+3. Set in `.env`: `CASHFREE_ENV=sandbox`, `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY`
+   (never commit these; they are backend-only and never reach the frontend).
+4. Configure the webhook in the Cashfree dashboard:
+   `https://your-domain.com/api/webhooks/cashfree` (signature is verified with
+   your secret key; invalid signatures are rejected with 401).
+5. Test the full sandbox flow: /pricing → checkout → Cashfree test payment →
+   redirect to /payment/status → plan active + invoice issued. Cashfree provides
+   test cards/UPI in sandbox mode.
+6. Only after the sandbox flow works end-to-end, switch `CASHFREE_ENV=production`
+   with your production credentials (spec §34.27).
+7. Tax: `BILLING_TAX_PERCENT_BP` (1800 = 18% GST), `BILLING_TAX_LABEL`,
+   seller details via `BILLING_SELLER_*` (shown on invoices).
+
+Refunds are issued from the admin API by a super admin and are executed at the
+gateway; refunds never auto-reactivate or auto-cancel subscriptions.

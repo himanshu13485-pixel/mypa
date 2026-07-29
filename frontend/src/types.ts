@@ -331,6 +331,52 @@ export interface MySubscription {
   usage: Record<string, { used: number; limit: number | null }>
 }
 
+export interface BillingQuote {
+  plan: string
+  frequency: 'monthly' | 'annual'
+  base: string
+  discount: string
+  tax: string
+  tax_label: string
+  tax_percent: number
+  total: string
+  currency: string
+  coupon_applied?: string | null
+}
+
+export interface CheckoutSession {
+  order_uuid: string
+  order_number: string
+  payment_session_id: string
+  total: string
+  currency: string
+  gateway_mode: 'sandbox' | 'production'
+  expires_at?: string
+}
+
+export interface PaymentRecord {
+  uuid: string
+  amount: string
+  currency: string
+  status: string
+  method?: string | null
+  plan: string
+  frequency: string
+  order_number: string
+  invoice_uuid?: string | null
+  refunded: string
+  paid_at?: string | null
+}
+
+export interface InvoiceRecord {
+  uuid: string
+  invoice_number: string
+  plan_name: string
+  total: string
+  currency: string
+  issued_at: string
+}
+
 export const GOAL_TYPES = ['personal', 'family', 'work', 'health', 'financial'] as const
 export const BILL_FREQUENCIES = ['weekly', 'monthly', 'quarterly', 'half_yearly', 'yearly'] as const
 

@@ -5,6 +5,71 @@ import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card, ErrorNote, Input, Label, Select } from '../components/ui'
 
+function BillingHistory() {
+  const { data: payments } = useQuery({ queryKey: ['my-payments'], queryFn: subscriptionApi.payments })
+  const { data: invoices } = useQuery({ queryKey: ['my-invoices'], queryFn: subscriptionApi.invoices })
+
+  const openInvoice = async (uuid: string) => {
+    const token = useAuthStore.getState().token
+    const res = await fetch(subscriptionApi.invoiceUrl(uuid), { headers: { Authorization: `Bearer ${token}` } })
+    const html = await res.text()
+    const win = window.open('', '_blank')
+    win?.document.write(html)
+    win?.document.close()
+  }
+
+  if (!payments?.data.length && !invoices?.data.length) return null
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold">Billing history</h2>
+      {payments?.data.length ? (
+        <div className="space-y-1.5">
+          {payments.data.map((payment) => (
+            <div
+              key={payment.uuid}
+              className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+            >
+              <div>
+                <p className="font-medium">
+                  {payment.plan} · {payment.frequency}
+                  <span
+                    className={
+                      payment.status === 'successful'
+                        ? 'ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                        : 'ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300'
+                    }
+                  >
+                    {payment.status.replaceAll('_', ' ')}
+                  </span>
+                </p>
+                <p className="text-xs text-slate-400">
+                  {payment.order_number}
+                  {payment.paid_at ? ` · ${new Date(payment.paid_at).toLocaleDateString()}` : ''}
+                  {Number(payment.refunded) > 0 ? ` · refunded ₹${payment.refunded}` : ''}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="font-semibold">₹{payment.amount}</span>
+                {payment.invoice_uuid && (
+                  <button
+                    className="text-xs text-brand-600 hover:underline"
+                    onClick={() => openInvoice(payment.invoice_uuid!)}
+                  >
+                    Invoice
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-slate-400">No payments yet.</p>
+      )}
+    </Card>
+  )
+}
+
 const PRIVACY_FIELDS: { key: string; label: string }[] = [
   { key: 'who_can_find_me', label: 'Who can find me by App ID' },
   { key: 'who_can_connect', label: 'Who can send connection requests' },
@@ -113,14 +178,33 @@ export default function SettingsPage() {
               )
             })}
           </div>
-          {mySub.plan.slug === 'free' && (
-            <p className="mt-3 text-xs text-slate-400">
-              Paid plans with more storage, groups and features are coming soon — online payments
-              will be enabled in a later update.
-            </p>
-          )}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <a href="/pricing">
+              <Button size="sm">{mySub.plan.slug === 'free' ? 'Upgrade plan' : 'Change plan'}</Button>
+            </a>
+            {mySub.plan.slug !== 'free' && mySub.ends_at && (
+              <>
+                <span className="text-xs text-slate-400">
+                  Renews/expires {new Date(mySub.ends_at).toLocaleDateString()}
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    if (confirm('Cancel your subscription? Your plan stays active until the end of the paid period.')) {
+                      subscriptionApi.cancel().then((res) => alert((res as { message?: string }).message ?? 'Cancelled.'))
+                    }
+                  }}
+                >
+                  Cancel subscription
+                </Button>
+              </>
+            )}
+          </div>
         </Card>
       )}
+
+      <BillingHistory />
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold">Profile</h2>
