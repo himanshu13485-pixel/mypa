@@ -6,7 +6,10 @@ use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\V1\AppIdController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BlockController;
+use App\Http\Controllers\Api\V1\CallController;
 use App\Http\Controllers\Api\V1\CategoryController;
+use App\Http\Controllers\Api\V1\ConversationController;
+use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\ConnectionController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\EventController;
@@ -128,6 +131,28 @@ Route::prefix('v1')->group(function () {
         Route::put('/groups/{group}/members/{userUuid}', [GroupController::class, 'updateMember']);
         Route::delete('/groups/{group}/members/{userUuid}', [GroupController::class, 'removeMember']);
         Route::get('/groups/{group}/tasks', [GroupController::class, 'tasks']);
+
+        // Chat
+        Route::get('/conversations', [ConversationController::class, 'index']);
+        Route::post('/conversations', [ConversationController::class, 'store']);
+        Route::get('/groups/{group}/conversation', [ConversationController::class, 'forGroup']);
+        Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markRead']);
+        Route::post('/conversations/{conversation}/mute', [ConversationController::class, 'toggleMute']);
+        Route::post('/conversations/{conversation}/archive', [ConversationController::class, 'toggleArchive']);
+        Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index']);
+        Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
+        Route::put('/conversations/{conversation}/messages/{message}', [MessageController::class, 'update']);
+        Route::delete('/conversations/{conversation}/messages/{messageUuid}', [MessageController::class, 'destroy']);
+        Route::post('/conversations/{conversation}/messages/{message}/react', [MessageController::class, 'react']);
+        Route::get('/conversations/{conversation}/attachments/{attachmentId}', [MessageController::class, 'downloadAttachment']);
+
+        // Calls
+        Route::get('/calls/config', [CallController::class, 'config']);
+        Route::get('/calls/history', [CallController::class, 'history']);
+        Route::post('/conversations/{conversation}/calls', [CallController::class, 'initiate']);
+        Route::post('/calls/{call}/respond', [CallController::class, 'respond']);
+        Route::post('/calls/{call}/end', [CallController::class, 'end']);
+        Route::post('/calls/{call}/signal', [CallController::class, 'signal']);
 
         // Reports
         Route::get('/reports/summary', [ReportController::class, 'summary']);

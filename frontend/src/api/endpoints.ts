@@ -1,8 +1,8 @@
 import { api } from './client'
 import type {
   AdminStats, AppNotification, BrowseResult, CalendarEvent, CalendarFeedTask,
-  Category, Connection, DashboardSummary, FileItem, GroupItem, Note, Paginated,
-  ReportSummary, Task, User,
+  CallInfo, Category, ChatMessage, Connection, ConversationItem,
+  DashboardSummary, FileItem, GroupItem, Note, Paginated, ReportSummary, Task, User,
 } from '../types'
 
 // --- Auth -------------------------------------------------------------------
@@ -192,6 +192,44 @@ export const groups = {
     api.put(`/groups/${uuid}/members/${userUuid}`, { role }),
   removeMember: (uuid: string, userUuid: string) =>
     api.delete(`/groups/${uuid}/members/${userUuid}`),
+}
+
+// --- Chat -------------------------------------------------------------------
+
+export const chat = {
+  conversations: () => api.get<Paginated<ConversationItem>>('/conversations').then((r) => r.data),
+  start: (app_id: string) =>
+    api.post<{ data: ConversationItem }>('/conversations', { app_id }).then((r) => r.data.data),
+  groupConversation: (groupUuid: string) =>
+    api.get<{ data: ConversationItem }>(`/groups/${groupUuid}/conversation`).then((r) => r.data.data),
+  messages: (uuid: string, params: Record<string, unknown> = {}) =>
+    api.get<{ data: ChatMessage[] }>(`/conversations/${uuid}/messages`, { params }).then((r) => r.data.data),
+  send: (uuid: string, payload: FormData | Record<string, unknown>) =>
+    api.post<{ data: ChatMessage }>(`/conversations/${uuid}/messages`, payload).then((r) => r.data.data),
+  edit: (uuid: string, messageUuid: string, body: string) =>
+    api.put<{ data: ChatMessage }>(`/conversations/${uuid}/messages/${messageUuid}`, { body }).then((r) => r.data.data),
+  remove: (uuid: string, messageUuid: string, scope: 'me' | 'everyone') =>
+    api.delete(`/conversations/${uuid}/messages/${messageUuid}?for=${scope}`),
+  react: (uuid: string, messageUuid: string, emoji: string) =>
+    api.post<{ data: ChatMessage }>(`/conversations/${uuid}/messages/${messageUuid}/react`, { emoji }).then((r) => r.data.data),
+  markRead: (uuid: string) => api.post(`/conversations/${uuid}/read`),
+  toggleMute: (uuid: string) => api.post(`/conversations/${uuid}/mute`),
+  attachmentUrl: (uuid: string, attachmentId: number) => `/api/v1/conversations/${uuid}/attachments/${attachmentId}`,
+}
+
+// --- Calls ------------------------------------------------------------------
+
+export const calls = {
+  config: () =>
+    api.get<{ data: { iceServers: RTCIceServer[] } }>('/calls/config').then((r) => r.data.data),
+  initiate: (conversationUuid: string, type: 'audio' | 'video') =>
+    api.post<{ data: CallInfo }>(`/conversations/${conversationUuid}/calls`, { type }).then((r) => r.data.data),
+  respond: (uuid: string, action: 'accept' | 'decline') =>
+    api.post<{ data: CallInfo }>(`/calls/${uuid}/respond`, { action }).then((r) => r.data.data),
+  end: (uuid: string) => api.post<{ data: CallInfo }>(`/calls/${uuid}/end`).then((r) => r.data.data),
+  signal: (uuid: string, signal: 'offer' | 'answer' | 'ice', payload: Record<string, unknown>) =>
+    api.post(`/calls/${uuid}/signal`, { signal, payload }),
+  history: () => api.get<Paginated<CallInfo>>('/calls/history').then((r) => r.data),
 }
 
 // --- Reports ----------------------------------------------------------------

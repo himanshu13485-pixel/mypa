@@ -166,6 +166,36 @@ Tasks and events accept `group_uuid`; group items are visible to all group membe
 | GET | /reports/productivity?days=30 | per-day created/completed series (7–90 days) |
 | GET | /reports/export.csv | task export, UTF-8 BOM |
 
+## Chat
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /conversations | ordered by last message; unread counts |
+| POST | /conversations | { app_id } — privacy-checked (who_can_message) |
+| GET | /groups/{uuid}/conversation | group chat, membership auto-synced |
+| POST | /conversations/{uuid}/read · /mute · /archive | per-member toggles |
+| GET | /conversations/{uuid}/messages?before=&q= | newest 30, keyset pagination |
+| POST | /conversations/{uuid}/messages | body / attachments[] (multipart), type, reply_to, duration_seconds |
+| PUT | /conversations/{uuid}/messages/{msg} | edit own text message |
+| DELETE | /conversations/{uuid}/messages/{msg}?for=me\|everyone | tombstone on everyone |
+| POST | /conversations/{uuid}/messages/{msg}/react | { emoji } toggles |
+| GET | /conversations/{uuid}/attachments/{id} | authenticated download |
+
+**WebSockets:** Reverb on port 8080. Channel auth `POST /api/broadcasting/auth` (Bearer).
+Channels: `private-conversation.{uuid}` (`message.sent`, `message.updated`),
+`private-user.{uuid}` (`call.signal`). Start with `php artisan reverb:start`.
+
+## Calls
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /calls/config | ICE servers (STUN/TURN from env) |
+| POST | /conversations/{uuid}/calls | { type: audio\|video } — rings the other member |
+| POST | /calls/{uuid}/respond | { action: accept\|decline } |
+| POST | /calls/{uuid}/end | hang up / cancel (missed while ringing) |
+| POST | /calls/{uuid}/signal | { signal: offer\|answer\|ice, payload } relayed to peer |
+| GET | /calls/history | direction, duration, missed flag |
+
 ## Planned (later phases)
-Chat, calls, habits, goals,
+Voice task creation, habits, goals,
 subscription/payment endpoints (see spec §34.19), webhook `POST /api/webhooks/cashfree`.

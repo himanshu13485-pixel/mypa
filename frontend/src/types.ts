@@ -257,6 +257,55 @@ export interface ReportSummary {
 
 export const GROUP_TYPES = ['family', 'team', 'business', 'other'] as const
 
+export interface ConversationItem {
+  uuid: string
+  type: 'direct' | 'group'
+  name: string
+  group_uuid?: string | null
+  other_user?: { uuid: string; app_id?: string; photo_path?: string | null } | null
+  members_count: number
+  unread_count: number
+  is_muted: boolean
+  is_archived: boolean
+  last_message_at?: string | null
+}
+
+export interface ChatMessage {
+  uuid: string
+  type: string
+  body: string | null
+  is_deleted: boolean
+  is_own: boolean
+  sender?: { uuid: string; name: string } | null
+  reply_to?: { uuid: string; body: string | null; sender_name?: string } | null
+  attachments: { id: number; name: string; mime_type?: string | null; size: number; duration_seconds?: number | null }[]
+  reactions: { emoji: string; count: number; mine: boolean }[]
+  edited_at?: string | null
+  created_at: string
+}
+
+export interface CallInfo {
+  uuid: string
+  conversation_uuid: string
+  type: 'audio' | 'video'
+  status: string
+  is_outgoing: boolean
+  is_missed?: boolean
+  other_user?: { uuid: string; name: string } | null
+  started_at?: string
+  duration_seconds?: number | null
+}
+
+export interface CallSignalPayload {
+  call_uuid: string
+  conversation_uuid: string
+  call_type: 'audio' | 'video'
+  from_uuid: string
+  from_name?: string | null
+  signal: 'ring' | 'accept' | 'decline' | 'end' | 'offer' | 'answer' | 'ice'
+  payload: Record<string, unknown>
+}
+
 export const TASK_STATUSES = [
   'draft', 'not_started', 'planned', 'in_progress', 'waiting',
   'on_hold', 'completed', 'cancelled', 'overdue', 'archived',

@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   BarChart3, Calendar, CheckSquare, FileText, FolderKanban, FolderOpen,
-  LayoutDashboard, LogOut, Menu, Moon, Settings, Shield, Star, Sun, UserPlus,
-  Users, X,
+  LayoutDashboard, LogOut, Menu, MessageCircle, Moon, Phone, Settings, Shield,
+  Star, Sun, UserPlus, Users, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { auth } from '../api/endpoints'
 import { isAdmin, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
+import { CallProvider } from './CallManager'
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -16,6 +17,8 @@ const nav = [
   { to: '/tasks?important=1', label: 'Important', icon: Star },
   { to: '/calendar', label: 'Calendar', icon: Calendar },
   { to: '/categories', label: 'Categories', icon: FolderKanban },
+  { to: '/messages', label: 'Messages', icon: MessageCircle },
+  { to: '/calls', label: 'Calls', icon: Phone },
   { to: '/notes', label: 'Notes', icon: FileText },
   { to: '/files', label: 'Files', icon: FolderOpen },
   { to: '/groups', label: 'Family & Teams', icon: Users },
@@ -94,6 +97,7 @@ export default function Layout() {
   )
 
   return (
+    <CallProvider>
     <div className="flex h-full">
       {/* Desktop sidebar */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:flex">
@@ -158,5 +162,6 @@ export default function Layout() {
         </main>
       </div>
     </div>
+    </CallProvider>
   )
 }

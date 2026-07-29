@@ -53,12 +53,15 @@ npm install
 npm run dev                   # http://localhost:5173 (proxies /api → :8000)
 ```
 
-### 4. Queues & scheduler (needed for reminders in Phase 2+)
+### 4. Queues, scheduler & WebSockets
 
 ```bash
-php artisan queue:work
-php artisan schedule:work
+php artisan queue:work        # reminder + notification jobs
+php artisan schedule:work     # due-reminder dispatch, recurring tasks
+php artisan reverb:start      # WebSocket server (chat + calls), port 8080
 ```
+
+Chat falls back to polling if Reverb isn't running; calls require it.
 
 ## Demo accounts
 

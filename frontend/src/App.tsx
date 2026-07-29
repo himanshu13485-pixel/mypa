@@ -10,6 +10,8 @@ import TasksPage from './pages/TasksPage'
 import CalendarPage from './pages/CalendarPage'
 import CategoriesPage from './pages/CategoriesPage'
 import ConnectionsPage from './pages/ConnectionsPage'
+import MessagesPage from './pages/MessagesPage'
+import CallsPage from './pages/CallsPage'
 import NotesPage from './pages/NotesPage'
 import FilesPage from './pages/FilesPage'
 import GroupsPage from './pages/GroupsPage'
@@ -37,6 +39,8 @@ export default function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/categories" element={<CategoriesPage />} />
           <Route path="/connections" element={<ConnectionsPage />} />
+          <Route path="/messages" element={<MessagesPage />} />
+          <Route path="/calls" element={<CallsPage />} />
           <Route path="/notes" element={<NotesPage />} />
           <Route path="/files" element={<FilesPage />} />
           <Route path="/groups" element={<GroupsPage />} />

@@ -91,12 +91,18 @@ export default function GroupsPage() {
                   {group.members_count} member(s) · {group.tasks_count} task(s)
                 </p>
               </div>
-              <div className="mt-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+              <div className="mt-2 flex gap-3 border-t border-slate-100 pt-2 dark:border-slate-800">
                 <Link
                   to={`/tasks?group=${group.uuid}`}
                   className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"
                 >
-                  <CheckSquare className="size-3.5" /> View group tasks
+                  <CheckSquare className="size-3.5" /> Group tasks
+                </Link>
+                <Link
+                  to={`/messages?group=${group.uuid}`}
+                  className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"
+                >
+                  <Users className="size-3.5" /> Group chat
                 </Link>
               </div>
             </Card>

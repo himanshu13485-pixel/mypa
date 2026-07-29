@@ -2,6 +2,46 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-29 — Phase 4 complete ✅
+
+**Real-time infrastructure**
+- [x] Laravel Reverb WebSocket server (standalone — no Redis needed in single-server mode)
+- [x] Sanctum-authenticated channel auth at `POST /api/broadcasting/auth` (Bearer token)
+- [x] Channels: `user.{uuid}` (calls, personal signals) and `conversation.{uuid}` (chat)
+- [x] Frontend Echo client (laravel-echo + pusher-js) with lazy token-aware connection
+
+**Chat**
+- [x] Direct conversations (privacy-checked: who_can_message everyone/connections/nobody)
+- [x] Group conversations auto-synced with group membership
+- [x] Messages: text, reply-to, edit (own, text only), delete for me / delete for everyone
+      (tombstone + attachment purge), reactions (toggle), unread counts, mark-read,
+      mute/archive per member
+- [x] Attachments: files, images, and recorded voice messages (MediaRecorder → webm,
+      duration stored); authenticated streamed downloads; extension blocklist
+- [x] Broadcast events: message.sent / message.updated (edit, delete, reaction)
+- [x] Messages UI: two-pane layout, WebSocket refresh + polling fallback, hover actions,
+      quick-emoji reactions, reply/edit banners, voice recorder, deep links
+      (`?start=APP_ID`, `?group=uuid`) from Connections and Groups pages
+
+**Calls (WebRTC)**
+- [x] 1:1 audio/video calls in direct conversations, privacy-checked (who_can_call)
+- [x] Call lifecycle: ringing → accept/decline → ongoing → ended/missed; duplicate-call guard
+- [x] Signalling relayed over private user channels (offer/answer/ICE), broadcast immediately
+- [x] `GET /calls/config` serves ICE servers (STUN/TURN via env; Google STUN dev fallback)
+- [x] Call history with direction, duration, missed indicator
+- [x] Global CallManager: incoming-call banner, floating call window with local/remote video,
+      mute, camera toggle, duration timer, hang-up
+
+**Verified:** 65 backend tests green (255 assertions); live two-user chat flow tested
+end-to-end over the API; frontend build clean.
+
+**Dev note:** real-time needs `php artisan reverb:start` (port 8080) alongside serve,
+`queue:work`, and `schedule:work`. Without Reverb running, chat still works via polling.
+
+## Next: Phase 5
+- Voice task creation (Web Speech API), speech-to-text provider abstraction
+- Text-to-speech reminders, Hindi + English commands
+
 ## 2026-07-29 — Phase 3 complete ✅
 
 **Notes**

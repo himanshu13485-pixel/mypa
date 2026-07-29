@@ -4,6 +4,14 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Added — 2026-07-29 (Phase 4)
+- Real-time layer: Laravel Reverb WebSockets with Sanctum-authenticated private channels.
+- Chat: direct + group conversations, privacy checks, replies, edits, delete for
+  me/everyone, reactions, unread counts, mute/archive, file/image/voice attachments.
+- Voice messages recorded in-browser (MediaRecorder) with duration.
+- WebRTC 1:1 audio/video calls: signalling over private channels, call lifecycle,
+  history, ICE config endpoint, global call UI with incoming-call banner.
+
 ### Added — 2026-07-29 (Phase 3)
 - Notes module: text/checklist notes, version history, password protection,
   sharing by App ID, group notes, masonry UI.

@@ -151,6 +151,15 @@ export default function ConnectionsPage() {
                       <p className="text-sm font-medium">{c.user?.name}</p>
                       <p className="text-xs text-slate-400">{c.user?.app_id}</p>
                     </div>
+                    {c.user?.app_id && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => { window.location.href = `/messages?start=${c.user!.app_id}` }}
+                      >
+                        Message
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
