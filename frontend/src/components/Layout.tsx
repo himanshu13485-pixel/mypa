@@ -161,6 +161,15 @@ export default function Layout() {
             </button>
           </div>
         </header>
+        {user?.must_change_password && (
+          <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            You are using a default password. Please{' '}
+            <NavLink to="/settings" className="font-semibold underline">
+              change it now
+            </NavLink>{' '}
+            to secure your account.
+          </div>
+        )}
         <main className="flex-1 overflow-y-auto p-4 lg:p-6">
           <Outlet />
         </main>

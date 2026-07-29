@@ -37,6 +37,7 @@ class PlanController extends Controller
         ]);
 
         $plan->update($data);
+        \App\Models\AuditLog::record($request->user(), 'plan.updated', $plan, ['changed' => array_keys($data)]);
 
         return response()->json(['message' => 'Plan updated.', 'data' => $plan->fresh()]);
     }
@@ -71,6 +72,11 @@ class PlanController extends Controller
                 $request->user()->email,
                 ! empty($data['note']) ? ': ' . $data['note'] : '',
             ),
+        ]);
+
+        \App\Models\AuditLog::record($request->user(), 'subscription.assigned', $user, [
+            'plan' => $plan->slug,
+            'months' => $data['months'] ?? null,
         ]);
 
         return response()->json([

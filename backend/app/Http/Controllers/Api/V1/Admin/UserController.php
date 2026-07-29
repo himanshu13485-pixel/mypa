@@ -104,6 +104,7 @@ class UserController extends Controller
 
         $user->update(['status' => 'suspended']);
         $user->tokens()->delete();
+        \App\Models\AuditLog::record($request->user(), 'user.suspended', $user);
 
         return response()->json(['message' => 'User suspended.']);
     }
@@ -113,6 +114,7 @@ class UserController extends Controller
         $this->guardTargetEditable($request, $user);
 
         $user->update(['status' => 'active']);
+        \App\Models\AuditLog::record($request->user(), 'user.activated', $user);
 
         return response()->json(['message' => 'User activated.']);
     }
@@ -137,6 +139,7 @@ class UserController extends Controller
         $user->roles()->sync($roleIds->mapWithKeys(
             fn ($id) => [$id => ['assigned_by' => $request->user()->id]]
         ));
+        \App\Models\AuditLog::record($request->user(), 'user.roles_changed', $user, ['roles' => $data['roles']]);
 
         return response()->json([
             'message' => 'Roles updated.',
@@ -149,6 +152,10 @@ class UserController extends Controller
         abort_unless($request->user()->isSuperAdmin(), 403, 'Only a super admin can regenerate App IDs.');
 
         $record = $appIds->regenerateFor($user);
+        \App\Models\AuditLog::record($request->user(), 'user.app_id_regenerated', $user, [
+            'previous' => $record->regenerated_from,
+            'new' => $record->app_id,
+        ]);
 
         return response()->json([
             'message' => 'App ID regenerated.',

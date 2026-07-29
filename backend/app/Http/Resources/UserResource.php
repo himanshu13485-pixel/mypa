@@ -45,6 +45,10 @@ class UserResource extends JsonResource
                     ),
                 ]
             ),
+            'must_change_password' => $this->when(
+                $request->user()?->id === $this->id,
+                (bool) $this->force_password_change
+            ),
             'last_login_at' => $this->when($request->user()?->id === $this->id, $this->last_login_at),
             'created_at' => $this->created_at,
         ];

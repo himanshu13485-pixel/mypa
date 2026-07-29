@@ -37,6 +37,8 @@ class DemoSeeder extends Seeder
         };
 
         $superAdmin = $make('Super Admin', 'superadmin@mypa.local', 'super_admin');
+        // Demo credentials ship publicly in the README — force a change on first login.
+        $superAdmin->update(['force_password_change' => true]);
         $admin = $make('Demo Admin', 'admin@mypa.local', 'admin');
         $make('Subadmin One', 'subadmin1@mypa.local', 'subadmin');
         $make('Subadmin Two', 'subadmin2@mypa.local', 'subadmin');

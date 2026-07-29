@@ -210,6 +210,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/roles', [RoleController::class, 'roles']);
             Route::get('/permissions', [RoleController::class, 'permissions']);
             Route::get('/login-histories', [RoleController::class, 'loginHistories']);
+            Route::get('/audit-logs', [RoleController::class, 'auditLogs']);
         });
     });
 });

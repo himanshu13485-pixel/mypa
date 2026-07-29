@@ -4,6 +4,16 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Added — 2026-07-30 (Phase 7)
+- Forced password change for accounts with default credentials (Super Admin seeded
+  with flag; banner + login flag until changed).
+- Admin audit logging (suspend/activate, roles, App ID regeneration, plan changes)
+  with review endpoint.
+- Security headers middleware; CORS restricted to configured origins.
+- Route-level code splitting (571 KB bundle → small core + per-page chunks).
+- PWA: manifest, icon, and production service worker with offline shell.
+- DEPLOYMENT.md production guide.
+
 ### Added — 2026-07-30 (Phase 6)
 - Habits with streak tracking, per-period targets, 7-day heat strip, one-tap logging.
 - Goals with milestones, derived progress, auto-completion, group goals.

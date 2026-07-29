@@ -1,0 +1,18 @@
+{
+  "name": "My PA — Personal Assistant",
+  "short_name": "My PA",
+  "description": "Tasks, reminders, notes, files, chat, calls, habits and goals in one personal assistant.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2b4de4",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

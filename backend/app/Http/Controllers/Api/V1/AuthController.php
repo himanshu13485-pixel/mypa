@@ -109,6 +109,7 @@ class AuthController extends Controller
             'message' => 'Login successful.',
             'data' => new UserResource($user->load(['profile', 'settings', 'appId', 'roles'])),
             'token' => $token,
+            'must_change_password' => (bool) $user->force_password_change,
         ]);
     }
 
@@ -168,7 +169,7 @@ class AuthController extends Controller
         ]);
 
         $user = $request->user();
-        $user->update(['password' => $data['password']]);
+        $user->update(['password' => $data['password'], 'force_password_change' => false]);
 
         // Revoke every other session/token.
         $user->tokens()->where('id', '!=', $user->currentAccessToken()->id)->delete();

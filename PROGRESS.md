@@ -2,6 +2,40 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-30 — Phase 7 complete ✅
+
+**Security hardening**
+- [x] Forced password change: seeded Super Admin (public demo credentials) must set a
+      new password — login returns `must_change_password`, in-app banner until changed
+- [x] Admin audit trail: `audit_logs` table records suspend/activate, role changes,
+      App ID regeneration, plan edits and manual plan assignments (actor + IP + details);
+      `GET /admin/audit-logs` to review
+- [x] Security headers on every response (nosniff, DENY framing, referrer policy,
+      permissions policy, HSTS in production)
+- [x] CORS locked to `FRONTEND_URL`/`APP_URL` (no wildcard)
+- [x] `.env.example` regenerated with every variable and no secrets
+- [x] Rate limiting verified by test (auth endpoints 429 after 10 attempts/min)
+
+**Performance**
+- [x] Route-level code splitting: initial JS chunk down from 571 KB to a small core;
+      each page lazy-loads (1–9 KB per page chunk)
+
+**PWA**
+- [x] Web manifest + installable icon, theme color, description meta
+- [x] Service worker (production only): cache-first hashed assets, network-first shell
+      with offline fallback, API never cached
+
+**Production readiness**
+- [x] DEPLOYMENT.md: architecture, hardening checklist, Supervisor/cron configs,
+      Nginx sketch with Reverb websocket proxy, post-deploy checks, backup guidance
+
+**Verified:** 95 backend tests green (368 assertions); frontend build clean with split chunks.
+
+## Next: Phase 8 (final)
+- Cashfree payments (spec §34): normalized billing tables, checkout, webhooks with
+  signature verification, server-side payment verification, invoices, coupons,
+  taxes, refunds — activating paid subscriptions on the Phase 6 plan architecture
+
 ## 2026-07-30 — Phase 6 complete ✅
 
 **Habits**

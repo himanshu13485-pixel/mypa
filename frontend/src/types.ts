@@ -25,6 +25,7 @@ export interface User {
     notification_preferences?: Record<string, unknown> | null
     privacy: Record<string, 'everyone' | 'connections' | 'nobody'>
   }
+  must_change_password?: boolean
   created_at?: string
 }
 

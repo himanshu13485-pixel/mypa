@@ -59,6 +59,8 @@ export default function SettingsPage() {
     onSuccess: () => {
       setPasswordForm({ current_password: '', password: '', password_confirmation: '' })
       setMsg('password', 'Password changed. Other sessions were signed out.')
+      // Refresh the user so the "change your password" banner clears.
+      auth.me().then(setUser).catch(() => undefined)
     },
     onError: (err) => setMsg('password', errorMessage(err)),
   })

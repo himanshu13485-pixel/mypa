@@ -25,6 +25,17 @@ class RoleController extends Controller
         ]);
     }
 
+    public function auditLogs(Request $request): JsonResponse
+    {
+        $query = \App\Models\AuditLog::with('actor:id,uuid,name,email')->latest();
+
+        if ($action = $request->query('action')) {
+            $query->where('action', 'like', $action . '%');
+        }
+
+        return response()->json($query->paginate(30));
+    }
+
     public function loginHistories(Request $request): JsonResponse
     {
         $query = LoginHistory::with('user:id,uuid,name,email')->latest('logged_in_at');

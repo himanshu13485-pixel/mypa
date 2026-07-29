@@ -25,6 +25,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'mobile',
         'password',
         'status',
+        'force_password_change',
         'last_login_at',
     ];
 
@@ -39,6 +40,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'email_verified_at' => 'datetime',
             'mobile_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
+            'force_password_change' => 'boolean',
             'password' => 'hashed',
         ];
     }
