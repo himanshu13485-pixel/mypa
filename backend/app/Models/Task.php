@@ -16,7 +16,7 @@ class Task extends Model
     use HasUuids, SoftDeletes;
 
     protected $fillable = [
-        'user_id', 'category_id', 'parent_id', 'title', 'description', 'priority', 'status',
+        'user_id', 'category_id', 'parent_id', 'group_id', 'title', 'description', 'priority', 'status',
         'start_at', 'due_at', 'estimated_minutes', 'actual_minutes', 'progress',
         'location', 'contact_person', 'color', 'is_important', 'is_confidential',
         'is_favourite', 'is_pinned', 'repeat_config', 'completed_at', 'archived_at',
@@ -69,6 +69,11 @@ class Task extends Model
         return $this->hasMany(Task::class, 'parent_id');
     }
 
+    public function group(): BelongsTo
+    {
+        return $this->belongsTo(Group::class);
+    }
+
     public function assignees(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'task_assignments')
@@ -103,12 +108,13 @@ class Task extends Model
 
     // --- Scopes --------------------------------------------------------------
 
-    /** Tasks a user can see: own tasks + tasks assigned to them. */
+    /** Tasks a user can see: own tasks + tasks assigned to them + their groups' tasks. */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         return $query->where(function (Builder $q) use ($user) {
             $q->where('user_id', $user->id)
-                ->orWhereHas('assignees', fn ($a) => $a->where('users.id', $user->id));
+                ->orWhereHas('assignees', fn ($a) => $a->where('users.id', $user->id))
+                ->orWhereHas('group.members', fn ($m) => $m->where('users.id', $user->id));
         });
     }
 

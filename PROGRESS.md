@@ -2,6 +2,46 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-29 — Phase 3 complete ✅
+
+**Notes**
+- [x] Text + checklist notes with color, pin, search
+- [x] Version history (snapshot on every update, last 20 kept)
+- [x] Password-protected notes (bcrypt, content withheld with HTTP 423 until unlocked
+      via X-Note-Password; only the owner can change protection; locked notes can't be shared)
+- [x] Sharing by App ID with view/edit permission; group notes visible to members
+- [x] Masonry notes UI with lock/pin indicators and share dialog
+
+**Files**
+- [x] Nested folders with breadcrumb browsing
+- [x] Multi-file upload with per-file size cap (env-configurable, default 25 MB),
+      blocked-extension list (exe/bat/php/…), per-user storage quota (default 1 GB)
+- [x] Authenticated streamed downloads (never a public path), rename, move
+- [x] Trash: soft delete → restore / delete forever (removes stored file)
+- [x] Sharing by App ID + "Shared with me" view; storage usage meter in UI
+
+**Family & team groups**
+- [x] Groups (family/team/business/other) with owner/admin/manager/member/viewer roles
+- [x] Members added by App ID; role management; leave/remove rules
+      (owner immutable, managers manage, anyone can leave)
+- [x] Group tasks & events: creation restricted to members, visible to all members
+      (extends Task/Event visibleTo scopes); group option in the task editor
+- [x] Groups UI: cards, member management modal, group-task deep link
+
+**Reports**
+- [x] Summary: totals, completion rate, average completion time, by status/priority/category
+- [x] Productivity: completed-per-day series (7/30/90 days)
+- [x] CSV export (UTF-8 BOM for Excel)
+- [x] Reports UI: stat tiles, single-hue magnitude bars, hover detail, range toggle
+
+**Verified:** 53 backend tests green (195 assertions); frontend build clean.
+
+## Next: Phase 4
+- Real-time chat (conversations, messages, reactions, read receipts) via Laravel Reverb
+- Voice messages
+- Audio/video calls (WebRTC + signalling; STUN/TURN via env)
+- ⚠️ Requires Redis ≥ 6.2 (local is 5.0.14 — upgrade before starting)
+
 ## 2026-07-29 — Phase 2 complete ✅
 
 **Reminder engine**

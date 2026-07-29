@@ -10,8 +10,12 @@ use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\ConnectionController;
 use App\Http\Controllers\Api\V1\DashboardController;
 use App\Http\Controllers\Api\V1\EventController;
+use App\Http\Controllers\Api\V1\FileController;
+use App\Http\Controllers\Api\V1\GroupController;
+use App\Http\Controllers\Api\V1\NoteController;
 use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\ReminderController;
+use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\TaskController;
 use Illuminate\Support\Facades\Route;
@@ -96,6 +100,39 @@ Route::prefix('v1')->group(function () {
         Route::get('/calendar/export.ics', [EventController::class, 'exportIcs']);
         Route::apiResource('events', EventController::class);
         Route::post('/events/{event}/respond', [EventController::class, 'respond']);
+
+        // Notes
+        Route::apiResource('notes', NoteController::class);
+        Route::post('/notes/{note}/share', [NoteController::class, 'share']);
+        Route::get('/notes/{note}/versions', [NoteController::class, 'versions']);
+
+        // Files & folders
+        Route::get('/files/browse', [FileController::class, 'browse']);
+        Route::get('/files/shared-with-me', [FileController::class, 'sharedWithMe']);
+        Route::get('/files/usage', [FileController::class, 'usage']);
+        Route::get('/files/trash', [FileController::class, 'trash']);
+        Route::post('/files/upload', [FileController::class, 'upload']);
+        Route::get('/files/{file}/download', [FileController::class, 'download']);
+        Route::put('/files/{file}', [FileController::class, 'update']);
+        Route::delete('/files/{file}', [FileController::class, 'destroy']);
+        Route::post('/files/{uuid}/restore', [FileController::class, 'restore']);
+        Route::delete('/files/{uuid}/force', [FileController::class, 'forceDelete']);
+        Route::post('/files/{file}/share', [FileController::class, 'share']);
+        Route::post('/folders', [FileController::class, 'storeFolder']);
+        Route::put('/folders/{folder}', [FileController::class, 'updateFolder']);
+        Route::delete('/folders/{folder}', [FileController::class, 'destroyFolder']);
+
+        // Groups
+        Route::apiResource('groups', GroupController::class);
+        Route::post('/groups/{group}/members', [GroupController::class, 'addMember']);
+        Route::put('/groups/{group}/members/{userUuid}', [GroupController::class, 'updateMember']);
+        Route::delete('/groups/{group}/members/{userUuid}', [GroupController::class, 'removeMember']);
+        Route::get('/groups/{group}/tasks', [GroupController::class, 'tasks']);
+
+        // Reports
+        Route::get('/reports/summary', [ReportController::class, 'summary']);
+        Route::get('/reports/productivity', [ReportController::class, 'productivity']);
+        Route::get('/reports/export.csv', [ReportController::class, 'exportCsv']);
 
         // --- Admin --------------------------------------------------------
         Route::prefix('admin')->middleware('role:admin,super_admin')->group(function () {

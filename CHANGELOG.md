@@ -4,6 +4,15 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Added — 2026-07-29 (Phase 3)
+- Notes module: text/checklist notes, version history, password protection,
+  sharing by App ID, group notes, masonry UI.
+- File management: nested folders, quota-checked uploads with extension blocklist,
+  authenticated streamed downloads, trash/restore, sharing, storage usage meter.
+- Family & team groups with five roles, member management by App ID, and
+  membership-scoped group tasks/events.
+- Reports: summary, per-day productivity, CSV export, reports UI.
+
 ### Added — 2026-07-29 (Phase 2)
 - Reminder engine: per-minute scheduler, queued dispatch, database + email notifications,
   snooze/acknowledge, repeat-until-acknowledged.

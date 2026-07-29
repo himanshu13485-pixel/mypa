@@ -20,7 +20,7 @@ class TaskController extends Controller
         $user = $request->user();
 
         $query = Task::visibleTo($user)
-            ->with(['category', 'user.appId', 'assignees', 'tags'])
+            ->with(['category', 'group', 'user.appId', 'assignees', 'tags'])
             ->withCount('checklists');
 
         // Filters
@@ -57,6 +57,9 @@ class TaskController extends Controller
         }
         if ($tags = $request->query('tags')) {
             $query->whereHas('tags', fn ($t) => $t->whereIn('name', explode(',', $tags)));
+        }
+        if ($groupUuid = $request->query('group')) {
+            $query->whereHas('group', fn ($g) => $g->where('uuid', $groupUuid));
         }
         if (! $request->boolean('include_archived')) {
             $query->where('status', '!=', 'archived');
@@ -123,7 +126,7 @@ class TaskController extends Controller
         $this->authorizeView($request, $task);
 
         return new TaskResource($task->load([
-            'category', 'user.appId', 'checklists', 'reminders', 'assignees', 'tags',
+            'category', 'group', 'user.appId', 'checklists', 'reminders', 'assignees', 'tags',
             'comments.user', 'comments.replies.user', 'subtasks.category', 'parent',
         ]));
     }
@@ -390,6 +393,7 @@ class TaskController extends Controller
             'description' => ['nullable', 'string', 'max:10000'],
             'category_uuid' => ['nullable', 'uuid'],
             'parent_uuid' => ['nullable', 'uuid'],
+            'group_uuid' => ['nullable', 'uuid'],
             'priority' => ['sometimes', 'in:' . implode(',', config('mypa.task_priorities'))],
             'status' => ['sometimes', 'in:' . implode(',', config('mypa.task_statuses'))],
             'start_at' => ['nullable', 'date'],
@@ -422,7 +426,14 @@ class TaskController extends Controller
             'assignees.*' => ['string', 'max:32'],
         ]);
 
-        $taskData = array_diff_key($data, array_flip(['category_uuid', 'parent_uuid', 'checklist', 'reminders', 'tags', 'assignees']));
+        $taskData = array_diff_key($data, array_flip(['category_uuid', 'parent_uuid', 'group_uuid', 'checklist', 'reminders', 'tags', 'assignees']));
+
+        if (array_key_exists('group_uuid', $data)) {
+            $group = $data['group_uuid']
+                ? \App\Models\Group::withMember($request->user())->where('uuid', $data['group_uuid'])->firstOrFail()
+                : null;
+            $taskData['group_id'] = $group?->id;
+        }
 
         // Datetimes arrive as wall-clock time in the user's timezone; store UTC.
         $tz = $request->user()->profile?->timezone ?? config('app.timezone');

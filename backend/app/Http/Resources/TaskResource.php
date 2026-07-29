@@ -38,6 +38,10 @@ class TaskResource extends JsonResource
                 'name' => $this->user->name,
                 'app_id' => $this->user->appId?->app_id,
             ]),
+            'group' => $this->whenLoaded('group', fn () => $this->group ? [
+                'uuid' => $this->group->uuid,
+                'name' => $this->group->name,
+            ] : null),
             'category' => $this->whenLoaded('category', fn () => $this->category ? [
                 'uuid' => $this->category->uuid,
                 'name' => $this->category->name,

@@ -217,6 +217,14 @@ class EventController extends Controller
             }
         }
 
+        if (array_key_exists('group_uuid', $data)) {
+            $group = $data['group_uuid']
+                ? \App\Models\Group::withMember($request->user())->where('uuid', $data['group_uuid'])->firstOrFail()
+                : null;
+            $data['group_id'] = $group?->id;
+            unset($data['group_uuid']);
+        }
+
         return $data;
     }
 
@@ -235,6 +243,7 @@ class EventController extends Controller
             'repeat_config' => ['nullable', 'array'],
             'participants' => ['sometimes', 'array'],
             'participants.*' => ['string', 'max:32'],
+            'group_uuid' => ['sometimes', 'nullable', 'uuid'],
         ]);
     }
 

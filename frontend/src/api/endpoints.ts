@@ -1,7 +1,8 @@
 import { api } from './client'
 import type {
-  AdminStats, AppNotification, CalendarEvent, CalendarFeedTask, Category,
-  Connection, DashboardSummary, Paginated, Task, User,
+  AdminStats, AppNotification, BrowseResult, CalendarEvent, CalendarFeedTask,
+  Category, Connection, DashboardSummary, FileItem, GroupItem, Note, Paginated,
+  ReportSummary, Task, User,
 } from '../types'
 
 // --- Auth -------------------------------------------------------------------
@@ -128,6 +129,80 @@ export const events = {
   respond: (uuid: string, status: 'accepted' | 'declined' | 'tentative') =>
     api.post(`/events/${uuid}/respond`, { status }),
   icsUrl: '/api/v1/calendar/export.ics',
+}
+
+// --- Notes ------------------------------------------------------------------
+
+export const notes = {
+  list: (params: Record<string, unknown> = {}) =>
+    api.get<Paginated<Note>>('/notes', { params }).then((r) => r.data),
+  get: (uuid: string, password?: string) =>
+    api.get<{ data: Note }>(`/notes/${uuid}`, {
+      headers: password ? { 'X-Note-Password': password } : {},
+    }).then((r) => r.data.data),
+  create: (payload: Record<string, unknown>) =>
+    api.post<{ data: Note }>('/notes', payload).then((r) => r.data.data),
+  update: (uuid: string, payload: Record<string, unknown>, password?: string) =>
+    api.put<{ data: Note }>(`/notes/${uuid}`, payload, {
+      headers: password ? { 'X-Note-Password': password } : {},
+    }).then((r) => r.data.data),
+  remove: (uuid: string) => api.delete(`/notes/${uuid}`),
+  share: (uuid: string, app_id: string, permission: 'view' | 'edit') =>
+    api.post(`/notes/${uuid}/share`, { app_id, permission }),
+}
+
+// --- Files ------------------------------------------------------------------
+
+export const files = {
+  browse: (folder?: string) =>
+    api.get<{ data: BrowseResult }>('/files/browse', { params: folder ? { folder } : {} }).then((r) => r.data.data),
+  upload: (fileList: File[], folder_uuid?: string) => {
+    const form = new FormData()
+    fileList.forEach((f) => form.append('files[]', f))
+    if (folder_uuid) form.append('folder_uuid', folder_uuid)
+    return api.post('/files/upload', form).then((r) => r.data)
+  },
+  downloadUrl: (uuid: string) => `/api/v1/files/${uuid}/download`,
+  rename: (uuid: string, name: string) => api.put(`/files/${uuid}`, { name }),
+  remove: (uuid: string) => api.delete(`/files/${uuid}`),
+  trash: () => api.get<Paginated<FileItem>>('/files/trash').then((r) => r.data),
+  restore: (uuid: string) => api.post(`/files/${uuid}/restore`),
+  forceDelete: (uuid: string) => api.delete(`/files/${uuid}/force`),
+  share: (uuid: string, app_id: string) => api.post(`/files/${uuid}/share`, { app_id }),
+  sharedWithMe: () => api.get<Paginated<FileItem>>('/files/shared-with-me').then((r) => r.data),
+  createFolder: (name: string, parent_uuid?: string) =>
+    api.post('/folders', { name, parent_uuid }),
+  renameFolder: (uuid: string, name: string) => api.put(`/folders/${uuid}`, { name }),
+  removeFolder: (uuid: string) => api.delete(`/folders/${uuid}`),
+}
+
+// --- Groups -----------------------------------------------------------------
+
+export const groups = {
+  list: () => api.get<{ data: GroupItem[] }>('/groups').then((r) => r.data.data),
+  get: (uuid: string) => api.get<{ data: GroupItem }>(`/groups/${uuid}`).then((r) => r.data.data),
+  create: (payload: Record<string, unknown>) =>
+    api.post<{ data: GroupItem }>('/groups', payload).then((r) => r.data.data),
+  update: (uuid: string, payload: Record<string, unknown>) =>
+    api.put<{ data: GroupItem }>(`/groups/${uuid}`, payload).then((r) => r.data.data),
+  remove: (uuid: string) => api.delete(`/groups/${uuid}`),
+  addMember: (uuid: string, app_id: string, role?: string) =>
+    api.post(`/groups/${uuid}/members`, { app_id, role }),
+  updateMember: (uuid: string, userUuid: string, role: string) =>
+    api.put(`/groups/${uuid}/members/${userUuid}`, { role }),
+  removeMember: (uuid: string, userUuid: string) =>
+    api.delete(`/groups/${uuid}/members/${userUuid}`),
+}
+
+// --- Reports ----------------------------------------------------------------
+
+export const reports = {
+  summary: () => api.get<{ data: ReportSummary }>('/reports/summary').then((r) => r.data.data),
+  productivity: (days = 30) =>
+    api.get<{ data: { date: string; completed: number; created: number }[] }>(
+      '/reports/productivity', { params: { days } },
+    ).then((r) => r.data.data),
+  csvUrl: '/api/v1/reports/export.csv',
 }
 
 // --- Admin ------------------------------------------------------------------

@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { CheckCircle2, Circle, Copy, Pin, Plus, Star, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { clsx } from 'clsx'
-import { categories as categoriesApi, tasks as tasksApi } from '../api/endpoints'
+import { categories as categoriesApi, groups as groupsApi, tasks as tasksApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea,
@@ -15,6 +15,7 @@ interface TaskFormState {
   title: string
   description: string
   category_uuid: string
+  group_uuid: string
   priority: string
   status: string
   due_at: string
@@ -29,6 +30,7 @@ const emptyForm: TaskFormState = {
   title: '',
   description: '',
   category_uuid: '',
+  group_uuid: '',
   priority: 'normal',
   status: 'not_started',
   due_at: '',
@@ -44,6 +46,7 @@ function formToPayload(form: TaskFormState): Record<string, unknown> {
     title: form.title,
     description: form.description || null,
     category_uuid: form.category_uuid || null,
+    group_uuid: form.group_uuid || null,
     priority: form.priority,
     status: form.status,
     due_at: form.due_at ? form.due_at.replace('T', ' ') + ':00' : null,
@@ -60,6 +63,7 @@ function taskToForm(task: Task): TaskFormState {
     title: task.title,
     description: task.description ?? '',
     category_uuid: task.category?.uuid ?? '',
+    group_uuid: task.group?.uuid ?? '',
     priority: task.priority,
     status: task.status,
     due_at: task.due_at ? format(new Date(task.due_at), "yyyy-MM-dd'T'HH:mm") : '',
@@ -95,6 +99,7 @@ export default function TasksPage() {
   })
 
   const { data: cats } = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list() })
+  const { data: myGroups } = useQuery({ queryKey: ['groups'], queryFn: groupsApi.list })
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['tasks'] })
@@ -377,13 +382,24 @@ export default function TasksPage() {
               </div>
             </div>
 
-            <div>
-              <Label>Assign to (App IDs, comma separated)</Label>
-              <Input
-                value={form.assignees}
-                onChange={(e) => setForm({ ...form, assignees: e.target.value })}
-                placeholder="MYPA-100005, MYPA-100006"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Assign to (App IDs, comma separated)</Label>
+                <Input
+                  value={form.assignees}
+                  onChange={(e) => setForm({ ...form, assignees: e.target.value })}
+                  placeholder="MYPA-100005, MYPA-100006"
+                />
+              </div>
+              <div>
+                <Label>Group (visible to all members)</Label>
+                <Select value={form.group_uuid} onChange={(e) => setForm({ ...form, group_uuid: e.target.value })}>
+                  <option value="">Personal task</option>
+                  {myGroups?.map((g) => (
+                    <option key={g.uuid} value={g.uuid}>{g.name}</option>
+                  ))}
+                </Select>
+              </div>
             </div>
 
             {/* Checklist */}

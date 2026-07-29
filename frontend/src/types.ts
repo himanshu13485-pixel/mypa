@@ -56,6 +56,7 @@ export interface Task {
   repeat_config?: { frequency: string; interval?: number; until?: string } | null
   completed_at?: string | null
   owner?: { uuid: string; name: string; app_id?: string }
+  group?: { uuid: string; name: string } | null
   category?: { uuid: string; name: string; icon?: string; color?: string } | null
   assignees?: { uuid: string; name: string; status: string }[]
   checklists?: ChecklistItem[]
@@ -173,6 +174,88 @@ export interface CalendarFeedTask {
 }
 
 export const EVENT_TYPES = ['event', 'meeting', 'appointment', 'birthday', 'anniversary', 'holiday'] as const
+
+export interface Note {
+  uuid: string
+  title: string
+  type: 'text' | 'checklist'
+  color?: string | null
+  is_pinned: boolean
+  is_locked: boolean
+  is_own: boolean
+  group?: { uuid: string; name: string } | null
+  body?: string | null
+  checklist?: { text: string; done?: boolean }[] | null
+  preview?: string | null
+  updated_at: string
+  created_at: string
+}
+
+export interface FileItem {
+  uuid: string
+  name: string
+  mime_type?: string | null
+  size: number
+  is_own: boolean
+  folder_uuid?: string | null
+  created_at: string
+  deleted_at?: string
+  owner?: { uuid: string; name: string }
+}
+
+export interface FolderItem {
+  uuid: string
+  name: string
+  files_count?: number
+  created_at?: string
+}
+
+export interface BrowseResult {
+  folder: { uuid: string; name: string } | null
+  breadcrumb: { uuid: string; name: string }[]
+  folders: FolderItem[]
+  files: FileItem[]
+  usage: { used_bytes: number; limit_bytes: number; percent: number }
+}
+
+export interface GroupItem {
+  uuid: string
+  name: string
+  type: string
+  description?: string | null
+  icon?: string | null
+  color?: string | null
+  is_owner: boolean
+  my_role: string | null
+  members_count: number
+  tasks_count: number
+  created_at?: string
+  members?: {
+    uuid: string
+    name: string
+    app_id?: string
+    photo_path?: string | null
+    role: string
+    joined_at?: string
+  }[]
+}
+
+export interface ReportSummary {
+  totals: {
+    total: number
+    completed: number
+    pending: number
+    overdue: number
+    important: number
+    completion_rate: number
+    avg_completion_hours: number | null
+  }
+  by_status: Record<string, number>
+  by_priority: Record<string, number>
+  by_category: { name: string; color?: string | null; total: number; completed: number }[]
+}
+
+export const GROUP_TYPES = ['family', 'team', 'business', 'other'] as const
 
 export const TASK_STATUSES = [
   'draft', 'not_started', 'planned', 'in_progress', 'waiting',

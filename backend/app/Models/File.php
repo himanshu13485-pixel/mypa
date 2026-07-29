@@ -9,26 +9,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-class Event extends Model
+class File extends Model
 {
     use HasUuids, SoftDeletes;
 
-    public const TYPES = ['event', 'meeting', 'appointment', 'birthday', 'anniversary', 'holiday'];
-
     protected $fillable = [
-        'user_id', 'group_id', 'title', 'description', 'type', 'starts_at', 'ends_at',
-        'all_day', 'location', 'meeting_link', 'color', 'repeat_config',
+        'user_id', 'folder_id', 'group_id', 'name', 'path', 'mime_type', 'size',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'starts_at' => 'datetime',
-            'ends_at' => 'datetime',
-            'all_day' => 'boolean',
-            'repeat_config' => 'array',
-        ];
-    }
+    protected $hidden = ['path'];
 
     public function uniqueIds(): array
     {
@@ -45,11 +34,9 @@ class Event extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function participants(): BelongsToMany
+    public function folder(): BelongsTo
     {
-        return $this->belongsToMany(User::class, 'event_participants')
-            ->withPivot('status')
-            ->withTimestamps();
+        return $this->belongsTo(Folder::class);
     }
 
     public function group(): BelongsTo
@@ -57,12 +44,19 @@ class Event extends Model
         return $this->belongsTo(Group::class);
     }
 
-    /** Events a user can see: own + invited to + their groups' events. */
+    public function sharedWith(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'file_shares')
+            ->withPivot('permission')
+            ->withTimestamps();
+    }
+
+    /** Files a user can access: own + shared + group files. */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         return $query->where(function (Builder $q) use ($user) {
             $q->where('user_id', $user->id)
-                ->orWhereHas('participants', fn ($p) => $p->where('users.id', $user->id))
+                ->orWhereHas('sharedWith', fn ($s) => $s->where('users.id', $user->id))
                 ->orWhereHas('group.members', fn ($m) => $m->where('users.id', $user->id));
         });
     }

@@ -120,6 +120,52 @@ use `GET /tasks?parent={uuid}` to list a task's subtasks. Task detail includes `
 **Timezones:** all submitted datetimes are interpreted in the authenticated user's profile
 timezone and stored/returned as UTC ISO-8601.
 
+## Notes
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /notes?q=&group= | paginated; locked notes return no content |
+| POST | /notes | title, body / checklist[], type, color, is_pinned, password?, group_uuid? |
+| GET | /notes/{uuid} | 423 when locked; send `X-Note-Password` header to unlock |
+| PUT | /notes/{uuid} | snapshots a version first; password change is owner-only |
+| DELETE | /notes/{uuid} | owner only |
+| POST | /notes/{uuid}/share | { app_id, permission: view\|edit } — locked notes can't be shared |
+| GET | /notes/{uuid}/versions | last 20 versions |
+
+## Files & Folders
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /files/browse?folder= | folders + files + breadcrumb + usage |
+| POST | /files/upload | multipart `files[]` (≤10), optional folder_uuid; size/extension/quota checks |
+| GET | /files/{uuid}/download | authenticated streamed download |
+| PUT | /files/{uuid} | rename / move (folder_uuid) |
+| DELETE | /files/{uuid} | → trash |
+| GET | /files/trash · POST /files/{uuid}/restore · DELETE /files/{uuid}/force | trash flow |
+| POST | /files/{uuid}/share | { app_id } |
+| GET | /files/shared-with-me · /files/usage | |
+| POST/PUT/DELETE | /folders[/{uuid}] | folder CRUD (nested via parent_uuid) |
+
+## Groups
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| CRUD | /groups | member-visible; owner deletes |
+| POST | /groups/{uuid}/members | { app_id, role } — owner/admin only |
+| PUT | /groups/{uuid}/members/{userUuid} | { role } |
+| DELETE | /groups/{uuid}/members/{userUuid} | remove, or leave (self) |
+| GET | /groups/{uuid}/tasks | group task list |
+
+Tasks and events accept `group_uuid`; group items are visible to all group members.
+
+## Reports
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /reports/summary | totals, completion rate, avg completion hours, by status/priority/category |
+| GET | /reports/productivity?days=30 | per-day created/completed series (7–90 days) |
+| GET | /reports/export.csv | task export, UTF-8 BOM |
+
 ## Planned (later phases)
-Notes, files, chat, calls, groups, habits, goals, reports,
+Chat, calls, habits, goals,
 subscription/payment endpoints (see spec §34.19), webhook `POST /api/webhooks/cashfree`.

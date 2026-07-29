@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
-  Calendar, CheckSquare, FolderKanban, LayoutDashboard, LogOut, Menu, Moon,
-  Settings, Shield, Star, Sun, Users, X,
+  BarChart3, Calendar, CheckSquare, FileText, FolderKanban, FolderOpen,
+  LayoutDashboard, LogOut, Menu, Moon, Settings, Shield, Star, Sun, UserPlus,
+  Users, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { auth } from '../api/endpoints'
@@ -15,7 +16,11 @@ const nav = [
   { to: '/tasks?important=1', label: 'Important', icon: Star },
   { to: '/calendar', label: 'Calendar', icon: Calendar },
   { to: '/categories', label: 'Categories', icon: FolderKanban },
-  { to: '/connections', label: 'Connections', icon: Users },
+  { to: '/notes', label: 'Notes', icon: FileText },
+  { to: '/files', label: 'Files', icon: FolderOpen },
+  { to: '/groups', label: 'Family & Teams', icon: Users },
+  { to: '/connections', label: 'Connections', icon: UserPlus },
+  { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/settings', label: 'Settings', icon: Settings },
 ]
 
