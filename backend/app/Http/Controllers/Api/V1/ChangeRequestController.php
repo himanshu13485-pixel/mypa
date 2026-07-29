@@ -162,11 +162,10 @@ class ChangeRequestController extends Controller
                 break;
 
             case 'email':
-                $user->update([
-                    'email' => $changeRequest->new_value,
-                    'email_verified_at' => null, // must re-verify
-                ]);
-                $user->sendEmailVerificationNotification();
+                // The new address activates only after the user enters the OTP
+                // that is emailed to it (proof of ownership).
+                app(\App\Services\MobileOtpService::class)
+                    ->issueEmail($user, $changeRequest->new_value);
                 break;
 
             case 'mobile':

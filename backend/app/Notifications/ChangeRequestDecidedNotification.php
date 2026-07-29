@@ -28,7 +28,7 @@ class ChangeRequestDecidedNotification extends Notification
         if ($approved && $type === 'mobile') {
             $extra = ' Verify the new number with the code in your notifications.';
         } elseif ($approved && $type === 'email') {
-            $extra = ' A verification link was sent to the new address.';
+            $extra = ' A verification code was emailed to the new address — enter it in Settings → Login identity.';
         }
 
         return [

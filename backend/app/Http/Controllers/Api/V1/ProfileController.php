@@ -24,7 +24,7 @@ class ProfileController extends Controller
             'date_of_birth' => ['sometimes', 'nullable', 'date', 'before:today'],
             'gender' => ['sometimes', 'nullable', 'string', 'max:32'],
             'country' => ['sometimes', 'nullable', 'string', 'max:64'],
-            'timezone' => ['sometimes', 'timezone'],
+            'timezone' => ['sometimes', 'timezone:all_with_bc'],
             'language' => ['sometimes', 'string', 'max:8'],
             'account_type' => ['sometimes', 'in:personal,business'],
             'bio' => ['sometimes', 'nullable', 'string', 'max:2000'],

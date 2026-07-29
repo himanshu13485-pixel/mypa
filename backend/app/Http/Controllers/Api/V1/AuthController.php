@@ -33,7 +33,7 @@ class AuthController extends Controller
             'date_of_birth' => ['nullable', 'date', 'before:today'],
             'gender' => ['nullable', 'string', 'max:32'],
             'country' => ['nullable', 'string', 'max:64'],
-            'timezone' => ['nullable', 'timezone'],
+            'timezone' => ['nullable', 'timezone:all_with_bc'],
             'language' => ['nullable', 'string', 'max:8'],
             'account_type' => ['nullable', 'in:personal,business'],
             'referral_app_id' => ['nullable', 'string', 'max:32'],
@@ -105,6 +105,48 @@ class AuthController extends Controller
         ], 201);
     }
 
+    /**
+     * Username helper for the signup form: suggests a unique handle derived
+     * from the full name (numeric suffix on collision), or checks availability.
+     */
+    public function suggestUsername(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name' => ['nullable', 'string', 'max:255'],
+            'username' => ['nullable', 'string', 'max:32'],
+        ]);
+
+        // Availability check for a manually typed username.
+        if (! empty($data['username'])) {
+            $candidate = mb_strtolower($data['username']);
+            $valid = (bool) preg_match('/^[a-z0-9]{4,20}$/', $candidate);
+            $available = $valid && ! User::whereRaw('LOWER(username) = ?', [$candidate])->exists();
+
+            return response()->json(['data' => ['available' => $available, 'valid' => $valid]]);
+        }
+
+        // Derive a base handle from the name: letters/digits only, lowercase.
+        $base = mb_strtolower(preg_replace('/[^a-zA-Z0-9]/', '', $data['name'] ?? ''));
+        if (mb_strlen($base) < 4) {
+            $base = $base !== '' ? str_pad($base, 4, (string) random_int(10, 99)) : 'user' . random_int(100, 999);
+        }
+        $base = mb_substr($base, 0, 20);
+
+        $candidate = $base;
+        $suffix = 0;
+        while (User::whereRaw('LOWER(username) = ?', [$candidate])->exists()) {
+            $suffix++;
+            $tail = (string) $suffix;
+            $candidate = mb_substr($base, 0, 20 - mb_strlen($tail)) . $tail;
+            if ($suffix > 500) { // pathological fallback
+                $candidate = mb_substr($base, 0, 14) . random_int(100000, 999999);
+                break;
+            }
+        }
+
+        return response()->json(['data' => ['suggestion' => $candidate, 'available' => true]]);
+    }
+
     /** Verify the mobile number with the in-app OTP. */
     public function verifyMobile(Request $request, \App\Services\MobileOtpService $otps): JsonResponse
     {
@@ -130,6 +172,21 @@ class AuthController extends Controller
         $otps->issue($request->user(), $request->user()->mobile);
 
         return response()->json(['message' => 'A new code has been sent to your notifications.']);
+    }
+
+    /** Verify a new/changed email address with the code sent to that inbox. */
+    public function verifyEmailOtp(Request $request, \App\Services\MobileOtpService $otps): JsonResponse
+    {
+        $data = $request->validate(['code' => ['required', 'string', 'max:8']]);
+
+        $otp = $otps->verify($request->user(), $data['code'], 'verify_email');
+
+        $request->user()->fresh()->forceFill([
+            'email' => $otp->mobile, // the pending address rides on the OTP row
+            'email_verified_at' => now(),
+        ])->save();
+
+        return response()->json(['message' => 'Email address verified and active.']);
     }
 
     public function login(Request $request): JsonResponse

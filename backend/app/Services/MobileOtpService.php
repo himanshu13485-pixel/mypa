@@ -36,6 +36,28 @@ class MobileOtpService
         return $otp;
     }
 
+    /** Email variant: the code goes to the NEW address (proof of ownership). */
+    public function issueEmail(User $user, string $email): MobileOtp
+    {
+        MobileOtp::where('user_id', $user->id)
+            ->where('purpose', 'verify_email')
+            ->whereNull('consumed_at')
+            ->update(['consumed_at' => now()]);
+
+        $otp = MobileOtp::create([
+            'user_id' => $user->id,
+            'mobile' => $email, // pending address rides on the OTP row
+            'code' => (string) random_int(100000, 999999),
+            'purpose' => 'verify_email',
+            'expires_at' => now()->addMinutes((int) AppSetting::get('otp_expiry_minutes')),
+        ]);
+
+        \Illuminate\Support\Facades\Notification::route('mail', $email)
+            ->notify(new \App\Notifications\EmailOtpNotification($otp));
+
+        return $otp;
+    }
+
     public function verify(User $user, string $code, string $purpose = 'verify_mobile'): MobileOtp
     {
         $otp = MobileOtp::where('user_id', $user->id)

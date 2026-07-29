@@ -16,6 +16,7 @@ export const auth = {
     api.post<{ data: User; token: string; must_change_password?: boolean }>('/auth/login', payload).then((r) => r.data),
   verifyMobile: (code: string) => api.post('/auth/mobile/verify', { code }),
   resendMobileOtp: () => api.post('/auth/mobile/resend-otp'),
+  verifyEmailOtp: (code: string) => api.post('/auth/email/verify-otp', { code }),
   logout: () => api.post('/auth/logout'),
   forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
   resetPassword: (payload: Record<string, string>) => api.post('/auth/reset-password', payload),

@@ -119,6 +119,67 @@ class IdentityTest extends TestCase
             ->assertCreated();
     }
 
+    public function test_registration_accepts_legacy_timezone_identifiers(): void
+    {
+        // Windows browsers report backward-compat zones like Asia/Calcutta.
+        $this->register(['timezone' => 'Asia/Calcutta'])->assertCreated();
+    }
+
+    public function test_username_suggestion_derives_from_name_and_dedupes(): void
+    {
+        $first = $this->getJson('/api/v1/auth/suggest-username?name=' . urlencode('Himanshu Sachdeva'));
+        $first->assertOk()->assertJsonPath('data.suggestion', 'himanshusachdeva');
+
+        // Take the suggestion, then the next person with the same name gets a suffix.
+        $this->register(['username' => 'himanshusachdeva', 'mobile' => '9812340001'])->assertCreated();
+
+        $second = $this->getJson('/api/v1/auth/suggest-username?name=' . urlencode('Himanshu Sachdeva'));
+        $second->assertOk()->assertJsonPath('data.suggestion', 'himanshusachdeva1');
+
+        // Availability check endpoint.
+        $this->getJson('/api/v1/auth/suggest-username?username=himanshusachdeva')
+            ->assertOk()->assertJsonPath('data.available', false);
+        $this->getJson('/api/v1/auth/suggest-username?username=freshname9')
+            ->assertOk()->assertJsonPath('data.available', true);
+        $this->getJson('/api/v1/auth/suggest-username?username=bad_name!')
+            ->assertOk()->assertJsonPath('data.valid', false);
+    }
+
+    public function test_email_added_via_otp_after_approval(): void
+    {
+        $this->register()->assertCreated(); // no email at signup
+        $user = User::where('username', 'ashak')->first();
+        $this->assertNull($user->email);
+
+        // User requests adding an email from the profile.
+        $this->actingAs($user)->postJson('/api/v1/me/change-requests', [
+            'type' => 'email', 'new_value' => 'asha.new@example.com',
+        ])->assertCreated();
+
+        $admin = $this->makeApprover('admin');
+        $uuid = $this->actingAs($admin)->getJson('/api/v1/admin/change-requests')->json('data.0.uuid');
+        $this->actingAs($admin)->postJson("/api/v1/admin/change-requests/{$uuid}", ['action' => 'approve'])->assertOk();
+
+        // Approval alone does NOT activate the email — the emailed OTP must be entered.
+        $this->assertNull($user->fresh()->email);
+
+        $otp = \App\Models\MobileOtp::where('user_id', $user->id)
+            ->where('purpose', 'verify_email')->whereNull('consumed_at')->latest()->first();
+        $this->assertEquals('asha.new@example.com', $otp->mobile);
+
+        // Wrong code rejected; right code activates + allows email login.
+        $this->actingAs($user)->postJson('/api/v1/auth/email/verify-otp', ['code' => '000000'])->assertUnprocessable();
+        $this->actingAs($user)->postJson('/api/v1/auth/email/verify-otp', ['code' => $otp->code])->assertOk();
+
+        $fresh = $user->fresh();
+        $this->assertEquals('asha.new@example.com', $fresh->email);
+        $this->assertNotNull($fresh->email_verified_at);
+
+        $this->postJson('/api/v1/auth/login', [
+            'identifier' => 'asha.new@example.com', 'password' => 'Password123',
+        ])->assertOk();
+    }
+
     // --- Change requests ------------------------------------------------------
 
     protected function makeApprover(string $role = 'subadmin'): User

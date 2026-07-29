@@ -7,9 +7,29 @@ import { useAuthStore } from '../stores/auth'
 import { Button, Card, ErrorNote, Input, Label, Select } from '../components/ui'
 
 function IdentityCard() {
-  const { user } = useAuthStore()
+  const { user, setUser } = useAuthStore()
   const queryClient = useQueryClient()
   const { data: requests } = useQuery({ queryKey: ['change-requests'], queryFn: identityApi.myRequests })
+  const [emailCode, setEmailCode] = useState('')
+
+  // An approved email change awaiting the emailed OTP.
+  const pendingEmail = requests?.find(
+    (r) => r.type === 'email' && r.status === 'approved' && r.new_value !== user?.email,
+  )
+
+  const verifyEmail = async () => {
+    if (emailCode.length < 6) return
+    try {
+      await auth.verifyEmailOtp(emailCode)
+      const fresh = await auth.me()
+      setUser(fresh)
+      setEmailCode('')
+      setFeedback('Email verified and active — you can now log in with it.')
+      queryClient.invalidateQueries({ queryKey: ['change-requests'] })
+    } catch (err) {
+      setFeedback(errorMessage(err))
+    }
+  }
   const [type, setType] = useState<'username' | 'mobile' | 'email'>('username')
   const [newValue, setNewValue] = useState('')
   const [countryCode, setCountryCode] = useState(user?.country_code ?? '+91')
@@ -89,6 +109,26 @@ function IdentityCard() {
         </Button>
       </div>
       {feedback && <p className="mt-2 text-xs text-slate-500">{feedback}</p>}
+
+      {pendingEmail && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-brand-50 p-3 text-xs text-brand-800 dark:bg-brand-950 dark:text-brand-200">
+          <span>
+            Enter the code emailed to <b>{pendingEmail.new_value}</b> to activate it:
+          </span>
+          <Input
+            className="h-7 w-28 py-1 text-center tracking-widest"
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="123456"
+            value={emailCode}
+            onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, ''))}
+            onKeyDown={(e) => e.key === 'Enter' && verifyEmail()}
+          />
+          <Button size="sm" onClick={verifyEmail} disabled={emailCode.length < 6}>
+            Verify email
+          </Button>
+        </div>
+      )}
 
       {requests && requests.length > 0 && (
         <div className="mt-3 space-y-1">

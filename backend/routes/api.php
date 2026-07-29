@@ -41,6 +41,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
     });
 
+    Route::get('/auth/suggest-username', [AuthController::class, 'suggestUsername'])
+        ->middleware('throttle:30,1');
+
     Route::get('/auth/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
         ->middleware(['signed', 'throttle:6,1'])
         ->name('verification.verify');
@@ -57,6 +60,8 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:10,1');
         Route::post('/auth/mobile/resend-otp', [AuthController::class, 'resendMobileOtp'])
             ->middleware('throttle:5,1');
+        Route::post('/auth/email/verify-otp', [AuthController::class, 'verifyEmailOtp'])
+            ->middleware('throttle:10,1');
         Route::get('/auth/sessions', [AuthController::class, 'sessions']);
         Route::delete('/auth/sessions/{tokenId}', [AuthController::class, 'revokeSession']);
         Route::get('/auth/login-history', [AuthController::class, 'loginHistory']);

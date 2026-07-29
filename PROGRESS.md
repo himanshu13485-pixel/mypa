@@ -2,6 +2,25 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-30 — Signup refinements ✅ (user-requested)
+
+- [x] **Fixed:** registration failed with "The timezone field must be a valid timezone"
+      on Windows browsers (Asia/Calcutta is a backward-compat zone) — validation now
+      uses `timezone:all_with_bc`
+- [x] Email removed from the signup form — added later from Settings → Login identity;
+      after admin approval a **6-digit OTP is emailed to the new address** and the email
+      activates only when the code is entered (replaces the old verification link)
+- [x] Signup is now two steps: account details → **verify mobile OTP inline** (the
+      app-inbox message is rendered right on the page with resend/refresh) — the user
+      proceeds into the app only after verification
+- [x] **Username auto-suggestion**: typing the full name fills a unique handle derived
+      from it (e.g. `himanshusachdeva`); collisions get a numeric suffix
+      (`himanshusachdeva1`); manual edits get live availability checks
+      (✓ available / ✗ taken) via `GET /auth/suggest-username`
+
+**Verified:** 120 backend tests green (520 assertions); live checks for the suggestion
+endpoint and Asia/Calcutta registration.
+
 ## 2026-07-30 — Identity overhaul + sidebar badges ✅ (user-requested)
 
 **Mobile-first registration with app-to-app OTP**
