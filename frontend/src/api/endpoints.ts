@@ -1,6 +1,7 @@
 import { api } from './client'
 import type {
-  AdminStats, Category, Connection, DashboardSummary, Paginated, Task, User,
+  AdminStats, AppNotification, CalendarEvent, CalendarFeedTask, Category,
+  Connection, DashboardSummary, Paginated, Task, User,
 } from '../types'
 
 // --- Auth -------------------------------------------------------------------
@@ -90,6 +91,43 @@ export const connections = {
   blocks: () => api.get<{ data: { uuid: string; name: string; app_id?: string }[] }>('/blocks').then((r) => r.data.data),
   block: (app_id: string, reason?: string) => api.post('/blocks', { app_id, reason }),
   unblock: (app_id: string) => api.delete(`/blocks/${app_id}`),
+}
+
+// --- Notifications ----------------------------------------------------------
+
+export const notifications = {
+  list: (unread = false) =>
+    api.get<Paginated<AppNotification>>('/notifications', { params: unread ? { unread: 1 } : {} }).then((r) => r.data),
+  unreadCount: () =>
+    api.get<{ data: { count: number } }>('/notifications/unread-count').then((r) => r.data.data.count),
+  markRead: (id: string) => api.post(`/notifications/${id}/read`),
+  markAllRead: () => api.post('/notifications/read-all'),
+  remove: (id: string) => api.delete(`/notifications/${id}`),
+}
+
+// --- Reminders --------------------------------------------------------------
+
+export const reminders = {
+  upcoming: () => api.get('/reminders/upcoming').then((r) => r.data),
+  snooze: (id: number, minutes: number) => api.post(`/reminders/${id}/snooze`, { minutes }),
+  acknowledge: (id: number) => api.post(`/reminders/${id}/acknowledge`),
+}
+
+// --- Events & calendar ------------------------------------------------------
+
+export const events = {
+  feed: (date_from: string, date_to: string) =>
+    api.get<{ data: { events: CalendarEvent[]; tasks: CalendarFeedTask[] } }>(
+      '/calendar/feed', { params: { date_from, date_to } },
+    ).then((r) => r.data.data),
+  create: (payload: Record<string, unknown>) =>
+    api.post<{ data: CalendarEvent }>('/events', payload).then((r) => r.data.data),
+  update: (uuid: string, payload: Record<string, unknown>) =>
+    api.put<{ data: CalendarEvent }>(`/events/${uuid}`, payload).then((r) => r.data.data),
+  remove: (uuid: string) => api.delete(`/events/${uuid}`),
+  respond: (uuid: string, status: 'accepted' | 'declined' | 'tentative') =>
+    api.post(`/events/${uuid}/respond`, { status }),
+  icsUrl: '/api/v1/calendar/export.ics',
 }
 
 // --- Admin ------------------------------------------------------------------

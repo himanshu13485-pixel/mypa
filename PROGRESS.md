@@ -2,6 +2,48 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-29 — Phase 2 complete ✅
+
+**Reminder engine**
+- [x] `mypa:process-reminders` scheduled every minute → dispatches queued `SendTaskReminder` jobs
+- [x] `TaskReminderNotification` (database + mail channels, respects user notification preferences)
+- [x] Snooze (minutes or until) and acknowledge endpoints; repeat-until-acknowledged re-nags every 10 min
+- [x] Reminders auto-cancel when the task is completed/cancelled/archived
+- [x] Timezone fix: all submitted datetimes (tasks, reminders, events) are interpreted in the
+      user's profile timezone and stored as UTC — reminders fire at the user's local wall time
+
+**Recurring tasks**
+- [x] `RecurringTaskService`: daily/weekly/monthly/yearly/custom + interval + until;
+      clones checklists (reset), reminders (re-offset to new due date), assignees, tags
+- [x] Completing a recurring task instantly spawns the next occurrence
+- [x] `mypa:generate-recurring` hourly job also rolls forward missed occurrences
+
+**Notifications**
+- [x] Database notifications + API: list, unread count, mark read / mark all, delete
+- [x] Daily pruning of read notifications older than 60 days
+- [x] Frontend notification bell: unread badge (30s polling), panel with
+      Complete / Snooze 30m / dismiss actions, deep-links to the task
+
+**Subtasks**
+- [x] `tasks.parent_id` (one level), hidden from top-level lists, `?parent=` listing,
+      inline subtask add/toggle/delete in the task modal
+
+**Events & calendar**
+- [x] Events CRUD with types (event/meeting/appointment/birthday/anniversary/holiday),
+      participants invited by App ID with accept/decline/tentative RSVP
+- [x] Combined `/calendar/feed` (events + due tasks); calendar UI shows both, double-click
+      to create, click event to edit, deep-link tasks
+- [x] ICS export (`/calendar/export.ics`) with events + due tasks
+
+**Verified:** 43 backend tests green (131 assertions); live pipeline test
+(create reminder → scheduler → queue → notification API) passed; frontend build clean.
+
+## Next: Phase 3
+- Notes module (rich text, checklists, pinned, password-protected architecture)
+- File management (folders, upload/download, sharing, storage limits)
+- Family/team groups (roles, shared tasks, group calendar)
+- Reports module
+
 ## 2026-07-29 — Phase 1 complete ✅
 
 **Backend (Laravel 12, `backend/`)**

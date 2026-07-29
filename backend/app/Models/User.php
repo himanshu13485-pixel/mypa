@@ -97,6 +97,11 @@ class User extends Authenticatable implements MustVerifyEmail
             ->withTimestamps();
     }
 
+    public function events(): HasMany
+    {
+        return $this->hasMany(Event::class);
+    }
+
     public function sentConnections(): HasMany
     {
         return $this->hasMany(Connection::class, 'requester_id');

@@ -9,6 +9,9 @@ use App\Http\Controllers\Api\V1\BlockController;
 use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\ConnectionController;
 use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\EventController;
+use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\ReminderController;
 use App\Http\Controllers\Api\V1\ProfileController;
 use App\Http\Controllers\Api\V1\TaskController;
 use Illuminate\Support\Facades\Route;
@@ -75,6 +78,24 @@ Route::prefix('v1')->group(function () {
         Route::put('/tasks/{task}/checklist/{itemId}', [TaskController::class, 'updateChecklistItem']);
         Route::delete('/tasks/{task}/checklist/{itemId}', [TaskController::class, 'deleteChecklistItem']);
         Route::post('/tasks/{task}/comments', [TaskController::class, 'addComment']);
+
+        // Reminders
+        Route::get('/reminders/upcoming', [ReminderController::class, 'upcoming']);
+        Route::post('/reminders/{reminder}/snooze', [ReminderController::class, 'snooze']);
+        Route::post('/reminders/{reminder}/acknowledge', [ReminderController::class, 'acknowledge']);
+
+        // Notifications
+        Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+        Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
+        Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
+
+        // Events & calendar
+        Route::get('/calendar/feed', [EventController::class, 'feed']);
+        Route::get('/calendar/export.ics', [EventController::class, 'exportIcs']);
+        Route::apiResource('events', EventController::class);
+        Route::post('/events/{event}/respond', [EventController::class, 'respond']);
 
         // --- Admin --------------------------------------------------------
         Route::prefix('admin')->middleware('role:admin,super_admin')->group(function () {

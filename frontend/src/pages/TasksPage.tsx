@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { CheckCircle2, Circle, Copy, Pin, Plus, Star, Trash2 } from 'lucide-react'
@@ -78,6 +78,7 @@ export default function TasksPage() {
   const [editing, setEditing] = useState<Task | null>(null)
   const [form, setForm] = useState<TaskFormState>(emptyForm)
   const [error, setError] = useState<string | null>(null)
+  const [subtaskTitle, setSubtaskTitle] = useState('')
 
   const filters = useMemo(() => {
     const f: Record<string, string> = {}
@@ -130,6 +131,21 @@ export default function TasksPage() {
     mutationFn: (uuid: string) => tasksApi.duplicate(uuid),
     onSuccess: invalidate,
   })
+
+  // Deep link: /tasks?open=<uuid> (from dashboard rows and notifications).
+  useEffect(() => {
+    const uuid = params.get('open')
+    if (!uuid) return
+    tasksApi.get(uuid).then((full) => {
+      setEditing(full)
+      setForm(taskToForm(full))
+      setShowForm(true)
+    }).catch(() => undefined)
+    const next = new URLSearchParams(params)
+    next.delete('open')
+    setParams(next, { replace: true })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.get('open')])
 
   const openCreate = () => {
     setEditing(null)
@@ -413,6 +429,62 @@ export default function TasksPage() {
                 </Button>
               </div>
             </div>
+
+            {/* Subtasks (existing tasks only) */}
+            {editing && (
+              <div>
+                <Label>Subtasks</Label>
+                <div className="space-y-1.5">
+                  {(editing.subtasks ?? []).map((sub) => (
+                    <div key={sub.uuid} className="flex items-center gap-2 rounded-lg border border-slate-200 px-2.5 py-1.5 dark:border-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={sub.status === 'completed'}
+                        onChange={async () => {
+                          await tasksApi.setStatus(sub.uuid, sub.status === 'completed' ? 'not_started' : 'completed')
+                          const full = await tasksApi.get(editing.uuid)
+                          setEditing(full)
+                          invalidate()
+                        }}
+                      />
+                      <span className={clsx('flex-1 text-sm', sub.status === 'completed' && 'text-slate-400 line-through')}>
+                        {sub.title}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-slate-400 hover:text-red-600"
+                        onClick={async () => {
+                          await tasksApi.remove(sub.uuid)
+                          const full = await tasksApi.get(editing.uuid)
+                          setEditing(full)
+                          invalidate()
+                        }}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="Add a subtask and press Enter…"
+                      value={subtaskTitle}
+                      onChange={(e) => setSubtaskTitle(e.target.value)}
+                      onKeyDown={async (e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          if (!subtaskTitle.trim()) return
+                          await tasksApi.create({ title: subtaskTitle.trim(), parent_uuid: editing.uuid })
+                          setSubtaskTitle('')
+                          const full = await tasksApi.get(editing.uuid)
+                          setEditing(full)
+                          invalidate()
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <label className="flex items-center gap-2 text-sm">
               <input

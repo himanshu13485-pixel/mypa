@@ -16,7 +16,7 @@ class Task extends Model
     use HasUuids, SoftDeletes;
 
     protected $fillable = [
-        'user_id', 'category_id', 'title', 'description', 'priority', 'status',
+        'user_id', 'category_id', 'parent_id', 'title', 'description', 'priority', 'status',
         'start_at', 'due_at', 'estimated_minutes', 'actual_minutes', 'progress',
         'location', 'contact_person', 'color', 'is_important', 'is_confidential',
         'is_favourite', 'is_pinned', 'repeat_config', 'completed_at', 'archived_at',
@@ -57,6 +57,16 @@ class Task extends Model
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
+    }
+
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(Task::class, 'parent_id');
+    }
+
+    public function subtasks(): HasMany
+    {
+        return $this->hasMany(Task::class, 'parent_id');
     }
 
     public function assignees(): BelongsToMany

@@ -61,6 +61,8 @@ export interface Task {
   checklists?: ChecklistItem[]
   reminders?: { id: number; remind_at: string; offset_minutes?: number | null; channels?: string[] }[]
   tags?: string[]
+  parent?: { uuid: string; title: string } | null
+  subtasks?: Task[]
   created_at: string
   updated_at?: string
 }
@@ -124,6 +126,53 @@ export interface AdminStats {
   tasks: { total: number; completed: number; overdue: number; created_this_week: number }
   registrations_by_day: { date: string; count: number }[]
 }
+
+export interface AppNotification {
+  id: string
+  type: string
+  data: {
+    kind: string
+    reminder_id?: number
+    task_uuid?: string
+    task_title?: string
+    due_at?: string | null
+    priority?: string
+    message: string
+    actions?: string[]
+  }
+  read_at: string | null
+  created_at: string
+}
+
+export interface CalendarEvent {
+  kind: 'event'
+  uuid: string
+  title: string
+  description?: string | null
+  type: string
+  starts_at: string
+  ends_at?: string | null
+  all_day: boolean
+  location?: string | null
+  meeting_link?: string | null
+  color?: string | null
+  is_own: boolean
+  participants: { uuid: string; name: string; status: string }[]
+  created_at?: string
+}
+
+export interface CalendarFeedTask {
+  kind: 'task'
+  uuid: string
+  title: string
+  starts_at: string
+  all_day: boolean
+  color?: string | null
+  status: string
+  priority: string
+}
+
+export const EVENT_TYPES = ['event', 'meeting', 'appointment', 'birthday', 'anniversary', 'holiday'] as const
 
 export const TASK_STATUSES = [
   'draft', 'not_started', 'planned', 'in_progress', 'waiting',

@@ -1,8 +1,17 @@
 <?php
 
-use Illuminate\Foundation\Inspiring;
-use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Schedule;
 
-Artisan::command('inspire', function () {
-    $this->comment(Inspiring::quote());
-})->purpose('Display an inspiring quote');
+// Reminder engine: dispatch due reminders every minute.
+Schedule::command('mypa:process-reminders')->everyMinute()->withoutOverlapping();
+
+// Recurring tasks: roll forward completed/missed occurrences.
+Schedule::command('mypa:generate-recurring')->hourly()->withoutOverlapping();
+
+// Housekeeping: purge read notifications older than 60 days.
+Schedule::call(function () {
+    \Illuminate\Support\Facades\DB::table('notifications')
+        ->whereNotNull('read_at')
+        ->where('created_at', '<', now()->subDays(60))
+        ->delete();
+})->daily()->name('prune-read-notifications');

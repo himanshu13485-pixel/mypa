@@ -7,6 +7,7 @@ import {
 import { clsx } from 'clsx'
 import { auth } from '../api/endpoints'
 import { isAdmin, useAuthStore } from '../stores/auth'
+import NotificationBell from './NotificationBell'
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -130,6 +131,7 @@ export default function Layout() {
           </button>
           <div className="hidden lg:block" />
           <div className="flex items-center gap-2">
+            <NotificationBell />
             <button
               onClick={() => setDark(!dark)}
               className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"

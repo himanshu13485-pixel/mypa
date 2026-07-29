@@ -62,6 +62,11 @@ class TaskResource extends JsonResource
                 'channels' => $r->channels,
             ])),
             'tags' => $this->whenLoaded('tags', fn () => $this->tags->pluck('name')),
+            'parent' => $this->whenLoaded('parent', fn () => $this->parent ? [
+                'uuid' => $this->parent->uuid,
+                'title' => $this->parent->title,
+            ] : null),
+            'subtasks' => TaskResource::collection($this->whenLoaded('subtasks')),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

@@ -61,6 +61,12 @@ class TaskController extends Controller
         if (! $request->boolean('include_archived')) {
             $query->where('status', '!=', 'archived');
         }
+        // Subtasks stay nested under their parent unless explicitly requested.
+        if ($parentUuid = $request->query('parent')) {
+            $query->whereHas('parent', fn ($p) => $p->where('uuid', $parentUuid));
+        } elseif (! $request->boolean('include_subtasks')) {
+            $query->whereNull('parent_id');
+        }
 
         // Sorting
         $sort = $request->query('sort', '-created_at');
@@ -118,7 +124,7 @@ class TaskController extends Controller
 
         return new TaskResource($task->load([
             'category', 'user.appId', 'checklists', 'reminders', 'assignees', 'tags',
-            'comments.user', 'comments.replies.user',
+            'comments.user', 'comments.replies.user', 'subtasks.category', 'parent',
         ]));
     }
 
@@ -191,6 +197,10 @@ class TaskController extends Controller
         $task->update($update);
         $task->logActivity($request->user(), 'status_changed', ['status' => $data['status']]);
 
+        if ($data['status'] === 'completed') {
+            $this->spawnNextOccurrence($task);
+        }
+
         return response()->json([
             'message' => 'Status updated.',
             'data' => new TaskResource($task->fresh()->load(['category'])),
@@ -208,6 +218,10 @@ class TaskController extends Controller
             'status' => $data['progress'] === 100 ? 'completed' : $task->status,
             'completed_at' => $data['progress'] === 100 ? now() : $task->completed_at,
         ]);
+
+        if ($data['progress'] === 100) {
+            $this->spawnNextOccurrence($task);
+        }
 
         return response()->json([
             'message' => 'Progress updated.',
@@ -375,6 +389,7 @@ class TaskController extends Controller
             'title' => [$required, 'string', 'max:255'],
             'description' => ['nullable', 'string', 'max:10000'],
             'category_uuid' => ['nullable', 'uuid'],
+            'parent_uuid' => ['nullable', 'uuid'],
             'priority' => ['sometimes', 'in:' . implode(',', config('mypa.task_priorities'))],
             'status' => ['sometimes', 'in:' . implode(',', config('mypa.task_statuses'))],
             'start_at' => ['nullable', 'date'],
@@ -407,13 +422,39 @@ class TaskController extends Controller
             'assignees.*' => ['string', 'max:32'],
         ]);
 
-        $taskData = array_diff_key($data, array_flip(['category_uuid', 'checklist', 'reminders', 'tags', 'assignees']));
+        $taskData = array_diff_key($data, array_flip(['category_uuid', 'parent_uuid', 'checklist', 'reminders', 'tags', 'assignees']));
+
+        // Datetimes arrive as wall-clock time in the user's timezone; store UTC.
+        $tz = $request->user()->profile?->timezone ?? config('app.timezone');
+        foreach (['start_at', 'due_at'] as $field) {
+            if (! empty($taskData[$field])) {
+                $taskData[$field] = \Illuminate\Support\Carbon::parse($taskData[$field], $tz)->utc();
+            }
+        }
+        if (isset($data['reminders'])) {
+            foreach ($data['reminders'] as $i => $reminder) {
+                if (! empty($reminder['remind_at'])) {
+                    $data['reminders'][$i]['remind_at'] = \Illuminate\Support\Carbon::parse($reminder['remind_at'], $tz)->utc();
+                }
+            }
+        }
 
         if (array_key_exists('category_uuid', $data)) {
             $category = $data['category_uuid']
                 ? Category::visibleTo($request->user())->where('uuid', $data['category_uuid'])->firstOrFail()
                 : null;
             $taskData['category_id'] = $category?->id;
+        }
+
+        if (array_key_exists('parent_uuid', $data)) {
+            $parent = $data['parent_uuid']
+                ? Task::visibleTo($request->user())->where('uuid', $data['parent_uuid'])->firstOrFail()
+                : null;
+            // One level of nesting: a subtask cannot itself have subtasks.
+            if ($parent?->parent_id) {
+                abort(422, 'Subtasks cannot be nested further.');
+            }
+            $taskData['parent_id'] = $parent?->id;
         }
 
         return [
@@ -423,6 +464,22 @@ class TaskController extends Controller
             'tags' => $data['tags'] ?? [],
             'assignees' => $data['assignees'] ?? [],
         ];
+    }
+
+    /** Completed recurring tasks immediately spawn their next occurrence. */
+    protected function spawnNextOccurrence(Task $task): void
+    {
+        if (! $task->repeat_config) {
+            return;
+        }
+
+        $next = app(\App\Services\RecurringTaskService::class)
+            ->generateNext($task->load(['checklists', 'reminders', 'assignees', 'tags']));
+
+        if ($next) {
+            // The finished occurrence leaves the series; the new one carries it on.
+            $task->updateQuietly(['repeat_config' => null]);
+        }
     }
 
     protected function offsetRemindAt(Task $task, array $reminder): ?\Illuminate\Support\Carbon

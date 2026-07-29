@@ -82,6 +82,44 @@ Share: `POST /categories/{uuid}/share { app_id, permission }`.
 | GET | /admin/roles · /admin/permissions | list |
 | GET | /admin/login-histories | all users |
 
+## Reminders
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /reminders/upcoming | pending reminders for open tasks |
+| POST | /reminders/{id}/snooze | { minutes } or { until } |
+| POST | /reminders/{id}/acknowledge | dismiss permanently |
+
+Reminder scheduling: `mypa:process-reminders` runs every minute (Laravel scheduler) and
+dispatches queued `SendTaskReminder` jobs. Run `php artisan schedule:work` + `php artisan queue:work` in dev.
+
+## Notifications
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /notifications?unread=1 | paginated |
+| GET | /notifications/unread-count | `{ data: { count } }` |
+| POST | /notifications/read-all | |
+| POST | /notifications/{id}/read | |
+| DELETE | /notifications/{id} | |
+
+## Events & Calendar
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET | /calendar/feed?date_from&date_to | `{ events: [], tasks: [] }` combined |
+| GET | /calendar/export.ics | ICS download (events + due tasks) |
+| CRUD | /events | type, starts_at/ends_at, all_day, location, meeting_link, participants (App IDs) |
+| POST | /events/{uuid}/respond | { status: accepted\|declined\|tentative } |
+
+## Subtasks
+
+Tasks accept `parent_uuid` (one level of nesting). Top-level task lists exclude subtasks;
+use `GET /tasks?parent={uuid}` to list a task's subtasks. Task detail includes `subtasks[]`.
+
+**Timezones:** all submitted datetimes are interpreted in the authenticated user's profile
+timezone and stored/returned as UTC ISO-8601.
+
 ## Planned (later phases)
-Notes, files, chat, calls, groups, calendar/events, habits, goals, reports, notifications API,
+Notes, files, chat, calls, groups, habits, goals, reports,
 subscription/payment endpoints (see spec §34.19), webhook `POST /api/webhooks/cashfree`.
