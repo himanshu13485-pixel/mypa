@@ -21,12 +21,16 @@ class User extends Authenticatable implements MustVerifyEmail
 
     protected $fillable = [
         'name',
+        'username',
         'email',
         'mobile',
+        'country_code',
         'password',
         'status',
         'force_password_change',
         'last_login_at',
+        'username_changed_at',
+        'mobile_verified_at',
     ];
 
     protected $hidden = [
@@ -41,6 +45,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'mobile_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
             'force_password_change' => 'boolean',
+            'username_changed_at' => 'datetime',
             'password' => 'hashed',
         ];
     }

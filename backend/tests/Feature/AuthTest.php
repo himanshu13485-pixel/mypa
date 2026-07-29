@@ -21,6 +21,9 @@ class AuthTest extends TestCase
     {
         $response = $this->postJson('/api/v1/auth/register', [
             'name' => 'Test User',
+            'country_code' => '+91',
+            'mobile' => '9812345678',
+            'username' => 'testuser1',
             'email' => 'test@example.com',
             'password' => 'Password123',
             'password_confirmation' => 'Password123',
@@ -28,10 +31,12 @@ class AuthTest extends TestCase
         ]);
 
         $response->assertCreated()
-            ->assertJsonStructure(['data' => ['uuid', 'name', 'app_id', 'roles'], 'token']);
+            ->assertJsonStructure(['data' => ['uuid', 'name', 'username', 'app_id', 'roles'], 'token'])
+            ->assertJsonPath('mobile_verification_pending', true);
 
         $this->assertStringStartsWith('MYPA-', $response->json('data.app_id'));
         $this->assertContains('user', $response->json('data.roles'));
+        $this->assertDatabaseHas('users', ['mobile' => '+919812345678', 'username' => 'testuser1']);
         $this->assertDatabaseHas('user_profiles', []);
         $this->assertDatabaseHas('user_settings', []);
     }
@@ -42,6 +47,9 @@ class AuthTest extends TestCase
 
         $this->postJson('/api/v1/auth/register', [
             'name' => 'Dupe',
+            'country_code' => '+91',
+            'mobile' => '9811111111',
+            'username' => 'dupeuser',
             'email' => 'dupe@example.com',
             'password' => 'Password123',
             'password_confirmation' => 'Password123',

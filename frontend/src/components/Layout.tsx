@@ -6,11 +6,20 @@ import {
   Settings, Shield, Star, Sun, Target, UserPlus, Users, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { auth } from '../api/endpoints'
+import { useQuery } from '@tanstack/react-query'
+import { auth, badges as badgesApi } from '../api/endpoints'
 import { isAdmin, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
 import { CallProvider } from './CallManager'
 import VoiceAssistant from './VoiceAssistant'
+import MobileVerifyBanner from './MobileVerifyBanner'
+
+/** Sidebar rows that carry an unattended-items badge. */
+const BADGE_KEYS: Record<string, 'messages' | 'calls' | 'connections'> = {
+  '/messages': 'messages',
+  '/calls': 'calls',
+  '/connections': 'connections',
+}
 
 const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -50,6 +59,12 @@ export default function Layout() {
     localStorage.setItem('mypa-theme', dark ? 'dark' : 'light')
   }, [dark])
 
+  const { data: badges } = useQuery({
+    queryKey: ['badges'],
+    queryFn: badgesApi.get,
+    refetchInterval: 30_000,
+  })
+
   const logout = async () => {
     try {
       await auth.logout()
@@ -61,7 +76,10 @@ export default function Layout() {
 
   const links = (
     <nav className="flex flex-1 flex-col gap-0.5 p-3">
-      {nav.map(({ to, label, icon: Icon }) => (
+      {nav.map(({ to, label, icon: Icon }) => {
+        const badgeKey = BADGE_KEYS[to]
+        const count = badgeKey && badges ? badges[badgeKey] : 0
+        return (
         <NavLink
           key={to}
           to={to}
@@ -77,9 +95,15 @@ export default function Layout() {
           }
         >
           <Icon className="size-4" />
-          {label}
+          <span className="flex-1">{label}</span>
+          {count > 0 && (
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand-600 px-1.5 text-[11px] font-semibold text-white">
+              {count > 99 ? '99+' : count}
+            </span>
+          )}
         </NavLink>
-      ))}
+        )
+      })}
       {isAdmin(user) && (
         <NavLink
           to="/admin"
@@ -161,6 +185,7 @@ export default function Layout() {
             </button>
           </div>
         </header>
+        <MobileVerifyBanner />
         {user?.must_change_password && (
           <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-center text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
             You are using a default password. Please{' '}

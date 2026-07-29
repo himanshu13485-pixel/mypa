@@ -1,11 +1,19 @@
-import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PhoneIncoming, PhoneMissed, PhoneOutgoing, Video } from 'lucide-react'
 import { format } from 'date-fns'
-import { calls } from '../api/endpoints'
+import { badges as badgesApi, calls } from '../api/endpoints'
 import { Badge, Card, EmptyState, Spinner } from '../components/ui'
 
 export default function CallsPage() {
+  const queryClient = useQueryClient()
   const { data, isLoading } = useQuery({ queryKey: ['calls-history'], queryFn: calls.history })
+
+  // Opening the page "attends" missed calls — the sidebar badge clears.
+  useEffect(() => {
+    badgesApi.markCallsSeen().then(() => queryClient.invalidateQueries({ queryKey: ['badges'] }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className="space-y-4">

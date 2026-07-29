@@ -65,12 +65,7 @@ class AppIdService
      */
     public function findVisibleUser(string $appId, User $viewer): ?User
     {
-        $record = AppId::with('user.settings', 'user.profile')
-            ->where('app_id', strtoupper(trim($appId)))
-            ->where('is_active', true)
-            ->first();
-
-        $target = $record?->user;
+        $target = $this->lookup(trim($appId));
 
         if (! $target || $target->status !== 'active' || $target->id === $viewer->id) {
             return $target?->id === $viewer->id ? $target : null;
@@ -91,6 +86,35 @@ class AppIdService
         }
 
         return $target;
+    }
+
+    /**
+     * Resolve any identity handle to a user: App ID (MYPA-…), username, or
+     * mobile number with ISD code.
+     */
+    protected function lookup(string $identifier): ?User
+    {
+        // App ID
+        if (preg_match('/^' . preg_quote(config('mypa.app_id_prefix', 'MYPA'), '/') . '-/i', $identifier)) {
+            return AppId::with('user.settings', 'user.profile')
+                ->where('app_id', strtoupper($identifier))
+                ->where('is_active', true)
+                ->first()?->user;
+        }
+
+        // Mobile with ISD code
+        $digits = preg_replace('/[\s\-()]/', '', $identifier);
+        if (preg_match('/^\+?[0-9]{6,16}$/', $digits)) {
+            return User::with(['settings', 'profile'])
+                ->where('mobile', $digits)
+                ->orWhere('mobile', '+' . ltrim($digits, '+'))
+                ->first();
+        }
+
+        // Username
+        return User::with(['settings', 'profile'])
+            ->whereRaw('LOWER(username) = ?', [mb_strtolower($identifier)])
+            ->first();
     }
 
     public function areConnected(User $a, User $b): bool

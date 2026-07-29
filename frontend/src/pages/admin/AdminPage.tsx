@@ -1,12 +1,116 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Ban, CheckCircle2, Plus, RefreshCw, Search, Shield, Users } from 'lucide-react'
-import { admin } from '../../api/endpoints'
+import { Ban, CheckCircle2, ClipboardCheck, KeyRound, Plus, RefreshCw, Search, Shield, Users } from 'lucide-react'
+import { admin, identity as identityApi } from '../../api/endpoints'
+import { api } from '../../api/client'
 import { errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner,
 } from '../../components/ui'
+
+function ApprovalsCard() {
+  const queryClient = useQueryClient()
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-change-requests'],
+    queryFn: identityApi.pending,
+    refetchInterval: 60_000,
+  })
+
+  const reviewMutation = useMutation({
+    mutationFn: ({ uuid, action, note }: { uuid: string; action: 'approve' | 'reject'; note?: string }) =>
+      identityApi.review(uuid, action, note),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-change-requests'] }),
+    onError: (err) => alert(errorMessage(err)),
+  })
+
+  return (
+    <Card>
+      <div className="mb-3 flex items-center gap-2">
+        <ClipboardCheck className="size-4 text-slate-400" />
+        <h2 className="text-sm font-semibold">Identity change approvals</h2>
+        {data?.data.length ? (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+            {data.data.length} pending
+          </span>
+        ) : null}
+      </div>
+      {isLoading ? (
+        <Spinner />
+      ) : !data?.data.length ? (
+        <p className="text-xs text-slate-400">No pending requests.</p>
+      ) : (
+        <div className="space-y-2">
+          {data.data.map((r) => (
+            <div key={r.uuid} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+              <div className="text-sm">
+                <p className="font-medium">{r.user?.name} <span className="text-xs text-slate-400">({r.user?.username ?? r.user?.email ?? r.user?.mobile})</span></p>
+                <p className="text-xs text-slate-500">
+                  <span className="capitalize">{r.type}</span>: <s>{r.current_value ?? '—'}</s> → <b>{r.new_value}</b>
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                <Button size="sm" onClick={() => reviewMutation.mutate({ uuid: r.uuid, action: 'approve' })}>
+                  Approve
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    const note = prompt('Reason for rejection (shown to the user):') ?? undefined
+                    reviewMutation.mutate({ uuid: r.uuid, action: 'reject', note })
+                  }}
+                >
+                  Reject
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function SettingsCard() {
+  const { data } = useQuery({
+    queryKey: ['admin-settings'],
+    queryFn: () => api.get<{ data: Record<string, string> }>('/admin/settings').then((r) => r.data.data),
+  })
+  const [days, setDays] = useState<string>('')
+
+  return (
+    <Card>
+      <h2 className="mb-2 text-sm font-semibold">Identity settings</h2>
+      <div className="flex flex-wrap items-end gap-2">
+        <div>
+          <Label>Username change cooldown (days)</Label>
+          <Input
+            type="number"
+            min={0}
+            className="w-32"
+            value={days || (data?.username_change_days ?? '')}
+            onChange={(e) => setDays(e.target.value)}
+          />
+        </div>
+        <Button
+          size="sm"
+          onClick={() =>
+            api.put('/admin/settings', { username_change_days: Number(days || data?.username_change_days || 30) })
+              .then(() => alert('Saved.'))
+              .catch((err) => alert(errorMessage(err)))
+          }
+        >
+          Save
+        </Button>
+      </div>
+      <p className="mt-1 text-[11px] text-slate-400">
+        Mobile and email changes can be requested anytime; usernames only after this many days.
+        (Super admin only.)
+      </p>
+    </Card>
+  )
+}
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
@@ -80,6 +184,9 @@ export default function AdminPage() {
           <Stat label="Overdue tasks" value={stats.tasks.overdue} />
         </div>
       )}
+
+      <ApprovalsCard />
+      <SettingsCard />
 
       <Card>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -164,6 +271,26 @@ export default function AdminPage() {
                             </Button>
                           )
                         )}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="View / resend mobile OTP"
+                          onClick={async () => {
+                            try {
+                              const res = await api.get<{ data: { code: string; expires_at: string } | null }>(`/admin/users/${u.uuid}/otp`)
+                              if (res.data.data) {
+                                alert(`Active OTP for ${u.name}: ${res.data.data.code}`)
+                              } else if (confirm(`No active code for ${u.name}. Send a new one to their app?`)) {
+                                const sent = await api.post<{ data: { code: string } }>(`/admin/users/${u.uuid}/otp/resend`)
+                                alert(`New OTP sent: ${sent.data.data.code}`)
+                              }
+                            } catch (err) {
+                              alert(errorMessage(err))
+                            }
+                          }}
+                        >
+                          <KeyRound className="size-3.5" />
+                        </Button>
                         {isSuperAdmin && (
                           <Button
                             size="sm"

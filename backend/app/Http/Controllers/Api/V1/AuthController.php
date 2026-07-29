@@ -22,8 +22,13 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'mobile' => ['nullable', 'string', 'max:32'],
+            // Mobile-first identity: ISD code + national number are required.
+            'country_code' => ['required', 'string', 'regex:/^\+[0-9]{1,4}$/'],
+            'mobile' => ['required', 'string', 'regex:/^[0-9]{6,14}$/'],
+            // Alphanumeric handle, no special characters (login + search identity).
+            'username' => ['required', 'string', 'min:4', 'max:20', 'regex:/^[a-zA-Z0-9]+$/'],
+            // Email is optional — it can be added later from the profile.
+            'email' => ['nullable', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'confirmed', PasswordRule::min(8)->letters()->numbers()],
             'date_of_birth' => ['nullable', 'date', 'before:today'],
             'gender' => ['nullable', 'string', 'max:32'],
@@ -34,11 +39,27 @@ class AuthController extends Controller
             'referral_app_id' => ['nullable', 'string', 'max:32'],
         ]);
 
-        $user = DB::transaction(function () use ($data, $appIds) {
+        $fullMobile = $data['country_code'] . $data['mobile'];
+        $username = mb_strtolower($data['username']);
+
+        if (User::where('mobile', $fullMobile)->exists()) {
+            throw ValidationException::withMessages([
+                'mobile' => ['This mobile number is already registered.'],
+            ]);
+        }
+        if (User::whereRaw('LOWER(username) = ?', [$username])->exists()) {
+            throw ValidationException::withMessages([
+                'username' => ['This username is taken.'],
+            ]);
+        }
+
+        $user = DB::transaction(function () use ($data, $appIds, $fullMobile, $username) {
             $user = User::create([
                 'name' => $data['name'],
-                'email' => $data['email'],
-                'mobile' => $data['mobile'] ?? null,
+                'username' => $username,
+                'email' => $data['email'] ?? null,
+                'mobile' => $fullMobile,
+                'country_code' => $data['country_code'],
                 'password' => $data['password'],
             ]);
 
@@ -64,38 +85,75 @@ class AuthController extends Controller
             return $user;
         });
 
-        $user->sendEmailVerificationNotification();
+        if ($user->email) {
+            $user->sendEmailVerificationNotification();
+        }
+
+        // App-to-app OTP: delivered as an in-app notification, visible in the
+        // notification bell and to admins (no SMS network involved).
+        app(\App\Services\MobileOtpService::class)->issue($user, $user->mobile);
 
         $token = $user->createToken($request->input('device_name', 'web'))->plainTextToken;
 
         $this->recordLogin($request, $user);
 
         return response()->json([
-            'message' => 'Registration successful.',
+            'message' => 'Registration successful. Check your in-app notifications for the mobile verification code.',
             'data' => new UserResource($user->load(['profile', 'settings', 'appId', 'roles'])),
             'token' => $token,
+            'mobile_verification_pending' => true,
         ], 201);
+    }
+
+    /** Verify the mobile number with the in-app OTP. */
+    public function verifyMobile(Request $request, \App\Services\MobileOtpService $otps): JsonResponse
+    {
+        $data = $request->validate(['code' => ['required', 'string', 'max:8']]);
+
+        $otp = $otps->verify($request->user(), $data['code']);
+
+        // fresh(): the in-memory auth model can be stale relative to approval
+        // flows that changed the row; forceFill avoids dirty-check omissions.
+        $request->user()->fresh()->forceFill([
+            'mobile' => $otp->mobile, // supports change-of-number flows
+            'mobile_verified_at' => now(),
+        ])->save();
+
+        return response()->json(['message' => 'Mobile number verified.']);
+    }
+
+    /** Re-issue the in-app OTP for the current mobile number. */
+    public function resendMobileOtp(Request $request, \App\Services\MobileOtpService $otps): JsonResponse
+    {
+        abort_if($request->user()->mobile_verified_at !== null, 409, 'Mobile is already verified.');
+
+        $otps->issue($request->user(), $request->user()->mobile);
+
+        return response()->json(['message' => 'A new code has been sent to your notifications.']);
     }
 
     public function login(Request $request): JsonResponse
     {
         $credentials = $request->validate([
-            'email' => ['required', 'email'],
+            // One field, three identities: mobile (+ISD), username, or email.
+            'identifier' => ['required_without:email', 'string', 'max:255'],
+            'email' => ['required_without:identifier', 'email'], // legacy clients
             'password' => ['required', 'string'],
             'device_name' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $user = User::where('email', $credentials['email'])->first();
+        $identifier = trim($credentials['identifier'] ?? $credentials['email']);
+        $user = $this->resolveUser($identifier);
 
         if (! $user || ! Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['The provided credentials are incorrect.'],
+                'identifier' => ['The provided credentials are incorrect.'],
             ]);
         }
 
         if ($user->status === 'suspended') {
             throw ValidationException::withMessages([
-                'email' => ['This account has been suspended. Contact support.'],
+                'identifier' => ['This account has been suspended. Contact support.'],
             ]);
         }
 
@@ -230,6 +288,23 @@ class AuthController extends Controller
         return response()->json(
             $request->user()->loginHistories()->latest('logged_in_at')->paginate(20)
         );
+    }
+
+    /** Match an identifier against email, mobile (with/without +), or username. */
+    protected function resolveUser(string $identifier): ?User
+    {
+        if (str_contains($identifier, '@')) {
+            return User::where('email', $identifier)->first();
+        }
+
+        $digits = preg_replace('/[\s\-()]/', '', $identifier);
+        if (preg_match('/^\+?[0-9]{6,16}$/', $digits)) {
+            return User::where('mobile', $digits)
+                ->orWhere('mobile', '+' . ltrim($digits, '+'))
+                ->first();
+        }
+
+        return User::whereRaw('LOWER(username) = ?', [mb_strtolower($identifier)])->first();
     }
 
     protected function recordLogin(Request $request, User $user): void

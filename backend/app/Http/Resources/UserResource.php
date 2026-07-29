@@ -12,6 +12,12 @@ class UserResource extends JsonResource
         return [
             'uuid' => $this->uuid,
             'name' => $this->name,
+            'username' => $this->username,
+            'country_code' => $this->when($request->user()?->id === $this->id, $this->country_code),
+            'mobile_verified' => $this->when(
+                $request->user()?->id === $this->id,
+                $this->mobile_verified_at !== null
+            ),
             'email' => $this->when(
                 $request->user()?->id === $this->id || $request->user()?->isAdmin(),
                 $this->email

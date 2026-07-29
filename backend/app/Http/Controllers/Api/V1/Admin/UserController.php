@@ -163,6 +163,68 @@ class UserController extends Controller
         ]);
     }
 
+    /** View the user's active mobile-verification OTP (admin relays it if needed). */
+    public function activeOtp(Request $request, User $user): JsonResponse
+    {
+        $otp = \App\Models\MobileOtp::where('user_id', $user->id)
+            ->whereNull('consumed_at')
+            ->where('expires_at', '>', now())
+            ->latest()
+            ->first();
+
+        return response()->json([
+            'data' => $otp ? [
+                'code' => $otp->code,
+                'mobile' => $otp->mobile,
+                'purpose' => $otp->purpose,
+                'expires_at' => $otp->expires_at,
+            ] : null,
+        ]);
+    }
+
+    /** Re-issue the in-app OTP for a user (admin-side send). */
+    public function resendOtp(Request $request, User $user): JsonResponse
+    {
+        abort_if($user->mobile === null, 422, 'This user has no mobile number.');
+
+        $otp = app(\App\Services\MobileOtpService::class)->issue($user, $user->mobile);
+        \App\Models\AuditLog::record($request->user(), 'user.otp_resent', $user);
+
+        return response()->json([
+            'message' => 'A new code was sent to the user\'s app.',
+            'data' => ['code' => $otp->code, 'expires_at' => $otp->expires_at],
+        ]);
+    }
+
+    /** Admin-editable app settings (username cooldown, OTP expiry). */
+    public function settings(Request $request): JsonResponse
+    {
+        $keys = array_keys(\App\Models\AppSetting::DEFAULTS);
+
+        return response()->json([
+            'data' => collect($keys)->mapWithKeys(
+                fn ($key) => [$key => \App\Models\AppSetting::get($key)]
+            ),
+        ]);
+    }
+
+    public function updateSettings(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->isSuperAdmin(), 403, 'Only a super admin can change settings.');
+
+        $data = $request->validate([
+            'username_change_days' => ['sometimes', 'integer', 'min:0', 'max:3650'],
+            'otp_expiry_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
+        ]);
+
+        foreach ($data as $key => $value) {
+            \App\Models\AppSetting::set($key, (string) $value);
+        }
+        \App\Models\AuditLog::record($request->user(), 'settings.updated', null, $data);
+
+        return response()->json(['message' => 'Settings saved.']);
+    }
+
     /** Admins cannot modify super admins; nobody edits a super admin except a super admin. */
     protected function guardTargetEditable(Request $request, User $user): void
     {

@@ -1,9 +1,114 @@
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { auth, profile as profileApi, subscription as subscriptionApi } from '../api/endpoints'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { auth, identity as identityApi, profile as profileApi, subscription as subscriptionApi } from '../api/endpoints'
+import { ISD_CODES } from '../types'
 import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card, ErrorNote, Input, Label, Select } from '../components/ui'
+
+function IdentityCard() {
+  const { user } = useAuthStore()
+  const queryClient = useQueryClient()
+  const { data: requests } = useQuery({ queryKey: ['change-requests'], queryFn: identityApi.myRequests })
+  const [type, setType] = useState<'username' | 'mobile' | 'email'>('username')
+  const [newValue, setNewValue] = useState('')
+  const [countryCode, setCountryCode] = useState(user?.country_code ?? '+91')
+  const [feedback, setFeedback] = useState<string | null>(null)
+
+  const requestMutation = useMutation({
+    mutationFn: () =>
+      identityApi.request({
+        type,
+        new_value: newValue.trim(),
+        ...(type === 'mobile' ? { country_code: countryCode } : {}),
+      }),
+    onSuccess: (res) => {
+      setFeedback((res as { message?: string }).message ?? 'Requested.')
+      setNewValue('')
+      queryClient.invalidateQueries({ queryKey: ['change-requests'] })
+    },
+    onError: (err) => setFeedback(errorMessage(err)),
+  })
+
+  const pending = requests?.filter((r) => r.status === 'pending') ?? []
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold">Login identity</h2>
+      <div className="grid gap-2 text-sm sm:grid-cols-3">
+        <div>
+          <p className="text-xs text-slate-400">Username</p>
+          <p className="font-medium">{user?.username ?? '—'}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-400">Mobile</p>
+          <p className="font-medium">
+            {user?.mobile ?? '—'}{' '}
+            {user?.mobile_verified === false && <span className="text-[11px] text-amber-600">(unverified)</span>}
+          </p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-400">Email</p>
+          <p className="font-medium">{user?.email ?? 'not set'}</p>
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-400">
+        You can sign in with any of these. Changes need admin approval; usernames also have a
+        waiting period between changes.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2">
+        <div>
+          <Label>Change</Label>
+          <Select className="w-32" value={type} onChange={(e) => { setType(e.target.value as typeof type); setNewValue(''); setFeedback(null) }}>
+            <option value="username">Username</option>
+            <option value="mobile">Mobile</option>
+            <option value="email">{user?.email ? 'Email' : 'Add email'}</option>
+          </Select>
+        </div>
+        {type === 'mobile' && (
+          <div>
+            <Label>Country</Label>
+            <Select className="w-36" value={countryCode} onChange={(e) => setCountryCode(e.target.value)}>
+              {ISD_CODES.map(({ code, label }) => (
+                <option key={code} value={code}>{label}</option>
+              ))}
+            </Select>
+          </div>
+        )}
+        <div className="min-w-44 flex-1">
+          <Label>New value</Label>
+          <Input
+            value={newValue}
+            onChange={(e) => setNewValue(e.target.value)}
+            placeholder={type === 'username' ? 'newusername' : type === 'mobile' ? '9876543210' : 'you@mail.com'}
+          />
+        </div>
+        <Button onClick={() => requestMutation.mutate()} disabled={requestMutation.isPending || !newValue.trim()}>
+          Request change
+        </Button>
+      </div>
+      {feedback && <p className="mt-2 text-xs text-slate-500">{feedback}</p>}
+
+      {requests && requests.length > 0 && (
+        <div className="mt-3 space-y-1">
+          {requests.slice(0, 5).map((r) => (
+            <p key={r.uuid} className="text-xs text-slate-500">
+              <span className="capitalize">{r.type}</span> → <b>{r.new_value}</b> ·{' '}
+              <span className={r.status === 'pending' ? 'text-amber-600' : r.status === 'approved' ? 'text-emerald-600' : 'text-red-500'}>
+                {r.status}
+              </span>
+              {r.review_note ? ` — ${r.review_note}` : ''}
+            </p>
+          ))}
+          {pending.length > 0 && (
+            <p className="text-[11px] text-slate-400">Pending requests are reviewed by an admin.</p>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
 
 function BillingHistory() {
   const { data: payments } = useQuery({ queryKey: ['my-payments'], queryFn: subscriptionApi.payments })
@@ -142,6 +247,8 @@ export default function SettingsPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <h1 className="text-lg font-semibold">Settings</h1>
+
+      <IdentityCard />
 
       {mySub && (
         <Card>

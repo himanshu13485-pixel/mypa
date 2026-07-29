@@ -53,6 +53,10 @@ Route::prefix('v1')->group(function () {
         Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
         Route::post('/auth/email/verification-notification', [AuthController::class, 'resendVerification'])
             ->middleware('throttle:6,1');
+        Route::post('/auth/mobile/verify', [AuthController::class, 'verifyMobile'])
+            ->middleware('throttle:10,1');
+        Route::post('/auth/mobile/resend-otp', [AuthController::class, 'resendMobileOtp'])
+            ->middleware('throttle:5,1');
         Route::get('/auth/sessions', [AuthController::class, 'sessions']);
         Route::delete('/auth/sessions/{tokenId}', [AuthController::class, 'revokeSession']);
         Route::get('/auth/login-history', [AuthController::class, 'loginHistory']);
@@ -74,8 +78,15 @@ Route::prefix('v1')->group(function () {
         Route::post('/blocks', [BlockController::class, 'store']);
         Route::delete('/blocks/{appId}', [BlockController::class, 'destroy']);
 
-        // Dashboard
+        // Dashboard & sidebar badges
         Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
+        Route::get('/badges', [\App\Http\Controllers\Api\V1\BadgeController::class, 'index']);
+        Route::post('/calls/seen', [\App\Http\Controllers\Api\V1\BadgeController::class, 'markCallsSeen']);
+
+        // Identity change requests (approval-based)
+        Route::get('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'index']);
+        Route::post('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'store'])
+            ->middleware('throttle:10,1');
 
         // Categories
         Route::apiResource('categories', CategoryController::class);
@@ -206,6 +217,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/reports/productivity', [ReportController::class, 'productivity']);
         Route::get('/reports/export.csv', [ReportController::class, 'exportCsv']);
 
+        // --- Approvals (Admin + Subadmin) ---------------------------------
+        Route::prefix('admin')->middleware('role:admin,super_admin,subadmin')->group(function () {
+            Route::get('/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'pending']);
+            Route::post('/change-requests/{changeRequest}', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'review']);
+        });
+
         // --- Admin --------------------------------------------------------
         Route::prefix('admin')->middleware('role:admin,super_admin')->group(function () {
             Route::get('/stats', [StatsController::class, 'index']);
@@ -217,6 +234,10 @@ Route::prefix('v1')->group(function () {
             Route::post('/users/{user}/activate', [AdminUserController::class, 'activate']);
             Route::post('/users/{user}/roles', [AdminUserController::class, 'syncRoles']);
             Route::post('/users/{user}/app-id/regenerate', [AdminUserController::class, 'regenerateAppId']);
+            Route::get('/users/{user}/otp', [AdminUserController::class, 'activeOtp']);
+            Route::post('/users/{user}/otp/resend', [AdminUserController::class, 'resendOtp']);
+            Route::get('/settings', [AdminUserController::class, 'settings']);
+            Route::put('/settings', [AdminUserController::class, 'updateSettings']);
             Route::get('/plans', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'index']);
             Route::put('/plans/{plan}', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'update']);
             Route::post('/users/{user}/plan', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'assign']);

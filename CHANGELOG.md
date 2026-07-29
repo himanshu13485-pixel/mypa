@@ -4,6 +4,17 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Changed — 2026-07-30 (Identity overhaul)
+- Registration is mobile-first: ISD country code + mobile + username; email optional.
+- Mobile verification via app-to-app OTP (in-app notification, no SMS network);
+  admin can view/resend codes.
+- Login by mobile, username, or email in a single identifier field.
+- Identity changes (mobile/email/username) require Admin/Subadmin approval;
+  username changes respect an admin-configurable cooldown; approvals trigger
+  re-verification and are audit-logged.
+- Sidebar shows unattended counts on Messages, Calls, and Connections that clear
+  when attended.
+
 ### Added — 2026-07-30 (Phase 8 — final)
 - Cashfree payment gateway behind a gateway abstraction: sandbox/production by
   env, checkout with backend-calculated GST + coupons, official JS SDK checkout.

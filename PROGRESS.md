@@ -2,6 +2,41 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-30 — Identity overhaul + sidebar badges ✅ (user-requested)
+
+**Mobile-first registration with app-to-app OTP**
+- [x] Registration now requires ISD country code + mobile number and a username;
+      email is optional (add later from Settings)
+- [x] OTP is delivered inside the app (in-app notification), not over the SMS
+      network; verify from the banner; admins can view/resend any user's active
+      code from the Admin Panel (key icon)
+- [x] Changing mobile: new number takes effect only after OTP verification
+
+**Usernames & multi-mode login**
+- [x] Custom usernames: 4–20 alphanumeric characters, no specials, unique
+      (case-insensitive); users are searchable/connectable by username, mobile,
+      or App ID (App ID remains the permanent internal identity)
+- [x] Login accepts mobile (+ISD), username, or email in one field
+      (legacy email-only clients still work)
+
+**Admin-approved identity changes**
+- [x] change_requests: mobile/email changes requestable anytime; username changes
+      gated by an admin-configurable cooldown (default 30 days, `app_settings`)
+- [x] Admin AND Subadmin can approve/reject (with a note shown to the user);
+      approvals apply the change and force re-verification (OTP for mobile,
+      email link for email); everything audit-logged
+- [x] Settings page "Login identity" card: request changes + track request status
+- [x] Admin Panel: Approvals queue, cooldown setting, per-user OTP tools
+
+**Sidebar unattended badges**
+- [x] `GET /badges`: unread messages, unseen missed calls, pending connection
+      requests (+ unread notifications); nav shows counts on Messages / Calls /
+      Connections and they clear when attended (conversation read, Calls page
+      opened, request answered); 30s polling
+
+**Verified:** 117 backend tests green (497 assertions, 9 new); live end-to-end
+run (register → in-app OTP → verify → login by username and by mobile → badges).
+
 ## 2026-07-30 — Phase 8 complete ✅ — ALL SPEC PHASES DONE 🎉
 
 **Cashfree payments (spec §34)**

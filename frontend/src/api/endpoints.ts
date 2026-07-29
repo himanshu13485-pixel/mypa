@@ -11,9 +11,11 @@ import type {
 
 export const auth = {
   register: (payload: Record<string, unknown>) =>
-    api.post<{ data: User; token: string }>('/auth/register', payload).then((r) => r.data),
-  login: (payload: { email: string; password: string; device_name?: string }) =>
-    api.post<{ data: User; token: string }>('/auth/login', payload).then((r) => r.data),
+    api.post<{ data: User; token: string; mobile_verification_pending?: boolean }>('/auth/register', payload).then((r) => r.data),
+  login: (payload: { identifier: string; password: string; device_name?: string }) =>
+    api.post<{ data: User; token: string; must_change_password?: boolean }>('/auth/login', payload).then((r) => r.data),
+  verifyMobile: (code: string) => api.post('/auth/mobile/verify', { code }),
+  resendMobileOtp: () => api.post('/auth/mobile/resend-otp'),
   logout: () => api.post('/auth/logout'),
   forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
   resetPassword: (payload: Record<string, string>) => api.post('/auth/reset-password', payload),
@@ -94,6 +96,24 @@ export const connections = {
   blocks: () => api.get<{ data: { uuid: string; name: string; app_id?: string }[] }>('/blocks').then((r) => r.data.data),
   block: (app_id: string, reason?: string) => api.post('/blocks', { app_id, reason }),
   unblock: (app_id: string) => api.delete(`/blocks/${app_id}`),
+}
+
+// --- Identity change requests + badges --------------------------------------
+
+export const identity = {
+  myRequests: () =>
+    api.get<{ data: import('../types').ChangeRequestItem[] }>('/me/change-requests').then((r) => r.data.data),
+  request: (payload: { type: string; new_value: string; country_code?: string }) =>
+    api.post('/me/change-requests', payload).then((r) => r.data),
+  pending: () =>
+    api.get<Paginated<import('../types').ChangeRequestItem>>('/admin/change-requests').then((r) => r.data),
+  review: (uuid: string, action: 'approve' | 'reject', note?: string) =>
+    api.post(`/admin/change-requests/${uuid}`, { action, note }).then((r) => r.data),
+}
+
+export const badges = {
+  get: () => api.get<{ data: import('../types').Badges }>('/badges').then((r) => r.data.data),
+  markCallsSeen: () => api.post('/calls/seen'),
 }
 
 // --- Notifications ----------------------------------------------------------

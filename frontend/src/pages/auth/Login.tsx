@@ -8,7 +8,7 @@ import { Button, ErrorNote, Input, Label } from '../../components/ui'
 export default function Login() {
   const navigate = useNavigate()
   const setAuth = useAuthStore((s) => s.setAuth)
-  const [email, setEmail] = useState('')
+  const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -18,7 +18,7 @@ export default function Login() {
     setError(null)
     setLoading(true)
     try {
-      const res = await auth.login({ email, password, device_name: 'web' })
+      const res = await auth.login({ identifier, password, device_name: 'web' })
       setAuth(res.token, res.data)
       navigate('/')
     } catch (err) {
@@ -41,8 +41,14 @@ export default function Login() {
         <form onSubmit={submit} className="space-y-4 rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <ErrorNote message={error} />
           <div>
-            <Label>Email</Label>
-            <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+            <Label>Mobile number, username, or email</Label>
+            <Input
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="+919876543210 · rahul · you@mail.com"
+              required
+              autoFocus
+            />
           </div>
           <div>
             <Label>Password</Label>

@@ -16,7 +16,8 @@ class DemoSeeder extends Seeder
         $appIds = app(AppIdService::class);
         $roles = Role::pluck('id', 'slug');
 
-        $make = function (string $name, string $email, string $role) use ($appIds, $roles): User {
+        static $mobileSeq = 9800000001;
+        $make = function (string $name, string $email, string $role) use ($appIds, $roles, &$mobileSeq): User {
             $user = User::updateOrCreate(
                 ['email' => $email],
                 [
@@ -26,6 +27,14 @@ class DemoSeeder extends Seeder
                     'status' => 'active',
                 ]
             );
+            if (! $user->username) {
+                $user->update([
+                    'username' => str_replace(['.', '@'], '', explode('@', $email)[0]),
+                    'mobile' => '+91' . $mobileSeq++,
+                    'country_code' => '+91',
+                    'mobile_verified_at' => now(),
+                ]);
+            }
             $user->profile()->updateOrCreate([], ['timezone' => 'Asia/Kolkata', 'country' => 'India']);
             $user->settings()->firstOrCreate([]);
             if (! $user->appId) {

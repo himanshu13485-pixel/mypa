@@ -9,8 +9,10 @@ Rate limiting: 60 req/min authenticated, 10 req/min on auth endpoints.
 
 | Method | Endpoint | Body | Notes |
 |---|---|---|---|
-| POST | /auth/register | name, email, mobile?, password, password_confirmation, country?, timezone?, language?, account_type?, referral_app_id? | creates user + profile + settings + App ID; returns user + token |
-| POST | /auth/login | email, password, device_name? | returns token; records login history |
+| POST | /auth/register | name, country_code (+91…), mobile (national digits), username (4–20 alnum), email?, password, password_confirmation, … | creates user + profile + settings + App ID; issues in-app mobile OTP; returns user + token + `mobile_verification_pending` |
+| POST | /auth/login | identifier (mobile with ISD / username / email) + password | returns token; legacy `email` field still accepted |
+| POST | /auth/mobile/verify | { code } | verifies mobile with the in-app OTP (also applies approved number changes) |
+| POST | /auth/mobile/resend-otp | — | re-issues the in-app OTP |
 | POST | /auth/logout | — | revokes current token |
 | POST | /auth/forgot-password | email | sends reset link |
 | POST | /auth/reset-password | token, email, password, password_confirmation | |
@@ -29,6 +31,20 @@ Rate limiting: 60 req/min authenticated, 10 req/min on auth endpoints.
 | PUT | /me/profile | update profile fields |
 | PUT | /me/settings | theme, privacy, notification prefs, dashboard layout |
 | POST | /me/photo | multipart profile photo |
+
+## Identity change requests & badges
+
+| Method | Endpoint | Notes |
+|---|---|---|
+| GET/POST | /me/change-requests | request mobile/email/username change; username gated by `username_change_days` cooldown |
+| GET | /admin/change-requests | pending queue (Admin + Subadmin) |
+| POST | /admin/change-requests/{uuid} | { action: approve\|reject, note? } — approval applies + forces re-verification |
+| GET/PUT | /admin/settings | username_change_days, otp_expiry_minutes (PUT super admin only) |
+| GET | /admin/users/{uuid}/otp · POST …/otp/resend | view / resend a user's active in-app OTP |
+| GET | /badges | { messages, calls, connections, notifications } unattended counts |
+| POST | /calls/seen | attend missed calls (clears the Calls badge) |
+
+User search (`/app-id/search?q=`) and connections accept username, mobile (+ISD), or App ID.
 
 ## App ID & Connections
 

@@ -26,8 +26,48 @@ export interface User {
     privacy: Record<string, 'everyone' | 'connections' | 'nobody'>
   }
   must_change_password?: boolean
+  username?: string | null
+  country_code?: string | null
+  mobile_verified?: boolean
   created_at?: string
 }
+
+export interface ChangeRequestItem {
+  uuid: string
+  type: 'mobile' | 'email' | 'username'
+  current_value?: string | null
+  new_value: string
+  country_code?: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  review_note?: string | null
+  reviewed_at?: string | null
+  created_at: string
+  user?: { uuid: string; name: string; username?: string; email?: string; mobile?: string }
+}
+
+export interface Badges {
+  messages: number
+  calls: number
+  connections: number
+  notifications: number
+}
+
+export const ISD_CODES: { code: string; label: string }[] = [
+  { code: '+91', label: '🇮🇳 India (+91)' },
+  { code: '+1', label: '🇺🇸 USA/Canada (+1)' },
+  { code: '+44', label: '🇬🇧 UK (+44)' },
+  { code: '+971', label: '🇦🇪 UAE (+971)' },
+  { code: '+966', label: '🇸🇦 Saudi Arabia (+966)' },
+  { code: '+65', label: '🇸🇬 Singapore (+65)' },
+  { code: '+61', label: '🇦🇺 Australia (+61)' },
+  { code: '+49', label: '🇩🇪 Germany (+49)' },
+  { code: '+33', label: '🇫🇷 France (+33)' },
+  { code: '+81', label: '🇯🇵 Japan (+81)' },
+  { code: '+86', label: '🇨🇳 China (+86)' },
+  { code: '+880', label: '🇧🇩 Bangladesh (+880)' },
+  { code: '+94', label: '🇱🇰 Sri Lanka (+94)' },
+  { code: '+977', label: '🇳🇵 Nepal (+977)' },
+]
 
 export interface ChecklistItem {
   id: number

@@ -1,0 +1,35 @@
+<?php
+
+namespace App\Notifications;
+
+use App\Models\MobileOtp;
+use Illuminate\Bus\Queueable;
+use Illuminate\Notifications\Notification;
+
+/** Delivered in-app only — the "app-to-app" OTP channel. Sent synchronously so
+ *  the code is available immediately after registration. */
+class MobileOtpNotification extends Notification
+{
+    use Queueable;
+
+    public function __construct(public MobileOtp $otp)
+    {
+    }
+
+    public function via(object $notifiable): array
+    {
+        return ['database'];
+    }
+
+    public function toDatabase(object $notifiable): array
+    {
+        return [
+            'kind' => 'mobile_otp',
+            'message' => "Your My PA verification code is {$this->otp->code}. It expires in "
+                . (int) now()->diffInMinutes($this->otp->expires_at) . ' minutes.',
+            'code' => $this->otp->code,
+            'mobile' => $this->otp->mobile,
+            'purpose' => $this->otp->purpose,
+        ];
+    }
+}
