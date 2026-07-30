@@ -21,7 +21,7 @@ class SubscriptionLifecycleNotification extends Notification implements ShouldQu
 
     public function via(object $notifiable): array
     {
-        return ['database', 'mail'];
+        return SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
     }
 
     protected function message(): string

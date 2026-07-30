@@ -225,6 +225,119 @@ class UserController extends Controller
         return response()->json(['message' => 'Settings saved.']);
     }
 
+    /** Members active in the last 24h with their latest login details. */
+    public function activeMembers(Request $request): JsonResponse
+    {
+        $latestLogins = \App\Models\LoginHistory::with('user.appId', 'user.roles')
+            ->where('logged_in_at', '>=', now()->subDay())
+            ->orderByDesc('logged_in_at')
+            ->limit(300)
+            ->get()
+            ->unique('user_id')
+            ->take(100)
+            ->values();
+
+        return response()->json([
+            'data' => $latestLogins->map(fn ($login) => [
+                'uuid' => $login->user->uuid,
+                'name' => $login->user->name,
+                'username' => $login->user->username,
+                'app_id' => $login->user->appId?->app_id,
+                'mobile' => $login->user->mobile,
+                'roles' => $login->user->roles->pluck('slug'),
+                'status' => $login->user->status,
+                'ip_address' => $login->ip_address,
+                'device' => $login->device_name,
+                'last_active_at' => $login->logged_in_at,
+                'is_online' => $login->logged_in_at->gt(now()->subHour()) && $login->logged_out_at === null,
+            ]),
+        ]);
+    }
+
+    /** Per-user activity summary for the admin panel. */
+    public function summary(Request $request, User $user): JsonResponse
+    {
+        $lastLogin = $user->loginHistories()->latest('logged_in_at')->first();
+        $entitlements = app(\App\Services\SubscriptionEntitlementService::class);
+
+        return response()->json([
+            'data' => [
+                'user' => ['uuid' => $user->uuid, 'name' => $user->name, 'username' => $user->username],
+                'last_login' => $lastLogin ? [
+                    'at' => $lastLogin->logged_in_at,
+                    'ip' => $lastLogin->ip_address,
+                    'device' => $lastLogin->device_name,
+                ] : null,
+                'member_since' => $user->created_at,
+                'plan' => $entitlements->planFor($user)->slug,
+                'tasks' => [
+                    'total' => $user->tasks()->count(),
+                    'completed' => $user->tasks()->where('status', 'completed')->count(),
+                    'created_this_week' => $user->tasks()->where('created_at', '>=', now()->subWeek())->count(),
+                ],
+                'notes' => $user->notes()->count(),
+                'files' => [
+                    'count' => $user->files()->count(),
+                    'storage_bytes' => (int) $user->files()->sum('size'),
+                ],
+                'groups_owned' => \App\Models\Group::where('owner_id', $user->id)->count(),
+                'messages_sent' => \App\Models\Message::where('user_id', $user->id)->count(),
+                'logins_this_week' => $user->loginHistories()->where('logged_in_at', '>=', now()->subWeek())->count(),
+                'reports_against' => \App\Models\Report::where('reported_user_id', $user->id)->count(),
+                'open_reports_against' => \App\Models\Report::where('reported_user_id', $user->id)->where('status', 'open')->count(),
+            ],
+        ]);
+    }
+
+    /** Subadmin module rights (view/edit/delete per admin area). */
+    public function modulePermissions(Request $request, User $user): JsonResponse
+    {
+        $rows = \Illuminate\Support\Facades\DB::table('user_module_permissions')
+            ->where('user_id', $user->id)->get()->keyBy('module');
+
+        $modules = ['users', 'approvals', 'moderation', 'activity'];
+
+        return response()->json([
+            'data' => collect($modules)->mapWithKeys(fn ($module) => [$module => [
+                'can_view' => (bool) ($rows[$module]->can_view ?? ($module === 'approvals')),
+                'can_edit' => (bool) ($rows[$module]->can_edit ?? ($module === 'approvals')),
+                'can_delete' => (bool) ($rows[$module]->can_delete ?? false),
+            ]]),
+        ]);
+    }
+
+    public function updateModulePermissions(Request $request, User $user): JsonResponse
+    {
+        abort_unless($user->hasRole('subadmin'), 422, 'Module rights apply to subadmin accounts.');
+
+        $data = $request->validate([
+            'permissions' => ['required', 'array'],
+            'permissions.*.can_view' => ['required', 'boolean'],
+            'permissions.*.can_edit' => ['required', 'boolean'],
+            'permissions.*.can_delete' => ['required', 'boolean'],
+        ]);
+
+        foreach ($data['permissions'] as $module => $abilities) {
+            if (! in_array($module, ['users', 'approvals', 'moderation', 'activity'], true)) {
+                continue;
+            }
+            \Illuminate\Support\Facades\DB::table('user_module_permissions')->updateOrInsert(
+                ['user_id' => $user->id, 'module' => $module],
+                [
+                    'can_view' => $abilities['can_view'],
+                    'can_edit' => $abilities['can_edit'],
+                    'can_delete' => $abilities['can_delete'],
+                    'updated_at' => now(),
+                    'created_at' => now(),
+                ],
+            );
+        }
+
+        \App\Models\AuditLog::record($request->user(), 'subadmin.rights_changed', $user, $data['permissions']);
+
+        return response()->json(['message' => 'Rights updated for ' . $user->name . '.']);
+    }
+
     /** Admins cannot modify super admins; nobody edits a super admin except a super admin. */
     protected function guardTargetEditable(Request $request, User $user): void
     {

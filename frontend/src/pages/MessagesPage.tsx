@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Check, CheckCheck, Mic, Paperclip, Pencil, Phone, Plus, Reply, Send, Smile,
+  Check, CheckCheck, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Send, Smile,
   Square, Trash2, Video, X,
 } from 'lucide-react'
+import { reportsApi } from '../api/endpoints'
+import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
 import { clsx } from 'clsx'
 import { chat } from '../api/endpoints'
@@ -392,6 +394,22 @@ export default function MessagesPage() {
                         {m.is_own && m.type === 'text' && (
                           <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Edit" onClick={() => { setEditing(m); setDraft(m.body ?? ''); setReplyTo(null) }}>
                             <Pencil className="size-3.5" />
+                          </button>
+                        )}
+                        {!m.is_own && (
+                          <button
+                            className="rounded p-1 text-slate-400 hover:text-red-600"
+                            title="Report this message"
+                            onClick={() => {
+                              const reason = prompt(`Report this message — reason (${REPORT_REASONS.join(', ')}):`, 'spam')
+                                ?.trim().toLowerCase()
+                              if (!reason) return
+                              reportsApi.fileMessage(m.uuid, reason)
+                                .then((res) => alert((res as { message?: string }).message ?? 'Reported.'))
+                                .catch((err) => alert(errorMessage(err)))
+                            }}
+                          >
+                            <Flag className="size-3.5" />
                           </button>
                         )}
                         <button

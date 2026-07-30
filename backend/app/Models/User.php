@@ -176,6 +176,32 @@ class User extends Authenticatable implements MustVerifyEmail
             ->exists();
     }
 
+    /**
+     * Subadmin module rights. Admins and super admins always pass; subadmins
+     * need an explicit grant, except the approvals module which stays open
+     * (its review flow predates the grants system).
+     */
+    public function canModule(string $module, string $ability = 'view'): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+        if (! $this->hasRole('subadmin')) {
+            return false;
+        }
+
+        $grant = \Illuminate\Support\Facades\DB::table('user_module_permissions')
+            ->where('user_id', $this->id)
+            ->where('module', $module)
+            ->first();
+
+        if (! $grant) {
+            return $module === 'approvals';
+        }
+
+        return (bool) ($grant->{'can_' . $ability} ?? false);
+    }
+
     public function hasBlocked(User $other): bool
     {
         return $this->blockedUsers()->where('blocked_user_id', $other->id)->exists();

@@ -53,6 +53,69 @@ export interface Badges {
   notifications: number
 }
 
+export interface ActiveMember {
+  uuid: string
+  name: string
+  username?: string | null
+  app_id?: string | null
+  mobile?: string | null
+  roles: string[]
+  status: string
+  ip_address?: string | null
+  device?: string | null
+  last_active_at: string
+  is_online: boolean
+}
+
+export interface UserActivitySummary {
+  user: { uuid: string; name: string; username?: string | null }
+  last_login?: { at: string; ip?: string | null; device?: string | null } | null
+  member_since: string
+  plan: string
+  tasks: { total: number; completed: number; created_this_week: number }
+  notes: number
+  files: { count: number; storage_bytes: number }
+  groups_owned: number
+  messages_sent: number
+  logins_this_week: number
+  reports_against: number
+  open_reports_against: number
+}
+
+export interface ModerationReport {
+  uuid: string
+  reason: string
+  details?: string | null
+  status: string
+  action_taken?: string | null
+  created_at: string
+  reporter?: { uuid: string; name: string; username?: string }
+  reported_user?: { uuid: string; name: string; username?: string; status?: string }
+  message?: { uuid: string; body?: string | null; type: string; deleted_at?: string | null } | null
+  reviewer?: { name: string } | null
+}
+
+export interface AuditLogRow {
+  id: number
+  action: string
+  details?: Record<string, unknown> | null
+  ip_address?: string | null
+  created_at: string
+  actor?: { uuid: string; name: string; email?: string } | null
+}
+
+export interface LoginHistoryRow {
+  id: number
+  ip_address?: string | null
+  user_agent?: string | null
+  device_name?: string | null
+  logged_in_at: string
+  logged_out_at?: string | null
+  user?: { uuid: string; name: string; email?: string } | null
+}
+
+export const REPORT_REASONS = ['spam', 'harassment', 'inappropriate', 'impersonation', 'scam', 'other'] as const
+
 export const ISD_CODES: { code: string; label: string }[] = [
   { code: '+91', label: '🇮🇳 India (+91)' },
   { code: '+1', label: '🇺🇸 USA/Canada (+1)' },

@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, Pin, Plus, Share2, Trash2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
-import { notes as notesApi } from '../api/endpoints'
+import { badges as badgesApi, notes as notesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
 import type { Note } from '../types'
@@ -30,6 +30,15 @@ const emptyForm: NoteFormState = {
 
 export default function NotesPage() {
   const queryClient = useQueryClient()
+
+  // Attending this section clears its share notifications.
+  useEffect(() => {
+    badgesApi.readKinds(['note_shared']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
   const [showForm, setShowForm] = useState(false)

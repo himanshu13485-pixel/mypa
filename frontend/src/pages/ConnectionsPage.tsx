@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Search, UserPlus, X } from 'lucide-react'
-import { connections as connectionsApi, profile } from '../api/endpoints'
+import { Check, Flag, Search, UserPlus, X } from 'lucide-react'
+import { badges as badgesApi, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
+import { REPORT_REASONS } from '../types'
 import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { Badge, Button, Card, EmptyState, ErrorNote, Input, Spinner } from '../components/ui'
@@ -20,6 +21,31 @@ export default function ConnectionsPage() {
   const { data: qr } = useQuery({ queryKey: ['my-qr'], queryFn: profile.myQr })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['connections'] })
+
+  // Attending this section clears connection notifications + badge.
+  useEffect(() => {
+    badgesApi.readKinds(['connection_request', 'connection_accepted']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+      queryClient.invalidateQueries({ queryKey: ['badges'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const reportUser = (identifier: string, name: string) => {
+    const reason = prompt(
+      `Report ${name} — reason (${REPORT_REASONS.join(', ')}):`,
+      'spam',
+    )?.trim().toLowerCase()
+    if (!reason) return
+    if (!REPORT_REASONS.includes(reason as (typeof REPORT_REASONS)[number])) {
+      alert('Please use one of: ' + REPORT_REASONS.join(', '))
+      return
+    }
+    const details = prompt('Details (optional):') ?? undefined
+    reportsApi.fileUser(identifier, reason, details)
+      .then((res) => alert((res as { message?: string }).message ?? 'Reported.'))
+      .catch((err) => alert(errorMessage(err)))
+  }
 
   const search = async () => {
     setSearchError(null)
@@ -171,6 +197,15 @@ export default function ConnectionsPage() {
                     >
                       Remove
                     </Button>
+                    {c.user?.app_id && (
+                      <button
+                        className="rounded p-1.5 text-slate-300 hover:text-red-600"
+                        title="Report this user"
+                        onClick={() => reportUser(c.user!.app_id!, c.user!.name)}
+                      >
+                        <Flag className="size-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

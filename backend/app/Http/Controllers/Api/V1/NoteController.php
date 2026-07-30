@@ -129,6 +129,13 @@ class NoteController extends Controller
             $target->id => ['permission' => $data['permission']],
         ]);
 
+        $target->notify(new \App\Notifications\SocialNotification(
+            'note_shared',
+            "{$request->user()->name} shared a note with you: “{$note->title}”.",
+            ['note_uuid' => $note->uuid],
+            '/notes',
+        ));
+
         return response()->json(['message' => 'Note shared with ' . $target->name . '.']);
     }
 

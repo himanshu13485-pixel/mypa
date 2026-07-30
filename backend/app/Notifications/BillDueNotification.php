@@ -18,9 +18,7 @@ class BillDueNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        $prefs = $notifiable->settings?->notification_preferences ?? [];
-
-        return ($prefs['email'] ?? true) ? ['database', 'mail'] : ['database'];
+        return SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
     }
 
     protected function daysLeft(): int

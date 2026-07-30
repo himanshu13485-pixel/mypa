@@ -143,6 +143,13 @@ class GroupController extends Controller
             'added_by' => $request->user()->id,
         ]);
 
+        $target->notify(new \App\Notifications\SocialNotification(
+            'group_added',
+            "{$request->user()->name} added you to the group “{$group->name}”.",
+            ['group_uuid' => $group->uuid],
+            '/groups',
+        ));
+
         return response()->json(['message' => $target->name . ' added to the group.'], 201);
     }
 

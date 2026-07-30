@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import { CheckCircle2, Circle, Copy, Pin, Plus, Star, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { clsx } from 'clsx'
-import { categories as categoriesApi, groups as groupsApi, tasks as tasksApi } from '../api/endpoints'
+import { badges as badgesApi, categories as categoriesApi, groups as groupsApi, tasks as tasksApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea,
@@ -86,7 +86,7 @@ export default function TasksPage() {
 
   const filters = useMemo(() => {
     const f: Record<string, string> = {}
-    for (const key of ['status', 'priority', 'category', 'group', 'important', 'overdue', 'q', 'assigned_to_me', 'date_from', 'date_to']) {
+    for (const key of ['status', 'priority', 'category', 'group', 'important', 'overdue', 'q', 'assigned_to_me', 'date_from', 'date_to', 'created_from', 'created_to']) {
       const v = params.get(key)
       if (v) f[key] = v
     }
@@ -136,6 +136,15 @@ export default function TasksPage() {
     mutationFn: (uuid: string) => tasksApi.duplicate(uuid),
     onSuccess: invalidate,
   })
+
+  // Attending this section clears its notifications.
+  useEffect(() => {
+    badgesApi.readKinds(['task_assigned']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+      queryClient.invalidateQueries({ queryKey: ['badges'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Deep link: /tasks?open=<uuid> (from dashboard rows and notifications).
   useEffect(() => {
@@ -231,6 +240,18 @@ export default function TasksPage() {
         >
           Overdue
         </Button>
+        <div className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 dark:border-slate-700">
+          <span className="text-[11px] text-slate-400">Due</span>
+          <Input type="date" className="w-[8.2rem] border-0 p-0.5 text-xs" value={params.get('date_from') ?? ''} onChange={(e) => setFilter('date_from', e.target.value)} />
+          <span className="text-[11px] text-slate-400">→</span>
+          <Input type="date" className="w-[8.2rem] border-0 p-0.5 text-xs" value={params.get('date_to') ?? ''} onChange={(e) => setFilter('date_to', e.target.value)} />
+        </div>
+        <div className="flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 dark:border-slate-700">
+          <span className="text-[11px] text-slate-400">Created</span>
+          <Input type="date" className="w-[8.2rem] border-0 p-0.5 text-xs" value={params.get('created_from') ?? ''} onChange={(e) => setFilter('created_from', e.target.value)} />
+          <span className="text-[11px] text-slate-400">→</span>
+          <Input type="date" className="w-[8.2rem] border-0 p-0.5 text-xs" value={params.get('created_to') ?? ''} onChange={(e) => setFilter('created_to', e.target.value)} />
+        </div>
       </div>
 
       {/* Task list */}
@@ -276,7 +297,8 @@ export default function TasksPage() {
                   )}
                 </div>
                 <p className="mt-0.5 text-xs text-slate-400">
-                  {task.due_at ? `Due ${format(new Date(task.due_at), 'd MMM yyyy, h:mm a')}` : 'No due date'}
+                  {`Created ${format(new Date(task.created_at), 'd MMM yyyy')}`}
+                  {task.due_at ? ` · Due ${format(new Date(task.due_at), 'd MMM yyyy, h:mm a')}` : ' · No due date'}
                   {typeof task.progress === 'number' && task.progress > 0 ? ` · ${task.progress}%` : ''}
                   {task.assignees?.length ? ` · assigned to ${task.assignees.map((a) => a.name).join(', ')}` : ''}
                 </p>

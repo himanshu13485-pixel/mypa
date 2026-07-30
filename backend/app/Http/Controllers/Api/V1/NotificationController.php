@@ -34,6 +34,21 @@ class NotificationController extends Controller
         return response()->json(['message' => 'Notification marked as read.']);
     }
 
+    /** Attending a section clears its notification kinds (sidebar auto-clear). */
+    public function markKindsRead(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'kinds' => ['required', 'array', 'min:1', 'max:10'],
+            'kinds.*' => ['string', 'max:64'],
+        ]);
+
+        $request->user()->unreadNotifications()
+            ->whereIn('data->kind', $data['kinds'])
+            ->update(['read_at' => now()]);
+
+        return response()->json(['message' => 'Notifications cleared.']);
+    }
+
     public function markAllRead(Request $request): JsonResponse
     {
         $request->user()->unreadNotifications->markAsRead();

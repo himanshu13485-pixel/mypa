@@ -51,6 +51,12 @@ class TaskController extends Controller
         if ($to = $request->query('date_to')) {
             $query->where('due_at', '<=', $to . ' 23:59:59');
         }
+        if ($createdFrom = $request->query('created_from')) {
+            $query->where('created_at', '>=', $createdFrom);
+        }
+        if ($createdTo = $request->query('created_to')) {
+            $query->where('created_at', '<=', $createdTo . ' 23:59:59');
+        }
         if ($q = $request->query('q')) {
             $query->where(fn ($w) => $w->where('title', 'like', "%{$q}%")
                 ->orWhere('description', 'like', "%{$q}%"));
@@ -305,9 +311,18 @@ class TaskController extends Controller
         foreach ($data['app_ids'] as $appId) {
             $user = AppId::where('app_id', strtoupper(trim($appId)))->first()?->user;
             if ($user && $user->id !== $request->user()->id) {
+                $isNew = ! $task->assignees()->where('users.id', $user->id)->exists();
                 $task->assignees()->syncWithoutDetaching([
                     $user->id => ['assigned_by' => $request->user()->id, 'note' => $data['note'] ?? null],
                 ]);
+                if ($isNew) {
+                    $user->notify(new \App\Notifications\SocialNotification(
+                        'task_assigned',
+                        "{$request->user()->name} assigned you a task: “{$task->title}”.",
+                        ['task_uuid' => $task->uuid],
+                        '/tasks?open=' . $task->uuid,
+                    ));
+                }
                 $assigned[] = $user->appId->app_id;
             }
         }
@@ -534,9 +549,18 @@ class TaskController extends Controller
         foreach ($appIds as $appId) {
             $user = AppId::where('app_id', strtoupper(trim($appId)))->first()?->user;
             if ($user && $user->id !== $request->user()->id) {
+                $isNew = ! $task->assignees()->where('users.id', $user->id)->exists();
                 $task->assignees()->syncWithoutDetaching([
                     $user->id => ['assigned_by' => $request->user()->id],
                 ]);
+                if ($isNew) {
+                    $user->notify(new \App\Notifications\SocialNotification(
+                        'task_assigned',
+                        "{$request->user()->name} assigned you a task: “{$task->title}”.",
+                        ['task_uuid' => $task->uuid],
+                        '/tasks?open=' . $task->uuid,
+                    ));
+                }
             }
         }
     }

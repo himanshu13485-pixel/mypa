@@ -253,6 +253,13 @@ class FileController extends Controller
             $target->id => ['permission' => $data['permission'] ?? 'view'],
         ]);
 
+        $target->notify(new \App\Notifications\SocialNotification(
+            'file_shared',
+            "{$request->user()->name} shared a file with you: “{$file->name}”.",
+            ['file_uuid' => $file->uuid],
+            '/files',
+        ));
+
         return response()->json(['message' => 'File shared with ' . $target->name . '.']);
     }
 

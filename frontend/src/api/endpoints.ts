@@ -118,6 +118,39 @@ export const identity = {
 export const badges = {
   get: () => api.get<{ data: import('../types').Badges }>('/badges').then((r) => r.data.data),
   markCallsSeen: () => api.post('/calls/seen'),
+  readKinds: (kinds: string[]) => api.post('/notifications/read-kinds', { kinds }),
+}
+
+// --- Reports (moderation intake) --------------------------------------------
+
+export const reportsApi = {
+  fileUser: (identifier: string, reason: string, details?: string) =>
+    api.post('/reports', { identifier, reason, details }).then((r) => r.data),
+  fileMessage: (message_uuid: string, reason: string, details?: string) =>
+    api.post('/reports', { message_uuid, reason, details }).then((r) => r.data),
+}
+
+// --- Admin ops ---------------------------------------------------------------
+
+export const adminOps = {
+  activeMembers: () =>
+    api.get<{ data: import('../types').ActiveMember[] }>('/admin/active-members').then((r) => r.data.data),
+  userSummary: (uuid: string) =>
+    api.get<{ data: import('../types').UserActivitySummary }>(`/admin/users/${uuid}/summary`).then((r) => r.data.data),
+  modulePermissions: (uuid: string) =>
+    api.get<{ data: Record<string, { can_view: boolean; can_edit: boolean; can_delete: boolean }> }>(
+      `/admin/users/${uuid}/module-permissions`,
+    ).then((r) => r.data.data),
+  saveModulePermissions: (uuid: string, permissions: Record<string, { can_view: boolean; can_edit: boolean; can_delete: boolean }>) =>
+    api.put(`/admin/users/${uuid}/module-permissions`, { permissions }),
+  reports: (status = 'open') =>
+    api.get<Paginated<import('../types').ModerationReport>>('/admin/reports', { params: { status } }).then((r) => r.data),
+  actOnReport: (uuid: string, action: string, note?: string) =>
+    api.post(`/admin/reports/${uuid}/act`, { action, note }).then((r) => r.data),
+  auditLogs: (action?: string) =>
+    api.get<Paginated<import('../types').AuditLogRow>>('/admin/audit-logs', { params: action ? { action } : {} }).then((r) => r.data),
+  loginHistories: (q?: string) =>
+    api.get<Paginated<import('../types').LoginHistoryRow>>('/admin/login-histories', { params: q ? { q } : {} }).then((r) => r.data),
 }
 
 // --- Notifications ----------------------------------------------------------

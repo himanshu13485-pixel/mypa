@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronRight, Download, File as FileIcon, Folder, FolderPlus, Home,
   Pencil, RotateCcw, Share2, Trash2, Upload, Users,
 } from 'lucide-react'
-import { files as filesApi } from '../api/endpoints'
+import { badges as badgesApi, files as filesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card, EmptyState, Spinner } from '../components/ui'
@@ -34,6 +34,15 @@ async function authedDownload(uuid: string, name: string) {
 
 export default function FilesPage() {
   const queryClient = useQueryClient()
+
+  // Attending this section clears its share notifications.
+  useEffect(() => {
+    badgesApi.readKinds(['file_shared']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const [folder, setFolder] = useState<string | undefined>(undefined)
   const [view, setView] = useState<'mine' | 'shared' | 'trash'>('mine')
   const inputRef = useRef<HTMLInputElement>(null)

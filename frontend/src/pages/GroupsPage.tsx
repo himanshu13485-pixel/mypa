@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { CheckSquare, Plus, Trash2, UserPlus, Users } from 'lucide-react'
-import { groups as groupsApi } from '../api/endpoints'
+import { badges as badgesApi, groups as groupsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
@@ -10,6 +10,15 @@ import { GROUP_TYPES, type GroupItem } from '../types'
 
 export default function GroupsPage() {
   const queryClient = useQueryClient()
+
+  // Attending this section clears its share notifications.
+  useEffect(() => {
+    badgesApi.readKinds(['group_added']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const me = useAuthStore((s) => s.user)
   const [showCreate, setShowCreate] = useState(false)
   const [detail, setDetail] = useState<GroupItem | null>(null)

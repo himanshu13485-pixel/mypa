@@ -121,6 +121,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/notifications', [NotificationController::class, 'index']);
         Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
         Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+        Route::post('/notifications/read-kinds', [NotificationController::class, 'markKindsRead']);
         Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
         Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
 
@@ -224,22 +225,45 @@ Route::prefix('v1')->group(function () {
         Route::get('/reports/productivity', [ReportController::class, 'productivity']);
         Route::get('/reports/export.csv', [ReportController::class, 'exportCsv']);
 
-        // --- Approvals (Admin + Subadmin) ---------------------------------
+        // Report a user or message (moderation intake)
+        Route::post('/reports', [\App\Http\Controllers\Api\V1\ReportUserController::class, 'store'])
+            ->middleware('throttle:10,1');
+
+        // --- Admin + Subadmin (module-gated) ------------------------------
         Route::prefix('admin')->middleware('role:admin,super_admin,subadmin')->group(function () {
-            Route::get('/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'pending']);
-            Route::post('/change-requests/{changeRequest}', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'review']);
+            // Approvals (subadmin default-granted)
+            Route::get('/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'pending'])
+                ->middleware('module:approvals,view');
+            Route::post('/change-requests/{changeRequest}', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'review'])
+                ->middleware('module:approvals,edit');
+
+            // Users (subadmins need a grant)
+            Route::get('/users', [AdminUserController::class, 'index'])->middleware('module:users,view');
+            Route::get('/users/{user}/summary', [AdminUserController::class, 'summary'])->middleware('module:users,view');
+            Route::post('/users/{user}/suspend', [AdminUserController::class, 'suspend'])->middleware('module:users,delete');
+            Route::post('/users/{user}/activate', [AdminUserController::class, 'activate'])->middleware('module:users,edit');
+
+            // Moderation
+            Route::get('/reports', [\App\Http\Controllers\Api\V1\Admin\ModerationController::class, 'index'])
+                ->middleware('module:moderation,view');
+            Route::post('/reports/{report}/act', [\App\Http\Controllers\Api\V1\Admin\ModerationController::class, 'act'])
+                ->middleware('module:moderation,edit'); // delete-level actions re-checked in controller
+
+            // Activity & logins
+            Route::get('/active-members', [AdminUserController::class, 'activeMembers'])->middleware('module:activity,view');
+            Route::get('/login-histories', [RoleController::class, 'loginHistories'])->middleware('module:activity,view');
+            Route::get('/audit-logs', [RoleController::class, 'auditLogs'])->middleware('module:activity,view');
         });
 
-        // --- Admin --------------------------------------------------------
+        // --- Admin only ---------------------------------------------------
         Route::prefix('admin')->middleware('role:admin,super_admin')->group(function () {
             Route::get('/stats', [StatsController::class, 'index']);
-            Route::get('/users', [AdminUserController::class, 'index']);
             Route::post('/users', [AdminUserController::class, 'store']);
             Route::get('/users/{user}', [AdminUserController::class, 'show']);
             Route::put('/users/{user}', [AdminUserController::class, 'update']);
-            Route::post('/users/{user}/suspend', [AdminUserController::class, 'suspend']);
-            Route::post('/users/{user}/activate', [AdminUserController::class, 'activate']);
             Route::post('/users/{user}/roles', [AdminUserController::class, 'syncRoles']);
+            Route::get('/users/{user}/module-permissions', [AdminUserController::class, 'modulePermissions']);
+            Route::put('/users/{user}/module-permissions', [AdminUserController::class, 'updateModulePermissions']);
             Route::post('/users/{user}/app-id/regenerate', [AdminUserController::class, 'regenerateAppId']);
             Route::get('/users/{user}/otp', [AdminUserController::class, 'activeOtp']);
             Route::post('/users/{user}/otp/resend', [AdminUserController::class, 'resendOtp']);
@@ -250,8 +274,6 @@ Route::prefix('v1')->group(function () {
             Route::post('/users/{user}/plan', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'assign']);
             Route::get('/roles', [RoleController::class, 'roles']);
             Route::get('/permissions', [RoleController::class, 'permissions']);
-            Route::get('/login-histories', [RoleController::class, 'loginHistories']);
-            Route::get('/audit-logs', [RoleController::class, 'auditLogs']);
 
             // Billing administration
             Route::get('/billing/payments', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'payments']);

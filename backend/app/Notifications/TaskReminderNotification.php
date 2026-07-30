@@ -21,10 +21,7 @@ class TaskReminderNotification extends Notification implements ShouldQueue
         $channels = $this->reminder->channels ?? ['in_app'];
         $via = ['database'];
 
-        $prefs = $notifiable->settings?->notification_preferences ?? [];
-        $emailEnabled = $prefs['email'] ?? true;
-
-        if (in_array('email', $channels) && $emailEnabled) {
+        if (in_array('email', $channels) && SocialNotification::wantsMail($notifiable)) {
             $via[] = 'mail';
         }
 

@@ -2,6 +2,35 @@
 
 > Updated after each completed module. Newest first.
 
+## 2026-07-30 — Admin operations & social notifications batch ✅ (user-requested)
+
+- [x] Tasks show their created date next to the due date, and the task list has
+      from/to range filters for BOTH created and due dates
+- [x] Cross-user updates now raise notifications: connection requests, acceptances,
+      task assignments, group adds, note/file shares — and they auto-clear when
+      attended (opening the matching sidebar section marks them read; responding
+      to a request clears its notification)
+- [x] Notifications are also emailed when the recipient's email is VERIFIED and
+      their "email notifications" toggle (new, in Settings) is on — applies to
+      reminders, bills, subscriptions, payments, and social updates
+- [x] Admin Panel restructured into tabs: Overview · Users · Active Members ·
+      Approvals · Activity (audit trail) · Logins · Moderation
+- [x] Active Members tab: everyone active in the last 24h with user ID (App ID),
+      username, mobile, IP address, device, last-active, and live online status
+- [x] Per-user activity summary (📊 button on each user row): last login + IP,
+      tasks/notes/files/storage/messages/groups, logins this week, reports against
+- [x] Proper moderation system on the report backbone: users flag messages (chat
+      hover) or people (Connections); admins work a queue with Dismiss / Warn /
+      Delete message / Suspend; reporters get resolution notifications; sibling
+      reports auto-close; everything audit-logged
+- [x] Subadmin rights matrix: per-activity (users/approvals/moderation/activity)
+      View · Edit · Delete checkboxes with an "All rights" button (⚙ on subadmin
+      rows); enforced server-side via module middleware — approvals stay open by
+      default, everything else requires a grant
+
+**Verified:** 131 backend tests green (588 assertions, 9 new); frontend build clean;
+live checks on active-members / moderation / audit endpoints.
+
 ## 2026-07-30 — Passwordless signup & OTP login ✅ (user-requested)
 
 - [x] Password removed from signup: an account is created with just name + mobile +

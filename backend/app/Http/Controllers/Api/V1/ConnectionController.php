@@ -64,6 +64,13 @@ class ConnectionController extends Controller
             'message' => $data['message'] ?? null,
         ]);
 
+        $target->notify(new \App\Notifications\SocialNotification(
+            'connection_request',
+            "{$me->name} sent you a connection request.",
+            ['from_uuid' => $me->uuid, 'connection_uuid' => $connection->uuid],
+            '/connections',
+        ));
+
         return response()->json([
             'message' => 'Connection request sent.',
             'data' => new ConnectionResource($connection->load(['requester.appId', 'addressee.appId'])),
@@ -81,6 +88,21 @@ class ConnectionController extends Controller
             'status' => $data['action'] === 'accept' ? 'accepted' : 'declined',
             'responded_at' => now(),
         ]);
+
+        if ($data['action'] === 'accept') {
+            $connection->requester->notify(new \App\Notifications\SocialNotification(
+                'connection_accepted',
+                "{$request->user()->name} accepted your connection request.",
+                ['from_uuid' => $request->user()->uuid],
+                '/connections',
+            ));
+        }
+
+        // The request has been attended — clear its notification for me.
+        $request->user()->unreadNotifications()
+            ->where('data->kind', 'connection_request')
+            ->where('data->connection_uuid', $connection->uuid)
+            ->update(['read_at' => now()]);
 
         return response()->json([
             'message' => $data['action'] === 'accept' ? 'Connection accepted.' : 'Connection declined.',

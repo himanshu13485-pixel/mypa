@@ -413,6 +413,35 @@ export default function SettingsPage() {
       </Card>
 
       <Card>
+        <h2 className="mb-3 text-sm font-semibold">Notifications</h2>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={(user?.settings?.notification_preferences as { email?: boolean } | null)?.email !== false}
+            onChange={(e) => {
+              profileApi.updateSettings({
+                notification_preferences: {
+                  ...(user?.settings?.notification_preferences ?? {}),
+                  email: e.target.checked,
+                },
+              }).then((fresh) => setUser(fresh))
+            }}
+          />
+          <span>
+            Also send notifications to my email
+            <span className="block text-xs text-slate-400">
+              {user?.email
+                ? user.email_verified
+                  ? `Delivered to ${user.email} for reminders, bills, payments, connections, assignments and shares.`
+                  : 'Your email is not verified yet — emails start after verification.'
+                : 'Add and verify an email in Login identity above to enable this.'}
+            </span>
+          </span>
+        </label>
+      </Card>
+
+      <Card>
         <h2 className="mb-3 text-sm font-semibold">
           {user?.has_password === false ? 'Set a password (optional)' : 'Change password'}
         </h2>
