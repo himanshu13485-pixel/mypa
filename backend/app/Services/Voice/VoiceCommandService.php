@@ -31,7 +31,14 @@ class VoiceCommandService
             return $this->interpretQuery($text, $language);
         }
 
-        if ($this->matchesComplete($text)) {
+        // Explicit creation verbs win, so "create a task to get the car done"
+        // never gets mistaken for a completion command.
+        $explicitCreate = (bool) preg_match(
+            '/^\s*(remind me|create|add|new task|schedule|मुझे|याद दिला|टास्क बनाओ|बनाओ)/u',
+            $text,
+        );
+
+        if (! $explicitCreate && $this->matchesComplete($text)) {
             return $this->interpretComplete($user, $text, $language);
         }
 
@@ -80,17 +87,35 @@ class VoiceCommandService
 
     protected function matchesComplete(string $text): bool
     {
-        return (bool) preg_match(
-            '/(?:(?<![\p{L}\d])|(?![\p{L}\d]))(mark|complete|finish|done)(?:(?<![\p{L}\d])|(?![\p{L}\d])).*(?:(?<![\p{L}\d])|(?![\p{L}\d]))(as )?(completed|done|complete|finished)(?:(?<![\p{L}\d])|(?![\p{L}\d]))|(?:(?<![\p{L}\d])|(?![\p{L}\d]))पूरा (करो|करें|हुआ|कर दो)(?:(?<![\p{L}\d])|(?![\p{L}\d]))/u',
+        $boundary = '(?:(?<![\p{L}\d])|(?![\p{L}\d]))';
+
+        // Classic: "mark X as completed" / "पूरा करो".
+        if (preg_match(
+            "/{$boundary}(mark|complete|finish|done){$boundary}.*{$boundary}(as )?(completed|done|complete|finished){$boundary}|{$boundary}पूरा (करो|करें|हुआ|कर दो){$boundary}/u",
             $text,
-        ) || (bool) preg_match('/^\s*(mark|complete)(?:(?<![\p{L}\d])|(?![\p{L}\d]))/u', $text);
+        )) {
+            return true;
+        }
+
+        // Leading verb: "complete X", "close X", "mark X", "finish X".
+        if (preg_match("/^\s*(mark|complete|close|finish){$boundary}/u", $text)) {
+            return true;
+        }
+
+        // Natural forms: any close/complete word alongside "task" —
+        // e.g. "make call rahul task complete", "call rahul task closed",
+        // "set the rent task done", "कॉल टास्क पूरा".
+        $completionWord = "{$boundary}(complete|completed|close|closed|finish|finished|done|पूरा|पूर्ण){$boundary}";
+        $taskWord = "{$boundary}(task|टास्क){$boundary}";
+
+        return (bool) (preg_match("/{$completionWord}/u", $text) && preg_match("/{$taskWord}/u", $text));
     }
 
     protected function interpretComplete(User $user, string $text, string $language): array
     {
         // Strip command words to isolate the task title.
         $title = preg_replace(
-            '/(?:(?<![\p{L}\d])|(?![\p{L}\d]))(mark|complete|finish|the|task|as|completed|done|finished|को|टास्क|पूरा|करो|करें|कर दो|हुआ)(?:(?<![\p{L}\d])|(?![\p{L}\d]))/u',
+            '/(?:(?<![\p{L}\d])|(?![\p{L}\d]))(make|set|mark|complete|close|closed|finish|finished|the|my|task|as|completed|done|please|को|टास्क|पूरा|पूर्ण|करो|करें|कर दो|हुआ|मेरा)(?:(?<![\p{L}\d])|(?![\p{L}\d]))/u',
             ' ',
             $text,
         );

@@ -111,6 +111,26 @@ class Phase5VoiceTest extends TestCase
         $this->assertNull($result['data']['task']);
     }
 
+    public function test_natural_completion_phrasings_resolve_to_complete_intent(): void
+    {
+        $task = Task::create(['user_id' => $this->user->id, 'title' => 'Call rahul']);
+
+        foreach ([
+            'Make call rahul task complete',
+            'Close the call rahul task',
+            'Call rahul task done',
+            'Set my call rahul task as finished',
+        ] as $phrase) {
+            $result = $this->interpret($phrase);
+            $this->assertEquals('complete_task', $result['intent'], "Wrong intent for: {$phrase}");
+            $this->assertEquals($task->uuid, $result['data']['task']['uuid'] ?? null, "Task not found for: {$phrase}");
+        }
+
+        // Explicit creation with a completion-ish word stays a create intent.
+        $create = $this->interpret('Create a task to get the car serviced and done by Friday');
+        $this->assertEquals('create_task', $create['intent']);
+    }
+
     // --- Hindi ---------------------------------------------------------------
 
     public function test_hindi_reminder_tomorrow_evening(): void
