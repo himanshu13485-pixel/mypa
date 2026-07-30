@@ -89,12 +89,14 @@ class AppIdService
     }
 
     /**
-     * Resolve any identity handle to a user: App ID (MYPA-…), username, or
-     * mobile number with ISD code.
+     * Resolve any identity handle to a user: username, email, or App ID.
+     * Mobile numbers are records-only and deliberately NOT resolvable.
      */
-    protected function lookup(string $identifier): ?User
+    public function lookup(string $identifier): ?User
     {
-        // App ID
+        $identifier = trim($identifier);
+
+        // App ID (legacy handle, still accepted)
         if (preg_match('/^' . preg_quote(config('mypa.app_id_prefix', 'MYPA'), '/') . '-/i', $identifier)) {
             return AppId::with('user.settings', 'user.profile')
                 ->where('app_id', strtoupper($identifier))
@@ -102,7 +104,13 @@ class AppIdService
                 ->first()?->user;
         }
 
-        // Mobile numbers are records-only and deliberately NOT searchable.
+        // Email
+        if (str_contains($identifier, '@')) {
+            return User::with(['settings', 'profile'])
+                ->where('email', mb_strtolower($identifier))
+                ->first();
+        }
+
         // Username
         return User::with(['settings', 'profile'])
             ->whereRaw('LOWER(username) = ?', [mb_strtolower($identifier)])

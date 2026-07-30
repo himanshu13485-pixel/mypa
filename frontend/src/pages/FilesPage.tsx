@@ -180,6 +180,20 @@ export default function FilesPage() {
                     <p className="text-xs text-slate-400">{f.files_count} file(s)</p>
                   </button>
                   <button
+                    className="rounded p-1.5 text-slate-400 hover:text-brand-600"
+                    title="Share folder (all files inside)"
+                    onClick={() => {
+                      const target = prompt(`Share folder "${f.name}" with (username or email):`)
+                      if (target?.trim()) {
+                        filesApi.shareFolder(f.uuid, target.trim())
+                          .then((res) => alert((res as { data?: { message?: string } }).data?.message ?? 'Folder shared.'))
+                          .catch((err) => alert(errorMessage(err)))
+                      }
+                    }}
+                  >
+                    <Share2 className="size-4" />
+                  </button>
+                  <button
                     className="rounded p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                     title="Rename"
                     onClick={() => {
@@ -220,7 +234,7 @@ export default function FilesPage() {
                     className="rounded p-1.5 text-slate-400 hover:text-brand-600"
                     title="Share"
                     onClick={() => {
-                      const appId = prompt('Share with App ID (e.g. MYPA-100005):')
+                      const appId = prompt('Share with (username or email):')
                       if (appId?.trim()) {
                         filesApi.share(f.uuid, appId.trim())
                           .then(() => alert('Shared.'))
@@ -256,6 +270,31 @@ export default function FilesPage() {
 
       {view === 'shared' && (
         <div className="space-y-1.5">
+          {(shared as unknown as { shared_folders?: { uuid: string; name: string; files_count: number; owner: { name: string } }[] })?.shared_folders?.map((sf) => (
+            <Card key={sf.uuid} className="flex items-center gap-3 p-3">
+              <Folder className="size-5 shrink-0 text-amber-500" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{sf.name}</p>
+                <p className="text-xs text-slate-400">{sf.files_count} file(s) · folder shared by {sf.owner.name}</p>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={async () => {
+                  const res = await filesApi.sharedFolderFiles(sf.uuid)
+                  if (!res.files.length) return alert('This folder is empty.')
+                  const pick = prompt(
+                    res.files.map((x, i) => `${i + 1}. ${x.name}`).join('\n') +
+                      '\n\nEnter a number to download:',
+                  )
+                  const idx = Number(pick) - 1
+                  if (res.files[idx]) authedDownload(res.files[idx].uuid, res.files[idx].name)
+                }}
+              >
+                Open
+              </Button>
+            </Card>
+          ))}
           {!shared?.data.length ? (
             <Card>
               <EmptyState title="Nothing shared with you yet" />

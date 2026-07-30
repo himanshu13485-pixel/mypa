@@ -406,11 +406,11 @@ export default function TasksPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Assign to (App IDs, comma separated)</Label>
+                <Label>Assign to (usernames/emails, comma separated)</Label>
                 <Input
                   value={form.assignees}
                   onChange={(e) => setForm({ ...form, assignees: e.target.value })}
-                  placeholder="MYPA-100005, MYPA-100006"
+                  placeholder="rahul, priya@mypa.local"
                 />
               </div>
               <div>

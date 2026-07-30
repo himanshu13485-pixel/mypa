@@ -121,10 +121,10 @@ class GroupController extends Controller
             'role' => ['sometimes', 'in:admin,manager,member,viewer'],
         ]);
 
-        $target = AppId::where('app_id', strtoupper(trim($data['app_id'])))->first()?->user;
+        $target = app(\App\Services\AppIdService::class)->findVisibleUser($data['app_id'], $request->user());
 
         if (! $target) {
-            return response()->json(['message' => 'No user found for that App ID.'], 404);
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
         }
 
         if ($group->members()->where('users.id', $target->id)->exists()) {

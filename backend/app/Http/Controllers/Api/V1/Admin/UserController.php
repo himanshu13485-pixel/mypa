@@ -31,7 +31,15 @@ class UserController extends Controller
             $query->whereHas('roles', fn ($r) => $r->where('slug', $role));
         }
 
-        return UserResource::collection($query->latest()->paginate(20));
+        $users = $query->latest()->paginate(20);
+
+        // Attach the effective plan (active/trial subscription, else Free).
+        $entitlements = app(\App\Services\SubscriptionEntitlementService::class);
+        $users->getCollection()->each(
+            fn ($user) => $user->setAttribute('plan_slug', $entitlements->planFor($user)->slug),
+        );
+
+        return UserResource::collection($users);
     }
 
     public function store(Request $request, AppIdService $appIds): JsonResponse

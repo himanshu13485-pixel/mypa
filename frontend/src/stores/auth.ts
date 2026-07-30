@@ -25,3 +25,6 @@ export const useAuthStore = create<AuthState>()(
 
 export const isAdmin = (user: User | null) =>
   !!user?.roles?.some((r) => r === 'admin' || r === 'super_admin')
+
+export const isStaff = (user: User | null) =>
+  !!user?.roles?.some((r) => ['admin', 'super_admin', 'subadmin', 'salesperson'].includes(r))

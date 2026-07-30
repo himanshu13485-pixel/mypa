@@ -151,6 +151,8 @@ Route::prefix('v1')->group(function () {
         Route::delete('/files/{uuid}/force', [FileController::class, 'forceDelete']);
         Route::post('/files/{file}/share', [FileController::class, 'share']);
         Route::post('/folders', [FileController::class, 'storeFolder']);
+        Route::post('/folders/{folder}/share', [FileController::class, 'shareFolder']);
+        Route::get('/folders/{folder}/shared-files', [FileController::class, 'sharedFolderFiles']);
         Route::put('/folders/{folder}', [FileController::class, 'updateFolder']);
         Route::delete('/folders/{folder}', [FileController::class, 'destroyFolder']);
 
@@ -230,6 +232,14 @@ Route::prefix('v1')->group(function () {
         // Report a user or message (moderation intake)
         Route::post('/reports', [\App\Http\Controllers\Api\V1\ReportUserController::class, 'store'])
             ->middleware('throttle:10,1');
+
+        // --- Internal Work (Admin / Subadmin / Salesperson) ----------------
+        Route::prefix('admin/internal')->middleware(['role:admin,super_admin,subadmin,salesperson', 'module:internal,view'])->group(function () {
+            Route::post('lookup', [\App\Http\Controllers\Api\V1\Admin\InternalNoteController::class, 'lookup']);
+            Route::get('/threads', [\App\Http\Controllers\Api\V1\Admin\InternalNoteController::class, 'threads']);
+            Route::get('/users/{user}/notes', [\App\Http\Controllers\Api\V1\Admin\InternalNoteController::class, 'index']);
+            Route::post('/users/{user}/notes', [\App\Http\Controllers\Api\V1\Admin\InternalNoteController::class, 'store']);
+        });
 
         // --- Admin + Subadmin (module-gated) ------------------------------
         Route::prefix('admin')->middleware('role:admin,super_admin,subadmin')->group(function () {

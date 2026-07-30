@@ -80,6 +80,9 @@ class AuthController extends Controller
         // Account confirmation: a 6-digit OTP is emailed to the address.
         app(\App\Services\MobileOtpService::class)->issueEmail($user, $user->email);
 
+        // User activity trail: registrations show up in the admin Activity tab.
+        \App\Models\AuditLog::record($user, 'user.registered', $user, ['username' => $user->username]);
+
         $token = $user->createToken($request->input('device_name', 'web'))->plainTextToken;
 
         $this->recordLogin($request, $user);

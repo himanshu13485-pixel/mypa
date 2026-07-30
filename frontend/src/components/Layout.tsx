@@ -8,7 +8,7 @@ import {
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import { auth, badges as badgesApi } from '../api/endpoints'
-import { isAdmin, useAuthStore } from '../stores/auth'
+import { isStaff, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
 import { CallProvider } from './CallManager'
 import VoiceAssistant from './VoiceAssistant'
@@ -105,7 +105,7 @@ export default function Layout() {
         </NavLink>
         )
       })}
-      {isAdmin(user) && (
+      {isStaff(user) && (
         <NavLink
           to="/admin"
           onClick={() => setSidebarOpen(false)}

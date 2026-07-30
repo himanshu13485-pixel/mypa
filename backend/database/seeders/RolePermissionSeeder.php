@@ -15,6 +15,7 @@ class RolePermissionSeeder extends Seeder
             ['slug' => 'admin', 'name' => 'Admin', 'description' => 'Manages assigned users and teams', 'is_system' => true],
             ['slug' => 'subadmin', 'name' => 'Subadmin', 'description' => 'Limited admin access as permitted', 'is_system' => true],
             ['slug' => 'user', 'name' => 'Standard User', 'description' => 'Regular platform user', 'is_system' => true],
+            ['slug' => 'salesperson', 'name' => 'Salesperson', 'description' => 'Staff member with Internal Work access', 'is_system' => true],
         ];
 
         foreach ($roles as $role) {

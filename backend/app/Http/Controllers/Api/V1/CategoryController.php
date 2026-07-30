@@ -77,10 +77,10 @@ class CategoryController extends Controller
             'permission' => ['required', 'in:view,edit,manage'],
         ]);
 
-        $target = AppId::where('app_id', strtoupper(trim($data['app_id'])))->first()?->user;
+        $target = app(\App\Services\AppIdService::class)->findVisibleUser($data['app_id'], $request->user());
 
         if (! $target || $target->id === $request->user()->id) {
-            return response()->json(['message' => 'No user found for that App ID.'], 404);
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
         }
 
         $category->update(['visibility' => 'shared']);

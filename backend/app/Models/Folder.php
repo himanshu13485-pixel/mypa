@@ -43,4 +43,11 @@ class Folder extends Model
     {
         return $this->hasMany(File::class)->orderBy('name');
     }
+
+    public function sharedWith(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'folder_shares')
+            ->withPivot('permission')
+            ->withTimestamps();
+    }
 }

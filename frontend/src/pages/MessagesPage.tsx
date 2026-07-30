@@ -207,7 +207,7 @@ export default function MessagesPage() {
   }
 
   const startNewChat = () => {
-    const appId = prompt('Enter the App ID to message (e.g. MYPA-100005):')
+    const appId = prompt('Enter the username or email to message:')
     if (!appId?.trim()) return
     chat.start(appId.trim()).then((c) => {
       setSelected(c)

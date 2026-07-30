@@ -33,7 +33,7 @@ class ReportUserController extends Controller
         } else {
             $target = $appIds->findVisibleUser($data['identifier'], $me);
             if (! $target || $target->id === $me->id) {
-                return response()->json(['message' => 'No user found for that identifier.'], 404);
+                return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
             }
         }
 

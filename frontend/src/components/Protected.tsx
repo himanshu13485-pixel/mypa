@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
-import { isAdmin, useAuthStore } from '../stores/auth'
+import { isStaff, useAuthStore } from '../stores/auth'
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -10,6 +10,6 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
 export function RequireAdmin({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
-  if (!isAdmin(user)) return <Navigate to="/" replace />
+  if (!isStaff(user)) return <Navigate to="/" replace />
   return children
 }

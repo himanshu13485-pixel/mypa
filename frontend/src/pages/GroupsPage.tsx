@@ -253,7 +253,7 @@ export default function GroupsPage() {
                 <ErrorNote message={error} />
                 <div className="flex gap-2">
                   <Input
-                    placeholder="MYPA-100005"
+                    placeholder="username or email"
                     value={memberAppId}
                     onChange={(e) => setMemberAppId(e.target.value)}
                     required

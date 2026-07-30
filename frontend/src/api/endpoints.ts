@@ -164,6 +164,21 @@ export const adminOps = {
     api.get<Paginated<import('../types').LoginHistoryRow>>('/admin/login-histories', { params: q ? { q } : {} }).then((r) => r.data),
 }
 
+// --- Internal Work (staff-only notes about users) ---------------------------
+
+export const adminInternal = {
+  threads: () =>
+    api.get<{ data: import('../types').InternalThread[] }>('/admin/internal/threads').then((r) => r.data.data),
+  lookup: (identifier: string) =>
+    api.post<{ data: { uuid: string; name: string; username: string | null } }>('/admin/internal/lookup', { identifier }).then((r) => r.data.data),
+  notes: (uuid: string) =>
+    api.get<{ data: { user: { uuid: string; name: string; username: string | null }; notes: import('../types').InternalNoteRow[] } }>(
+      `/admin/internal/users/${uuid}/notes`,
+    ).then((r) => r.data.data),
+  addNote: (uuid: string, body: string) =>
+    api.post(`/admin/internal/users/${uuid}/notes`, { body }),
+}
+
 // --- Notifications ----------------------------------------------------------
 
 export const notifications = {
@@ -242,6 +257,9 @@ export const files = {
   sharedWithMe: () => api.get<Paginated<FileItem>>('/files/shared-with-me').then((r) => r.data),
   createFolder: (name: string, parent_uuid?: string) =>
     api.post('/folders', { name, parent_uuid }),
+  shareFolder: (uuid: string, app_id: string) => api.post(`/folders/${uuid}/share`, { app_id }),
+  sharedFolderFiles: (uuid: string) =>
+    api.get<{ data: { folder: { uuid: string; name: string }; files: FileItem[] } }>(`/folders/${uuid}/shared-files`).then((r) => r.data.data),
   renameFolder: (uuid: string, name: string) => api.put(`/folders/${uuid}`, { name }),
   removeFolder: (uuid: string) => api.delete(`/folders/${uuid}`),
 }

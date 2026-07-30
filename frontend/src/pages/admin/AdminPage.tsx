@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity, Ban, BarChart3, CheckCircle2, ClipboardCheck, CreditCard, Flag,
-  KeyRound, LogIn, Pencil, Plus, RefreshCw, Search, Shield, SlidersHorizontal,
-  Users, Wifi,
+  KeyRound, LogIn, MessagesSquare, Pencil, Plus, RefreshCw, Search, Send, Shield,
+  SlidersHorizontal, Users, Wifi,
 } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
-import { admin, adminBilling, adminOps, identity as identityApi } from '../../api/endpoints'
+import { admin, adminBilling, adminInternal, adminOps, identity as identityApi } from '../../api/endpoints'
 import type { AdminPlan } from '../../types'
 import { api, errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
@@ -167,6 +167,9 @@ function ActivityTab() {
               <div>
                 <span className="font-mono text-xs text-brand-600">{log.action}</span>
                 <span className="ml-2 text-xs text-slate-500">by {log.actor?.name ?? 'system'}</span>
+                {log.subject_name && (
+                  <span className="ml-2 text-xs font-medium text-slate-600 dark:text-slate-300">{'→'} {log.subject_name}</span>
+                )}
                 {log.details && (
                   <span className="ml-2 text-[11px] text-slate-400">{JSON.stringify(log.details)}</span>
                 )}
@@ -837,6 +840,7 @@ function UsersTab() {
                 <th className="pb-2 pr-4 font-medium">Email</th>
                 <th className="pb-2 pr-4 font-medium">App ID</th>
                 <th className="pb-2 pr-4 font-medium">Roles</th>
+                <th className="pb-2 pr-4 font-medium">Plan</th>
                 <th className="pb-2 pr-4 font-medium">Status</th>
                 <th className="pb-2 font-medium">Actions</th>
               </tr>
@@ -849,6 +853,9 @@ function UsersTab() {
                   <td className="py-2.5 pr-4 font-mono text-xs">{u.app_id}</td>
                   <td className="py-2.5 pr-4">
                     <div className="flex flex-wrap gap-1">{u.roles?.map((r) => <Badge key={r} value={r} />)}</div>
+                  </td>
+                  <td className="py-2.5 pr-4">
+                    <Badge value={u.plan ?? 'free'} />
                   </td>
                   <td className="py-2.5 pr-4">
                     <Badge value={u.status ?? 'active'} />
@@ -894,13 +901,13 @@ function UsersTab() {
                       <Button
                         size="sm"
                         variant="ghost"
-                        title="View / resend mobile OTP"
+                        title="View / resend verification code (email or in-app)"
                         onClick={async () => {
                           try {
                             const res = await api.get<{ data: { code: string } | null }>(`/admin/users/${u.uuid}/otp`)
                             if (res.data.data) {
                               alert(`Active OTP for ${u.name}: ${res.data.data.code}`)
-                            } else if (confirm(`No active code for ${u.name}. Send a new one to their app?`)) {
+                            } else if (confirm(`No active code for ${u.name}. Send a new one? (Goes to their email if unverified, otherwise in-app.)`)) {
                               const sent = await api.post<{ data: { code: string } }>(`/admin/users/${u.uuid}/otp/resend`)
                               alert(`New OTP sent: ${sent.data.data.code}`)
                             }
@@ -962,6 +969,7 @@ function UsersTab() {
               <Select value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })}>
                 <option value="user">Standard User</option>
                 <option value="subadmin">Subadmin</option>
+                <option value="salesperson">Salesperson</option>
                 {isSuperAdmin && <option value="admin">Admin</option>}
               </Select>
             </div>
@@ -1053,6 +1061,152 @@ function OverviewTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Internal Work (staff-only notes about users)
+// ---------------------------------------------------------------------------
+
+function InternalTab() {
+  const queryClient = useQueryClient()
+  const [selected, setSelected] = useState<{ uuid: string; name: string } | null>(null)
+  const [identifier, setIdentifier] = useState('')
+  const [body, setBody] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const { data: threads, isLoading } = useQuery({
+    queryKey: ['internal-threads'],
+    queryFn: adminInternal.threads,
+    refetchInterval: 30_000,
+  })
+
+  const { data: thread } = useQuery({
+    queryKey: ['internal-notes', selected?.uuid],
+    queryFn: () => adminInternal.notes(selected!.uuid),
+    enabled: !!selected,
+    refetchInterval: 15_000,
+  })
+
+  const addMutation = useMutation({
+    mutationFn: () => adminInternal.addNote(selected!.uuid, body.trim()),
+    onSuccess: () => {
+      setBody('')
+      queryClient.invalidateQueries({ queryKey: ['internal-notes', selected?.uuid] })
+      queryClient.invalidateQueries({ queryKey: ['internal-threads'] })
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const startThread = async () => {
+    setError(null)
+    try {
+      const user = await adminInternal.lookup(identifier.trim())
+      setSelected({ uuid: user.uuid, name: user.name })
+      setIdentifier('')
+    } catch (err) {
+      setError(errorMessage(err))
+    }
+  }
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
+      <Card className="self-start">
+        <h2 className="mb-2 text-sm font-semibold">Discussions</h2>
+        <div className="mb-3 flex gap-1">
+          <Input
+            placeholder="username or email…"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && identifier.trim() && startThread()}
+          />
+          <Button size="sm" variant="secondary" onClick={startThread} disabled={!identifier.trim()}>
+            <Search className="size-4" />
+          </Button>
+        </div>
+        <ErrorNote message={error} />
+        {isLoading ? (
+          <Spinner />
+        ) : !threads?.length ? (
+          <EmptyState title="No discussions yet" hint="Look up a user above to start one." />
+        ) : (
+          <div className="space-y-1">
+            {threads.map((t) => (
+              <button
+                key={t.user.uuid}
+                onClick={() => setSelected({ uuid: t.user.uuid, name: t.user.name })}
+                className={clsx(
+                  'w-full rounded-lg px-3 py-2 text-left text-sm transition-colors',
+                  selected?.uuid === t.user.uuid
+                    ? 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
+                    : 'hover:bg-slate-100 dark:hover:bg-slate-800',
+                )}
+              >
+                <p className="font-medium">{t.user.name}</p>
+                <p className="text-[11px] text-slate-400">
+                  {t.notes_count} note(s) · {formatDistanceToNow(new Date(t.last_at), { addSuffix: true })}
+                </p>
+              </button>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card className="flex min-h-[400px] flex-col">
+        {!selected ? (
+          <EmptyState
+            title="Internal Work"
+            hint="Staff-only discussion about a user — never visible to the user. Pick a thread or look one up."
+          />
+        ) : (
+          <>
+            <h2 className="mb-3 text-sm font-semibold">
+              About: {thread?.user.name ?? selected.name}
+              {thread?.user.username && <span className="ml-1 text-xs font-normal text-slate-400">@{thread.user.username}</span>}
+            </h2>
+            <div className="flex-1 space-y-2 overflow-y-auto">
+              {!thread?.notes.length ? (
+                <p className="text-xs text-slate-400">No notes yet — write the first one below.</p>
+              ) : (
+                thread.notes.map((n) => (
+                  <div
+                    key={n.uuid}
+                    className={clsx(
+                      'max-w-[85%] rounded-lg px-3 py-2 text-sm',
+                      n.author.is_me
+                        ? 'ml-auto bg-brand-600 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800',
+                    )}
+                  >
+                    {!n.author.is_me && <p className="mb-0.5 text-[11px] font-semibold text-brand-600 dark:text-brand-400">{n.author.name}</p>}
+                    <p className="whitespace-pre-wrap">{n.body}</p>
+                    <p className={clsx('mt-1 text-[10px]', n.author.is_me ? 'text-brand-200' : 'text-slate-400')}>
+                      {format(new Date(n.created_at), 'd MMM, HH:mm')}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+            <form
+              className="mt-3 flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (body.trim()) addMutation.mutate()
+              }}
+            >
+              <Input
+                placeholder="Write an internal note…"
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+              />
+              <Button type="submit" disabled={!body.trim() || addMutation.isPending}>
+                <Send className="size-4" />
+              </Button>
+            </form>
+          </>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page shell with tabs
 // ---------------------------------------------------------------------------
 
@@ -1065,10 +1219,22 @@ const TABS = [
   { key: 'activity', label: 'Activity', icon: Activity },
   { key: 'logins', label: 'Logins', icon: LogIn },
   { key: 'moderation', label: 'Moderation', icon: Flag },
+  { key: 'internal', label: 'Internal Work', icon: MessagesSquare },
 ] as const
 
+/** Which tabs each staff role can see (the backend enforces the same rules). */
+function visibleTabs(roles: string[]) {
+  if (roles.includes('admin') || roles.includes('super_admin')) return TABS
+  if (roles.includes('subadmin')) {
+    return TABS.filter((t) => !['overview', 'active', 'plans'].includes(t.key))
+  }
+  return TABS.filter((t) => t.key === 'internal')
+}
+
 export default function AdminPage() {
-  const [tab, setTab] = useState<(typeof TABS)[number]['key']>('overview')
+  const roles = useAuthStore((s) => s.user?.roles ?? [])
+  const tabs = visibleTabs(roles)
+  const [tab, setTab] = useState<(typeof TABS)[number]['key']>(tabs[0]?.key ?? 'internal')
 
   return (
     <div className="space-y-4">
@@ -1078,7 +1244,7 @@ export default function AdminPage() {
       </div>
 
       <div className="flex flex-wrap gap-1 border-b border-slate-200 pb-2 dark:border-slate-800">
-        {TABS.map(({ key, label, icon: Icon }) => (
+        {tabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -1102,6 +1268,7 @@ export default function AdminPage() {
       {tab === 'activity' && <ActivityTab />}
       {tab === 'logins' && <LoginsTab />}
       {tab === 'moderation' && <ModerationTab />}
+      {tab === 'internal' && <InternalTab />}
     </div>
   )
 }

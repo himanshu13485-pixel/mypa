@@ -37,7 +37,7 @@ class ConnectionController extends Controller
         $target = $appIds->findVisibleUser($data['app_id'], $me);
 
         if (! $target || $target->id === $me->id) {
-            return response()->json(['message' => 'No user found for that App ID.'], 404);
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
         }
 
         $connectPref = $target->settings?->privacyValue('who_can_connect') ?? 'everyone';

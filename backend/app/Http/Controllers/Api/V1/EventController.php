@@ -250,7 +250,7 @@ class EventController extends Controller
     protected function syncParticipants(Request $request, Event $event, array $appIds, bool $sync = false): void
     {
         $ids = collect($appIds)
-            ->map(fn ($appId) => AppId::where('app_id', strtoupper(trim($appId)))->first()?->user_id)
+            ->map(fn ($appId) => app(\App\Services\AppIdService::class)->findVisibleUser($appId, $request->user())?->id)
             ->filter(fn ($id) => $id && $id !== $request->user()->id)
             ->unique()
             ->values();

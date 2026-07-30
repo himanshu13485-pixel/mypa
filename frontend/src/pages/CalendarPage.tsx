@@ -301,8 +301,8 @@ export default function CalendarPage() {
               <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
             </div>
             <div>
-              <Label>Invite participants (App IDs, comma separated)</Label>
-              <Input placeholder="MYPA-100005, MYPA-100006" value={form.participants} onChange={(e) => setForm({ ...form, participants: e.target.value })} />
+              <Label>Invite participants (usernames/emails, comma separated)</Label>
+              <Input placeholder="rahul, priya@mypa.local" value={form.participants} onChange={(e) => setForm({ ...form, participants: e.target.value })} />
               {editing && editing.participants.length > 0 && (
                 <p className="mt-1 text-xs text-slate-400">
                   Invited: {editing.participants.map((p) => `${p.name} (${p.status})`).join(', ')}

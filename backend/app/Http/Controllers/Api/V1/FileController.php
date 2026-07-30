@@ -71,7 +71,63 @@ class FileController extends Controller
             'owner' => ['uuid' => $f->user->uuid, 'name' => $f->user->name],
         ]);
 
-        return response()->json($files);
+        // Whole folders shared with me ride along in the same response.
+        $folders = Folder::whereHas('sharedWith', fn ($s) => $s->where('users.id', $request->user()->id))
+            ->with('user:id,uuid,name')
+            ->withCount('files')
+            ->get()
+            ->map(fn ($folder) => [
+                'uuid' => $folder->uuid,
+                'name' => $folder->name,
+                'files_count' => $folder->files_count,
+                'owner' => ['uuid' => $folder->user->uuid, 'name' => $folder->user->name],
+            ]);
+
+        return response()->json(['shared_folders' => $folders] + $files->toArray());
+    }
+
+    /** Files inside a folder that was shared with me. */
+    public function sharedFolderFiles(Request $request, Folder $folder): JsonResponse
+    {
+        $isShared = $folder->sharedWith()->where('users.id', $request->user()->id)->exists()
+            || $folder->user_id === $request->user()->id;
+        abort_unless($isShared, 403);
+
+        return response()->json([
+            'data' => [
+                'folder' => ['uuid' => $folder->uuid, 'name' => $folder->name],
+                'files' => $folder->files()->get()->map(fn ($f) => $this->serialize($f, $request)),
+            ],
+        ]);
+    }
+
+    public function shareFolder(Request $request, Folder $folder): JsonResponse
+    {
+        abort_unless($folder->user_id === $request->user()->id, 403);
+
+        $data = $request->validate([
+            'app_id' => ['required', 'string', 'max:255'],
+            'permission' => ['sometimes', 'in:view,edit'],
+        ]);
+
+        $target = app(\App\Services\AppIdService::class)->findVisibleUser($data['app_id'], $request->user());
+
+        if (! $target || $target->id === $request->user()->id) {
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
+        }
+
+        $folder->sharedWith()->syncWithoutDetaching([
+            $target->id => ['permission' => $data['permission'] ?? 'view'],
+        ]);
+
+        $target->notify(new \App\Notifications\SocialNotification(
+            'file_shared',
+            "{$request->user()->name} shared the folder “{$folder->name}” with you.",
+            ['folder_uuid' => $folder->uuid],
+            '/files',
+        ));
+
+        return response()->json(['message' => 'Folder shared with ' . $target->name . ' — every file inside is included.']);
     }
 
     public function usage(Request $request): JsonResponse
@@ -243,10 +299,10 @@ class FileController extends Controller
             'permission' => ['sometimes', 'in:view,edit'],
         ]);
 
-        $target = AppId::where('app_id', strtoupper(trim($data['app_id'])))->first()?->user;
+        $target = app(\App\Services\AppIdService::class)->findVisibleUser($data['app_id'], $request->user());
 
         if (! $target || $target->id === $request->user()->id) {
-            return response()->json(['message' => 'No user found for that App ID.'], 404);
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
         }
 
         $file->sharedWith()->syncWithoutDetaching([
@@ -333,6 +389,7 @@ class FileController extends Controller
 
         $visible = $file->user_id === $user->id
             || $file->sharedWith()->where('users.id', $user->id)->exists()
+            || ($file->folder_id && $file->folder?->sharedWith()->where('users.id', $user->id)->exists())
             || ($file->group_id && $file->group->members()->where('users.id', $user->id)->exists());
 
         abort_unless($visible, 403);

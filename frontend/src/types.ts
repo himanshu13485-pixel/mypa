@@ -6,6 +6,7 @@ export interface User {
   status?: string
   email_verified: boolean
   app_id?: string
+  plan?: string | null
   roles?: string[]
   profile?: {
     photo_path?: string | null
@@ -96,6 +97,7 @@ export interface ModerationReport {
 }
 
 export interface AuditLogRow {
+  subject_name?: string | null
   id: number
   action: string
   details?: Record<string, unknown> | null
@@ -557,3 +559,16 @@ export const TASK_STATUSES = [
 ] as const
 
 export const TASK_PRIORITIES = ['low', 'normal', 'medium', 'high', 'urgent', 'critical'] as const
+
+export interface InternalThread {
+  user: { uuid: string; name: string; username: string | null; email: string | null }
+  notes_count: number
+  last_at: string
+}
+
+export interface InternalNoteRow {
+  uuid: string
+  body: string
+  author: { uuid: string; name: string; is_me: boolean }
+  created_at: string
+}

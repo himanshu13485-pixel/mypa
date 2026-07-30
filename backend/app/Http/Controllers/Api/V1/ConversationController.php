@@ -36,7 +36,7 @@ class ConversationController extends Controller
         $target = $appIds->findVisibleUser($data['app_id'], $me);
 
         if (! $target || $target->id === $me->id) {
-            return response()->json(['message' => 'No user found for that App ID.'], 404);
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
         }
 
         // Privacy: who can message me
@@ -140,6 +140,7 @@ class ConversationController extends Controller
             'group_uuid' => $conversation->group?->uuid,
             'other_user' => $other ? [
                 'uuid' => $other->uuid,
+                'username' => $other->username,
                 'app_id' => $other->appId?->app_id,
                 'photo_path' => $other->profile?->photo_path,
                 'last_seen_visible' => $onlineVisible,

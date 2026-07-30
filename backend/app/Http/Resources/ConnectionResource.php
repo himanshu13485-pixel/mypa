@@ -20,6 +20,7 @@ class ConnectionResource extends JsonResource
             'user' => $other ? [
                 'uuid' => $other->uuid,
                 'name' => $other->name,
+                'username' => $other->username,
                 'app_id' => $other->appId?->app_id,
                 'photo_path' => $other->profile?->photo_path,
             ] : null,

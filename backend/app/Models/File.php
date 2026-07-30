@@ -51,12 +51,13 @@ class File extends Model
             ->withTimestamps();
     }
 
-    /** Files a user can access: own + shared + group files. */
+    /** Files a user can access: own + shared + shared-folder + group files. */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         return $query->where(function (Builder $q) use ($user) {
             $q->where('user_id', $user->id)
                 ->orWhereHas('sharedWith', fn ($s) => $s->where('users.id', $user->id))
+                ->orWhereHas('folder.sharedWith', fn ($s) => $s->where('users.id', $user->id))
                 ->orWhereHas('group.members', fn ($m) => $m->where('users.id', $user->id));
         });
     }

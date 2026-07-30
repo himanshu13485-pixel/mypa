@@ -33,7 +33,24 @@ class RoleController extends Controller
             $query->where('action', 'like', $action . '%');
         }
 
-        return response()->json($query->paginate(30));
+        $logs = $query->paginate(30);
+
+        // Resolve "to whom" — subject names for user-targeted entries.
+        $userIds = $logs->getCollection()
+            ->filter(fn ($log) => $log->subject_type === \App\Models\User::class && $log->subject_id)
+            ->pluck('subject_id')->unique();
+        $names = \App\Models\User::whereIn('id', $userIds)->pluck('name', 'id');
+
+        $logs->getCollection()->transform(function ($log) use ($names) {
+            $log->setAttribute(
+                'subject_name',
+                $log->subject_type === \App\Models\User::class ? ($names[$log->subject_id] ?? null) : null,
+            );
+
+            return $log;
+        });
+
+        return response()->json($logs);
     }
 
     public function loginHistories(Request $request): JsonResponse

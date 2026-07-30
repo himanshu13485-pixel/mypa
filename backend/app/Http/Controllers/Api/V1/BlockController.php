@@ -31,10 +31,10 @@ class BlockController extends Controller
             'reason' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $target = AppId::where('app_id', strtoupper(trim($data['app_id'])))->first()?->user;
+        $target = app(\App\Services\AppIdService::class)->lookup($data['app_id']);
 
         if (! $target || $target->id === $request->user()->id) {
-            return response()->json(['message' => 'No user found for that App ID.'], 404);
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
         }
 
         $request->user()->blockedUsers()->syncWithoutDetaching([
@@ -46,10 +46,10 @@ class BlockController extends Controller
 
     public function destroy(Request $request, string $appId): JsonResponse
     {
-        $target = AppId::where('app_id', strtoupper(trim($appId)))->first()?->user;
+        $target = app(\App\Services\AppIdService::class)->lookup($appId);
 
         if (! $target) {
-            return response()->json(['message' => 'No user found for that App ID.'], 404);
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
         }
 
         $request->user()->blockedUsers()->detach($target->id);

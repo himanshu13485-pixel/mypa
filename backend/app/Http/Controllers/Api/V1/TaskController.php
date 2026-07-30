@@ -309,7 +309,7 @@ class TaskController extends Controller
 
         $assigned = [];
         foreach ($data['app_ids'] as $appId) {
-            $user = AppId::where('app_id', strtoupper(trim($appId)))->first()?->user;
+            $user = app(\App\Services\AppIdService::class)->findVisibleUser($appId, $request->user());
             if ($user && $user->id !== $request->user()->id) {
                 $isNew = ! $task->assignees()->where('users.id', $user->id)->exists();
                 $task->assignees()->syncWithoutDetaching([
@@ -547,7 +547,7 @@ class TaskController extends Controller
     protected function syncAssignees(Request $request, Task $task, array $appIds): void
     {
         foreach ($appIds as $appId) {
-            $user = AppId::where('app_id', strtoupper(trim($appId)))->first()?->user;
+            $user = app(\App\Services\AppIdService::class)->findVisibleUser($appId, $request->user());
             if ($user && $user->id !== $request->user()->id) {
                 $isNew = ! $task->assignees()->where('users.id', $user->id)->exists();
                 $task->assignees()->syncWithoutDetaching([

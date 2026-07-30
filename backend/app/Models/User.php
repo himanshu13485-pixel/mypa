@@ -181,10 +181,20 @@ class User extends Authenticatable implements MustVerifyEmail
      * need an explicit grant, except the approvals module which stays open
      * (its review flow predates the grants system).
      */
+    /** Staff = anyone with an admin-panel presence. */
+    public function isStaff(): bool
+    {
+        return $this->hasRole('super_admin', 'admin', 'subadmin', 'salesperson');
+    }
+
     public function canModule(string $module, string $ability = 'view'): bool
     {
         if ($this->isAdmin()) {
             return true;
+        }
+        // Salespersons: Internal Work only.
+        if ($this->hasRole('salesperson')) {
+            return $module === 'internal';
         }
         if (! $this->hasRole('subadmin')) {
             return false;

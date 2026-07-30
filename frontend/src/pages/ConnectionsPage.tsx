@@ -82,11 +82,13 @@ export default function ConnectionsPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <h2 className="mb-2 text-sm font-semibold">My App ID</h2>
-          <p className="text-2xl font-bold tracking-wide text-brand-600">{user?.app_id}</p>
+          <h2 className="mb-2 text-sm font-semibold">My handle</h2>
+          <p className="text-2xl font-bold tracking-wide text-brand-600">@{user?.username}</p>
           <p className="mt-1 text-xs text-slate-400">
-            Share this ID so others can find and connect with you.
+            Share your username or email ({user?.email ?? 'no email yet'}) so others can find and
+            connect with you.
           </p>
+          <p className="mt-1 text-[11px] text-slate-300 dark:text-slate-600">Internal ID: {user?.app_id}</p>
           {qr && (
             <p className="mt-2 break-all rounded-lg bg-slate-50 p-2 font-mono text-[11px] text-slate-500 dark:bg-slate-800">
               {qr.payload}
@@ -98,7 +100,7 @@ export default function ConnectionsPage() {
           <h2 className="mb-2 text-sm font-semibold">Find a user</h2>
           <div className="flex gap-2">
             <Input
-              placeholder="username or MYPA-100001"
+              placeholder="username or email"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && search()}
@@ -113,7 +115,7 @@ export default function ConnectionsPage() {
               <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <div>
                   <p className="text-sm font-medium">{result.name}</p>
-                  <p className="text-xs text-slate-400">{result.app_id}</p>
+                  <p className="text-xs text-slate-400">@{(result as { username?: string }).username ?? result.app_id}</p>
                 </div>
                 {result.is_connected ? (
                   <Badge value="accepted" />

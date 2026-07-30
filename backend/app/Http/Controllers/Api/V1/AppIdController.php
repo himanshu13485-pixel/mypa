@@ -16,7 +16,7 @@ class AppIdController extends Controller
         $user = $appIds->findVisibleUser($request->query('q'), $request->user());
 
         if (! $user) {
-            return response()->json(['data' => null, 'message' => 'No user found for that App ID.'], 404);
+            return response()->json(['data' => null, 'message' => 'No user found for that username, email, or App ID.'], 404);
         }
 
         $photoVisible = $user->settings?->privacyValue('profile_photo_visibility') !== 'nobody';

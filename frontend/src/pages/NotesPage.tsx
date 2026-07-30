@@ -343,8 +343,8 @@ export default function NotesPage() {
           >
             <ErrorNote message={error} />
             <div>
-              <Label>App ID</Label>
-              <Input placeholder="MYPA-100005" value={shareAppId} onChange={(e) => setShareAppId(e.target.value)} required autoFocus />
+              <Label>Share with (username or email)</Label>
+              <Input placeholder="username or email" value={shareAppId} onChange={(e) => setShareAppId(e.target.value)} required autoFocus />
             </div>
             <div>
               <Label>Permission</Label>
