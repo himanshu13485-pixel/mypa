@@ -6,8 +6,8 @@ import { useAuthStore } from '../stores/auth'
 import { Button, Input } from './ui'
 
 /**
- * Shown until the mobile number is verified. The OTP is delivered app-to-app:
- * it appears in the user's notification bell (and admins can view/resend it).
+ * Shown until the account's email is confirmed with the emailed 6-digit code.
+ * (File keeps its historical name; it now handles email verification.)
  */
 export default function MobileVerifyBanner() {
   const { user, setUser } = useAuthStore()
@@ -16,14 +16,14 @@ export default function MobileVerifyBanner() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
-  if (!user || user.mobile_verified !== false) return null
+  if (!user || !user.email || user.email_verified !== false) return null
 
   const verify = async () => {
     if (!code.trim()) return
     setBusy(true)
     setMessage(null)
     try {
-      await auth.verifyMobile(code.trim())
+      await auth.verifyEmailOtp(code.trim())
       const fresh = await auth.me()
       setUser(fresh)
       queryClient.invalidateQueries({ queryKey: ['badges'] })
@@ -38,10 +38,8 @@ export default function MobileVerifyBanner() {
     setBusy(true)
     setMessage(null)
     try {
-      await auth.resendMobileOtp()
-      setMessage('A new code is in your notifications (bell icon).')
-      queryClient.invalidateQueries({ queryKey: ['notifications'] })
-      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+      await auth.resendEmailOtp()
+      setMessage('A new code has been emailed to you.')
     } catch (err) {
       setMessage(errorMessage(err))
     } finally {
@@ -53,7 +51,7 @@ export default function MobileVerifyBanner() {
     <div className="border-b border-brand-200 bg-brand-50 px-4 py-2 dark:border-brand-900 dark:bg-brand-950">
       <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-center gap-2 text-xs text-brand-800 dark:text-brand-200">
         <span>
-          Verify your mobile <b>{user.mobile}</b> — the code is in your <b>notifications</b> (🔔).
+          Confirm your email <b>{user.email}</b> — enter the code we emailed you.
         </span>
         <Input
           className="h-7 w-28 py-1 text-center tracking-widest"

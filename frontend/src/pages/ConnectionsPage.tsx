@@ -98,7 +98,7 @@ export default function ConnectionsPage() {
           <h2 className="mb-2 text-sm font-semibold">Find a user</h2>
           <div className="flex gap-2">
             <Input
-              placeholder="username, +mobile, or MYPA-100001"
+              placeholder="username or MYPA-100001"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && search()}

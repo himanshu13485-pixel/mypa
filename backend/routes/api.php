@@ -62,6 +62,8 @@ Route::prefix('v1')->group(function () {
             ->middleware('throttle:10,1');
         Route::post('/auth/mobile/resend-otp', [AuthController::class, 'resendMobileOtp'])
             ->middleware('throttle:5,1');
+        Route::post('/auth/email/resend-otp', [AuthController::class, 'resendEmailOtp'])
+            ->middleware('throttle:5,1');
         Route::post('/auth/email/verify-otp', [AuthController::class, 'verifyEmailOtp'])
             ->middleware('throttle:10,1');
         Route::get('/auth/sessions', [AuthController::class, 'sessions']);

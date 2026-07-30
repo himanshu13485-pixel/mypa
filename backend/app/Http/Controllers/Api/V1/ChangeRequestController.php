@@ -28,7 +28,9 @@ class ChangeRequestController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'type' => ['required', 'in:mobile,email,username'],
+            // Mobile is a records-only profile field now — edited directly in
+            // the profile, no approval needed.
+            'type' => ['required', 'in:email,username'],
             'new_value' => ['required', 'string', 'max:255'],
             'country_code' => ['required_if:type,mobile', 'nullable', 'string', 'regex:/^\+[0-9]{1,4}$/'],
         ]);

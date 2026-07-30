@@ -102,15 +102,7 @@ class AppIdService
                 ->first()?->user;
         }
 
-        // Mobile with ISD code
-        $digits = preg_replace('/[\s\-()]/', '', $identifier);
-        if (preg_match('/^\+?[0-9]{6,16}$/', $digits)) {
-            return User::with(['settings', 'profile'])
-                ->where('mobile', $digits)
-                ->orWhere('mobile', '+' . ltrim($digits, '+'))
-                ->first();
-        }
-
+        // Mobile numbers are records-only and deliberately NOT searchable.
         // Username
         return User::with(['settings', 'profile'])
             ->whereRaw('LOWER(username) = ?', [mb_strtolower($identifier)])

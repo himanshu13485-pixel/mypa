@@ -113,11 +113,11 @@ export default function Login() {
             )}
 
             <div>
-              <Label>Mobile number, username, or email</Label>
+              <Label>Email or username</Label>
               <Input
                 value={identifier}
                 onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="+919876543210 · rahul · you@mail.com"
+                placeholder="you@mail.com or rahul"
                 required
                 autoFocus
               />

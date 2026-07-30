@@ -22,16 +22,13 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
-            // Mobile-first identity: ISD code + national number are required.
-            'country_code' => ['required', 'string', 'regex:/^\+[0-9]{1,4}$/'],
-            'mobile' => ['required', 'string', 'regex:/^[0-9]{6,14}$/'],
-            // Alphanumeric handle, no special characters (login + search identity).
+            // Email-first identity: the account is confirmed by an emailed OTP.
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            // Alphanumeric handle, no special characters (second login identity).
             'username' => ['required', 'string', 'min:4', 'max:20', 'regex:/^[a-zA-Z0-9]+$/'],
-            // Email is optional — it can be added later from the profile.
-            'email' => ['nullable', 'string', 'email', 'max:255', 'unique:users,email'],
-            // Passwordless signup: the account is secured by mobile OTP; a
-            // password can optionally be set later from Settings.
-            'password' => ['nullable', 'confirmed', PasswordRule::min(8)->letters()->numbers()],
+            'password' => ['required', 'confirmed', PasswordRule::min(8)->letters()->numbers()],
+            // Mobile is optional, records-only (never a login or search identity).
+            'mobile' => ['nullable', 'string', 'max:32'],
             'date_of_birth' => ['nullable', 'date', 'before:today'],
             'gender' => ['nullable', 'string', 'max:32'],
             'country' => ['nullable', 'string', 'max:64'],
@@ -41,28 +38,21 @@ class AuthController extends Controller
             'referral_app_id' => ['nullable', 'string', 'max:32'],
         ]);
 
-        $fullMobile = $data['country_code'] . $data['mobile'];
         $username = mb_strtolower($data['username']);
 
-        if (User::where('mobile', $fullMobile)->exists()) {
-            throw ValidationException::withMessages([
-                'mobile' => ['This mobile number is already registered.'],
-            ]);
-        }
         if (User::whereRaw('LOWER(username) = ?', [$username])->exists()) {
             throw ValidationException::withMessages([
                 'username' => ['This username is taken.'],
             ]);
         }
 
-        $user = DB::transaction(function () use ($data, $appIds, $fullMobile, $username) {
+        $user = DB::transaction(function () use ($data, $appIds, $username) {
             $user = User::create([
                 'name' => $data['name'],
                 'username' => $username,
-                'email' => $data['email'] ?? null,
-                'mobile' => $fullMobile,
-                'country_code' => $data['country_code'],
-                'password' => $data['password'] ?? null,
+                'email' => $data['email'],
+                'mobile' => $data['mobile'] ?? null,
+                'password' => $data['password'],
             ]);
 
             $user->profile()->create([
@@ -87,24 +77,30 @@ class AuthController extends Controller
             return $user;
         });
 
-        if ($user->email) {
-            $user->sendEmailVerificationNotification();
-        }
-
-        // App-to-app OTP: delivered as an in-app notification, visible in the
-        // notification bell and to admins (no SMS network involved).
-        app(\App\Services\MobileOtpService::class)->issue($user, $user->mobile);
+        // Account confirmation: a 6-digit OTP is emailed to the address.
+        app(\App\Services\MobileOtpService::class)->issueEmail($user, $user->email);
 
         $token = $user->createToken($request->input('device_name', 'web'))->plainTextToken;
 
         $this->recordLogin($request, $user);
 
         return response()->json([
-            'message' => 'Registration successful. Check your in-app notifications for the mobile verification code.',
+            'message' => 'Registration successful. Enter the verification code we emailed to ' . $user->email . '.',
             'data' => new UserResource($user->load(['profile', 'settings', 'appId', 'roles'])),
             'token' => $token,
-            'mobile_verification_pending' => true,
+            'email_verification_pending' => true,
         ], 201);
+    }
+
+    /** Re-send the account-confirmation code to the user's own email. */
+    public function resendEmailOtp(Request $request, \App\Services\MobileOtpService $otps): JsonResponse
+    {
+        abort_if($request->user()->email_verified_at !== null, 409, 'Email is already verified.');
+        abort_if($request->user()->email === null, 422, 'No email on this account.');
+
+        $otps->issueEmail($request->user(), $request->user()->email);
+
+        return response()->json(['message' => 'A new code has been emailed to you.']);
     }
 
     /**
@@ -254,7 +250,8 @@ class AuthController extends Controller
             ->count() < 3;
 
         if ($user && $user->status !== 'suspended' && $withinCap) {
-            $otps->issue($user, $user->mobile, 'login');
+            // Login codes travel through the app inbox; mobile may be absent.
+            $otps->issue($user, $user->mobile ?? 'app-inbox', 'login');
         }
 
         // Uniform response — never leak whether the identifier exists or
@@ -424,18 +421,11 @@ class AuthController extends Controller
         );
     }
 
-    /** Match an identifier against email, mobile (with/without +), or username. */
+    /** Match an identifier against email or username (mobile is records-only). */
     protected function resolveUser(string $identifier): ?User
     {
         if (str_contains($identifier, '@')) {
             return User::where('email', $identifier)->first();
-        }
-
-        $digits = preg_replace('/[\s\-()]/', '', $identifier);
-        if (preg_match('/^\+?[0-9]{6,16}$/', $digits)) {
-            return User::where('mobile', $digits)
-                ->orWhere('mobile', '+' . ltrim($digits, '+'))
-                ->first();
         }
 
         return User::whereRaw('LOWER(username) = ?', [mb_strtolower($identifier)])->first();

@@ -21,18 +21,17 @@ class AuthTest extends TestCase
     {
         $response = $this->postJson('/api/v1/auth/register', [
             'name' => 'Test User',
-            'country_code' => '+91',
-            'mobile' => '9812345678',
-            'username' => 'testuser1',
             'email' => 'test@example.com',
+            'username' => 'testuser1',
             'password' => 'Password123',
             'password_confirmation' => 'Password123',
+            'mobile' => '+919812345678',
             'timezone' => 'Asia/Kolkata',
         ]);
 
         $response->assertCreated()
             ->assertJsonStructure(['data' => ['uuid', 'name', 'username', 'app_id', 'roles'], 'token'])
-            ->assertJsonPath('mobile_verification_pending', true);
+            ->assertJsonPath('email_verification_pending', true);
 
         $this->assertStringStartsWith('MYPA-', $response->json('data.app_id'));
         $this->assertContains('user', $response->json('data.roles'));
@@ -47,10 +46,8 @@ class AuthTest extends TestCase
 
         $this->postJson('/api/v1/auth/register', [
             'name' => 'Dupe',
-            'country_code' => '+91',
-            'mobile' => '9811111111',
-            'username' => 'dupeuser',
             'email' => 'dupe@example.com',
+            'username' => 'dupeuser',
             'password' => 'Password123',
             'password_confirmation' => 'Password123',
         ])->assertUnprocessable()->assertJsonValidationErrors('email');

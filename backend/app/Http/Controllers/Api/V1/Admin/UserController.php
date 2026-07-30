@@ -185,13 +185,20 @@ class UserController extends Controller
     /** Re-issue the in-app OTP for a user (admin-side send). */
     public function resendOtp(Request $request, User $user): JsonResponse
     {
-        abort_if($user->mobile === null, 422, 'This user has no mobile number.');
+        $service = app(\App\Services\MobileOtpService::class);
 
-        $otp = app(\App\Services\MobileOtpService::class)->issue($user, $user->mobile);
+        // Email-first flow: re-send the account-confirmation code by email when
+        // the address is unverified; otherwise fall back to the in-app channel.
+        if ($user->email && $user->email_verified_at === null) {
+            $otp = $service->issueEmail($user, $user->email);
+        } else {
+            $otp = $service->issue($user, $user->mobile ?? 'app-inbox');
+        }
+
         \App\Models\AuditLog::record($request->user(), 'user.otp_resent', $user);
 
         return response()->json([
-            'message' => 'A new code was sent to the user\'s app.',
+            'message' => 'A new code was sent to the user.',
             'data' => ['code' => $otp->code, 'expires_at' => $otp->expires_at],
         ]);
     }

@@ -26,8 +26,7 @@ class IdentityTest extends TestCase
     {
         return $this->postJson('/api/v1/auth/register', array_merge([
             'name' => 'Asha Kumar',
-            'country_code' => '+91',
-            'mobile' => '9876543210',
+            'email' => 'asha@example.com',
             'username' => 'ashak',
             'password' => 'Password123',
             'password_confirmation' => 'Password123',
@@ -36,30 +35,34 @@ class IdentityTest extends TestCase
 
     // --- Registration & OTP ---------------------------------------------------
 
-    public function test_registration_without_email_works_and_issues_in_app_otp(): void
+    public function test_registration_issues_email_otp_and_verifies(): void
     {
-        $response = $this->register();
-        $response->assertCreated();
+        $response = $this->register(['mobile' => '+919876543210']);
+        $response->assertCreated()->assertJsonPath('email_verification_pending', true);
 
         $user = User::where('username', 'ashak')->first();
-        $this->assertNull($user->email);
-        $this->assertNull($user->mobile_verified_at);
+        $this->assertEquals('asha@example.com', $user->email);
+        $this->assertEquals('+919876543210', $user->mobile); // records only
+        $this->assertNull($user->email_verified_at);
 
-        // OTP arrives as an in-app notification (app-to-app, no SMS).
-        $notification = $user->notifications()->first();
-        $this->assertEquals('mobile_otp', $notification->data['kind']);
-        $code = $notification->data['code'];
+        // The code is emailed (log mailer in tests); read it from storage.
+        $code = \App\Models\MobileOtp::where('user_id', $user->id)
+            ->where('purpose', 'verify_email')->latest()->first()->code;
 
-        // Wrong code counts an attempt.
         $this->actingAs($user)
-            ->postJson('/api/v1/auth/mobile/verify', ['code' => '000000'])
+            ->postJson('/api/v1/auth/email/verify-otp', ['code' => '000000'])
             ->assertUnprocessable();
 
-        // Correct code verifies.
         $this->actingAs($user)
-            ->postJson('/api/v1/auth/mobile/verify', ['code' => $code])
+            ->postJson('/api/v1/auth/email/verify-otp', ['code' => $code])
             ->assertOk();
-        $this->assertNotNull($user->fresh()->mobile_verified_at);
+        $this->assertNotNull($user->fresh()->email_verified_at);
+    }
+
+    public function test_registration_requires_email_and_password(): void
+    {
+        $this->register(['email' => null])->assertUnprocessable();
+        $this->register(['password' => null, 'password_confirmation' => null])->assertUnprocessable();
     }
 
     public function test_username_rules_and_uniqueness(): void
@@ -69,25 +72,37 @@ class IdentityTest extends TestCase
         $this->register(['username' => 'special_char'])->assertUnprocessable();
 
         $this->register()->assertCreated();
-        // Same username (different case), different mobile → rejected.
-        $this->register(['username' => 'AshaK', 'mobile' => '9876500000'])
+        // Same username (different case), different email → rejected.
+        $this->register(['username' => 'AshaK', 'email' => 'other@example.com'])
             ->assertUnprocessable();
-        // Same mobile → rejected.
-        $this->register(['username' => 'someoneelse', 'mobile' => '9876543210'])
+        // Same email → rejected.
+        $this->register(['username' => 'someoneelse', 'email' => 'asha@example.com'])
             ->assertUnprocessable();
+        // Duplicate mobile is fine — it's a records-only field now.
+        $this->register([
+            'username' => 'someoneelse', 'email' => 'other@example.com', 'mobile' => '+911111111111',
+        ])->assertCreated();
+        $this->register([
+            'username' => 'thirduser', 'email' => 'third@example.com', 'mobile' => '+911111111111',
+        ])->assertCreated();
     }
 
-    public function test_login_by_mobile_username_and_email(): void
+    public function test_login_by_username_and_email_but_not_mobile(): void
     {
-        $this->register(['email' => 'asha@example.com'])->assertCreated();
+        $this->register(['mobile' => '+919876543210'])->assertCreated();
 
-        // Mobile login requires the full number with ISD code (with or without '+').
-        foreach (['+919876543210', '919876543210', 'ashak', 'ASHAK', 'asha@example.com'] as $identifier) {
+        foreach (['ashak', 'ASHAK', 'asha@example.com'] as $identifier) {
             $this->postJson('/api/v1/auth/login', [
                 'identifier' => $identifier,
                 'password' => 'Password123',
             ])->assertOk();
         }
+
+        // Mobile is records-only: it is NOT a login identity.
+        $this->postJson('/api/v1/auth/login', [
+            'identifier' => '+919876543210',
+            'password' => 'Password123',
+        ])->assertUnprocessable();
 
         // Legacy email field still works.
         $this->postJson('/api/v1/auth/login', [
@@ -96,10 +111,9 @@ class IdentityTest extends TestCase
         ])->assertOk();
     }
 
-    public function test_search_and_connect_by_username_or_mobile(): void
+    public function test_search_by_username_but_never_by_mobile(): void
     {
-        $this->register()->assertCreated();
-        $asha = User::where('username', 'ashak')->first();
+        $this->register(['mobile' => '+919876543210'])->assertCreated();
 
         $viewer = User::factory()->create();
         $viewer->settings()->create([]);
@@ -109,10 +123,10 @@ class IdentityTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.username', 'ashak');
 
+        // Mobile numbers are records-only — searching one finds nothing.
         $this->actingAs($viewer)
             ->getJson('/api/v1/app-id/search?q=%2B919876543210')
-            ->assertOk()
-            ->assertJsonPath('data.uuid', $asha->uuid);
+            ->assertNotFound();
 
         $this->actingAs($viewer)
             ->postJson('/api/v1/connections', ['app_id' => 'ashak'])
@@ -145,13 +159,13 @@ class IdentityTest extends TestCase
             ->assertOk()->assertJsonPath('data.valid', false);
     }
 
-    public function test_email_added_via_otp_after_approval(): void
+    public function test_email_change_via_otp_after_approval(): void
     {
-        $this->register()->assertCreated(); // no email at signup
+        $this->register()->assertCreated();
         $user = User::where('username', 'ashak')->first();
-        $this->assertNull($user->email);
+        $this->assertEquals('asha@example.com', $user->email);
 
-        // User requests adding an email from the profile.
+        // User requests changing the email from the profile.
         $this->actingAs($user)->postJson('/api/v1/me/change-requests', [
             'type' => 'email', 'new_value' => 'asha.new@example.com',
         ])->assertCreated();
@@ -160,8 +174,9 @@ class IdentityTest extends TestCase
         $uuid = $this->actingAs($admin)->getJson('/api/v1/admin/change-requests')->json('data.0.uuid');
         $this->actingAs($admin)->postJson("/api/v1/admin/change-requests/{$uuid}", ['action' => 'approve'])->assertOk();
 
-        // Approval alone does NOT activate the email — the emailed OTP must be entered.
-        $this->assertNull($user->fresh()->email);
+        // Approval alone does NOT switch the email — the OTP mailed to the NEW
+        // address must be entered first.
+        $this->assertEquals('asha@example.com', $user->fresh()->email);
 
         $otp = \App\Models\MobileOtp::where('user_id', $user->id)
             ->where('purpose', 'verify_email')->whereNull('consumed_at')->latest()->first();
@@ -182,26 +197,21 @@ class IdentityTest extends TestCase
 
     // --- Passwordless accounts & OTP login ------------------------------------
 
-    protected function registerPasswordless(array $overrides = []): \Illuminate\Testing\TestResponse
+    protected function registerSecond(array $overrides = []): \Illuminate\Testing\TestResponse
     {
         return $this->postJson('/api/v1/auth/register', array_merge([
             'name' => 'Kiran Rao',
-            'country_code' => '+91',
-            'mobile' => '9123456789',
+            'email' => 'kiran@example.com',
             'username' => 'kiranrao',
+            'password' => 'Password123',
+            'password_confirmation' => 'Password123',
         ], $overrides));
     }
 
-    public function test_registration_without_password_and_otp_login(): void
+    public function test_otp_login_still_available_alongside_password(): void
     {
-        $this->registerPasswordless()->assertCreated();
+        $this->registerSecond()->assertCreated();
         $user = User::where('username', 'kiranrao')->first();
-        $this->assertNull($user->password);
-
-        // Password login is refused with guidance.
-        $this->postJson('/api/v1/auth/login', [
-            'identifier' => 'kiranrao', 'password' => 'Whatever123',
-        ])->assertUnprocessable();
 
         // Unknown identifiers get a uniform response (no account enumeration).
         $this->postJson('/api/v1/auth/otp/request', ['identifier' => 'ghostuser'])->assertOk();
@@ -212,39 +222,29 @@ class IdentityTest extends TestCase
         $code = \App\Models\MobileOtp::where('user_id', $user->id)
             ->where('purpose', 'login')->whereNull('consumed_at')->latest()->first()->code;
 
-        // Wrong code rejected.
         $this->postJson('/api/v1/auth/otp/login', [
             'identifier' => 'kiranrao', 'code' => '000000',
         ])->assertUnprocessable();
 
-        $login = $this->postJson('/api/v1/auth/otp/login', [
+        $this->postJson('/api/v1/auth/otp/login', [
             'identifier' => 'kiranrao', 'code' => $code,
-        ]);
-        $login->assertOk()->assertJsonStructure(['token']);
-
-        // OTP login proves possession → mobile auto-verified.
-        $this->assertNotNull($user->fresh()->mobile_verified_at);
+        ])->assertOk()->assertJsonStructure(['token']);
     }
 
-    public function test_passwordless_user_can_set_password_then_change_requires_current(): void
+    public function test_mobile_is_editable_directly_in_profile(): void
     {
-        $this->registerPasswordless()->assertCreated();
+        $this->registerSecond()->assertCreated();
         $user = User::where('username', 'kiranrao')->first();
 
-        // First-time set: no current password needed.
-        $this->actingAs($user)->postJson('/api/v1/auth/change-password', [
-            'password' => 'FirstPass123',
-            'password_confirmation' => 'FirstPass123',
+        // Records-only: direct profile update, no approval, no OTP.
+        $this->actingAs($user)->putJson('/api/v1/me/profile', [
+            'mobile' => '+918888877777',
         ])->assertOk();
+        $this->assertEquals('+918888877777', $user->fresh()->mobile);
 
-        $this->postJson('/api/v1/auth/login', [
-            'identifier' => 'kiranrao', 'password' => 'FirstPass123',
-        ])->assertOk();
-
-        // Subsequent changes require the current password again.
-        $this->actingAs($user->fresh())->postJson('/api/v1/auth/change-password', [
-            'password' => 'SecondPass123',
-            'password_confirmation' => 'SecondPass123',
+        // Mobile change requests are no longer a thing.
+        $this->actingAs($user)->postJson('/api/v1/me/change-requests', [
+            'type' => 'mobile', 'new_value' => '9000011111',
         ])->assertUnprocessable();
     }
 
@@ -298,36 +298,6 @@ class IdentityTest extends TestCase
         $this->assertDatabaseHas('audit_logs', ['action' => 'change_request.approved']);
     }
 
-    public function test_mobile_change_approval_requires_reverification(): void
-    {
-        $this->register()->assertCreated();
-        $user = User::where('username', 'ashak')->first();
-        $user->update(['mobile_verified_at' => now()]);
-
-        $this->actingAs($user)->postJson('/api/v1/me/change-requests', [
-            'type' => 'mobile', 'new_value' => '9000011111', 'country_code' => '+91',
-        ])->assertCreated();
-
-        $admin = $this->makeApprover('admin');
-        $uuid = $this->actingAs($admin)->getJson('/api/v1/admin/change-requests')->json('data.0.uuid');
-        $this->actingAs($admin)->postJson("/api/v1/admin/change-requests/{$uuid}", ['action' => 'approve'])->assertOk();
-
-        // Old number still active until the new one is verified via OTP.
-        $fresh = $user->fresh();
-        $this->assertEquals('+919876543210', $fresh->mobile);
-        $this->assertNull($fresh->mobile_verified_at);
-
-        $code = $user->notifications()->get()
-            ->firstWhere(fn ($n) => ($n->data['kind'] ?? '') === 'mobile_otp' && $n->data['mobile'] === '+919000011111')
-            ->data['code'];
-
-        $this->actingAs($user)->postJson('/api/v1/auth/mobile/verify', ['code' => $code])->assertOk();
-
-        $fresh = $user->fresh();
-        $this->assertEquals('+919000011111', $fresh->mobile);
-        $this->assertNotNull($fresh->mobile_verified_at);
-    }
-
     public function test_rejection_does_not_apply_and_regular_user_cannot_review(): void
     {
         $this->register()->assertCreated();
@@ -346,7 +316,7 @@ class IdentityTest extends TestCase
             'action' => 'reject', 'note' => 'Suspicious',
         ])->assertOk();
 
-        $this->assertNull($user->fresh()->email);
+        $this->assertEquals('asha@example.com', $user->fresh()->email);
     }
 
     public function test_admin_can_view_and_resend_otp_and_edit_settings(): void

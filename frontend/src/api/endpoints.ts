@@ -17,6 +17,7 @@ export const auth = {
   verifyMobile: (code: string) => api.post('/auth/mobile/verify', { code }),
   resendMobileOtp: () => api.post('/auth/mobile/resend-otp'),
   verifyEmailOtp: (code: string) => api.post('/auth/email/verify-otp', { code }),
+  resendEmailOtp: () => api.post('/auth/email/resend-otp'),
   requestLoginOtp: (identifier: string) => api.post('/auth/otp/request', { identifier }),
   loginWithOtp: (payload: { identifier: string; code: string; device_name?: string }) =>
     api.post<{ data: User; token: string; must_change_password?: boolean }>('/auth/otp/login', payload).then((r) => r.data),
