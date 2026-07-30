@@ -69,10 +69,23 @@ export function pushSupported(): boolean {
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
 }
 
+/**
+ * The app shell only registers sw.js in production builds, so register it on
+ * demand here — this makes push testable on the dev server too. Never await
+ * navigator.serviceWorker.ready without a registration: it hangs forever.
+ */
+async function swRegistration(create: boolean): Promise<ServiceWorkerRegistration | null> {
+  if (!('serviceWorker' in navigator)) return null
+  const existing = await navigator.serviceWorker.getRegistration()
+  if (existing) return existing
+  if (!create) return null
+  return navigator.serviceWorker.register('/sw.js')
+}
+
 export async function getPushSubscription(): Promise<PushSubscription | null> {
   if (!pushSupported()) return null
-  const reg = await navigator.serviceWorker.ready
-  return reg.pushManager.getSubscription()
+  const reg = await swRegistration(false)
+  return reg ? reg.pushManager.getSubscription() : null
 }
 
 /** Ask permission, subscribe this browser, and register it with the server. */
@@ -85,7 +98,8 @@ export async function enablePush(): Promise<void> {
   const { data } = await api.get<{ data: { key: string | null } }>('/push/public-key')
   if (!data.data.key) throw new Error('Push is not configured on the server.')
 
-  const reg = await navigator.serviceWorker.ready
+  const reg = await swRegistration(true)
+  if (!reg) throw new Error('Could not register the service worker.')
   const sub =
     (await reg.pushManager.getSubscription()) ??
     (await reg.pushManager.subscribe({
