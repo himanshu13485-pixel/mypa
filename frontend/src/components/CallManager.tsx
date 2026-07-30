@@ -5,6 +5,7 @@ import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { Button } from './ui'
 import type { CallSignalPayload } from '../types'
+import { startRingtone } from '../lib/alerts'
 
 interface ActiveCall {
   uuid: string
@@ -272,6 +273,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
       echo.leave(`user.${user.uuid}`)
     }
   }, [user?.uuid, cleanup, createPeer, removePeer])
+
+  // Ringtone for incoming calls; ring-back while our outgoing call rings.
+  useEffect(() => {
+    if (incoming) return startRingtone('incoming')
+  }, [incoming])
+  useEffect(() => {
+    if (activeCall?.status === 'ringing' && activeCall.direction === 'outgoing') {
+      return startRingtone('outgoing')
+    }
+  }, [activeCall?.status, activeCall?.direction])
 
   // Call duration ticker
   useEffect(() => {

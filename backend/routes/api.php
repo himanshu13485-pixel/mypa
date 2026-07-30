@@ -175,6 +175,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markRead']);
         Route::post('/conversations/{conversation}/mute', [ConversationController::class, 'toggleMute']);
         Route::post('/conversations/{conversation}/archive', [ConversationController::class, 'toggleArchive']);
+        Route::get('/conversations/{conversation}/members', [ConversationController::class, 'members']);
         Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index']);
         Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
         Route::put('/conversations/{conversation}/messages/{message}', [MessageController::class, 'update']);

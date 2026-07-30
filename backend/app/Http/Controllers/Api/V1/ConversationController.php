@@ -116,6 +116,26 @@ class ConversationController extends Controller
         return response()->json(['message' => $pivot->archived_at ? 'Conversation unarchived.' : 'Conversation archived.']);
     }
 
+    /** Names of everyone in this conversation (for the group header). */
+    public function members(\Illuminate\Http\Request $request, \App\Models\Conversation $conversation): \Illuminate\Http\JsonResponse
+    {
+        abort_unless($conversation->hasMember($request->user()), 403);
+
+        $members = $conversation->members()
+            ->with('profile:user_id,photo_path')
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($u) => [
+                'uuid' => $u->uuid,
+                'name' => $u->name,
+                'username' => $u->username,
+                'is_me' => $u->id === $request->user()->id,
+                'photo_path' => $u->profile?->photo_path,
+            ]);
+
+        return response()->json(['data' => $members]);
+    }
+
     protected function serialize(Conversation $conversation, Request $request): array
     {
         $me = $request->user();

@@ -329,6 +329,11 @@ export const chat = {
 
 // --- Calls ------------------------------------------------------------------
 
+export const conversationMembers = (uuid: string) =>
+  api.get<{ data: { uuid: string; name: string; username: string | null; is_me: boolean }[] }>(
+    `/conversations/${uuid}/members`,
+  ).then((r) => r.data.data)
+
 export const calls = {
   config: () =>
     api.get<{ data: { iceServers: RTCIceServer[] } }>('/calls/config').then((r) => r.data.data),

@@ -57,6 +57,67 @@ export function playChime() {
   }
 }
 
+/**
+ * Looping call tone. 'incoming' = classic double-ring, 'outgoing' = softer
+ * ring-back. Returns a stop function. Volume follows the sound preference,
+ * but an incoming call always rings at least quietly — a silent phone hides calls.
+ */
+export function startRingtone(kind: 'incoming' | 'outgoing'): () => void {
+  let stopped = false
+  let ctx: AudioContext | null = null
+  let timer: ReturnType<typeof setInterval> | null = null
+
+  try {
+    ctx = new AudioContext()
+    const prefs = getSoundPrefs()
+    const volume = Math.max(kind === 'incoming' ? 0.15 : 0.05, prefs.enabled ? prefs.volume : 0) * 0.3
+    const master = ctx.createGain()
+    master.gain.value = volume
+    master.connect(ctx.destination)
+
+    const burst = () => {
+      if (stopped || !ctx) return
+      const freqs = kind === 'incoming' ? [880, 960] : [440, 480]
+      const beep = (start: number, duration: number) => {
+        if (!ctx) return
+        const osc1 = ctx.createOscillator()
+        const osc2 = ctx.createOscillator()
+        osc1.frequency.value = freqs[0]
+        osc2.frequency.value = freqs[1]
+        const g = ctx.createGain()
+        g.gain.setValueAtTime(0, ctx.currentTime + start)
+        g.gain.linearRampToValueAtTime(1, ctx.currentTime + start + 0.03)
+        g.gain.setValueAtTime(1, ctx.currentTime + start + duration - 0.05)
+        g.gain.linearRampToValueAtTime(0, ctx.currentTime + start + duration)
+        osc1.connect(g)
+        osc2.connect(g)
+        g.connect(master)
+        osc1.start(ctx.currentTime + start)
+        osc2.start(ctx.currentTime + start)
+        osc1.stop(ctx.currentTime + start + duration)
+        osc2.stop(ctx.currentTime + start + duration)
+      }
+      if (kind === 'incoming') {
+        beep(0, 0.4)
+        beep(0.6, 0.4)
+      } else {
+        beep(0, 1.0)
+      }
+    }
+
+    burst()
+    timer = setInterval(burst, kind === 'incoming' ? 2500 : 3000)
+  } catch {
+    /* audio unavailable */
+  }
+
+  return () => {
+    stopped = true
+    if (timer) clearInterval(timer)
+    ctx?.close().catch(() => undefined)
+  }
+}
+
 // --- Web push -------------------------------------------------------------
 
 function urlBase64ToUint8Array(base64: string): Uint8Array {

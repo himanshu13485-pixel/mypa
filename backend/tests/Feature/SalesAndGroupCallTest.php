@@ -234,5 +234,25 @@ class SalesAndGroupCallTest extends TestCase
 
         $this->actingAs($this->bob)->postJson("/api/v1/calls/{$uuid}/end")->assertOk();
         $this->assertEquals('ended', \App\Models\Call::where('uuid', $uuid)->first()->status);
+
+        // The finished call leaves a record in the chat.
+        $log = \App\Models\Message::where('conversation_id', $conversation->id)->latest('id')->first();
+        $this->assertNotNull($log);
+        $this->assertStringContainsString('call', $log->body);
+    }
+
+    public function test_conversation_members_listing(): void
+    {
+        $conversation = $this->groupConversation();
+
+        $members = $this->actingAs($this->alice)
+            ->getJson("/api/v1/conversations/{$conversation}/members")
+            ->assertOk()
+            ->json('data');
+        $this->assertCount(3, $members);
+        $this->assertTrue(collect($members)->firstWhere('name', 'Alice')['is_me']);
+
+        $stranger = User::factory()->create();
+        $this->actingAs($stranger)->getJson("/api/v1/conversations/{$conversation}/members")->assertForbidden();
     }
 }

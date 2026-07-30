@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Events\CallSignal;
+use App\Events\MessageSent;
 use App\Http\Controllers\Controller;
 use App\Models\Call;
 use App\Models\Conversation;
@@ -138,6 +139,7 @@ class CallController extends Controller
         $call->participants()->updateExistingPivot($me->id, ['status' => 'declined']);
         if (! $isGroup) {
             $call->update(['status' => 'declined', 'ended_at' => now()]);
+            $this->logCallToChat($call->fresh(['conversation']));
         }
         broadcast(new CallSignal(
             $call->load(['conversation', 'caller']),
@@ -185,6 +187,7 @@ class CallController extends Controller
                 'status' => $call->status === 'ringing' ? 'missed' : 'ended',
                 'ended_at' => now(),
             ]);
+            $this->logCallToChat($call->fresh(['conversation']));
         }
 
         foreach ($remaining as $peer) {
@@ -269,6 +272,46 @@ class CallController extends Controller
             'ended_at' => $call->ended_at,
             'duration_seconds' => $call->durationSeconds(),
         ];
+    }
+
+    /**
+     * Drop a summary line into the conversation so calls (answered, missed,
+     * declined) leave a visible record in the chat history.
+     */
+    protected function logCallToChat(Call $call): void
+    {
+        $conversation = $call->conversation ?? $call->conversation()->first();
+        if (! $conversation) {
+            return;
+        }
+
+        $icon = $call->type === 'video' ? '📹' : '📞';
+        $label = ucfirst($call->type);
+        $body = match ($call->status) {
+            'ended' => sprintf('%s %s call · %s', $icon, $label, $this->fmtDuration($call->durationSeconds())),
+            'missed' => sprintf('%s Missed %s call', $icon, strtolower($label)),
+            'declined' => sprintf('%s %s call declined', $icon, $label),
+            default => null,
+        };
+        if (! $body) {
+            return;
+        }
+
+        $message = $conversation->messages()->create([
+            'user_id' => $call->caller_id,
+            'type' => 'text',
+            'body' => $body,
+        ]);
+        $conversation->update(['last_message_at' => now()]);
+
+        broadcast(new MessageSent($message->load(['user', 'conversation'])));
+    }
+
+    protected function fmtDuration(?int $seconds): string
+    {
+        $seconds = max(0, (int) $seconds);
+
+        return sprintf('%d:%02d', intdiv($seconds, 60), $seconds % 60);
     }
 
     protected function authorizeParticipant(Call $call, int $userId): void

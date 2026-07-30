@@ -5,7 +5,7 @@ import {
   Check, CheckCheck, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Send, Smile,
   Square, Trash2, Video, X,
 } from 'lucide-react'
-import { reportsApi } from '../api/endpoints'
+import { conversationMembers, reportsApi } from '../api/endpoints'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
 import { clsx } from 'clsx'
@@ -14,7 +14,7 @@ import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { useCalls } from '../components/CallManager'
-import { Button, EmptyState, Input, Spinner } from '../components/ui'
+import { Button, EmptyState, Input, Modal, Spinner } from '../components/ui'
 import type { ChatMessage, ConversationItem } from '../types'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
@@ -91,6 +91,7 @@ function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => vo
 export default function MessagesPage() {
   const queryClient = useQueryClient()
   const { startCall } = useCalls()
+  const [showMembers, setShowMembers] = useState(false)
   const [params, setParams] = useSearchParams()
   const [selected, setSelected] = useState<ConversationItem | null>(null)
   const [draft, setDraft] = useState('')
@@ -283,11 +284,24 @@ export default function MessagesPage() {
                 </button>
                 <div>
                   <p className="text-sm font-semibold">{selected.name}</p>
-                  <p className="text-xs text-slate-400">
-                    {selected.type === 'group' ? `${selected.members_count} members` : selected.other_user?.app_id}
-                  </p>
+                  {selected.type === 'group' ? (
+                    <button
+                      className="text-xs text-slate-400 hover:text-brand-600 hover:underline"
+                      onClick={() => setShowMembers(true)}
+                      title="View members"
+                    >
+                      {selected.members_count} members
+                    </button>
+                  ) : (
+                    <p className="text-xs text-slate-400">
+                      {selected.other_user?.username ? `@${selected.other_user.username}` : selected.other_user?.app_id}
+                    </p>
+                  )}
                 </div>
               </div>
+              {showMembers && selected && (
+                <MembersModal conversationUuid={selected.uuid} onClose={() => setShowMembers(false)} />
+              )}
               <div className="flex gap-1">
                 <Button
                   size="sm"
@@ -562,4 +576,36 @@ function AudioAttachment({ conversationUuid, attachmentId, duration, own }: {
   }
 
   return <audio controls autoPlay src={src} className="mt-1 h-9 max-w-full" />
+}
+
+function MembersModal({ conversationUuid, onClose }: { conversationUuid: string; onClose: () => void }) {
+  const { data: members, isLoading } = useQuery({
+    queryKey: ['conversation-members', conversationUuid],
+    queryFn: () => conversationMembers(conversationUuid),
+  })
+
+  return (
+    <Modal title="Members" onClose={onClose}>
+      {isLoading ? (
+        <Spinner />
+      ) : (
+        <div className="space-y-1.5">
+          {members?.map((m) => (
+            <div key={m.uuid} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800">
+              <div className="flex size-7 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold text-brand-700 dark:bg-brand-950 dark:text-brand-300">
+                {m.name.charAt(0)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium">
+                  {m.name}
+                  {m.is_me && <span className="ml-1 text-xs font-normal text-slate-400">(you)</span>}
+                </p>
+                {m.username && <p className="text-xs text-slate-400">@{m.username}</p>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </Modal>
+  )
 }
