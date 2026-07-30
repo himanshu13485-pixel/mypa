@@ -120,6 +120,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
         setRemotePeers((peers) => peers.map((p) => (p.uuid === peerUuid ? { ...p, stream: remote } : p)))
       }
 
+      // The authoritative "we are live" signal: media actually connected.
+      // (Signalling races can leave the status stuck at 'connecting'.)
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          setActiveCall((c) => (c ? { ...c, status: 'ongoing', startedAt: c.startedAt ?? Date.now() } : c))
+        }
+      }
+
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           calls.signal(callUuid, 'ice', { candidate: event.candidate.toJSON() }, peerUuid).catch(() => undefined)

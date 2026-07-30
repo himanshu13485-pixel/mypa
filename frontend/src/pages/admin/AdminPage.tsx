@@ -648,6 +648,10 @@ function UserSummaryModal({ user, onClose }: { user: User; onClose: () => void }
             ['Tasks this week', data.tasks.created_this_week],
             ['Notes', data.notes],
             ['Files', `${data.files.count} (${formatBytes(data.files.storage_bytes)})`],
+            ['Calls (total)', data.calls?.total ?? 0],
+            ['Calls this week', data.calls?.this_week ?? 0],
+            ['Missed calls', data.calls?.missed ?? 0],
+            ['Talk time', `${data.calls?.minutes ?? 0} min`],
             ['Groups owned', data.groups_owned],
             ['Messages sent', data.messages_sent],
             ['Reports against', data.reports_against],
@@ -1406,6 +1410,11 @@ function SalesSummaryModal({ user, onClose }: { user: User; onClose: () => void 
             <span className="text-slate-400">Notes:</span> {data.notes} ·{' '}
             <span className="text-slate-400">Files:</span> {data.files.count} ·{' '}
             <span className="text-slate-400">Messages sent:</span> {data.messages_sent}
+          </p>
+          <p>
+            <span className="text-slate-400">Calls:</span> {data.calls?.total ?? 0} total ·{' '}
+            {data.calls?.this_week ?? 0} this week · {data.calls?.missed ?? 0} missed ·{' '}
+            {data.calls?.minutes ?? 0} min talk time
           </p>
         </div>
       )}

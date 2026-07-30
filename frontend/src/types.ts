@@ -77,6 +77,7 @@ export interface UserActivitySummary {
   tasks: { total: number; completed: number; created_this_week: number }
   notes: number
   files: { count: number; storage_bytes: number }
+  calls?: { total: number; this_week: number; missed: number; minutes: number }
   groups_owned: number
   messages_sent: number
   logins_this_week: number

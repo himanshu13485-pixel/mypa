@@ -349,6 +349,7 @@ class UserController extends Controller
                     'count' => $user->files()->count(),
                     'storage_bytes' => (int) $user->files()->sum('size'),
                 ],
+                'calls' => $this->callStats($user),
                 'groups_owned' => \App\Models\Group::where('owner_id', $user->id)->count(),
                 'messages_sent' => \App\Models\Message::where('user_id', $user->id)->count(),
                 'logins_this_week' => $user->loginHistories()->where('logged_in_at', '>=', now()->subWeek())->count(),
@@ -356,6 +357,22 @@ class UserController extends Controller
                 'open_reports_against' => \App\Models\Report::where('reported_user_id', $user->id)->where('status', 'open')->count(),
             ],
         ]);
+    }
+
+    /** Call participation: totals, this week, talk-time in minutes. */
+    protected function callStats(User $user): array
+    {
+        $base = \App\Models\Call::whereHas('participants', fn ($p) => $p->where('users.id', $user->id));
+
+        $seconds = (clone $base)->where('status', 'ended')->whereNotNull('answered_at')->get()
+            ->sum(fn ($call) => $call->durationSeconds() ?? 0);
+
+        return [
+            'total' => (clone $base)->count(),
+            'this_week' => (clone $base)->where('started_at', '>=', now()->subWeek())->count(),
+            'missed' => (clone $base)->where('status', 'missed')->count(),
+            'minutes' => (int) round($seconds / 60),
+        ];
     }
 
     /** Subadmin module rights (view/edit/delete per admin area). */
