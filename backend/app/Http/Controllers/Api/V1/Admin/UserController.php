@@ -17,7 +17,7 @@ class UserController extends Controller
 {
     public function index(Request $request): AnonymousResourceCollection
     {
-        $query = User::with(['appId', 'roles', 'profile']);
+        $query = User::with(['appId', 'roles', 'profile', 'salesperson']);
 
         if ($q = $request->query('q')) {
             $query->where(fn ($w) => $w->where('name', 'like', "%{$q}%")
@@ -270,6 +270,60 @@ class UserController extends Controller
     }
 
     /** Per-user activity summary for the admin panel. */
+    /**
+     * Manually mark a user's email as verified — the escape hatch for when
+     * the OTP mail does not arrive (spam filters, provider outages).
+     */
+    public function verifyEmail(Request $request, User $user): JsonResponse
+    {
+        abort_unless($user->email, 422, 'This user has no email on record.');
+
+        if (! $user->email_verified_at) {
+            $user->forceFill(['email_verified_at' => now()])->save();
+            \App\Models\AuditLog::record($request->user(), 'user.email_verified_manually', $user, [
+                'email' => $user->email,
+            ]);
+        }
+
+        return response()->json(['message' => 'Email marked as verified.']);
+    }
+
+    /** All salesperson accounts (for the assign dropdown). */
+    public function salespeople(): JsonResponse
+    {
+        $rows = User::whereHas('roles', fn ($r) => $r->where('slug', 'salesperson'))
+            ->orderBy('name')
+            ->get(['id', 'uuid', 'name'])
+            ->map(fn ($u) => ['uuid' => $u->uuid, 'name' => $u->name]);
+
+        return response()->json(['data' => $rows]);
+    }
+
+    /** Assign (or clear) the salesperson who looks after this user. */
+    public function assignSalesperson(Request $request, User $user): JsonResponse
+    {
+        $data = $request->validate([
+            'salesperson_uuid' => ['nullable', 'uuid'],
+        ]);
+
+        if (empty($data['salesperson_uuid'])) {
+            $user->forceFill(['salesperson_id' => null])->save();
+            \App\Models\AuditLog::record($request->user(), 'salesperson.unassigned', $user);
+
+            return response()->json(['message' => 'Salesperson unassigned.']);
+        }
+
+        $salesperson = User::where('uuid', $data['salesperson_uuid'])->firstOrFail();
+        abort_unless($salesperson->hasRole('salesperson'), 422, 'That account is not a salesperson.');
+
+        $user->forceFill(['salesperson_id' => $salesperson->id])->save();
+        \App\Models\AuditLog::record($request->user(), 'salesperson.assigned', $user, [
+            'salesperson' => $salesperson->name,
+        ]);
+
+        return response()->json(['message' => "Assigned to {$salesperson->name}."]);
+    }
+
     public function summary(Request $request, User $user): JsonResponse
     {
         $lastLogin = $user->loginHistories()->latest('logged_in_at')->first();

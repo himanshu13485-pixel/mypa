@@ -33,9 +33,34 @@ class SocialNotification extends Notification implements ShouldQueue
             && ($prefs['email'] ?? true);
     }
 
+    /** Push goes out whenever the user has subscribed a device (pref 'push' can disable). */
+    public static function wantsPush(object $notifiable): bool
+    {
+        $prefs = $notifiable->settings?->notification_preferences ?? [];
+
+        return ($prefs['push'] ?? true)
+            && $notifiable->pushSubscriptions()->exists();
+    }
+
     public function via(object $notifiable): array
     {
-        return self::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+        $via = self::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+
+        if (self::wantsPush($notifiable)) {
+            $via[] = \App\Notifications\Channels\WebPushChannel::class;
+        }
+
+        return $via;
+    }
+
+    public function toPush(object $notifiable): array
+    {
+        return [
+            'title' => 'My PA',
+            'body' => $this->message,
+            'tag' => 'social-' . $this->kind,
+            'url' => $this->actionPath ?? '/',
+        ];
     }
 
     public function toDatabase(object $notifiable): array

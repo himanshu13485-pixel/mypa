@@ -25,6 +25,13 @@ class UserResource extends JsonResource
             'mobile' => $this->when($request->user()?->id === $this->id, $this->mobile),
             'status' => $this->when($request->user()?->isAdmin(), $this->status),
             'plan' => $this->when(isset($this->plan_slug), $this->plan_slug),
+            'salesperson' => $this->when(
+                $request->user()?->isAdmin() && $this->relationLoaded('salesperson'),
+                fn () => $this->salesperson ? [
+                    'uuid' => $this->salesperson->uuid,
+                    'name' => $this->salesperson->name,
+                ] : null
+            ),
             'email_verified' => $this->email_verified_at !== null,
             'app_id' => $this->whenLoaded('appId', fn () => $this->appId?->app_id),
             'roles' => $this->whenLoaded('roles', fn () => $this->roles->pluck('slug')),

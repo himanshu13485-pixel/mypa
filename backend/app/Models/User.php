@@ -82,6 +82,22 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->belongsToMany(Role::class)->withTimestamps();
     }
 
+    /** The staff member who looks after this user commercially. */
+    public function salesperson(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(self::class, 'salesperson_id');
+    }
+
+    public function assignedUsers(): HasMany
+    {
+        return $this->hasMany(self::class, 'salesperson_id');
+    }
+
+    public function pushSubscriptions(): HasMany
+    {
+        return $this->hasMany(PushSubscription::class);
+    }
+
     public function loginHistories(): HasMany
     {
         return $this->hasMany(LoginHistory::class);

@@ -52,3 +52,41 @@ self.addEventListener('fetch', (event) => {
       .catch(() => caches.match(event.request.mode === 'navigate' ? '/' : event.request)),
   )
 })
+
+/* ---- Web push: system notifications with sound, even when the tab is closed. */
+self.addEventListener('push', (event) => {
+  let data = {}
+  try {
+    data = event.data ? event.data.json() : {}
+  } catch {
+    data = { title: 'My PA', body: event.data ? event.data.text() : '' }
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'My PA', {
+      body: data.body || '',
+      tag: data.tag || undefined,
+      icon: '/icons/icon.svg',
+      badge: '/icons/icon.svg',
+      data: { url: data.url || '/' },
+      // Sound/vibration are controlled by the device's notification settings.
+      vibrate: [200, 100, 200],
+    }),
+  )
+})
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close()
+  const url = (event.notification.data && event.notification.data.url) || '/'
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      for (const win of wins) {
+        if ('focus' in win) {
+          win.focus()
+          if ('navigate' in win) win.navigate(url)
+          return
+        }
+      }
+      return clients.openWindow(url)
+    }),
+  )
+})

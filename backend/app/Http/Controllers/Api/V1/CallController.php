@@ -34,22 +34,29 @@ class CallController extends Controller
         return response()->json(['data' => ['iceServers' => $iceServers]]);
     }
 
-    /** Start a call in a direct conversation; rings the other member. */
+    /**
+     * Start a call. Direct conversations ring the other member; group
+     * conversations ring every member (mesh — each joiner connects
+     * peer-to-peer with everyone already in).
+     */
     public function initiate(Request $request, Conversation $conversation): JsonResponse
     {
         $me = $request->user();
         abort_unless($conversation->hasMember($me), 403);
-        abort_unless($conversation->type === 'direct', 422, 'Group calls are not available yet.');
 
         $data = $request->validate(['type' => ['required', 'in:audio,video']]);
 
-        $callee = $conversation->otherMember($me);
-        abort_unless($callee, 422, 'No one to call in this conversation.');
+        $callees = $conversation->type === 'direct'
+            ? collect([$conversation->otherMember($me)])->filter()
+            : $conversation->members()->where('users.id', '!=', $me->id)->get();
+        abort_unless($callees->isNotEmpty(), 422, 'No one to call in this conversation.');
 
-        // Privacy: who can call me
-        $pref = $callee->settings?->privacyValue('who_can_call') ?? 'connections';
-        if ($pref === 'nobody') {
-            return response()->json(['message' => 'This user is not accepting calls.'], 403);
+        if ($conversation->type === 'direct') {
+            // Privacy: who can call me (direct calls only — group members opted in by joining).
+            $pref = $callees->first()->settings?->privacyValue('who_can_call') ?? 'connections';
+            if ($pref === 'nobody') {
+                return response()->json(['message' => 'This user is not accepting calls.'], 403);
+            }
         }
 
         // Refuse if there is already an active call in this conversation.
@@ -64,12 +71,15 @@ class CallController extends Controller
             'status' => 'ringing',
             'started_at' => now(),
         ]);
-        $call->participants()->attach([
-            $me->id => ['status' => 'joined', 'joined_at' => now()],
-            $callee->id => ['status' => 'invited', 'joined_at' => null],
-        ]);
+        $call->participants()->attach(
+            [$me->id => ['status' => 'joined', 'joined_at' => now()]]
+            + $callees->mapWithKeys(fn ($u) => [$u->id => ['status' => 'invited', 'joined_at' => null]])->all()
+        );
 
-        broadcast(new CallSignal($call->load(['conversation', 'caller']), $me->uuid, $callee->uuid, 'ring'));
+        $loaded = $call->load(['conversation', 'caller']);
+        foreach ($callees as $callee) {
+            broadcast(new CallSignal($loaded, $me->uuid, $callee->uuid, 'ring'));
+        }
 
         return response()->json([
             'message' => 'Calling…',
@@ -85,25 +95,60 @@ class CallController extends Controller
 
         $data = $request->validate(['action' => ['required', 'in:accept,decline']]);
 
-        abort_unless($call->status === 'ringing', 409, 'This call is no longer ringing.');
+        $isGroup = $call->conversation->type !== 'direct';
+
+        // Direct calls can only be answered while ringing; group members may
+        // join late while the call is still ongoing.
+        abort_unless(
+            $call->status === 'ringing' || ($isGroup && $call->status === 'ongoing'),
+            409,
+            'This call is no longer active.'
+        );
 
         if ($data['action'] === 'accept') {
-            $call->update(['status' => 'ongoing', 'answered_at' => now()]);
+            if ($call->status === 'ringing') {
+                $call->update(['status' => 'ongoing', 'answered_at' => $call->answered_at ?? now()]);
+            }
             $call->participants()->updateExistingPivot($me->id, ['status' => 'joined', 'joined_at' => now()]);
-        } else {
-            $call->update(['status' => 'declined', 'ended_at' => now()]);
-            $call->participants()->updateExistingPivot($me->id, ['status' => 'declined']);
+
+            // Everyone already in the call learns about the newcomer; the
+            // newcomer gets the list of joined peers to send offers to.
+            $joined = $call->participants()
+                ->wherePivot('status', 'joined')
+                ->where('users.id', '!=', $me->id)
+                ->get(['users.id', 'users.uuid', 'users.name']);
+
+            $loaded = $call->load(['conversation', 'caller']);
+            foreach ($joined as $peer) {
+                broadcast(new CallSignal($loaded, $me->uuid, $peer->uuid, 'accept', [
+                    'joiner_uuid' => $me->uuid,
+                    'joiner_name' => $me->name,
+                ]));
+            }
+
+            return response()->json([
+                'message' => 'Call accepted.',
+                'data' => $this->serialize($call->fresh(), $request) + [
+                    'joined_peers' => $joined->map(fn ($u) => ['uuid' => $u->uuid, 'name' => $u->name])->values(),
+                ],
+            ]);
         }
 
+        // Decline: a direct call dies; a group call keeps going for the rest.
+        $call->participants()->updateExistingPivot($me->id, ['status' => 'declined']);
+        if (! $isGroup) {
+            $call->update(['status' => 'declined', 'ended_at' => now()]);
+        }
         broadcast(new CallSignal(
             $call->load(['conversation', 'caller']),
             $me->uuid,
             $call->caller->uuid,
-            $data['action'] === 'accept' ? 'accept' : 'decline',
+            'decline',
+            ['decliner_uuid' => $me->uuid, 'is_group' => $isGroup],
         ));
 
         return response()->json([
-            'message' => $data['action'] === 'accept' ? 'Call accepted.' : 'Call declined.',
+            'message' => 'Call declined.',
             'data' => $this->serialize($call->fresh(), $request),
         ]);
     }
@@ -114,17 +159,42 @@ class CallController extends Controller
         $me = $request->user();
         $this->authorizeParticipant($call, $me->id);
 
+        $isGroup = $call->conversation->type !== 'direct';
+        $call->participants()->updateExistingPivot($me->id, ['status' => 'left', 'left_at' => now()]);
+
+        $remaining = $call->participants()
+            ->wherePivot('status', 'joined')
+            ->where('users.id', '!=', $me->id)
+            ->get(['users.id', 'users.uuid']);
+
+        $loaded = $call->load(['conversation', 'caller']);
+
+        // A group call survives while at least two people remain in it.
+        if ($isGroup && $remaining->count() >= 2 && $call->status === 'ongoing') {
+            foreach ($remaining as $peer) {
+                broadcast(new CallSignal($loaded, $me->uuid, $peer->uuid, 'peer-left', [
+                    'left_uuid' => $me->uuid,
+                ]));
+            }
+
+            return response()->json(['message' => 'You left the call.', 'data' => $this->serialize($call->fresh(), $request)]);
+        }
+
         if (in_array($call->status, ['ringing', 'ongoing'])) {
             $call->update([
                 'status' => $call->status === 'ringing' ? 'missed' : 'ended',
                 'ended_at' => now(),
             ]);
         }
-        $call->participants()->updateExistingPivot($me->id, ['status' => 'left', 'left_at' => now()]);
 
-        $other = $call->participants()->where('users.id', '!=', $me->id)->first();
-        if ($other) {
-            broadcast(new CallSignal($call->load(['conversation', 'caller']), $me->uuid, $other->uuid, 'end'));
+        foreach ($remaining as $peer) {
+            broadcast(new CallSignal($loaded, $me->uuid, $peer->uuid, 'end'));
+        }
+        if ($remaining->isEmpty() && ! $isGroup) {
+            $other = $call->participants()->where('users.id', '!=', $me->id)->first();
+            if ($other) {
+                broadcast(new CallSignal($loaded, $me->uuid, $other->uuid, 'end'));
+            }
         }
 
         return response()->json(['message' => 'Call ended.', 'data' => $this->serialize($call->fresh(), $request)]);
@@ -139,17 +209,21 @@ class CallController extends Controller
         $data = $request->validate([
             'signal' => ['required', 'in:offer,answer,ice'],
             'payload' => ['required', 'array'],
+            'to_uuid' => ['sometimes', 'uuid'],
         ]);
 
         abort_unless(in_array($call->status, ['ringing', 'ongoing']), 409, 'Call is not active.');
 
-        $other = $call->participants()->where('users.id', '!=', $me->id)->first();
-        abort_unless($other, 422);
+        // Mesh calls address a specific peer; 1:1 falls back to "the other side".
+        $target = isset($data['to_uuid'])
+            ? $call->participants()->where('users.uuid', $data['to_uuid'])->first()
+            : $call->participants()->where('users.id', '!=', $me->id)->first();
+        abort_unless($target && $target->id !== $me->id, 422, 'Unknown signalling target.');
 
         broadcast(new CallSignal(
             $call->load(['conversation', 'caller']),
             $me->uuid,
-            $other->uuid,
+            $target->uuid,
             $data['signal'],
             $data['payload'],
         ));
@@ -178,9 +252,13 @@ class CallController extends Controller
             ? $call->participants->firstWhere(fn ($u) => $u->id !== $me->id)
             : $call->participants()->where('users.id', '!=', $me->id)->first();
 
+        $conversation = $call->conversation ?? $call->conversation()->first();
+
         return [
             'uuid' => $call->uuid,
-            'conversation_uuid' => $call->conversation?->uuid ?? $call->conversation()->first()?->uuid,
+            'conversation_uuid' => $conversation?->uuid,
+            'is_group' => $conversation ? $conversation->type !== 'direct' : false,
+            'group_name' => $conversation && $conversation->type !== 'direct' ? $conversation->name : null,
             'type' => $call->type,
             'status' => $call->status,
             'is_outgoing' => $call->caller_id === $me->id,

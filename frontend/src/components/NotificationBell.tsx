@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { AlarmClock, Bell, Check, CheckCheck, Trash2 } from 'lucide-react'
@@ -7,6 +7,7 @@ import { clsx } from 'clsx'
 import { notifications as notificationsApi, reminders as remindersApi, tasks as tasksApi } from '../api/endpoints'
 import { Button, EmptyState, Spinner } from './ui'
 import type { AppNotification } from '../types'
+import { playChime } from '../lib/alerts'
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
@@ -18,6 +19,13 @@ export default function NotificationBell() {
     queryFn: notificationsApi.unreadCount,
     refetchInterval: 30_000,
   })
+
+  // Chime when new notifications arrive (not on the very first load).
+  const prevCount = useRef<number | null>(null)
+  useEffect(() => {
+    if (prevCount.current !== null && count > prevCount.current) playChime()
+    prevCount.current = count
+  }, [count])
 
   const { data: list, isLoading } = useQuery({
     queryKey: ['notifications'],

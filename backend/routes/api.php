@@ -92,6 +92,11 @@ Route::prefix('v1')->group(function () {
         Route::get('/badges', [\App\Http\Controllers\Api\V1\BadgeController::class, 'index']);
         Route::post('/calls/seen', [\App\Http\Controllers\Api\V1\BadgeController::class, 'markCallsSeen']);
 
+        // Web push subscriptions (system notifications on this device)
+        Route::get('/push/public-key', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'publicKey']);
+        Route::post('/push/subscribe', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'subscribe']);
+        Route::post('/push/unsubscribe', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'unsubscribe']);
+
         // Identity change requests (approval-based)
         Route::get('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'index']);
         Route::post('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'store'])
@@ -268,6 +273,12 @@ Route::prefix('v1')->group(function () {
             Route::get('/audit-logs', [RoleController::class, 'auditLogs'])->middleware('module:activity,view');
         });
 
+        // --- Salesperson workspace (also open to admins) ------------------
+        Route::prefix('admin/sales')->middleware('role:salesperson,admin,super_admin')->group(function () {
+            Route::get('/my-users', [\App\Http\Controllers\Api\V1\Admin\SalespersonController::class, 'myUsers']);
+            Route::get('/users/{user}/summary', [\App\Http\Controllers\Api\V1\Admin\SalespersonController::class, 'summary']);
+        });
+
         // --- Admin only ---------------------------------------------------
         Route::prefix('admin')->middleware('role:admin,super_admin')->group(function () {
             Route::get('/stats', [StatsController::class, 'index']);
@@ -280,6 +291,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/users/{user}/app-id/regenerate', [AdminUserController::class, 'regenerateAppId']);
             Route::get('/users/{user}/otp', [AdminUserController::class, 'activeOtp']);
             Route::post('/users/{user}/otp/resend', [AdminUserController::class, 'resendOtp']);
+            Route::post('/users/{user}/verify-email', [AdminUserController::class, 'verifyEmail']);
+            Route::get('/salespeople', [AdminUserController::class, 'salespeople']);
+            Route::post('/users/{user}/salesperson', [AdminUserController::class, 'assignSalesperson']);
             Route::get('/settings', [AdminUserController::class, 'settings']);
             Route::put('/settings', [AdminUserController::class, 'updateSettings']);
             Route::get('/plans', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'index']);

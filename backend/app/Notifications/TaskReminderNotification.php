@@ -25,7 +25,26 @@ class TaskReminderNotification extends Notification implements ShouldQueue
             $via[] = 'mail';
         }
 
+        if (SocialNotification::wantsPush($notifiable)) {
+            $via[] = \App\Notifications\Channels\WebPushChannel::class;
+        }
+
         return $via;
+    }
+
+    /** System notification shown by the device even when the app is closed. */
+    public function toPush(object $notifiable): array
+    {
+        $task = $this->reminder->task;
+
+        return [
+            'title' => 'Task reminder',
+            'body' => $task->due_at
+                ? "{$task->title} - due " . $task->due_at->diffForHumans()
+                : $task->title,
+            'tag' => 'task-' . $task->uuid,
+            'url' => '/tasks?open=' . $task->uuid,
+        ];
     }
 
     public function toDatabase(object $notifiable): array

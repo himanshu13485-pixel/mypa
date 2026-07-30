@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity, Ban, BarChart3, CheckCircle2, ClipboardCheck, CreditCard, Flag,
-  KeyRound, LogIn, MessagesSquare, Pencil, Plus, RefreshCw, Search, Send, Shield,
-  SlidersHorizontal, Users, Wifi,
+  KeyRound, LogIn, MailCheck, MessagesSquare, Pencil, Plus, RefreshCw, Search, Send,
+  Shield, SlidersHorizontal, UserCheck, Users, Wifi,
 } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
-import { admin, adminBilling, adminInternal, adminOps, identity as identityApi } from '../../api/endpoints'
+import { admin, adminBilling, adminCare, adminInternal, adminOps, adminSales, identity as identityApi } from '../../api/endpoints'
 import type { AdminPlan } from '../../types'
 import { api, errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
@@ -770,6 +770,7 @@ function UsersTab() {
   const [summaryFor, setSummaryFor] = useState<User | null>(null)
   const [rightsFor, setRightsFor] = useState<User | null>(null)
   const [planFor, setPlanFor] = useState<User | null>(null)
+  const [salesFor, setSalesFor] = useState<User | null>(null)
 
   const { data: users, isLoading } = useQuery({
     queryKey: ['admin-users', query],
@@ -841,6 +842,7 @@ function UsersTab() {
                 <th className="pb-2 pr-4 font-medium">App ID</th>
                 <th className="pb-2 pr-4 font-medium">Roles</th>
                 <th className="pb-2 pr-4 font-medium">Plan</th>
+                <th className="pb-2 pr-4 font-medium">Salesperson</th>
                 <th className="pb-2 pr-4 font-medium">Status</th>
                 <th className="pb-2 font-medium">Actions</th>
               </tr>
@@ -856,6 +858,15 @@ function UsersTab() {
                   </td>
                   <td className="py-2.5 pr-4">
                     <Badge value={u.plan ?? 'free'} />
+                  </td>
+                  <td className="py-2.5 pr-4">
+                    <button
+                      className="text-xs text-slate-500 hover:text-brand-600 hover:underline"
+                      title="Assign salesperson"
+                      onClick={() => setSalesFor(u)}
+                    >
+                      {u.salesperson?.name ?? '— assign'}
+                    </button>
                   </td>
                   <td className="py-2.5 pr-4">
                     <Badge value={u.status ?? 'active'} />
@@ -897,6 +908,20 @@ function UsersTab() {
                             <Ban className="size-3.5" />
                           </Button>
                         )
+                      )}
+                      {!u.email_verified && u.email && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title="Mark email verified (use when the OTP mail is not arriving)"
+                          onClick={() => {
+                            if (confirm(`Mark ${u.email} as verified without a code?`)) {
+                              adminCare.verifyEmail(u.uuid).then(invalidate).catch((err) => alert(errorMessage(err)))
+                            }
+                          }}
+                        >
+                          <MailCheck className="size-3.5" />
+                        </Button>
                       )}
                       <Button
                         size="sm"
@@ -988,6 +1013,15 @@ function UsersTab() {
       {summaryFor && <UserSummaryModal user={summaryFor} onClose={() => setSummaryFor(null)} />}
       {rightsFor && <RightsModal user={rightsFor} onClose={() => setRightsFor(null)} />}
       {planFor && <AssignPlanModal user={planFor} onClose={() => setPlanFor(null)} />}
+      {salesFor && (
+        <AssignSalespersonModal
+          user={salesFor}
+          onClose={() => {
+            setSalesFor(null)
+            invalidate()
+          }}
+        />
+      )}
     </Card>
   )
 }
@@ -1232,6 +1266,154 @@ function InternalTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Salesperson assignment + workspace
+// ---------------------------------------------------------------------------
+
+function AssignSalespersonModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const { data: salespeople } = useQuery({ queryKey: ['salespeople'], queryFn: adminCare.salespeople })
+  const [choice, setChoice] = useState(user.salesperson?.uuid ?? '')
+  const [busy, setBusy] = useState(false)
+
+  const save = async () => {
+    setBusy(true)
+    try {
+      const res = await adminCare.assignSalesperson(user.uuid, choice || null)
+      alert(res.message)
+      onClose()
+    } catch (err) {
+      alert(errorMessage(err))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={`Salesperson for ${user.name}`} onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <Label>Assigned salesperson</Label>
+          <Select value={choice} onChange={(e) => setChoice(e.target.value)}>
+            <option value="">— None —</option>
+            {salespeople?.map((s) => (
+              <option key={s.uuid} value={s.uuid}>
+                {s.name}
+              </option>
+            ))}
+          </Select>
+          {!salespeople?.length && (
+            <p className="mt-1 text-xs text-slate-400">
+              No salesperson accounts yet — create one from the New user form (role: Salesperson).
+            </p>
+          )}
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={save} disabled={busy}>
+            {busy ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function SalesTab() {
+  const { data: users, isLoading } = useQuery({
+    queryKey: ['sales-my-users'],
+    queryFn: () => adminSales.myUsers(),
+  })
+  const [summaryFor, setSummaryFor] = useState<User | null>(null)
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold">My users</h2>
+      <p className="mb-3 text-xs text-slate-400">
+        Users assigned to you. Open a summary to see their activity and subscription.
+      </p>
+      {isLoading ? (
+        <Spinner />
+      ) : !users?.data.length ? (
+        <EmptyState title="No users assigned to you yet" hint="An admin assigns users from the Users tab." />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
+                <th className="pb-2 pr-4 font-medium">Name</th>
+                <th className="pb-2 pr-4 font-medium">Username</th>
+                <th className="pb-2 pr-4 font-medium">Email</th>
+                <th className="pb-2 pr-4 font-medium">Plan</th>
+                <th className="pb-2 font-medium">Activity</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.data.map((u) => (
+                <tr key={u.uuid} className="border-b border-slate-100 last:border-0 dark:border-slate-800/60">
+                  <td className="py-2.5 pr-4 font-medium">{u.name}</td>
+                  <td className="py-2.5 pr-4 text-slate-500">{u.username ? `@${u.username}` : '—'}</td>
+                  <td className="py-2.5 pr-4 text-slate-500">{u.email ?? '—'}</td>
+                  <td className="py-2.5 pr-4">
+                    <Badge value={u.plan ?? 'free'} />
+                  </td>
+                  <td className="py-2.5">
+                    <Button size="sm" variant="ghost" title="Activity summary" onClick={() => setSummaryFor(u)}>
+                      <BarChart3 className="size-3.5" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {summaryFor && <SalesSummaryModal user={summaryFor} onClose={() => setSummaryFor(null)} />}
+    </Card>
+  )
+}
+
+function SalesSummaryModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['sales-user-summary', user.uuid],
+    queryFn: () => adminSales.summary(user.uuid),
+  })
+
+  return (
+    <Modal title={`Activity — ${user.name}`} onClose={onClose}>
+      {isLoading || !data ? (
+        <Spinner />
+      ) : (
+        <div className="space-y-2 text-sm">
+          <p>
+            <span className="text-slate-400">Plan:</span> <Badge value={data.plan} />
+          </p>
+          <p>
+            <span className="text-slate-400">Member since:</span>{' '}
+            {format(new Date(data.member_since), 'd MMM yyyy')}
+          </p>
+          <p>
+            <span className="text-slate-400">Last login:</span>{' '}
+            {data.last_login ? `${formatDistanceToNow(new Date(data.last_login.at), { addSuffix: true })} (${data.last_login.ip})` : 'never'}
+          </p>
+          <p>
+            <span className="text-slate-400">Logins this week:</span> {data.logins_this_week}
+          </p>
+          <p>
+            <span className="text-slate-400">Tasks:</span> {data.tasks.completed}/{data.tasks.total} completed,{' '}
+            {data.tasks.created_this_week} new this week
+          </p>
+          <p>
+            <span className="text-slate-400">Notes:</span> {data.notes} ·{' '}
+            <span className="text-slate-400">Files:</span> {data.files.count} ·{' '}
+            <span className="text-slate-400">Messages sent:</span> {data.messages_sent}
+          </p>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Page shell with tabs
 // ---------------------------------------------------------------------------
 
@@ -1245,6 +1427,7 @@ const TABS = [
   { key: 'logins', label: 'Logins', icon: LogIn },
   { key: 'moderation', label: 'Moderation', icon: Flag },
   { key: 'internal', label: 'Internal Work', icon: MessagesSquare },
+  { key: 'sales', label: 'My Users', icon: UserCheck },
 ] as const
 
 /** Which tabs each staff role can see (the backend enforces the same rules). */
@@ -1253,7 +1436,7 @@ function visibleTabs(roles: string[]) {
   if (roles.includes('subadmin')) {
     return TABS.filter((t) => !['overview', 'active', 'plans'].includes(t.key))
   }
-  return TABS.filter((t) => t.key === 'internal')
+  return TABS.filter((t) => ['sales', 'internal'].includes(t.key))
 }
 
 export default function AdminPage() {
@@ -1294,6 +1477,7 @@ export default function AdminPage() {
       {tab === 'logins' && <LoginsTab />}
       {tab === 'moderation' && <ModerationTab />}
       {tab === 'internal' && <InternalTab />}
+      {tab === 'sales' && <SalesTab />}
     </div>
   )
 }

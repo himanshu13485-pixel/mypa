@@ -7,6 +7,7 @@ export interface User {
   email_verified: boolean
   app_id?: string
   plan?: string | null
+  salesperson?: { uuid: string; name: string } | null
   roles?: string[]
   profile?: {
     photo_path?: string | null
@@ -534,6 +535,9 @@ export interface ChatMessage {
 export interface CallInfo {
   uuid: string
   conversation_uuid: string
+  is_group?: boolean
+  group_name?: string | null
+  joined_peers?: { uuid: string; name: string }[]
   type: 'audio' | 'video'
   status: string
   is_outgoing: boolean
@@ -549,7 +553,7 @@ export interface CallSignalPayload {
   call_type: 'audio' | 'video'
   from_uuid: string
   from_name?: string | null
-  signal: 'ring' | 'accept' | 'decline' | 'end' | 'offer' | 'answer' | 'ice'
+  signal: 'ring' | 'accept' | 'decline' | 'end' | 'offer' | 'answer' | 'ice' | 'peer-left'
   payload: Record<string, unknown>
 }
 

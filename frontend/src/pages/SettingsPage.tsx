@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { disablePush, enablePush, getPushSubscription, getSoundPrefs, playChime, pushSupported, setSoundPrefs } from '../lib/alerts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { auth, identity as identityApi, profile as profileApi, subscription as subscriptionApi } from '../api/endpoints'
 import { ISD_CODES } from '../types'
@@ -441,6 +442,8 @@ export default function SettingsPage() {
         </label>
       </Card>
 
+      <AlertsCard />
+
       <Card>
         <h2 className="mb-3 text-sm font-semibold">
           {user?.has_password === false ? 'Set a password (optional)' : 'Change password'}
@@ -490,5 +493,97 @@ export default function SettingsPage() {
         </div>
       </Card>
     </div>
+  )
+}
+
+function AlertsCard() {
+  const [sound, setSound] = useState(getSoundPrefs())
+  const [pushOn, setPushOn] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+
+  useEffect(() => {
+    getPushSubscription().then((sub) => setPushOn(!!sub))
+  }, [])
+
+  const saveSound = (next: { enabled: boolean; volume: number }) => {
+    setSound(next)
+    setSoundPrefs(next)
+  }
+
+  const togglePush = async () => {
+    setBusy(true)
+    setNote(null)
+    try {
+      if (pushOn) {
+        await disablePush()
+        setPushOn(false)
+        setNote('Device notifications turned off.')
+      } else {
+        await enablePush()
+        setPushOn(true)
+        setNote('Device notifications enabled — reminders will pop up even when My PA is closed.')
+      }
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'Could not change push notifications.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="mb-3 text-sm font-semibold">Alerts on this device</h2>
+
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={sound.enabled}
+          onChange={(e) => saveSound({ ...sound, enabled: e.target.checked })}
+        />
+        <span>
+          Notification sound
+          <span className="block text-xs text-slate-400">
+            A short chime when a new notification arrives while the app is open.
+          </span>
+        </span>
+      </label>
+      {sound.enabled && (
+        <div className="mt-2 flex items-center gap-3 pl-6">
+          <span className="text-xs text-slate-400">Volume</span>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={Math.round(sound.volume * 100)}
+            onChange={(e) => saveSound({ ...sound, volume: Number(e.target.value) / 100 })}
+            onMouseUp={() => playChime()}
+            onTouchEnd={() => playChime()}
+            className="w-40"
+          />
+          <span className="w-8 text-xs text-slate-400">{Math.round(sound.volume * 100)}%</span>
+        </div>
+      )}
+
+      <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm">
+            Pop-up alerts (even when the app is closed)
+            <span className="block text-xs text-slate-400">
+              System notifications with sound for reminders, messages, shares and bills — works on
+              desktop and Android (installed app). Sound follows your device notification settings.
+            </span>
+          </div>
+          <Button size="sm" variant={pushOn ? 'secondary' : 'primary'} onClick={togglePush} disabled={busy || !pushSupported()}>
+            {busy ? 'Working…' : pushOn ? 'Turn off on this device' : 'Enable on this device'}
+          </Button>
+        </div>
+        {!pushSupported() && (
+          <p className="mt-1 text-xs text-amber-600">This browser does not support push notifications.</p>
+        )}
+        {note && <p className="mt-2 text-xs text-slate-500">{note}</p>}
+      </div>
+    </Card>
   )
 }

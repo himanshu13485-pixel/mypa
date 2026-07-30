@@ -164,6 +164,17 @@ export const adminOps = {
     api.get<Paginated<import('../types').LoginHistoryRow>>('/admin/login-histories', { params: q ? { q } : {} }).then((r) => r.data),
 }
 
+// --- Salesperson workspace ---------------------------------------------------
+
+export const adminSales = {
+  myUsers: (salespersonUuid?: string) =>
+    api.get<Paginated<import('../types').User>>('/admin/sales/my-users', {
+      params: salespersonUuid ? { salesperson: salespersonUuid } : {},
+    }).then((r) => r.data),
+  summary: (uuid: string) =>
+    api.get<{ data: import('../types').UserActivitySummary }>(`/admin/sales/users/${uuid}/summary`).then((r) => r.data.data),
+}
+
 // --- Internal Work (staff-only notes about users) ---------------------------
 
 export const adminInternal = {
@@ -178,6 +189,16 @@ export const adminInternal = {
   addNote: (uuid: string, body: string) =>
     api.post(`/admin/internal/users/${uuid}/notes`, { body }),
   deleteNote: (noteUuid: string) => api.delete(`/admin/internal/notes/${noteUuid}`),
+}
+
+// --- Admin: user care --------------------------------------------------------
+
+export const adminCare = {
+  verifyEmail: (uuid: string) => api.post(`/admin/users/${uuid}/verify-email`).then((r) => r.data),
+  salespeople: () =>
+    api.get<{ data: { uuid: string; name: string }[] }>('/admin/salespeople').then((r) => r.data.data),
+  assignSalesperson: (uuid: string, salespersonUuid: string | null) =>
+    api.post<{ message: string }>(`/admin/users/${uuid}/salesperson`, { salesperson_uuid: salespersonUuid }).then((r) => r.data),
 }
 
 // --- Notifications ----------------------------------------------------------
@@ -316,8 +337,8 @@ export const calls = {
   respond: (uuid: string, action: 'accept' | 'decline') =>
     api.post<{ data: CallInfo }>(`/calls/${uuid}/respond`, { action }).then((r) => r.data.data),
   end: (uuid: string) => api.post<{ data: CallInfo }>(`/calls/${uuid}/end`).then((r) => r.data.data),
-  signal: (uuid: string, signal: 'offer' | 'answer' | 'ice', payload: Record<string, unknown>) =>
-    api.post(`/calls/${uuid}/signal`, { signal, payload }),
+  signal: (uuid: string, signal: 'offer' | 'answer' | 'ice', payload: Record<string, unknown>, toUuid?: string) =>
+    api.post(`/calls/${uuid}/signal`, { signal, payload, ...(toUuid ? { to_uuid: toUuid } : {}) }),
   history: () => api.get<Paginated<CallInfo>>('/calls/history').then((r) => r.data),
 }
 

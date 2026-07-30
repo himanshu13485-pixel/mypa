@@ -46,6 +46,12 @@ return [
             : 'https://sandbox.cashfree.com/pg',
     ],
 
+    'webpush' => [
+        'public_key' => env('VAPID_PUBLIC_KEY'),
+        'private_key' => env('VAPID_PRIVATE_KEY'),
+        'subject' => env('VAPID_SUBJECT', 'mailto:admin@mypa.local'),
+    ],
+
     'webrtc' => [
         'stun_url' => env('STUN_SERVER_URL'),
         'turn_url' => env('TURN_SERVER_URL'),

@@ -288,16 +288,42 @@ export default function MessagesPage() {
                   </p>
                 </div>
               </div>
-              {selected.type === 'direct' && (
-                <div className="flex gap-1">
-                  <Button size="sm" variant="ghost" title="Audio call" onClick={() => startCall(selected.uuid, 'audio', selected.name)}>
-                    <Phone className="size-4" />
-                  </Button>
-                  <Button size="sm" variant="ghost" title="Video call" onClick={() => startCall(selected.uuid, 'video', selected.name)}>
-                    <Video className="size-4" />
-                  </Button>
-                </div>
-              )}
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title={selected.type === 'group' ? 'Group audio call' : 'Audio call'}
+                  onClick={() => {
+                    if (
+                      selected.type === 'group' &&
+                      (selected.members_count ?? 0) > 8 &&
+                      !confirm('Large group: mesh calls send your stream to every member, which is heavy on data and battery beyond ~8 people. Start anyway?')
+                    ) {
+                      return
+                    }
+                    startCall(selected.uuid, 'audio', selected.name)
+                  }}
+                >
+                  <Phone className="size-4" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title={selected.type === 'group' ? 'Group video call' : 'Video call'}
+                  onClick={() => {
+                    if (
+                      selected.type === 'group' &&
+                      (selected.members_count ?? 0) > 8 &&
+                      !confirm('Large group: mesh video sends your video to every member, which is heavy on data and battery beyond ~8 people. Start anyway?')
+                    ) {
+                      return
+                    }
+                    startCall(selected.uuid, 'video', selected.name)
+                  }}
+                >
+                  <Video className="size-4" />
+                </Button>
+              </div>
             </div>
 
             {/* Messages */}
