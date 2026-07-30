@@ -375,6 +375,49 @@ class IdentityTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_otp_login_security_properties(): void
+    {
+        // App-level caps are under test here, not the HTTP rate limiter.
+        $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
+
+        $this->register()->assertCreated();
+        $user = User::where('username', 'ashak')->first();
+
+        // 1. Requesting a code never returns it, and the response is uniform
+        //    whether or not the account exists (no user enumeration).
+        $real = $this->postJson('/api/v1/auth/otp/request', ['identifier' => 'ashak']);
+        $ghost = $this->postJson('/api/v1/auth/otp/request', ['identifier' => 'nosuchuser999']);
+        $real->assertOk();
+        $ghost->assertOk();
+        $this->assertEquals($real->json('message'), $ghost->json('message'));
+
+        // 2. The code lands ONLY in the target account's own inbox.
+        $this->assertTrue(
+            $user->notifications()->get()->contains(fn ($n) => ($n->data['purpose'] ?? '') === 'login'),
+        );
+
+        // 3. Five wrong guesses kill the code — even the right code fails after.
+        for ($i = 0; $i < 5; $i++) {
+            $this->postJson('/api/v1/auth/otp/login', [
+                'identifier' => 'ashak', 'code' => '000000',
+            ])->assertUnprocessable();
+        }
+        $realCode = \App\Models\MobileOtp::where('user_id', $user->id)
+            ->where('purpose', 'login')->latest()->first()->code;
+        $this->postJson('/api/v1/auth/otp/login', ['identifier' => 'ashak', 'code' => $realCode])
+            ->assertUnprocessable();
+
+        // 4. Per-account issue cap: at most 3 codes per 15 minutes.
+        foreach (range(1, 4) as $i) {
+            $this->postJson('/api/v1/auth/otp/request', ['identifier' => 'ashak'])->assertOk();
+        }
+        $issued = \App\Models\MobileOtp::where('user_id', $user->id)
+            ->where('purpose', 'login')
+            ->where('created_at', '>=', now()->subMinutes(15))
+            ->count();
+        $this->assertEquals(3, $issued, 'The fourth+ code must not be issued');
+    }
+
     // --- Sidebar badges -------------------------------------------------------
 
     public function test_badges_report_and_clear(): void

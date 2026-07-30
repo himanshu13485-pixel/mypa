@@ -246,11 +246,19 @@ class AuthController extends Controller
 
         $user = $this->resolveUser(trim($data['identifier']));
 
-        if ($user && $user->status !== 'suspended') {
+        // Per-account cap: at most 3 login codes per 15 minutes, regardless of
+        // requesting IP — prevents inbox flooding of a targeted account.
+        $withinCap = ! $user || \App\Models\MobileOtp::where('user_id', $user->id)
+            ->where('purpose', 'login')
+            ->where('created_at', '>=', now()->subMinutes(15))
+            ->count() < 3;
+
+        if ($user && $user->status !== 'suspended' && $withinCap) {
             $otps->issue($user, $user->mobile, 'login');
         }
 
-        // Uniform response — never leak whether the identifier exists.
+        // Uniform response — never leak whether the identifier exists or
+        // whether the cap was hit.
         return response()->json([
             'message' => 'If the account exists, a login code has been sent to its app inbox.',
         ]);
