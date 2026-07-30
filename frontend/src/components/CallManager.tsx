@@ -36,7 +36,11 @@ export const useCalls = () => useContext(CallContext)
 /** Attaches a MediaStream to a video/audio element via ref callback. */
 function RemoteTile({ peer, video }: { peer: RemotePeer; video: boolean }) {
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
-    if (el && el.srcObject !== peer.stream) el.srcObject = peer.stream
+    if (el && el.srcObject !== peer.stream) {
+      el.srcObject = peer.stream
+      // srcObject set after mount does not always start playback by itself.
+      el.play().catch((err) => console.warn('[call] audio playback blocked', err))
+    }
   }
   if (!video) {
     return <audio ref={attach} autoPlay />
@@ -66,11 +70,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [elapsed, setElapsed] = useState(0)
 
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map())
+  // ICE candidates that arrived before their peer connection / remote
+  // description was ready — dropped candidates are the classic cause of
+  // one-way or missing audio in mesh calls.
+  const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const callRef = useRef<ActiveCall | null>(null)
   callRef.current = activeCall
+
+  /** Apply any ICE candidates that arrived early for this peer. */
+  const flushPendingIce = useCallback((peerUuid: string) => {
+    const pc = peersRef.current.get(peerUuid)
+    const pending = pendingIceRef.current.get(peerUuid)
+    if (!pc || !pc.remoteDescription || !pending?.length) return
+    pendingIceRef.current.delete(peerUuid)
+    for (const candidate of pending) {
+      pc.addIceCandidate(candidate).catch((err) => console.warn('[call] flush ICE failed', err))
+    }
+  }, [])
 
   /** Flip to 'ongoing' and start the timer (idempotent). */
   const markLive = useCallback(() => {
@@ -82,6 +101,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const cleanup = useCallback(() => {
     peersRef.current.forEach((pc) => pc.close())
     peersRef.current.clear()
+    pendingIceRef.current.clear()
     localStreamRef.current?.getTracks().forEach((t) => t.stop())
     localStreamRef.current = null
     setRemotePeers([])
@@ -132,9 +152,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       // Belt and braces: several independent "we are live" triggers, because a
       // single missed signalling message must never leave the timer stuck.
       pc.onconnectionstatechange = () => {
+        console.info('[call] peer', peerUuid.slice(0, 8), 'connection:', pc.connectionState)
         if (pc.connectionState === 'connected') markLive()
       }
       pc.oniceconnectionstatechange = () => {
+        console.info('[call] peer', peerUuid.slice(0, 8), 'ice:', pc.iceConnectionState)
         if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') markLive()
       }
 
@@ -254,6 +276,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               call.type,
             )
             await pc.setRemoteDescription({ type: 'offer', sdp: signal.payload.sdp as string })
+            flushPendingIce(signal.from_uuid)
             markLive()
             const answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
@@ -268,6 +291,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           if (!pc) return
           try {
             await pc.setRemoteDescription({ type: 'answer', sdp: signal.payload.sdp as string })
+            flushPendingIce(signal.from_uuid)
           } catch (err) {
             console.warn('[call] applying answer failed', err)
           }
@@ -275,9 +299,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
           break
         }
         case 'ice': {
+          const candidate = signal.payload.candidate as RTCIceCandidateInit | undefined
+          if (!candidate) return
           const pc = peersRef.current.get(signal.from_uuid)
-          if (pc && signal.payload.candidate) {
-            pc.addIceCandidate(signal.payload.candidate as RTCIceCandidateInit).catch(() => undefined)
+          if (pc && pc.remoteDescription) {
+            pc.addIceCandidate(candidate).catch((err) => console.warn('[call] add ICE failed', err))
+          } else {
+            // Peer connection not ready yet — hold the candidate, it is
+            // replayed right after the remote description is applied.
+            const queue = pendingIceRef.current.get(signal.from_uuid) ?? []
+            queue.push(candidate)
+            pendingIceRef.current.set(signal.from_uuid, queue)
           }
           break
         }
@@ -298,7 +330,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => {
       echo.leave(`user.${user.uuid}`)
     }
-  }, [user?.uuid, cleanup, createPeer, removePeer, markLive])
+  }, [user?.uuid, cleanup, createPeer, removePeer, markLive, flushPendingIce])
 
   // Ringtone for incoming calls; ring-back while our outgoing call rings.
   useEffect(() => {
