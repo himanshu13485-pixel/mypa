@@ -98,10 +98,10 @@ class CallController extends Controller
 
         $isGroup = $call->conversation->type !== 'direct';
 
-        // Direct calls can only be answered while ringing; group members may
-        // join late while the call is still ongoing.
+        // A call can be joined while ringing, or while ongoing (late group
+        // joiners and people invited into a live call).
         abort_unless(
-            $call->status === 'ringing' || ($isGroup && $call->status === 'ongoing'),
+            in_array($call->status, ['ringing', 'ongoing']),
             409,
             'This call is no longer active.'
         );
@@ -135,9 +135,9 @@ class CallController extends Controller
             ]);
         }
 
-        // Decline: a direct call dies; a group call keeps going for the rest.
+        // Decline: a ringing direct call dies; a live call keeps going.
         $call->participants()->updateExistingPivot($me->id, ['status' => 'declined']);
-        if (! $isGroup) {
+        if (! $isGroup && $call->status === 'ringing') {
             $call->update(['status' => 'declined', 'ended_at' => now()]);
             $this->logCallToChat($call->fresh(['conversation']));
         }
@@ -171,8 +171,8 @@ class CallController extends Controller
 
         $loaded = $call->load(['conversation', 'caller']);
 
-        // A group call survives while at least two people remain in it.
-        if ($isGroup && $remaining->count() >= 2 && $call->status === 'ongoing') {
+        // Any call survives while at least two people remain in it.
+        if ($remaining->count() >= 2 && $call->status === 'ongoing') {
             foreach ($remaining as $peer) {
                 broadcast(new CallSignal($loaded, $me->uuid, $peer->uuid, 'peer-left', [
                     'left_uuid' => $me->uuid,
@@ -201,6 +201,46 @@ class CallController extends Controller
         }
 
         return response()->json(['message' => 'Call ended.', 'data' => $this->serialize($call->fresh(), $request)]);
+    }
+
+    /**
+     * Pull one more person into a ringing/ongoing call. The target is found by
+     * username / email / App ID (mobile stays unsearchable) and simply starts
+     * ringing; on accept they mesh with everyone already in.
+     */
+    public function invite(Request $request, Call $call): JsonResponse
+    {
+        $me = $request->user();
+        $this->authorizeParticipant($call, $me->id);
+        abort_unless(in_array($call->status, ['ringing', 'ongoing']), 409, 'Call is not active.');
+
+        $data = $request->validate(['identifier' => ['required', 'string', 'max:255']]);
+
+        $target = app(\App\Services\AppIdService::class)->findVisibleUser($data['identifier'], $me);
+        if (! $target || $target->id === $me->id) {
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
+        }
+
+        $pivot = $call->participants()->where('users.id', $target->id)->first();
+        if ($pivot && $pivot->pivot->status === 'joined') {
+            return response()->json(['message' => "{$target->name} is already in the call."], 409);
+        }
+
+        // Privacy: who can call me.
+        $pref = $target->settings?->privacyValue('who_can_call') ?? 'connections';
+        if ($pref === 'nobody') {
+            return response()->json(['message' => 'This user is not accepting calls.'], 403);
+        }
+
+        if ($pivot) {
+            $call->participants()->updateExistingPivot($target->id, ['status' => 'invited']);
+        } else {
+            $call->participants()->attach([$target->id => ['status' => 'invited', 'joined_at' => null]]);
+        }
+
+        broadcast(new CallSignal($call->load(['conversation', 'caller']), $me->uuid, $target->uuid, 'ring'));
+
+        return response()->json(['message' => "Ringing {$target->name}…"]);
     }
 
     /** Relay a WebRTC signalling payload (offer / answer / ICE candidate). */

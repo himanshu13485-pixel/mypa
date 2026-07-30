@@ -241,6 +241,34 @@ class SalesAndGroupCallTest extends TestCase
         $this->assertStringContainsString('call', $log->body);
     }
 
+    public function test_invite_someone_into_a_live_call(): void
+    {
+        Event::fake([CallSignal::class]);
+        $this->carol->forceFill(['username' => 'carol1'])->save();
+        $conversation = \App\Models\Conversation::directBetween($this->alice, $this->bob);
+
+        $uuid = $this->actingAs($this->alice)
+            ->postJson("/api/v1/conversations/{$conversation->uuid}/calls", ['type' => 'audio'])
+            ->json('data.uuid');
+        $this->actingAs($this->bob)->postJson("/api/v1/calls/{$uuid}/respond", ['action' => 'accept'])->assertOk();
+
+        // Alice pulls Carol in by username; Carol starts ringing.
+        $this->actingAs($this->alice)->postJson("/api/v1/calls/{$uuid}/invite", ['identifier' => 'carol1'])->assertOk();
+        Event::assertDispatched(CallSignal::class, fn ($e) => $e->signalType === 'ring' && $e->toUserUuid === $this->carol->uuid);
+
+        // Carol accepts the ongoing call and gets both existing peers.
+        $join = $this->actingAs($this->carol)->postJson("/api/v1/calls/{$uuid}/respond", ['action' => 'accept'])->assertOk();
+        $this->assertCount(2, $join->json('data.joined_peers'));
+
+        // Alice leaves; Bob and Carol keep talking (even though it began 1:1).
+        $this->actingAs($this->alice)->postJson("/api/v1/calls/{$uuid}/end")->assertOk();
+        $this->assertEquals('ongoing', \App\Models\Call::where('uuid', $uuid)->first()->status);
+
+        // Outsiders cannot invite.
+        $stranger = User::factory()->create();
+        $this->actingAs($stranger)->postJson("/api/v1/calls/{$uuid}/invite", ['identifier' => 'carol1'])->assertForbidden();
+    }
+
     public function test_conversation_members_listing(): void
     {
         $conversation = $this->groupConversation();

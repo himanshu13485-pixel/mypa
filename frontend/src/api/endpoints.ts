@@ -350,6 +350,8 @@ export const calls = {
   end: (uuid: string) => api.post<{ data: CallInfo }>(`/calls/${uuid}/end`).then((r) => r.data.data),
   signal: (uuid: string, signal: 'offer' | 'answer' | 'ice', payload: Record<string, unknown>, toUuid?: string) =>
     api.post(`/calls/${uuid}/signal`, { signal, payload, ...(toUuid ? { to_uuid: toUuid } : {}) }),
+  invite: (uuid: string, identifier: string) =>
+    api.post<{ message: string }>(`/calls/${uuid}/invite`, { identifier }).then((r) => r.data),
   history: () => api.get<Paginated<CallInfo>>('/calls/history').then((r) => r.data),
 }
 

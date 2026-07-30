@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Mic, MicOff, Phone, PhoneOff, Users, Video, VideoOff } from 'lucide-react'
+import { Mic, MicOff, Phone, PhoneOff, UserPlus, Users, Video, VideoOff } from 'lucide-react'
 import { calls } from '../api/endpoints'
+import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { Button } from './ui'
@@ -71,6 +72,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const callRef = useRef<ActiveCall | null>(null)
   callRef.current = activeCall
 
+  /** Flip to 'ongoing' and start the timer (idempotent). */
+  const markLive = useCallback(() => {
+    setActiveCall((c) =>
+      c && c.status !== 'ongoing' ? { ...c, status: 'ongoing', startedAt: c.startedAt ?? Date.now() } : c,
+    )
+  }, [])
+
   const cleanup = useCallback(() => {
     peersRef.current.forEach((pc) => pc.close())
     peersRef.current.clear()
@@ -118,14 +126,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
       pc.ontrack = (event) => {
         const [remote] = event.streams
         setRemotePeers((peers) => peers.map((p) => (p.uuid === peerUuid ? { ...p, stream: remote } : p)))
+        markLive()
       }
 
-      // The authoritative "we are live" signal: media actually connected.
-      // (Signalling races can leave the status stuck at 'connecting'.)
+      // Belt and braces: several independent "we are live" triggers, because a
+      // single missed signalling message must never leave the timer stuck.
       pc.onconnectionstatechange = () => {
-        if (pc.connectionState === 'connected') {
-          setActiveCall((c) => (c ? { ...c, status: 'ongoing', startedAt: c.startedAt ?? Date.now() } : c))
-        }
+        if (pc.connectionState === 'connected') markLive()
+      }
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') markLive()
       }
 
       pc.onicecandidate = (event) => {
@@ -136,7 +146,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       return pc
     },
-    [ensureLocalStream],
+    [ensureLocalStream, markLive],
   )
 
   const removePeer = useCallback((peerUuid: string) => {
@@ -236,24 +246,32 @@ export function CallProvider({ children }: { children: ReactNode }) {
         }
         case 'offer': {
           if (!call || call.uuid !== signal.call_uuid) return
-          const pc = await createPeer(
-            signal.call_uuid,
-            signal.from_uuid,
-            signal.from_name ?? 'Participant',
-            call.type,
-          )
-          await pc.setRemoteDescription({ type: 'offer', sdp: signal.payload.sdp as string })
-          const answer = await pc.createAnswer()
-          await pc.setLocalDescription(answer)
-          await calls.signal(signal.call_uuid, 'answer', { sdp: answer.sdp, type: answer.type }, signal.from_uuid)
-          setActiveCall((c) => (c ? { ...c, status: 'ongoing', startedAt: c.startedAt ?? Date.now() } : c))
+          try {
+            const pc = await createPeer(
+              signal.call_uuid,
+              signal.from_uuid,
+              signal.from_name ?? 'Participant',
+              call.type,
+            )
+            await pc.setRemoteDescription({ type: 'offer', sdp: signal.payload.sdp as string })
+            markLive()
+            const answer = await pc.createAnswer()
+            await pc.setLocalDescription(answer)
+            await calls.signal(signal.call_uuid, 'answer', { sdp: answer.sdp, type: answer.type }, signal.from_uuid)
+          } catch (err) {
+            console.warn('[call] handling offer failed', err)
+          }
           break
         }
         case 'answer': {
           const pc = peersRef.current.get(signal.from_uuid)
           if (!pc) return
-          await pc.setRemoteDescription({ type: 'answer', sdp: signal.payload.sdp as string })
-          setActiveCall((c) => (c ? { ...c, status: 'ongoing', startedAt: c.startedAt ?? Date.now() } : c))
+          try {
+            await pc.setRemoteDescription({ type: 'answer', sdp: signal.payload.sdp as string })
+          } catch (err) {
+            console.warn('[call] applying answer failed', err)
+          }
+          markLive()
           break
         }
         case 'ice': {
@@ -280,7 +298,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => {
       echo.leave(`user.${user.uuid}`)
     }
-  }, [user?.uuid, cleanup, createPeer, removePeer])
+  }, [user?.uuid, cleanup, createPeer, removePeer, markLive])
 
   // Ringtone for incoming calls; ring-back while our outgoing call rings.
   useEffect(() => {
@@ -402,6 +420,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   {cameraOff ? <VideoOff className="size-3.5" /> : <Video className="size-3.5" />}
                 </Button>
               )}
+              <Button
+                size="sm"
+                variant="secondary"
+                title="Add someone to this call"
+                onClick={() => {
+                  const uuid = callRef.current?.uuid
+                  if (!uuid) return
+                  const who = prompt('Add to call (username or email):')
+                  if (!who?.trim()) return
+                  calls.invite(uuid, who.trim())
+                    .then((res) => alert(res.message))
+                    .catch((err) => alert(errorMessage(err)))
+                }}
+              >
+                <UserPlus className="size-3.5" />
+              </Button>
               <Button size="sm" variant="danger" onClick={hangUp} className="ml-auto">
                 <PhoneOff className="size-3.5" /> {activeCall.isGroup ? 'Leave' : 'End'}
               </Button>

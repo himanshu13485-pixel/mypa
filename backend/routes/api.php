@@ -193,6 +193,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/calls/{call}/respond', [CallController::class, 'respond']);
         Route::post('/calls/{call}/end', [CallController::class, 'end']);
         Route::post('/calls/{call}/signal', [CallController::class, 'signal']);
+        Route::post('/calls/{call}/invite', [CallController::class, 'invite']);
 
         // Habits
         Route::get('/habits', [\App\Http\Controllers\Api\V1\HabitController::class, 'index']);
