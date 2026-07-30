@@ -510,7 +510,7 @@ export interface ConversationItem {
   type: 'direct' | 'group'
   name: string
   group_uuid?: string | null
-  other_user?: { uuid: string; app_id?: string; photo_path?: string | null } | null
+  other_user?: { uuid: string; username?: string | null; app_id?: string; photo_path?: string | null } | null
   members_count: number
   unread_count: number
   is_muted: boolean
