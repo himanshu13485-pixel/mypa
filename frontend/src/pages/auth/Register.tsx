@@ -248,12 +248,9 @@ export default function Register() {
               Verify & continue
             </Button>
 
-            <div className="flex justify-between text-xs">
+            <div className="text-center text-xs">
               <button className="text-brand-600 hover:underline" onClick={resend}>
                 Resend code
-              </button>
-              <button className="text-slate-400 hover:underline" onClick={() => navigate('/')}>
-                Verify later
               </button>
             </div>
           </div>

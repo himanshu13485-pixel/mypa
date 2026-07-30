@@ -101,4 +101,18 @@ class InternalNoteController extends Controller
             ],
         ], 201);
     }
+
+    /**
+     * Notes are an immutable staff record: authors cannot edit or delete
+     * their own notes. Only an Admin / Super Admin may remove one.
+     */
+    public function destroy(Request $request, string $uuid): JsonResponse
+    {
+        abort_unless($request->user()->isAdmin(), 403, 'Only an admin can delete internal notes.');
+
+        $note = InternalNote::where('uuid', $uuid)->firstOrFail();
+        $note->delete();
+
+        return response()->json(['message' => 'Note deleted.']);
+    }
 }

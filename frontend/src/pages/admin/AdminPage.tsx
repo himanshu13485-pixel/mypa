@@ -1066,6 +1066,8 @@ function OverviewTab() {
 
 function InternalTab() {
   const queryClient = useQueryClient()
+  const me = useAuthStore((s) => s.user)
+  const amAdmin = !!me?.roles?.some((r) => r === 'admin' || r === 'super_admin')
   const [selected, setSelected] = useState<{ uuid: string; name: string } | null>(null)
   const [identifier, setIdentifier] = useState('')
   const [body, setBody] = useState('')
@@ -1092,6 +1094,15 @@ function InternalTab() {
       queryClient.invalidateQueries({ queryKey: ['internal-threads'] })
     },
     onError: (err) => setError(errorMessage(err)),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (noteUuid: string) => adminInternal.deleteNote(noteUuid),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['internal-notes', selected?.uuid] })
+      queryClient.invalidateQueries({ queryKey: ['internal-threads'] })
+    },
+    onError: (err) => alert(errorMessage(err)),
   })
 
   const startThread = async () => {
@@ -1176,9 +1187,23 @@ function InternalTab() {
                   >
                     {!n.author.is_me && <p className="mb-0.5 text-[11px] font-semibold text-brand-600 dark:text-brand-400">{n.author.name}</p>}
                     <p className="whitespace-pre-wrap">{n.body}</p>
-                    <p className={clsx('mt-1 text-[10px]', n.author.is_me ? 'text-brand-200' : 'text-slate-400')}>
-                      {format(new Date(n.created_at), 'd MMM, HH:mm')}
-                    </p>
+                    <div className="mt-1 flex items-center justify-between gap-2">
+                      <p className={clsx('text-[10px]', n.author.is_me ? 'text-brand-200' : 'text-slate-400')}>
+                        {format(new Date(n.created_at), 'd MMM, HH:mm')}
+                      </p>
+                      {amAdmin && (
+                        <button
+                          type="button"
+                          className={clsx('text-[10px] hover:underline', n.author.is_me ? 'text-brand-200' : 'text-slate-400')}
+                          title="Delete note (admin only — notes are otherwise a permanent record)"
+                          onClick={() => {
+                            if (confirm('Delete this internal note?')) deleteMutation.mutate(n.uuid)
+                          }}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))
               )}

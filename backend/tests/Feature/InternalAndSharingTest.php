@@ -128,6 +128,24 @@ class InternalAndSharingTest extends TestCase
             ->assertOk()->assertJsonCount(1, 'data.notes');
     }
 
+    public function test_internal_notes_are_immutable_except_admin_delete(): void
+    {
+        $sales = $this->makeStaff('salesperson');
+        $admin = $this->makeStaff('admin');
+
+        $noteUuid = $this->actingAs($sales)->postJson("/api/v1/admin/internal/users/{$this->friend->uuid}/notes", [
+            'body' => 'First contact made.',
+        ])->assertCreated()->json('data.uuid');
+
+        // The author (salesperson) cannot delete their own note.
+        $this->actingAs($sales)->deleteJson("/api/v1/admin/internal/notes/{$noteUuid}")->assertForbidden();
+        $this->assertDatabaseHas('internal_notes', ['uuid' => $noteUuid]);
+
+        // An admin can.
+        $this->actingAs($admin)->deleteJson("/api/v1/admin/internal/notes/{$noteUuid}")->assertOk();
+        $this->assertDatabaseMissing('internal_notes', ['uuid' => $noteUuid]);
+    }
+
     public function test_regular_user_cannot_touch_internal_work(): void
     {
         $this->actingAs($this->owner)->getJson('/api/v1/admin/internal/threads')->assertForbidden();

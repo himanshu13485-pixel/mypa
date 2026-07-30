@@ -177,6 +177,7 @@ export const adminInternal = {
     ).then((r) => r.data.data),
   addNote: (uuid: string, body: string) =>
     api.post(`/admin/internal/users/${uuid}/notes`, { body }),
+  deleteNote: (noteUuid: string) => api.delete(`/admin/internal/notes/${noteUuid}`),
 }
 
 // --- Notifications ----------------------------------------------------------

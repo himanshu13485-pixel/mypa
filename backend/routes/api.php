@@ -236,6 +236,7 @@ Route::prefix('v1')->group(function () {
         // --- Internal Work (Admin / Subadmin / Salesperson) ----------------
         Route::prefix('admin/internal')->middleware(['role:admin,super_admin,subadmin,salesperson', 'module:internal,view'])->group(function () {
             Route::post('lookup', [\App\Http\Controllers\Api\V1\Admin\InternalNoteController::class, 'lookup']);
+            Route::delete('notes/{uuid}', [\App\Http\Controllers\Api\V1\Admin\InternalNoteController::class, 'destroy']);
             Route::get('/threads', [\App\Http\Controllers\Api\V1\Admin\InternalNoteController::class, 'threads']);
             Route::get('/users/{user}/notes', [\App\Http\Controllers\Api\V1\Admin\InternalNoteController::class, 'index']);
             Route::post('/users/{user}/notes', [\App\Http\Controllers\Api\V1\Admin\InternalNoteController::class, 'store']);
