@@ -157,6 +157,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/files/{file}/share', [FileController::class, 'share']);
         Route::post('/folders', [FileController::class, 'storeFolder']);
         Route::post('/folders/{folder}/share', [FileController::class, 'shareFolder']);
+        Route::get('/files/shared-by-me', [FileController::class, 'sharedByMe']);
+        Route::post('/files/{file}/unshare', [FileController::class, 'unshare']);
+        Route::post('/folders/{folder}/unshare', [FileController::class, 'unshareFolder']);
         Route::get('/folders/{folder}/shared-files', [FileController::class, 'sharedFolderFiles']);
         Route::put('/folders/{folder}', [FileController::class, 'updateFolder']);
         Route::delete('/folders/{folder}', [FileController::class, 'destroyFolder']);

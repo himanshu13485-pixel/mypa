@@ -86,6 +86,72 @@ class FileController extends Controller
         return response()->json(['shared_folders' => $folders] + $files->toArray());
     }
 
+    /** Everything I have shared with others (files + folders), with recipients. */
+    public function sharedByMe(Request $request): JsonResponse
+    {
+        $me = $request->user();
+
+        $files = File::where('user_id', $me->id)
+            ->whereHas('sharedWith')
+            ->with('sharedWith:id,uuid,name,username')
+            ->get()
+            ->map(fn ($f) => [
+                'kind' => 'file',
+                'uuid' => $f->uuid,
+                'name' => $f->name,
+                'shared_with' => $f->sharedWith->map(fn ($u) => [
+                    'uuid' => $u->uuid,
+                    'name' => $u->name,
+                    'username' => $u->username,
+                    'permission' => $u->pivot->permission ?? 'view',
+                ])->values(),
+            ]);
+
+        $folders = Folder::where('user_id', $me->id)
+            ->whereHas('sharedWith')
+            ->with('sharedWith:id,uuid,name,username')
+            ->withCount('files')
+            ->get()
+            ->map(fn ($folder) => [
+                'kind' => 'folder',
+                'uuid' => $folder->uuid,
+                'name' => $folder->name,
+                'files_count' => $folder->files_count,
+                'shared_with' => $folder->sharedWith->map(fn ($u) => [
+                    'uuid' => $u->uuid,
+                    'name' => $u->name,
+                    'username' => $u->username,
+                    'permission' => $u->pivot->permission ?? 'view',
+                ])->values(),
+            ]);
+
+        return response()->json(['data' => $folders->concat($files)->values()]);
+    }
+
+    /** Take back access to one of my files from one person. */
+    public function unshare(Request $request, File $file): JsonResponse
+    {
+        abort_unless($file->user_id === $request->user()->id, 403);
+        $data = $request->validate(['user_uuid' => ['required', 'uuid']]);
+
+        $target = \App\Models\User::where('uuid', $data['user_uuid'])->firstOrFail();
+        $file->sharedWith()->detach($target->id);
+
+        return response()->json(['message' => "Access removed for {$target->name}."]);
+    }
+
+    /** Take back access to one of my folders from one person. */
+    public function unshareFolder(Request $request, Folder $folder): JsonResponse
+    {
+        abort_unless($folder->user_id === $request->user()->id, 403);
+        $data = $request->validate(['user_uuid' => ['required', 'uuid']]);
+
+        $target = \App\Models\User::where('uuid', $data['user_uuid'])->firstOrFail();
+        $folder->sharedWith()->detach($target->id);
+
+        return response()->json(['message' => "Access removed for {$target->name}."]);
+    }
+
     /** Files inside a folder that was shared with me. */
     public function sharedFolderFiles(Request $request, Folder $folder): JsonResponse
     {

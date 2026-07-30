@@ -82,6 +82,44 @@ class InternalAndSharingTest extends TestCase
         $this->actingAs($this->stranger)->get("/api/v1/files/{$file['uuid']}/download")->assertForbidden();
     }
 
+    public function test_shared_by_me_lists_and_revokes_access(): void
+    {
+        Storage::fake('local');
+
+        $folder = $this->actingAs($this->owner)->postJson('/api/v1/folders', ['name' => 'Docs'])
+            ->assertCreated()->json('data');
+        $file = $this->actingAs($this->owner)->post('/api/v1/files/upload', [
+            'files' => [UploadedFile::fake()->create('a.pdf', 10, 'application/pdf')],
+            'folder_uuid' => $folder['uuid'],
+        ])->assertCreated()->json('data.0');
+
+        $this->actingAs($this->owner)->postJson("/api/v1/folders/{$folder['uuid']}/share", ['app_id' => 'friend1'])->assertOk();
+        $this->actingAs($this->owner)->postJson("/api/v1/files/{$file['uuid']}/share", ['app_id' => 'stranger1'])->assertOk();
+
+        // Both shares listed with recipients.
+        $rows = $this->actingAs($this->owner)->getJson('/api/v1/files/shared-by-me')->assertOk()->json('data');
+        $this->assertCount(2, $rows);
+        $folderRow = collect($rows)->firstWhere('kind', 'folder');
+        $this->assertEquals('friend1', $folderRow['shared_with'][0]['username']);
+
+        // Revoke the folder share: friend loses access to the file inside.
+        $this->actingAs($this->owner)->postJson("/api/v1/folders/{$folder['uuid']}/unshare", [
+            'user_uuid' => $this->friend->uuid,
+        ])->assertOk();
+        $this->actingAs($this->friend)->get("/api/v1/files/{$file['uuid']}/download")->assertForbidden();
+
+        // Revoke the direct file share too.
+        $this->actingAs($this->owner)->postJson("/api/v1/files/{$file['uuid']}/unshare", [
+            'user_uuid' => $this->stranger->uuid,
+        ])->assertOk();
+        $this->assertCount(0, $this->actingAs($this->owner)->getJson('/api/v1/files/shared-by-me')->json('data'));
+
+        // Only the owner can revoke.
+        $this->actingAs($this->stranger)->postJson("/api/v1/folders/{$folder['uuid']}/unshare", [
+            'user_uuid' => $this->friend->uuid,
+        ])->assertForbidden();
+    }
+
     // --- Universal resolver (email / username everywhere) --------------------
 
     public function test_note_can_be_shared_by_email_and_task_assigned_by_username(): void

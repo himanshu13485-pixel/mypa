@@ -577,3 +577,11 @@ export interface InternalNoteRow {
   author: { uuid: string; name: string; is_me: boolean }
   created_at: string
 }
+
+export interface SharedByMeItem {
+  kind: 'file' | 'folder'
+  uuid: string
+  name: string
+  files_count?: number
+  shared_with: { uuid: string; name: string; username: string | null; permission: string }[]
+}

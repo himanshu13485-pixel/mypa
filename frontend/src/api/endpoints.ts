@@ -277,6 +277,12 @@ export const files = {
   forceDelete: (uuid: string) => api.delete(`/files/${uuid}/force`),
   share: (uuid: string, app_id: string) => api.post(`/files/${uuid}/share`, { app_id }),
   sharedWithMe: () => api.get<Paginated<FileItem>>('/files/shared-with-me').then((r) => r.data),
+  sharedByMe: () =>
+    api.get<{ data: import('../types').SharedByMeItem[] }>('/files/shared-by-me').then((r) => r.data.data),
+  unshare: (uuid: string, userUuid: string) =>
+    api.post<{ message: string }>(`/files/${uuid}/unshare`, { user_uuid: userUuid }).then((r) => r.data),
+  unshareFolder: (uuid: string, userUuid: string) =>
+    api.post<{ message: string }>(`/folders/${uuid}/unshare`, { user_uuid: userUuid }).then((r) => r.data),
   createFolder: (name: string, parent_uuid?: string) =>
     api.post('/folders', { name, parent_uuid }),
   shareFolder: (uuid: string, app_id: string) => api.post(`/folders/${uuid}/share`, { app_id }),

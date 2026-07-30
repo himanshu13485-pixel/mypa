@@ -99,6 +99,8 @@ export default function MessagesPage() {
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [reactFor, setReactFor] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const lastConvRef = useRef<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const { data: conversations, isLoading } = useQuery({
@@ -179,9 +181,19 @@ export default function MessagesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected?.uuid])
 
+  // Scroll only the message list (never the page), and only when the reader
+  // is already near the bottom — don't yank them down while reading history.
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages?.length])
+    const el = listRef.current
+    if (!el) return
+    const conversationChanged = lastConvRef.current !== selected?.uuid
+    lastConvRef.current = selected?.uuid ?? null
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
+    if (conversationChanged || nearBottom) {
+      el.scrollTo({ top: el.scrollHeight, behavior: conversationChanged ? 'auto' : 'smooth' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages?.length, selected?.uuid])
 
   const send = () => {
     if (editing) {
@@ -341,7 +353,7 @@ export default function MessagesPage() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 space-y-2 overflow-y-auto p-4">
+            <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto p-4">
               {messages?.map((m) => (
                 <div key={m.uuid} className={clsx('group flex', m.is_own ? 'justify-end' : 'justify-start')}>
                   <div className={clsx('relative max-w-[75%]')}>

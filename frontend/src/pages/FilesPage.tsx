@@ -44,7 +44,7 @@ export default function FilesPage() {
   }, [])
 
   const [folder, setFolder] = useState<string | undefined>(undefined)
-  const [view, setView] = useState<'mine' | 'shared' | 'trash'>('mine')
+  const [view, setView] = useState<'mine' | 'shared' | 'byme' | 'trash'>('mine')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const { data, isLoading } = useQuery({
@@ -61,6 +61,11 @@ export default function FilesPage() {
     queryKey: ['files-trash'],
     queryFn: filesApi.trash,
     enabled: view === 'trash',
+  })
+  const { data: byMe } = useQuery({
+    queryKey: ['files-shared-by-me'],
+    queryFn: filesApi.sharedByMe,
+    enabled: view === 'byme',
   })
 
   const invalidate = () => {
@@ -95,6 +100,13 @@ export default function FilesPage() {
             onClick={() => setView('shared')}
           >
             <Users className="size-3.5" /> Shared with me
+          </Button>
+          <Button
+            variant={view === 'byme' ? 'primary' : 'secondary'}
+            size="sm"
+            onClick={() => setView('byme')}
+          >
+            <Share2 className="size-3.5" /> Shared by me
           </Button>
           <Button
             variant={view === 'trash' ? 'primary' : 'secondary'}
@@ -316,6 +328,68 @@ export default function FilesPage() {
                 >
                   <Download className="size-4" />
                 </button>
+              </Card>
+            ))
+          )}
+        </div>
+      )}
+
+      {view === 'byme' && (
+        <div className="space-y-1.5">
+          {!byMe?.length ? (
+            <Card>
+              <EmptyState
+                title="You have not shared anything yet"
+                hint="Use the share icon on a file or folder to give someone access — it will be listed here."
+              />
+            </Card>
+          ) : (
+            byMe.map((item) => (
+              <Card key={`${item.kind}-${item.uuid}`} className="p-3">
+                <div className="flex items-center gap-3">
+                  {item.kind === 'folder' ? (
+                    <Folder className="size-5 shrink-0 text-amber-500" />
+                  ) : (
+                    <FileIcon className="size-5 shrink-0 text-slate-400" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{item.name}</p>
+                    <p className="text-xs text-slate-400">
+                      {item.kind === 'folder' ? `Folder · ${item.files_count} file(s) · ` : 'File · '}
+                      shared with {item.shared_with.length} people
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5 pl-8">
+                  {item.shared_with.map((person) => (
+                    <span
+                      key={person.uuid}
+                      className="flex items-center gap-1 rounded-full bg-slate-100 px-2.5 py-1 text-xs dark:bg-slate-800"
+                    >
+                      {person.name}
+                      {person.username && <span className="text-slate-400">@{person.username}</span>}
+                      <button
+                        className="ml-1 font-semibold text-red-500 hover:text-red-700"
+                        title={`Remove ${person.name}'s access`}
+                        onClick={() => {
+                          if (!confirm(`Take back access to “${item.name}” from ${person.name}?`)) return
+                          const call =
+                            item.kind === 'folder'
+                              ? filesApi.unshareFolder(item.uuid, person.uuid)
+                              : filesApi.unshare(item.uuid, person.uuid)
+                          call
+                            .then((res) => {
+                              alert(res.message)
+                              queryClient.invalidateQueries({ queryKey: ['files-shared-by-me'] })
+                            })
+                            .catch((err) => alert(errorMessage(err)))
+                        }}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
               </Card>
             ))
           )}
