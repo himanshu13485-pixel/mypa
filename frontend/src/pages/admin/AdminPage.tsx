@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, Ban, BarChart3, CheckCircle2, ClipboardCheck, Flag, KeyRound,
-  LogIn, Plus, RefreshCw, Search, Shield, SlidersHorizontal, Users, Wifi,
+  Activity, Ban, BarChart3, CheckCircle2, ClipboardCheck, CreditCard, Flag,
+  KeyRound, LogIn, Pencil, Plus, RefreshCw, Search, Shield, SlidersHorizontal,
+  Users, Wifi,
 } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
-import { admin, adminOps, identity as identityApi } from '../../api/endpoints'
+import { admin, adminBilling, adminOps, identity as identityApi } from '../../api/endpoints'
+import type { AdminPlan } from '../../types'
 import { api, errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import {
@@ -335,6 +337,281 @@ function ModerationTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Plans
+// ---------------------------------------------------------------------------
+
+const GB = 1024 * 1024 * 1024
+const PLAN_LIMIT_FIELDS: { key: string; label: string; isBytes?: boolean }[] = [
+  { key: 'max_tasks', label: 'Max tasks' },
+  { key: 'storage_bytes', label: 'Storage (GB)', isBytes: true },
+  { key: 'max_groups', label: 'Max groups' },
+  { key: 'max_group_members', label: 'Members per group' },
+  { key: 'max_categories', label: 'Custom categories' },
+]
+const PLAN_FEATURE_FIELDS: { key: string; label: string }[] = [
+  { key: 'calls', label: 'Audio & video calls' },
+  { key: 'reports_export', label: 'Report exports' },
+  { key: 'subadmins', label: 'Subadmin accounts' },
+  { key: 'voice_assistant', label: 'Voice assistant' },
+]
+
+function PlanEditModal({ plan, onClose, onSaved }: { plan: AdminPlan; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState(() => ({
+    monthly_price: String(plan.monthly_price),
+    annual_price: String(plan.annual_price),
+    trial_days: plan.trial_days,
+    is_active: plan.is_active,
+    is_public: plan.is_public,
+    is_recommended: plan.is_recommended,
+    limits: Object.fromEntries(
+      PLAN_LIMIT_FIELDS.map(({ key, isBytes }) => {
+        const raw = plan.limits?.[key] ?? null
+        return [key, raw === null ? '' : String(isBytes ? Math.round((raw as number) / GB) : raw)]
+      }),
+    ) as Record<string, string>,
+    features: Object.fromEntries(
+      PLAN_FEATURE_FIELDS.map(({ key }) => [key, Boolean(plan.features?.[key])]),
+    ) as Record<string, boolean>,
+  }))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const save = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await adminBilling.updatePlan(plan.slug, {
+        monthly_price: Number(form.monthly_price || 0),
+        annual_price: Number(form.annual_price || 0),
+        trial_days: Number(form.trial_days || 0),
+        is_active: form.is_active,
+        is_public: form.is_public,
+        is_recommended: form.is_recommended,
+        limits: Object.fromEntries(
+          PLAN_LIMIT_FIELDS.map(({ key, isBytes }) => {
+            const raw = form.limits[key].trim()
+            if (raw === '') return [key, null] // blank = unlimited
+            const n = Number(raw)
+            return [key, isBytes ? n * GB : n]
+          }),
+        ),
+        features: form.features,
+      })
+      onSaved()
+      onClose()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={`Edit plan — ${plan.name}`} onClose={onClose} wide>
+      <div className="space-y-4">
+        <ErrorNote message={error} />
+        <div className="grid grid-cols-3 gap-3">
+          <div>
+            <Label>Monthly price (₹)</Label>
+            <Input type="number" min={0} step="0.01" value={form.monthly_price} onChange={(e) => setForm({ ...form, monthly_price: e.target.value })} />
+          </div>
+          <div>
+            <Label>Annual price (₹)</Label>
+            <Input type="number" min={0} step="0.01" value={form.annual_price} onChange={(e) => setForm({ ...form, annual_price: e.target.value })} />
+          </div>
+          <div>
+            <Label>Trial days</Label>
+            <Input type="number" min={0} value={form.trial_days} onChange={(e) => setForm({ ...form, trial_days: Number(e.target.value) })} />
+          </div>
+        </div>
+
+        <div>
+          <Label>Limits (leave blank for unlimited)</Label>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {PLAN_LIMIT_FIELDS.map(({ key, label }) => (
+              <div key={key}>
+                <p className="mb-0.5 text-[11px] text-slate-500">{label}</p>
+                <Input
+                  type="number"
+                  min={0}
+                  placeholder="unlimited"
+                  value={form.limits[key]}
+                  onChange={(e) => setForm({ ...form, limits: { ...form.limits, [key]: e.target.value } })}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <Label>Features</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {PLAN_FEATURE_FIELDS.map(({ key, label }) => (
+              <label key={key} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={form.features[key]}
+                  onChange={(e) => setForm({ ...form, features: { ...form.features, [key]: e.target.checked } })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-4">
+          {([['is_active', 'Active (usable)'], ['is_public', 'Public (shown on pricing page)'], ['is_recommended', 'Recommended badge']] as const).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form[key]}
+                onChange={(e) => setForm({ ...form, [key]: e.target.checked })}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save plan'}</Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function PlansTab() {
+  const queryClient = useQueryClient()
+  const me = useAuthStore((s) => s.user)
+  const isSuperAdmin = !!me?.roles?.includes('super_admin')
+  const { data: plans, isLoading } = useQuery({ queryKey: ['admin-plans'], queryFn: adminBilling.plans })
+  const [editing, setEditing] = useState<AdminPlan | null>(null)
+
+  return (
+    <Card>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold">Subscription plans</h2>
+        <p className="text-[11px] text-slate-400">
+          {isSuperAdmin ? 'Click ✏ to edit prices, limits and visibility.' : 'Editing requires super admin.'}
+        </p>
+      </div>
+      {isLoading ? (
+        <Spinner />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] text-left text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
+                <th className="pb-2 pr-4 font-medium">Plan</th>
+                <th className="pb-2 pr-4 font-medium">Monthly</th>
+                <th className="pb-2 pr-4 font-medium">Annual</th>
+                <th className="pb-2 pr-4 font-medium">Trial</th>
+                <th className="pb-2 pr-4 font-medium">Subscribers</th>
+                <th className="pb-2 pr-4 font-medium">Flags</th>
+                <th className="pb-2 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {plans?.map((plan) => (
+                <tr key={plan.slug} className="border-b border-slate-100 last:border-0 dark:border-slate-800/60">
+                  <td className="py-2.5 pr-4">
+                    <span className="font-medium">{plan.name}</span>
+                    <span className="ml-1.5 font-mono text-[11px] text-slate-400">{plan.slug}</span>
+                  </td>
+                  <td className="py-2.5 pr-4">₹{plan.monthly_price}</td>
+                  <td className="py-2.5 pr-4">₹{plan.annual_price}</td>
+                  <td className="py-2.5 pr-4">{plan.trial_days ? `${plan.trial_days}d` : '—'}</td>
+                  <td className="py-2.5 pr-4">{plan.subscriptions_count ?? 0}</td>
+                  <td className="py-2.5 pr-4">
+                    <div className="flex flex-wrap gap-1">
+                      {!plan.is_active && <Badge value="suspended" />}
+                      {plan.is_active && <Badge value="active" />}
+                      {!plan.is_public && <Badge value="draft" />}
+                      {plan.is_recommended && <Badge value="planned" />}
+                    </div>
+                  </td>
+                  <td className="py-2.5">
+                    {isSuperAdmin && (
+                      <Button size="sm" variant="ghost" title="Edit plan" onClick={() => setEditing(plan)}>
+                        <Pencil className="size-3.5" />
+                      </Button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {editing && (
+        <PlanEditModal
+          plan={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            queryClient.invalidateQueries({ queryKey: ['admin-plans'] })
+            queryClient.invalidateQueries({ queryKey: ['plans'] })
+          }}
+        />
+      )}
+    </Card>
+  )
+}
+
+function AssignPlanModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const { data: plans } = useQuery({ queryKey: ['admin-plans'], queryFn: adminBilling.plans })
+  const [slug, setSlug] = useState('')
+  const [months, setMonths] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const assign = async () => {
+    if (!slug) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await adminBilling.assignPlan(user.uuid, slug, months ? Number(months) : null)
+      alert((res as { message?: string }).message ?? 'Plan assigned.')
+      onClose()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title={`Assign plan — ${user.name}`} onClose={onClose}>
+      <div className="space-y-4">
+        <ErrorNote message={error} />
+        <div>
+          <Label>Plan</Label>
+          <Select value={slug} onChange={(e) => setSlug(e.target.value)}>
+            <option value="">Choose a plan…</option>
+            {plans?.filter((p) => p.is_active).map((p) => (
+              <option key={p.slug} value={p.slug}>{p.name} (₹{p.monthly_price}/mo)</option>
+            ))}
+          </Select>
+        </div>
+        <div>
+          <Label>Duration in months (blank = no expiry)</Label>
+          <Input type="number" min={1} placeholder="e.g. 12" value={months} onChange={(e) => setMonths(e.target.value)} />
+        </div>
+        <p className="text-[11px] text-slate-400">
+          The change applies immediately, replaces any current subscription, and is recorded in
+          the audit log with your name.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button onClick={assign} disabled={busy || !slug}>Assign plan</Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // User summary + subadmin rights modals
 // ---------------------------------------------------------------------------
 
@@ -489,6 +766,7 @@ function UsersTab() {
   const [error, setError] = useState<string | null>(null)
   const [summaryFor, setSummaryFor] = useState<User | null>(null)
   const [rightsFor, setRightsFor] = useState<User | null>(null)
+  const [planFor, setPlanFor] = useState<User | null>(null)
 
   const { data: users, isLoading } = useQuery({
     queryKey: ['admin-users', query],
@@ -579,6 +857,9 @@ function UsersTab() {
                     <div className="flex gap-1">
                       <Button size="sm" variant="ghost" title="Activity summary" onClick={() => setSummaryFor(u)}>
                         <BarChart3 className="size-3.5" />
+                      </Button>
+                      <Button size="sm" variant="ghost" title="Assign plan" onClick={() => setPlanFor(u)}>
+                        <CreditCard className="size-3.5" />
                       </Button>
                       {u.roles?.includes('subadmin') && (
                         <Button size="sm" variant="ghost" title="Subadmin rights" onClick={() => setRightsFor(u)}>
@@ -698,6 +979,7 @@ function UsersTab() {
 
       {summaryFor && <UserSummaryModal user={summaryFor} onClose={() => setSummaryFor(null)} />}
       {rightsFor && <RightsModal user={rightsFor} onClose={() => setRightsFor(null)} />}
+      {planFor && <AssignPlanModal user={planFor} onClose={() => setPlanFor(null)} />}
     </Card>
   )
 }
@@ -778,6 +1060,7 @@ const TABS = [
   { key: 'overview', label: 'Overview', icon: Shield },
   { key: 'users', label: 'Users', icon: Users },
   { key: 'active', label: 'Active Members', icon: Wifi },
+  { key: 'plans', label: 'Plans', icon: CreditCard },
   { key: 'approvals', label: 'Approvals', icon: ClipboardCheck },
   { key: 'activity', label: 'Activity', icon: Activity },
   { key: 'logins', label: 'Logins', icon: LogIn },
@@ -814,6 +1097,7 @@ export default function AdminPage() {
       {tab === 'overview' && <OverviewTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'active' && <ActiveMembersTab />}
+      {tab === 'plans' && <PlansTab />}
       {tab === 'approvals' && <ApprovalsTab />}
       {tab === 'activity' && <ActivityTab />}
       {tab === 'logins' && <LoginsTab />}

@@ -116,6 +116,24 @@ export interface LoginHistoryRow {
 
 export const REPORT_REASONS = ['spam', 'harassment', 'inappropriate', 'impersonation', 'scam', 'other'] as const
 
+export interface AdminPlan {
+  id: number
+  slug: string
+  name: string
+  description?: string | null
+  monthly_price: string | number
+  annual_price: string | number
+  currency: string
+  trial_days: number
+  limits: Record<string, number | null> | null
+  features: Record<string, boolean> | null
+  is_active: boolean
+  is_public: boolean
+  is_recommended: boolean
+  sort_order: number
+  subscriptions_count?: number
+}
+
 export const ISD_CODES: { code: string; label: string }[] = [
   { code: '+91', label: '🇮🇳 India (+91)' },
   { code: '+1', label: '🇺🇸 USA/Canada (+1)' },

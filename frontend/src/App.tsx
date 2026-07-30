@@ -27,6 +27,7 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminPage = lazy(() => import('./pages/admin/AdminPage'))
 const PricingPage = lazy(() => import('./pages/PricingPage'))
+const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage'))
 const PaymentStatusPage = lazy(() => import('./pages/PaymentStatusPage'))
 
 export default function App() {
@@ -68,6 +69,7 @@ export default function App() {
             <Route path="/goals" element={<GoalsPage />} />
             <Route path="/bills" element={<BillsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
+            <Route path="/subscription" element={<SubscriptionPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route
               path="/admin"

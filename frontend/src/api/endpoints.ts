@@ -130,6 +130,16 @@ export const reportsApi = {
     api.post('/reports', { message_uuid, reason, details }).then((r) => r.data),
 }
 
+// --- Admin billing / plans ---------------------------------------------------
+
+export const adminBilling = {
+  plans: () => api.get<{ data: import('../types').AdminPlan[] }>('/admin/plans').then((r) => r.data.data),
+  updatePlan: (slug: string, payload: Record<string, unknown>) =>
+    api.put(`/admin/plans/${slug}`, payload).then((r) => r.data),
+  assignPlan: (userUuid: string, plan_slug: string, months?: number | null, note?: string) =>
+    api.post(`/admin/users/${userUuid}/plan`, { plan_slug, months: months ?? null, note }).then((r) => r.data),
+}
+
 // --- Admin ops ---------------------------------------------------------------
 
 export const adminOps = {
