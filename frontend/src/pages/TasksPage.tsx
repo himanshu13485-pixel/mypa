@@ -7,7 +7,7 @@ import { clsx } from 'clsx'
 import { badges as badgesApi, categories as categoriesApi, groups as groupsApi, tasks as tasksApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea,
+  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea,
 } from '../components/ui'
 import { TASK_PRIORITIES, TASK_STATUSES, type Task } from '../types'
 
@@ -77,6 +77,7 @@ function taskToForm(task: Task): TaskFormState {
 
 export default function TasksPage() {
   const queryClient = useQueryClient()
+  const [page, setPage] = useState(1)
   const [params, setParams] = useSearchParams()
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Task | null>(null)
@@ -94,9 +95,13 @@ export default function TasksPage() {
   }, [params])
 
   const { data, isLoading } = useQuery({
-    queryKey: ['tasks', filters],
-    queryFn: () => tasksApi.list(filters),
+    queryKey: ['tasks', filters, page],
+    queryFn: () => tasksApi.list({ ...filters, page }),
   })
+
+  // Back to page 1 whenever the filters change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => setPage(1), [JSON.stringify(filters)])
 
   const { data: cats } = useQuery({ queryKey: ['categories'], queryFn: () => categoriesApi.list() })
   const { data: myGroups } = useQuery({ queryKey: ['groups'], queryFn: groupsApi.list })
@@ -331,6 +336,7 @@ export default function TasksPage() {
               </div>
             </Card>
           ))}
+          <Pager resp={data} onPage={setPage} />
         </div>
       )}
 

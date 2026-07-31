@@ -192,3 +192,34 @@ export function Modal({
     </div>
   )
 }
+
+/**
+ * Page navigation for Laravel-paginated responses. Accepts both shapes:
+ * resource collections ({ meta: {...} }) and raw paginators (top-level
+ * current_page / last_page). Renders nothing while everything fits one page.
+ */
+export function Pager({ resp, onPage }: { resp: unknown; onPage: (page: number) => void }) {
+  const r = resp as
+    | { meta?: { current_page?: number; last_page?: number; total?: number }; current_page?: number; last_page?: number; total?: number }
+    | null
+    | undefined
+  const m = r?.meta ?? r
+  const current = m?.current_page
+  const last = m?.last_page
+  if (typeof current !== 'number' || typeof last !== 'number' || last <= 1) return null
+
+  return (
+    <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+      <Button size="sm" variant="secondary" disabled={current <= 1} onClick={() => onPage(current - 1)}>
+        ← Prev
+      </Button>
+      <span>
+        Page {current} of {last}
+        {typeof m?.total === 'number' && <span className="text-slate-400"> · {m.total} total</span>}
+      </span>
+      <Button size="sm" variant="secondary" disabled={current >= last} onClick={() => onPage(current + 1)}>
+        Next →
+      </Button>
+    </div>
+  )
+}

@@ -12,7 +12,7 @@ import type { AdminPlan } from '../../types'
 import { api, errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner,
+  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner,
 } from '../../components/ui'
 import type { User } from '../../types'
 
@@ -151,7 +151,11 @@ function ActiveMembersTab() {
 // ---------------------------------------------------------------------------
 
 function ActivityTab() {
-  const { data, isLoading } = useQuery({ queryKey: ['admin-audit-logs'], queryFn: () => adminOps.auditLogs() })
+  const [page, setPage] = useState(1)
+  const { data, isLoading } = useQuery({
+    queryKey: ['admin-audit-logs', page],
+    queryFn: () => adminOps.auditLogs(undefined, page),
+  })
 
   return (
     <Card>
@@ -181,6 +185,7 @@ function ActivityTab() {
           ))}
         </div>
       )}
+      <Pager resp={data} onPage={setPage} />
     </Card>
   )
 }
@@ -188,9 +193,10 @@ function ActivityTab() {
 function LoginsTab() {
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-login-histories', query],
-    queryFn: () => adminOps.loginHistories(query || undefined),
+    queryKey: ['admin-login-histories', query, page],
+    queryFn: () => adminOps.loginHistories(query || undefined, page),
   })
 
   return (
@@ -203,9 +209,9 @@ function LoginsTab() {
             className="w-52"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && setQuery(search)}
+            onKeyDown={(e) => e.key === 'Enter' && (setPage(1), setQuery(search))}
           />
-          <Button variant="secondary" size="sm" onClick={() => setQuery(search)}>
+          <Button variant="secondary" size="sm" onClick={() => { setPage(1); setQuery(search) }}>
             <Search className="size-4" />
           </Button>
         </div>
@@ -242,6 +248,7 @@ function LoginsTab() {
           </table>
         </div>
       )}
+      <Pager resp={data} onPage={setPage} />
     </Card>
   )
 }
@@ -253,9 +260,10 @@ function LoginsTab() {
 function ModerationTab() {
   const queryClient = useQueryClient()
   const [status, setStatus] = useState('open')
+  const [page, setPage] = useState(1)
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-reports', status],
-    queryFn: () => adminOps.reports(status),
+    queryKey: ['admin-reports', status, page],
+    queryFn: () => adminOps.reports(status, page),
     refetchInterval: 60_000,
   })
 
@@ -335,6 +343,7 @@ function ModerationTab() {
           ))}
         </div>
       )}
+      <Pager resp={data} onPage={setPage} />
     </Card>
   )
 }
@@ -762,6 +771,7 @@ function RightsModal({ user, onClose }: { user: User; onClose: () => void }) {
 // ---------------------------------------------------------------------------
 
 function UsersTab() {
+  const [page, setPage] = useState(1)
   const queryClient = useQueryClient()
   const me = useAuthStore((s) => s.user)
   const isSuperAdmin = !!me?.roles?.includes('super_admin')
@@ -777,8 +787,8 @@ function UsersTab() {
   const [salesFor, setSalesFor] = useState<User | null>(null)
 
   const { data: users, isLoading } = useQuery({
-    queryKey: ['admin-users', query],
-    queryFn: () => admin.users(query ? { q: query } : {}),
+    queryKey: ['admin-users', query, page],
+    queryFn: () => admin.users({ page, ...(query ? { q: query } : {}) }),
   })
 
   const invalidate = () => {
@@ -820,9 +830,9 @@ function UsersTab() {
               className="w-56"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && setQuery(search)}
+              onKeyDown={(e) => e.key === 'Enter' && (setPage(1), setQuery(search))}
             />
-            <Button variant="secondary" onClick={() => setQuery(search)}>
+            <Button variant="secondary" onClick={() => { setPage(1); setQuery(search) }}>
               <Search className="size-4" />
             </Button>
           </div>
@@ -969,6 +979,7 @@ function UsersTab() {
           </table>
         </div>
       )}
+      <Pager resp={users} onPage={setPage} />
 
       {showCreate && (
         <Modal title="Create user" onClose={() => setShowCreate(false)}>

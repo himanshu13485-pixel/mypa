@@ -154,14 +154,14 @@ export const adminOps = {
     ).then((r) => r.data.data),
   saveModulePermissions: (uuid: string, permissions: Record<string, { can_view: boolean; can_edit: boolean; can_delete: boolean }>) =>
     api.put(`/admin/users/${uuid}/module-permissions`, { permissions }),
-  reports: (status = 'open') =>
-    api.get<Paginated<import('../types').ModerationReport>>('/admin/reports', { params: { status } }).then((r) => r.data),
+  reports: (status = 'open', page = 1) =>
+    api.get<Paginated<import('../types').ModerationReport>>('/admin/reports', { params: { status, page } }).then((r) => r.data),
   actOnReport: (uuid: string, action: string, note?: string) =>
     api.post(`/admin/reports/${uuid}/act`, { action, note }).then((r) => r.data),
-  auditLogs: (action?: string) =>
-    api.get<Paginated<import('../types').AuditLogRow>>('/admin/audit-logs', { params: action ? { action } : {} }).then((r) => r.data),
-  loginHistories: (q?: string) =>
-    api.get<Paginated<import('../types').LoginHistoryRow>>('/admin/login-histories', { params: q ? { q } : {} }).then((r) => r.data),
+  auditLogs: (action?: string, page = 1) =>
+    api.get<Paginated<import('../types').AuditLogRow>>('/admin/audit-logs', { params: { page, ...(action ? { action } : {}) } }).then((r) => r.data),
+  loginHistories: (q?: string, page = 1) =>
+    api.get<Paginated<import('../types').LoginHistoryRow>>('/admin/login-histories', { params: { page, ...(q ? { q } : {}) } }).then((r) => r.data),
 }
 
 // --- Salesperson workspace ---------------------------------------------------
@@ -352,7 +352,7 @@ export const calls = {
     api.post(`/calls/${uuid}/signal`, { signal, payload, ...(toUuid ? { to_uuid: toUuid } : {}) }),
   invite: (uuid: string, identifier: string) =>
     api.post<{ message: string }>(`/calls/${uuid}/invite`, { identifier }).then((r) => r.data),
-  history: () => api.get<Paginated<CallInfo>>('/calls/history').then((r) => r.data),
+  history: (page = 1) => api.get<Paginated<CallInfo>>('/calls/history', { params: { page } }).then((r) => r.data),
 }
 
 // --- Habits -----------------------------------------------------------------

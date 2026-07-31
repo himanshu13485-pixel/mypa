@@ -5,7 +5,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import { badges as badgesApi, notes as notesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
-import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
+import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../components/ui'
 import type { Note } from '../types'
 
 interface NoteFormState {
@@ -41,6 +41,9 @@ export default function NotesPage() {
 
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
+  const [page, setPage] = useState(1)
+  // Back to page 1 whenever the filter/search changes.
+  useEffect(() => setPage(1), [query])
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<Note | null>(null)
   const [unlockPassword, setUnlockPassword] = useState('')
@@ -51,8 +54,8 @@ export default function NotesPage() {
   const [sharePermission, setSharePermission] = useState<'view' | 'edit'>('view')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['notes', query],
-    queryFn: () => notesApi.list(query ? { q: query } : {}),
+    queryKey: ['notes', query, page],
+    queryFn: () => notesApi.list({ page, ...(query ? { q: query } : {}) }),
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['notes'] })
@@ -160,6 +163,7 @@ export default function NotesPage() {
           <EmptyState title="No notes yet" hint="Capture ideas, checklists, and private information." />
         </Card>
       ) : (
+        <>
         <div className="columns-1 gap-3 sm:columns-2 lg:columns-3 xl:columns-4">
           {notesList.map((note) => (
             <div key={note.uuid} className="mb-3 break-inside-avoid">
@@ -212,6 +216,8 @@ export default function NotesPage() {
             </div>
           ))}
         </div>
+        <Pager resp={data} onPage={setPage} />
+        </>
       )}
 
       {/* Editor */}

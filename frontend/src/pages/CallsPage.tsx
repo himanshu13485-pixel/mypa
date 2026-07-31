@@ -1,13 +1,14 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PhoneIncoming, PhoneMissed, PhoneOutgoing, Video } from 'lucide-react'
 import { format } from 'date-fns'
 import { badges as badgesApi, calls } from '../api/endpoints'
-import { Badge, Card, EmptyState, Spinner } from '../components/ui'
+import { Badge, Card, EmptyState, Pager, Spinner } from '../components/ui'
 
 export default function CallsPage() {
   const queryClient = useQueryClient()
-  const { data, isLoading } = useQuery({ queryKey: ['calls-history'], queryFn: calls.history })
+  const [page, setPage] = useState(1)
+  const { data, isLoading } = useQuery({ queryKey: ['calls-history', page], queryFn: () => calls.history(page) })
 
   // Opening the page "attends" missed calls — the sidebar badge clears.
   useEffect(() => {
@@ -53,6 +54,7 @@ export default function CallsPage() {
               <Badge value={call.status} />
             </Card>
           ))}
+          <Pager resp={data} onPage={setPage} />
         </div>
       )}
     </div>
