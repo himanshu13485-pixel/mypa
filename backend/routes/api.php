@@ -143,6 +143,15 @@ Route::prefix('v1')->group(function () {
         Route::post('/notes/{note}/share', [NoteController::class, 'share']);
         Route::get('/notes/{note}/versions', [NoteController::class, 'versions']);
 
+        // Meetings (Meet-style link rooms)
+        Route::get('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'index']);
+        Route::post('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'store']);
+        Route::get('/meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'show']);
+        Route::post('/meetings/{meeting}/join', [\App\Http\Controllers\Api\V1\MeetingController::class, 'join']);
+        Route::post('/meetings/{meeting}/leave', [\App\Http\Controllers\Api\V1\MeetingController::class, 'leave']);
+        Route::post('/meetings/{meeting}/end', [\App\Http\Controllers\Api\V1\MeetingController::class, 'end']);
+        Route::post('/meetings/{meeting}/signal', [\App\Http\Controllers\Api\V1\MeetingController::class, 'signal']);
+
         // Projects (money ledgers)
         Route::get('/projects', [\App\Http\Controllers\Api\V1\ProjectController::class, 'index']);
         Route::post('/projects', [\App\Http\Controllers\Api\V1\ProjectController::class, 'store']);

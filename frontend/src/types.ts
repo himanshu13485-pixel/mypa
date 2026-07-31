@@ -621,3 +621,26 @@ export interface ProjectSummaryRow {
   bank: number
   entries: number
 }
+
+export interface MeetingItem {
+  uuid: string
+  code: string
+  title?: string | null
+  type: 'audio' | 'video'
+  status: 'scheduled' | 'active' | 'ended'
+  scheduled_at?: string | null
+  started_at?: string | null
+  host: { uuid: string; name: string }
+  is_host: boolean
+  joined_count?: number | null
+  created_at: string
+}
+
+export interface MeetingSignalPayload {
+  meeting_code: string
+  meeting_type: 'audio' | 'video'
+  from_uuid: string
+  from_name?: string | null
+  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice'
+  payload: Record<string, unknown>
+}

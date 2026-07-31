@@ -386,6 +386,22 @@ export const goals = {
 
 // --- Bills ------------------------------------------------------------------
 
+export const meetings = {
+  list: () => api.get<{ data: import('../types').MeetingItem[] }>('/meetings').then((r) => r.data.data),
+  create: (payload: Record<string, unknown>) =>
+    api.post<{ data: import('../types').MeetingItem }>('/meetings', payload).then((r) => r.data.data),
+  show: (code: string) =>
+    api.get<{ data: import('../types').MeetingItem }>(`/meetings/${code}`).then((r) => r.data.data),
+  join: (code: string) =>
+    api.post<{ data: import('../types').MeetingItem & { joined_peers?: { uuid: string; name: string }[] } }>(
+      `/meetings/${code}/join`,
+    ).then((r) => r.data.data),
+  leave: (code: string) => api.post(`/meetings/${code}/leave`),
+  end: (code: string) => api.post(`/meetings/${code}/end`),
+  signal: (code: string, signal: 'offer' | 'answer' | 'ice', payload: Record<string, unknown>, toUuid: string) =>
+    api.post(`/meetings/${code}/signal`, { signal, payload, to_uuid: toUuid }),
+}
+
 export const projects = {
   list: () => api.get<{ data: import('../types').ProjectItem[] }>('/projects').then((r) => r.data.data),
   create: (payload: Record<string, unknown>) =>

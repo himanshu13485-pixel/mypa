@@ -24,6 +24,8 @@ const HabitsPage = lazy(() => import('./pages/HabitsPage'))
 const GoalsPage = lazy(() => import('./pages/GoalsPage'))
 const BillsPage = lazy(() => import('./pages/BillsPage'))
 const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
+const MeetingsPage = lazy(() => import('./pages/MeetingsPage'))
+const MeetingRoomPage = lazy(() => import('./pages/MeetingRoomPage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminPage = lazy(() => import('./pages/admin/AdminPage'))
@@ -70,6 +72,8 @@ export default function App() {
             <Route path="/goals" element={<GoalsPage />} />
             <Route path="/bills" element={<BillsPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/meetings" element={<MeetingsPage />} />
+            <Route path="/meetings/room/:code" element={<MeetingRoomPage />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/subscription" element={<SubscriptionPage />} />
             <Route path="/settings" element={<SettingsPage />} />
