@@ -131,6 +131,43 @@ class Phase5VoiceTest extends TestCase
         $this->assertEquals('create_task', $create['intent']);
     }
 
+    public function test_absolute_dates_are_parsed(): void
+    {
+        // "2 aug 2026 at 6pm" — the exact phrasing that used to default to today.
+        $result = $this->interpret('movie coming on 2 aug 2026 at 6pm');
+        $this->assertEquals('create_task', $result['intent']);
+        $this->assertEquals('2026-08-02 18:00', substr($result['data']['task']['due_at'], 0, 16));
+
+        // Ordinal, month-first, and numeric day-first forms.
+        $this->assertEquals('2026-08-03', substr($this->interpret('meeting on 3rd aug 2026')['data']['task']['due_at'], 0, 10));
+        $this->assertEquals('2026-09-15', substr($this->interpret('pay advance september 15 2026')['data']['task']['due_at'], 0, 10));
+        $this->assertEquals('2026-12-05', substr($this->interpret('renew policy on 5/12/2026')['data']['task']['due_at'], 0, 10));
+
+        // No year given and the date has passed -> rolls to next year.
+        $result = $this->interpret('send greeting cards on 1 january');
+        $this->assertEquals((now('UTC')->year + 1) . '-01-01', substr($result['data']['task']['due_at'], 0, 10));
+    }
+
+    public function test_every_completion_phrasing_completes_instead_of_creating(): void
+    {
+        $task = Task::create(['user_id' => $this->user->id, 'title' => 'Pay electricity bill']);
+
+        foreach ([
+            'mark pay electricity bill task complete',
+            'complete pay electricity bill task',
+            'pay electricity bill task completed',
+            'electricity bill done',
+        ] as $phrase) {
+            $result = $this->interpret($phrase);
+            $this->assertEquals('complete_task', $result['intent'], "Misread as create: {$phrase}");
+            $this->assertEquals($task->uuid, $result['data']['task']['uuid'] ?? null, $phrase);
+        }
+
+        // Completion-sounding words with NO matching task still create normally.
+        $result = $this->interpret('watch the completed series review');
+        $this->assertEquals('create_task', $result['intent']);
+    }
+
     // --- Hindi ---------------------------------------------------------------
 
     public function test_hindi_reminder_tomorrow_evening(): void

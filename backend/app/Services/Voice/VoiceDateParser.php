@@ -20,6 +20,15 @@ class VoiceDateParser
         'रविवार' => Carbon::SUNDAY,
     ];
 
+    protected const MONTHS = [
+        'jan' => 1, 'january' => 1, 'feb' => 2, 'february' => 2, 'mar' => 3, 'march' => 3,
+        'apr' => 4, 'april' => 4, 'may' => 5, 'jun' => 6, 'june' => 6, 'jul' => 7, 'july' => 7,
+        'aug' => 8, 'august' => 8, 'sep' => 9, 'sept' => 9, 'september' => 9,
+        'oct' => 10, 'october' => 10, 'nov' => 11, 'november' => 11, 'dec' => 12, 'december' => 12,
+        'जनवरी' => 1, 'फरवरी' => 2, 'मार्च' => 3, 'अप्रैल' => 4, 'मई' => 5, 'जून' => 6,
+        'जुलाई' => 7, 'अगस्त' => 8, 'सितंबर' => 9, 'अक्टूबर' => 10, 'नवंबर' => 11, 'दिसंबर' => 12,
+    ];
+
     protected const NUMBER_WORDS = [
         'one' => 1, 'two' => 2, 'three' => 3, 'four' => 4, 'five' => 5,
         'six' => 6, 'seven' => 7, 'eight' => 8, 'nine' => 9, 'ten' => 10,
@@ -67,6 +76,41 @@ class VoiceDateParser
                     $text = preg_replace('/(?:(?<![\p{L}\d])|(?![\p{L}\d]))(next |on |अगले )?' . preg_quote($word, '/') . '(?:(?<![\p{L}\d])|(?![\p{L}\d]))/u', ' ', $text);
                     $matched = true;
                     break;
+                }
+            }
+        }
+
+        // --- Absolute dates: "2 aug 2026", "aug 2nd", "3rd of august", "2/8/2026" ---
+        if (! $due) {
+            $monthAlt = implode('|', array_map(fn ($m) => preg_quote($m, '/'), array_keys(self::MONTHS)));
+            $b = '(?:(?<![\p{L}\d])|(?![\p{L}\d]))';
+
+            // "2 aug 2026", "2nd of august", "3 अगस्त 2026"
+            if (preg_match("/{$b}(?:on )?(\d{1,2})(?:st|nd|rd|th)?(?: of)? ({$monthAlt})\.?(?:,? ?(\d{4}))?{$b}/u", $text, $m)) {
+                $due = $this->absoluteDate($now, (int) $m[1], self::MONTHS[$m[2]], isset($m[3]) && $m[3] !== '' ? (int) $m[3] : null);
+                if ($due) {
+                    $text = str_replace($m[0], ' ', $text);
+                    $matched = true;
+                }
+            }
+            // "aug 2", "august 2nd 2026"
+            elseif (preg_match("/{$b}(?:on )?({$monthAlt})\.? (\d{1,2})(?:st|nd|rd|th)?(?:,? ?(\d{4}))?{$b}/u", $text, $m)) {
+                $due = $this->absoluteDate($now, (int) $m[2], self::MONTHS[$m[1]], isset($m[3]) && $m[3] !== '' ? (int) $m[3] : null);
+                if ($due) {
+                    $text = str_replace($m[0], ' ', $text);
+                    $matched = true;
+                }
+            }
+            // Numeric day-first: "2/8/2026", "02-08-26"
+            elseif (preg_match("/{$b}(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4}){$b}/u", $text, $m)) {
+                $year = (int) $m[3];
+                if ($year < 100) {
+                    $year += 2000;
+                }
+                $due = $this->absoluteDate($now, (int) $m[1], (int) $m[2], $year);
+                if ($due) {
+                    $text = str_replace($m[0], ' ', $text);
+                    $matched = true;
                 }
             }
         }
@@ -165,6 +209,26 @@ class VoiceDateParser
         };
 
         return [min(23, $hour), 0];
+    }
+
+    /** Build a concrete date; without an explicit year, a past date rolls to next year. */
+    protected function absoluteDate(Carbon $now, int $day, int $month, ?int $year): ?Carbon
+    {
+        if ($month < 1 || $month > 12 || $day < 1 || $day > 31) {
+            return null;
+        }
+
+        try {
+            $date = Carbon::create($year ?? $now->year, $month, $day, 0, 0, 0, $now->timezone);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($year === null && $date->copy()->endOfDay()->isPast()) {
+            $date->addYear();
+        }
+
+        return $date;
     }
 
     public function toNumber(string $word): ?int

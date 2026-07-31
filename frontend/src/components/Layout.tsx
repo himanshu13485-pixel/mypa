@@ -25,6 +25,7 @@ const nav = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/tasks', label: 'My Tasks', icon: CheckSquare },
   { to: '/tasks?important=1', label: 'Important', icon: Star },
+  { to: '/projects', label: 'Projects', icon: Briefcase },
   { to: '/calendar', label: 'Calendar', icon: Calendar },
   { to: '/categories', label: 'Categories', icon: FolderKanban },
   { to: '/messages', label: 'Messages', icon: MessageCircle },
@@ -37,7 +38,6 @@ const nav = [
   { to: '/habits', label: 'Habits', icon: Repeat },
   { to: '/goals', label: 'Goals', icon: Target },
   { to: '/bills', label: 'Bills', icon: Receipt },
-  { to: '/projects', label: 'Projects', icon: Briefcase },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/subscription', label: 'Subscription', icon: CreditCard },
   { to: '/settings', label: 'Settings', icon: Settings },
@@ -134,9 +134,9 @@ export default function Layout() {
       <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:flex">
         <div className="flex items-center gap-2 px-5 py-4">
           <div className="flex size-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            PA
+            N
           </div>
-          <span className="text-base font-semibold">My PA</span>
+          <span className="text-base font-semibold">Netvork</span>
         </div>
         {links}
         <div className="border-t border-slate-200 p-3 dark:border-slate-800">
@@ -153,7 +153,7 @@ export default function Layout() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
           <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-white dark:bg-slate-900">
             <div className="flex items-center justify-between px-5 py-4">
-              <span className="text-base font-semibold">My PA</span>
+              <span className="text-base font-semibold">Netvork</span>
               <button onClick={() => setSidebarOpen(false)}>
                 <X className="size-5" />
               </button>

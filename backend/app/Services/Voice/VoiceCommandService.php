@@ -38,8 +38,22 @@ class VoiceCommandService
             $text,
         );
 
-        if (! $explicitCreate && $this->matchesComplete($text)) {
-            return $this->interpretComplete($user, $text, $language);
+        if (! $explicitCreate) {
+            $clearlyComplete = $this->matchesComplete($text);
+            $soundsComplete = (bool) preg_match(
+                '/(?:(?<![\p{L}\d])|(?![\p{L}\d]))(complete|completed|close|closed|finish|finished|done|पूरा|पूर्ण)(?:(?<![\p{L}\d])|(?![\p{L}\d]))/u',
+                $text,
+            );
+
+            if ($clearlyComplete || $soundsComplete) {
+                $result = $this->interpretComplete($user, $text, $language);
+                // A matching open task, or unmistakable completion phrasing,
+                // settles it. Otherwise ("watch the completed series") we
+                // fall through and treat it as a new task.
+                if (($result['data']['task'] ?? null) !== null || $clearlyComplete) {
+                    return $result;
+                }
+            }
         }
 
         // Default: create a task / reminder.

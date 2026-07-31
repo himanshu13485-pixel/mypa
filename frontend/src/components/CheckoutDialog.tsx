@@ -161,7 +161,7 @@ export default function CheckoutDialog({
         </Button>
 
         <p className="text-center text-[11px] text-slate-400">
-          Card details are entered on Cashfree's secure page — My PA never sees them.
+          Card details are entered on Cashfree's secure page — Netvork never sees them.
         </p>
       </div>
     </Modal>

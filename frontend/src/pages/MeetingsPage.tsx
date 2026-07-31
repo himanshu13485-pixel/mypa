@@ -174,7 +174,7 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         <div className="space-y-3 text-sm">
           <p>
             <span className="font-semibold">{created.title ?? 'Meeting'}</span> is ready. Share this link —
-            anyone signed in to My PA can join:
+            anyone signed in to Netvork can join:
           </p>
           <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 font-mono text-xs dark:bg-slate-800">
             <span className="min-w-0 flex-1 truncate">{meetingLink(created.code)}</span>

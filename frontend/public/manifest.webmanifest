@@ -1,6 +1,6 @@
 {
-  "name": "My PA — Personal Assistant",
-  "short_name": "My PA",
+  "name": "Netvork — One App. Every Task. Every Connection.",
+  "short_name": "Netvork",
   "description": "Tasks, reminders, notes, files, chat, calls, habits and goals in one personal assistant.",
   "start_url": "/",
   "display": "standalone",

@@ -79,7 +79,8 @@ export default function Login() {
             PA
           </div>
           <h1 className="text-xl font-semibold">Welcome back</h1>
-          <p className="mt-1 text-sm text-slate-500">Sign in to your My PA account</p>
+          <p className="mt-1 text-sm text-slate-500">Sign in to your Netvork account</p>
+          <p className="mt-0.5 text-xs italic text-brand-600">One App. Every Task. Every Connection.</p>
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">

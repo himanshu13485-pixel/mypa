@@ -522,7 +522,7 @@ function AlertsCard() {
       } else {
         await enablePush()
         setPushOn(true)
-        setNote('Device notifications enabled — reminders will pop up even when My PA is closed.')
+        setNote('Device notifications enabled — reminders will pop up even when Netvork is closed.')
       }
     } catch (err) {
       setNote(err instanceof Error ? err.message : 'Could not change push notifications.')
