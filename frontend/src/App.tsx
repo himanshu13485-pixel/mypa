@@ -23,6 +23,7 @@ const GroupsPage = lazy(() => import('./pages/GroupsPage'))
 const HabitsPage = lazy(() => import('./pages/HabitsPage'))
 const GoalsPage = lazy(() => import('./pages/GoalsPage'))
 const BillsPage = lazy(() => import('./pages/BillsPage'))
+const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
 const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminPage = lazy(() => import('./pages/admin/AdminPage'))
@@ -68,6 +69,7 @@ export default function App() {
             <Route path="/habits" element={<HabitsPage />} />
             <Route path="/goals" element={<GoalsPage />} />
             <Route path="/bills" element={<BillsPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/subscription" element={<SubscriptionPage />} />
             <Route path="/settings" element={<SettingsPage />} />

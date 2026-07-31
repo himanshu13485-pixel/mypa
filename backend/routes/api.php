@@ -143,6 +143,18 @@ Route::prefix('v1')->group(function () {
         Route::post('/notes/{note}/share', [NoteController::class, 'share']);
         Route::get('/notes/{note}/versions', [NoteController::class, 'versions']);
 
+        // Projects (money ledgers)
+        Route::get('/projects', [\App\Http\Controllers\Api\V1\ProjectController::class, 'index']);
+        Route::post('/projects', [\App\Http\Controllers\Api\V1\ProjectController::class, 'store']);
+        Route::put('/projects/{project}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'update']);
+        Route::delete('/projects/{project}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'destroy']);
+        Route::get('/projects/{project}/entries', [\App\Http\Controllers\Api\V1\ProjectController::class, 'entries']);
+        Route::post('/projects/{project}/entries', [\App\Http\Controllers\Api\V1\ProjectController::class, 'storeEntry']);
+        Route::put('/projects/{project}/entries/{entry}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'updateEntry']);
+        Route::delete('/projects/{project}/entries/{entry}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'destroyEntry']);
+        Route::get('/projects/{project}/summary', [\App\Http\Controllers\Api\V1\ProjectController::class, 'summary']);
+        Route::get('/projects/{project}/export', [\App\Http\Controllers\Api\V1\ProjectController::class, 'export']);
+
         // Files & folders
         Route::get('/files/browse', [FileController::class, 'browse']);
         Route::get('/files/shared-with-me', [FileController::class, 'sharedWithMe']);

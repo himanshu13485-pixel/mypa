@@ -1,0 +1,267 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Models\Project;
+use App\Models\ProjectEntry;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\StreamedResponse;
+
+/**
+ * Projects: multi-purpose money ledgers (construction expenses, business
+ * accounts, personal tracking). Entries are credits (money in) and debits
+ * (money out) in any currency, via cash or a bank account, with date /
+ * mode / direction / text filters, per-currency totals, and CSV export.
+ */
+class ProjectController extends Controller
+{
+    // ---- Projects ----------------------------------------------------------
+
+    public function index(Request $request): JsonResponse
+    {
+        $projects = Project::where('user_id', $request->user()->id)
+            ->withCount('entries')
+            ->orderBy('is_archived')
+            ->latest()
+            ->get()
+            ->map(fn ($p) => $this->serializeProject($p));
+
+        return response()->json(['data' => $projects]);
+    }
+
+    public function store(Request $request): JsonResponse
+    {
+        $data = $this->validateProject($request);
+
+        $project = Project::create($data + ['user_id' => $request->user()->id]);
+
+        return response()->json(['message' => 'Project created.', 'data' => $this->serializeProject($project)], 201);
+    }
+
+    public function update(Request $request, Project $project): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+        $project->update($this->validateProject($request, updating: true));
+
+        return response()->json(['message' => 'Project updated.', 'data' => $this->serializeProject($project->fresh())]);
+    }
+
+    public function destroy(Request $request, Project $project): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+        $project->delete();
+
+        return response()->json(['message' => 'Project deleted (with all its entries).']);
+    }
+
+    // ---- Entries -----------------------------------------------------------
+
+    public function entries(Request $request, Project $project): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+
+        $entries = $this->filteredEntries($request, $project)
+            ->orderByDesc('entry_date')
+            ->orderByDesc('id')
+            ->paginate(25);
+
+        $entries->getCollection()->transform(fn ($e) => $this->serializeEntry($e));
+
+        return response()->json($entries);
+    }
+
+    public function storeEntry(Request $request, Project $project): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+        $data = $this->validateEntry($request);
+
+        $entry = $project->entries()->create($data);
+
+        return response()->json(['message' => 'Entry added.', 'data' => $this->serializeEntry($entry)], 201);
+    }
+
+    public function updateEntry(Request $request, Project $project, ProjectEntry $entry): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+        abort_unless($entry->project_id === $project->id, 404);
+
+        $data = $this->validateEntry($request, updating: true);
+        if (array_key_exists('reminder_at', $data) && $data['reminder_at'] !== null) {
+            $data['reminder_sent_at'] = null; // re-arm a rescheduled reminder
+        }
+        $entry->update($data);
+
+        return response()->json(['message' => 'Entry updated.', 'data' => $this->serializeEntry($entry->fresh())]);
+    }
+
+    public function destroyEntry(Request $request, Project $project, ProjectEntry $entry): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+        abort_unless($entry->project_id === $project->id, 404);
+        $entry->delete();
+
+        return response()->json(['message' => 'Entry deleted.']);
+    }
+
+    // ---- Summary & export --------------------------------------------------
+
+    /** Per-currency totals (credit / debit / net) plus cash-vs-bank split, honouring the same filters. */
+    public function summary(Request $request, Project $project): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+
+        $rows = $this->filteredEntries($request, $project)
+            ->selectRaw('currency, direction, mode, COUNT(*) as n, SUM(amount) as total')
+            ->groupBy('currency', 'direction', 'mode')
+            ->get();
+
+        $byCurrency = [];
+        foreach ($rows as $row) {
+            $c = &$byCurrency[$row->currency];
+            $c['currency'] = $row->currency;
+            $c['credit'] = ($c['credit'] ?? 0) + ($row->direction === 'credit' ? (float) $row->total : 0);
+            $c['debit'] = ($c['debit'] ?? 0) + ($row->direction === 'debit' ? (float) $row->total : 0);
+            $c['cash'] = ($c['cash'] ?? 0) + ($row->mode === 'cash' ? (float) $row->total * ($row->direction === 'credit' ? 1 : -1) : 0);
+            $c['bank'] = ($c['bank'] ?? 0) + ($row->mode === 'bank' ? (float) $row->total * ($row->direction === 'credit' ? 1 : -1) : 0);
+            $c['entries'] = ($c['entries'] ?? 0) + (int) $row->n;
+            unset($c);
+        }
+
+        $summary = collect($byCurrency)->map(fn ($c) => $c + ['net' => round(($c['credit'] ?? 0) - ($c['debit'] ?? 0), 2)])->values();
+
+        return response()->json(['data' => $summary]);
+    }
+
+    /** Excel-compatible CSV of the filtered entries. */
+    public function export(Request $request, Project $project): StreamedResponse
+    {
+        $this->authorizeOwner($request, $project);
+
+        $query = $this->filteredEntries($request, $project)->orderBy('entry_date')->orderBy('id');
+        $filename = str($project->name)->slug() . '-ledger-' . now()->format('Ymd-Hi') . '.csv';
+
+        return response()->streamDownload(function () use ($query) {
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM so Excel opens it cleanly
+            fputcsv($out, ['Date', 'Description', 'Party', 'Type', 'Mode', 'Bank account', 'Currency', 'Credit (in)', 'Debit (out)']);
+
+            $running = [];
+            $query->chunk(500, function ($entries) use ($out, &$running) {
+                foreach ($entries as $e) {
+                    $running[$e->currency] = ($running[$e->currency] ?? 0)
+                        + ((float) $e->amount) * ($e->direction === 'credit' ? 1 : -1);
+                    fputcsv($out, [
+                        $e->entry_date->toDateString(),
+                        $e->description,
+                        $e->counterparty,
+                        $e->direction === 'credit' ? 'Credit (taken/received)' : 'Debit (given/spent)',
+                        $e->mode,
+                        $e->bank_account,
+                        $e->currency,
+                        $e->direction === 'credit' ? number_format((float) $e->amount, 2, '.', '') : '',
+                        $e->direction === 'debit' ? number_format((float) $e->amount, 2, '.', '') : '',
+                    ]);
+                }
+            });
+
+            fputcsv($out, []);
+            foreach ($running as $currency => $net) {
+                fputcsv($out, ['', '', '', '', '', 'NET TOTAL', $currency, $net >= 0 ? number_format($net, 2, '.', '') : '', $net < 0 ? number_format(-$net, 2, '.', '') : '']);
+            }
+            fclose($out);
+        }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
+
+    // ---- Helpers -----------------------------------------------------------
+
+    protected function authorizeOwner(Request $request, Project $project): void
+    {
+        abort_unless($project->user_id === $request->user()->id, 403);
+    }
+
+    protected function validateProject(Request $request, bool $updating = false): array
+    {
+        return $request->validate([
+            'name' => [$updating ? 'sometimes' : 'required', 'string', 'max:255'],
+            'purpose' => ['sometimes', 'string', 'max:64'],
+            'base_currency' => ['sometimes', 'string', 'max:8'],
+            'notes' => ['nullable', 'string', 'max:2000'],
+            'is_archived' => ['sometimes', 'boolean'],
+        ]);
+    }
+
+    protected function validateEntry(Request $request, bool $updating = false): array
+    {
+        return $request->validate([
+            'entry_date' => [$updating ? 'sometimes' : 'required', 'date'],
+            'description' => [$updating ? 'sometimes' : 'required', 'string', 'max:500'],
+            'direction' => [$updating ? 'sometimes' : 'required', 'in:credit,debit'],
+            'amount' => [$updating ? 'sometimes' : 'required', 'numeric', 'min:0.01', 'max:999999999999'],
+            'currency' => ['sometimes', 'string', 'max:8'],
+            'mode' => ['sometimes', 'in:cash,bank'],
+            'bank_account' => ['nullable', 'string', 'max:255'],
+            'counterparty' => ['nullable', 'string', 'max:255'],
+            'reminder_at' => ['sometimes', 'nullable', 'date'],
+        ]);
+    }
+
+    protected function filteredEntries(Request $request, Project $project)
+    {
+        $query = $project->entries();
+
+        if ($from = $request->query('date_from')) {
+            $query->whereDate('entry_date', '>=', $from);
+        }
+        if ($to = $request->query('date_to')) {
+            $query->whereDate('entry_date', '<=', $to);
+        }
+        if (in_array($request->query('mode'), ['cash', 'bank'], true)) {
+            $query->where('mode', $request->query('mode'));
+        }
+        if (in_array($request->query('direction'), ['credit', 'debit'], true)) {
+            $query->where('direction', $request->query('direction'));
+        }
+        if ($currency = $request->query('currency')) {
+            $query->where('currency', $currency);
+        }
+        if ($q = $request->query('q')) {
+            $query->where(fn ($w) => $w->where('description', 'like', "%{$q}%")
+                ->orWhere('counterparty', 'like', "%{$q}%")
+                ->orWhere('bank_account', 'like', "%{$q}%"));
+        }
+
+        return $query;
+    }
+
+    protected function serializeProject(Project $project): array
+    {
+        return [
+            'uuid' => $project->uuid,
+            'name' => $project->name,
+            'purpose' => $project->purpose,
+            'base_currency' => $project->base_currency,
+            'notes' => $project->notes,
+            'is_archived' => $project->is_archived,
+            'entries_count' => $project->entries_count ?? null,
+            'created_at' => $project->created_at,
+        ];
+    }
+
+    protected function serializeEntry(ProjectEntry $entry): array
+    {
+        return [
+            'uuid' => $entry->uuid,
+            'entry_date' => $entry->entry_date->toDateString(),
+            'description' => $entry->description,
+            'direction' => $entry->direction,
+            'amount' => (string) $entry->amount,
+            'currency' => $entry->currency,
+            'mode' => $entry->mode,
+            'bank_account' => $entry->bank_account,
+            'counterparty' => $entry->counterparty,
+            'reminder_at' => $entry->reminder_at?->toIso8601String(),
+        ];
+    }
+}

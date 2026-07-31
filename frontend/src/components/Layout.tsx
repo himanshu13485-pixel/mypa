@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   BarChart3, Calendar, CheckSquare, CreditCard, FileText, FolderKanban,
   FolderOpen, LayoutDashboard, LogOut, Menu, MessageCircle, Moon, Phone,
-  Receipt, Repeat, Settings, Shield, Star, Sun, Target, UserPlus, Users, X,
+  Briefcase, Receipt, Repeat, Settings, Shield, Star, Sun, Target, UserPlus, Users, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
@@ -36,6 +36,7 @@ const nav = [
   { to: '/habits', label: 'Habits', icon: Repeat },
   { to: '/goals', label: 'Goals', icon: Target },
   { to: '/bills', label: 'Bills', icon: Receipt },
+  { to: '/projects', label: 'Projects', icon: Briefcase },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
   { to: '/subscription', label: 'Subscription', icon: CreditCard },
   { to: '/settings', label: 'Settings', icon: Settings },

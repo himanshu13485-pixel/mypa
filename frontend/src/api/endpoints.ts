@@ -386,6 +386,25 @@ export const goals = {
 
 // --- Bills ------------------------------------------------------------------
 
+export const projects = {
+  list: () => api.get<{ data: import('../types').ProjectItem[] }>('/projects').then((r) => r.data.data),
+  create: (payload: Record<string, unknown>) =>
+    api.post<{ data: import('../types').ProjectItem }>('/projects', payload).then((r) => r.data.data),
+  update: (uuid: string, payload: Record<string, unknown>) =>
+    api.put<{ data: import('../types').ProjectItem }>(`/projects/${uuid}`, payload).then((r) => r.data.data),
+  remove: (uuid: string) => api.delete(`/projects/${uuid}`),
+  entries: (uuid: string, params: Record<string, unknown> = {}) =>
+    api.get<Paginated<import('../types').ProjectEntryItem>>(`/projects/${uuid}/entries`, { params }).then((r) => r.data),
+  createEntry: (uuid: string, payload: Record<string, unknown>) =>
+    api.post(`/projects/${uuid}/entries`, payload).then((r) => r.data),
+  updateEntry: (uuid: string, entryUuid: string, payload: Record<string, unknown>) =>
+    api.put(`/projects/${uuid}/entries/${entryUuid}`, payload).then((r) => r.data),
+  removeEntry: (uuid: string, entryUuid: string) => api.delete(`/projects/${uuid}/entries/${entryUuid}`),
+  summary: (uuid: string, params: Record<string, unknown> = {}) =>
+    api.get<{ data: import('../types').ProjectSummaryRow[] }>(`/projects/${uuid}/summary`, { params }).then((r) => r.data.data),
+  exportUrl: (uuid: string) => `${api.defaults.baseURL}/projects/${uuid}/export`,
+}
+
 export const bills = {
   list: (status?: string) =>
     api.get<Paginated<BillItem>>('/bills', { params: status ? { status } : {} }).then((r) => r.data),

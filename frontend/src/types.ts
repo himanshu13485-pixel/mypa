@@ -587,3 +587,37 @@ export interface SharedByMeItem {
   files_count?: number
   shared_with: { uuid: string; name: string; username: string | null; permission: string }[]
 }
+
+export interface ProjectItem {
+  uuid: string
+  name: string
+  purpose: string
+  base_currency: string
+  notes?: string | null
+  is_archived: boolean
+  entries_count?: number | null
+  created_at: string
+}
+
+export interface ProjectEntryItem {
+  uuid: string
+  entry_date: string
+  description: string
+  direction: 'credit' | 'debit'
+  amount: string
+  currency: string
+  mode: 'cash' | 'bank'
+  bank_account?: string | null
+  counterparty?: string | null
+  reminder_at?: string | null
+}
+
+export interface ProjectSummaryRow {
+  currency: string
+  credit: number
+  debit: number
+  net: number
+  cash: number
+  bank: number
+  entries: number
+}

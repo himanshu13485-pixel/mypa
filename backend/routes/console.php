@@ -14,6 +14,8 @@ Schedule::command('mypa:send-bill-reminders')->dailyAt('08:00')->withoutOverlapp
 // Same-day bill alarms (due time minus N minutes) need minute resolution.
 Schedule::command('mypa:send-bill-alarms')->everyMinute()->withoutOverlapping();
 
+Schedule::command('mypa:project-reminders')->everyMinute()->withoutOverlapping();
+
 // Subscription lifecycle: expiry, renewal reminders, stale order cleanup.
 Schedule::command('mypa:subscription-lifecycle')->dailyAt('07:30')->withoutOverlapping();
 
