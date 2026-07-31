@@ -58,7 +58,7 @@ class Meeting extends Model
     public function participants(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'meeting_participants')
-            ->withPivot(['status', 'joined_at', 'left_at'])
+            ->withPivot(['status', 'display_name', 'joined_at', 'left_at'])
             ->withTimestamps();
     }
 }

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
+import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card } from '../components/ui'
@@ -64,6 +65,7 @@ export default function MeetingRoomPage() {
   const [sharing, setSharing] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [copied, setCopied] = useState(false)
+  const [myName, setMyName] = useState<string | null>(null)
 
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
@@ -185,6 +187,9 @@ export default function MeetingRoomPage() {
           break
         case 'leave':
           removePeer(signal.from_uuid)
+          break
+        case 'rename':
+          setPeers((p) => p.map((x) => (x.uuid === signal.from_uuid ? { ...x, name: (signal.payload.name as string) ?? x.name } : x)))
           break
         case 'end':
           teardown()
@@ -312,6 +317,14 @@ export default function MeetingRoomPage() {
     navigate('/meetings')
   }
 
+  const changeMyName = () => {
+    const name = prompt('Your name for this meeting:', myName ?? user?.name ?? '')
+    if (!name?.trim()) return
+    meetingsApi.rename(code, name.trim())
+      .then(() => setMyName(name.trim()))
+      .catch((err) => alert(errorMessage(err)))
+  }
+
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
   if (phase === 'error' || phase === 'ended') {
@@ -364,9 +377,13 @@ export default function MeetingRoomPage() {
         {isVideo && (
           <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
             <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-            <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
-              You{sharing && ' (sharing screen)'}
-            </span>
+            <button
+              className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white hover:bg-black/80"
+              title="Change your name for this meeting"
+              onClick={changeMyName}
+            >
+              {myName ?? 'You'}{sharing && ' (sharing screen)'} ✎
+            </button>
           </div>
         )}
         {!peers.length && phase === 'in' && (
@@ -378,12 +395,16 @@ export default function MeetingRoomPage() {
           <PeerTile key={p.uuid} peer={p} video={isVideo} />
         ))}
         {!isVideo && (
-          <div className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white">
+          <button
+            className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700"
+            title="Change your name for this meeting"
+            onClick={changeMyName}
+          >
             <span className="flex size-7 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold">
-              {user?.name?.charAt(0) ?? 'Y'}
+              {(myName ?? user?.name)?.charAt(0) ?? 'Y'}
             </span>
-            You {muted && '(muted)'}
-          </div>
+            {myName ?? 'You'} {muted && '(muted)'} ✎
+          </button>
         )}
       </div>
 

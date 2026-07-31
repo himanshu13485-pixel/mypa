@@ -73,6 +73,30 @@ class MeetingTest extends TestCase
         $this->actingAs($this->bob)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertStatus(410);
     }
 
+    public function test_display_name_per_meeting(): void
+    {
+        Event::fake([MeetingSignal::class]);
+        $meeting = $this->actingAs($this->host)->postJson('/api/v1/meetings', [])->json('data');
+
+        // Join with a custom name; a later joiner sees it in joined_peers.
+        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting['code']}/join", [
+            'display_name' => 'Boss',
+        ])->assertOk();
+        $join = $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
+        $this->assertEquals('Boss', $join->json('data.joined_peers.0.name'));
+
+        // Rename mid-meeting broadcasts to the others.
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting['code']}/name", [
+            'display_name' => 'Alice (Site A)',
+        ])->assertOk();
+        Event::assertDispatched(MeetingSignal::class, fn ($e) => $e->signalType === 'rename' && $e->payload['name'] === 'Alice (Site A)');
+
+        // Outsiders cannot rename.
+        $this->actingAs($this->bob)->postJson("/api/v1/meetings/{$meeting['code']}/name", [
+            'display_name' => 'Intruder',
+        ])->assertForbidden();
+    }
+
     public function test_meeting_ends_itself_when_everyone_leaves(): void
     {
         $meeting = $this->actingAs($this->host)->postJson('/api/v1/meetings', [])->json('data');

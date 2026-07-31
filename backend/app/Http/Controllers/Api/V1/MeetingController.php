@@ -66,6 +66,7 @@ class MeetingController extends Controller
     {
         $me = $request->user();
         abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
+        $data = $request->validate(['display_name' => ['sometimes', 'nullable', 'string', 'max:50']]);
 
         if ($meeting->status !== 'active') {
             $meeting->update(['status' => 'active', 'started_at' => $meeting->started_at ?? now()]);
@@ -77,18 +78,27 @@ class MeetingController extends Controller
             ->get();
 
         $meeting->participants()->syncWithoutDetaching([
-            $me->id => ['status' => 'joined', 'joined_at' => now(), 'left_at' => null],
+            $me->id => [
+                'status' => 'joined',
+                'joined_at' => now(),
+                'left_at' => null,
+                'display_name' => $data['display_name'] ?? null,
+            ],
         ]);
 
         // Tell everyone already inside that a participant arrived (for the roster).
+        $myName = $data['display_name'] ?? $me->name;
         foreach ($joined as $peer) {
-            broadcast(new MeetingSignal($meeting, $me->uuid, $me->name, $peer->uuid, 'join'));
+            broadcast(new MeetingSignal($meeting, $me->uuid, $myName, $peer->uuid, 'join'));
         }
 
         return response()->json([
             'message' => 'Joined.',
             'data' => $this->serialize($meeting->fresh()->load('host:id,uuid,name'), $request) + [
-                'joined_peers' => $joined->map(fn ($u) => ['uuid' => $u->uuid, 'name' => $u->name])->values(),
+                'joined_peers' => $joined->map(fn ($u) => [
+                    'uuid' => $u->uuid,
+                    'name' => $u->pivot->display_name ?? $u->name,
+                ])->values(),
             ],
         ]);
     }
@@ -132,6 +142,30 @@ class MeetingController extends Controller
         return response()->json(['message' => 'Meeting ended for everyone.']);
     }
 
+    /** Change what I am called in THIS meeting; everyone inside sees it live. */
+    public function rename(Request $request, Meeting $meeting): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless(
+            $meeting->participants()->where('users.id', $me->id)->wherePivot('status', 'joined')->exists(),
+            403,
+            'Join the meeting first.'
+        );
+
+        $data = $request->validate(['display_name' => ['required', 'string', 'max:50']]);
+        $name = trim($data['display_name']);
+        abort_if($name === '', 422, 'Name cannot be empty.');
+
+        $meeting->participants()->updateExistingPivot($me->id, ['display_name' => $name]);
+
+        $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
+        foreach ($others as $peer) {
+            broadcast(new MeetingSignal($meeting, $me->uuid, $name, $peer->uuid, 'rename', ['name' => $name]));
+        }
+
+        return response()->json(['message' => "You will appear as {$name} in this meeting."]);
+    }
+
     /** Relay WebRTC signalling to one specific participant. */
     public function signal(Request $request, Meeting $meeting): JsonResponse
     {
@@ -155,7 +189,8 @@ class MeetingController extends Controller
             ->first();
         abort_unless($target && $target->id !== $me->id, 422, 'That participant is not in the meeting.');
 
-        broadcast(new MeetingSignal($meeting, $me->uuid, $me->name, $target->uuid, $data['signal'], $data['payload']));
+        $myPivot = $meeting->participants()->where('users.id', $me->id)->first()?->pivot;
+        broadcast(new MeetingSignal($meeting, $me->uuid, $myPivot?->display_name ?? $me->name, $target->uuid, $data['signal'], $data['payload']));
 
         return response()->json(['message' => 'ok']);
     }
