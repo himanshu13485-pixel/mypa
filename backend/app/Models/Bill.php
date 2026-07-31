@@ -16,7 +16,8 @@ class Bill extends Model
 
     protected $fillable = [
         'user_id', 'group_id', 'name', 'category', 'amount', 'currency', 'due_on',
-        'status', 'repeat_frequency', 'payment_account', 'remind_days_before',
+        'due_time', 'status', 'repeat_frequency', 'payment_account', 'remind_days_before',
+        'remind_minutes_before', 'alarm_sent_at',
         'last_reminded_at', 'receipt_file_id', 'notes', 'paid_at',
     ];
 

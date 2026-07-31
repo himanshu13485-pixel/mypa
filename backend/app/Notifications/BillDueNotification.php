@@ -12,13 +12,40 @@ class BillDueNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(public Bill $bill)
+    public function __construct(public Bill $bill, public bool $alarm = false)
     {
     }
 
     public function via(object $notifiable): array
     {
-        return SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+        $via = ['database'];
+        if (SocialNotification::wantsMail($notifiable)) {
+            $via[] = 'mail';
+        }
+        if (SocialNotification::wantsPush($notifiable)) {
+            $via[] = \App\Notifications\Channels\WebPushChannel::class;
+        }
+
+        return $via;
+    }
+
+    protected function alarmMessage(): string
+    {
+        $time = $this->bill->due_time ? substr($this->bill->due_time, 0, 5) : '';
+
+        return "Bill alarm: \u{201C}{$this->bill->name}\u{201D} is due today at {$time}"
+            . ($this->bill->amount ? " ({$this->bill->currency} {$this->bill->amount})" : '') . '.';
+    }
+
+    public function toPush(object $notifiable): array
+    {
+        return [
+            'title' => $this->alarm ? 'Bill alarm' : 'Bill reminder',
+            'body' => $this->alarm
+                ? $this->alarmMessage()
+                : "\u{201C}{$this->bill->name}\u{201D} is due " . $this->bill->due_on->toFormattedDateString() . '.',
+            'url' => '/bills',
+        ];
     }
 
     protected function daysLeft(): int
@@ -29,6 +56,18 @@ class BillDueNotification extends Notification implements ShouldQueue
     public function toDatabase(object $notifiable): array
     {
         $days = $this->daysLeft();
+
+        if ($this->alarm) {
+            return [
+                'kind' => 'bill_due',
+                'bill_uuid' => $this->bill->uuid,
+                'bill_name' => $this->bill->name,
+                'amount' => $this->bill->amount,
+                'due_on' => $this->bill->due_on->toDateString(),
+                'message' => $this->alarmMessage(),
+                'actions' => ['open'],
+            ];
+        }
 
         return [
             'kind' => 'bill_due',

@@ -17,8 +17,8 @@ export default function BillsPage() {
   })
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({
-    name: '', category: '', amount: '', due_on: '', repeat_frequency: '',
-    payment_account: '', remind_days_before: 3, notes: '',
+    name: '', category: '', amount: '', due_on: '', due_time: '', repeat_frequency: '',
+    payment_account: '', remind_days_before: 3, remind_minutes_before: '', notes: '',
   })
   const [error, setError] = useState<string | null>(null)
 
@@ -30,11 +30,13 @@ export default function BillsPage() {
         ...form,
         amount: form.amount ? Number(form.amount) : null,
         repeat_frequency: form.repeat_frequency || null,
+        due_time: form.due_time || null,
+        remind_minutes_before: form.remind_minutes_before === '' ? null : Number(form.remind_minutes_before),
       }),
     onSuccess: () => {
       invalidate()
       setShowForm(false)
-      setForm({ name: '', category: '', amount: '', due_on: '', repeat_frequency: '', payment_account: '', remind_days_before: 3, notes: '' })
+      setForm({ name: '', category: '', amount: '', due_on: '', due_time: '', repeat_frequency: '', payment_account: '', remind_days_before: 3, remind_minutes_before: '', notes: '' })
     },
     onError: (err) => setError(errorMessage(err)),
   })
@@ -152,6 +154,10 @@ export default function BillsPage() {
                 <Input type="date" value={form.due_on} onChange={(e) => setForm({ ...form, due_on: e.target.value })} required />
               </div>
               <div>
+                <Label>Due time (for same-day alarm)</Label>
+                <Input type="time" value={form.due_time} onChange={(e) => setForm({ ...form, due_time: e.target.value })} />
+              </div>
+              <div>
                 <Label>Repeats</Label>
                 <Select value={form.repeat_frequency} onChange={(e) => setForm({ ...form, repeat_frequency: e.target.value })}>
                   <option value="">One-time</option>
@@ -171,6 +177,19 @@ export default function BillsPage() {
                   value={form.remind_days_before}
                   onChange={(e) => setForm({ ...form, remind_days_before: Number(e.target.value) })}
                 />
+              </div>
+              <div>
+                <Label>Alarm (minutes before due time)</Label>
+                <Select
+                  value={form.remind_minutes_before}
+                  onChange={(e) => setForm({ ...form, remind_minutes_before: e.target.value })}
+                  disabled={!form.due_time}
+                >
+                  <option value="">No alarm</option>
+                  {[5, 10, 15, 30, 60, 120].map((m) => (
+                    <option key={m} value={m}>{m < 60 ? `${m} minutes` : `${m / 60} hour(s)`} before</option>
+                  ))}
+                </Select>
               </div>
               <div>
                 <Label>Payment account</Label>

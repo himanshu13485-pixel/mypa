@@ -424,6 +424,8 @@ export interface BillItem {
   amount?: string | number | null
   currency: string
   due_on: string
+  due_time?: string | null
+  remind_minutes_before?: number | null
   status: 'unpaid' | 'paid'
   is_overdue: boolean
   repeat_frequency?: string | null

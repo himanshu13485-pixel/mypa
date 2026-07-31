@@ -102,6 +102,8 @@ class BillController extends Controller
             'repeat_frequency' => ['nullable', 'in:' . implode(',', Bill::FREQUENCIES)],
             'payment_account' => ['nullable', 'string', 'max:255'],
             'remind_days_before' => ['sometimes', 'integer', 'min:0', 'max:60'],
+            'due_time' => ['sometimes', 'nullable', 'date_format:H:i'],
+            'remind_minutes_before' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1440'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'group_uuid' => ['sometimes', 'nullable', 'uuid'],
         ]);
@@ -126,6 +128,8 @@ class BillController extends Controller
             'amount' => $bill->amount,
             'currency' => $bill->currency,
             'due_on' => $bill->due_on->toDateString(),
+            'due_time' => $bill->due_time ? substr($bill->due_time, 0, 5) : null,
+            'remind_minutes_before' => $bill->remind_minutes_before,
             'status' => $bill->status,
             'is_overdue' => $bill->status === 'unpaid' && $bill->due_on->isPast() && ! $bill->due_on->isToday(),
             'repeat_frequency' => $bill->repeat_frequency,
