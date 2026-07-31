@@ -21,7 +21,7 @@ class MeetingController extends Controller
         $me = $request->user();
 
         $meetings = Meeting::with('host:id,uuid,name')
-            ->withCount(['participants as joined_count' => fn ($q) => $q->wherePivot('status', 'joined')])
+            ->withCount(['participants as joined_count' => fn ($q) => $q->where('meeting_participants.status', 'joined')])
             ->where(fn ($q) => $q->where('host_id', $me->id)
                 ->orWhereHas('participants', fn ($p) => $p->where('users.id', $me->id)))
             ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 ELSE 2 END")

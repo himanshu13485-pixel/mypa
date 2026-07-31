@@ -63,11 +63,13 @@ export default function MeetingRoomPage() {
   const [cameraOff, setCameraOff] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [copied, setCopied] = useState(false)
 
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
   const localStreamRef = useRef<MediaStream | null>(null)
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null)
+  const displayTrackRef = useRef<MediaStreamTrack | null>(null)
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const joinedRef = useRef(false)
@@ -139,6 +141,8 @@ export default function MeetingRoomPage() {
     pendingIceRef.current.clear()
     localStreamRef.current?.getTracks().forEach((t) => t.stop())
     localStreamRef.current = null
+    displayTrackRef.current?.stop() // otherwise the browser keeps sharing the screen
+    displayTrackRef.current = null
     setPeers([])
   }, [])
 
@@ -268,6 +272,7 @@ export default function MeetingRoomPage() {
     try {
       const display = await navigator.mediaDevices.getDisplayMedia({ video: true })
       const track = display.getVideoTracks()[0]
+      displayTrackRef.current = track
       track.onended = stopShare
       pcsRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
@@ -286,6 +291,8 @@ export default function MeetingRoomPage() {
       const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
       if (camera) sender?.replaceTrack(camera).catch(() => undefined)
     })
+    displayTrackRef.current?.stop() // release the browser's "sharing your screen" bar
+    displayTrackRef.current = null
     if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
     setSharing(false)
   }
@@ -333,12 +340,15 @@ export default function MeetingRoomPage() {
           variant="secondary"
           onClick={() =>
             navigator.clipboard.writeText(meetingLink(code)).then(
-              () => alert('Invite link copied.'),
+              () => {
+                setCopied(true)
+                setTimeout(() => setCopied(false), 2000)
+              },
               () => prompt('Copy this link:', meetingLink(code)),
             )
           }
         >
-          <Copy className="size-3.5" /> Copy invite link
+          <Copy className="size-3.5" /> {copied ? 'Copied ✓' : 'Copy invite link'}
         </Button>
       </div>
 

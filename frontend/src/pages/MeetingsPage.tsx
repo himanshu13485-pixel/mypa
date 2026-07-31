@@ -41,9 +41,13 @@ export default function MeetingsPage() {
     navigate(`/meetings/room/${code}`)
   }
 
+  const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const copyLink = (m: MeetingItem) => {
     navigator.clipboard.writeText(meetingLink(m.code)).then(
-      () => alert(`Link copied:\n${meetingLink(m.code)}\n\nShare it — anyone signed in to My PA can join with it.`),
+      () => {
+        setCopiedCode(m.code)
+        setTimeout(() => setCopiedCode(null), 2000)
+      },
       () => prompt('Copy this link:', meetingLink(m.code)),
     )
   }
@@ -115,7 +119,7 @@ export default function MeetingsPage() {
               </div>
               <div className="flex gap-1.5">
                 <Button size="sm" variant="secondary" title="Copy invite link" onClick={() => copyLink(m)}>
-                  <Copy className="size-3.5" /> Link
+                  <Copy className="size-3.5" /> {copiedCode === m.code ? 'Copied ✓' : 'Link'}
                 </Button>
                 {m.status !== 'ended' && (
                   <Button size="sm" onClick={() => navigate(`/meetings/room/${m.code}`)}>
