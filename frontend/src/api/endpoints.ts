@@ -418,6 +418,10 @@ export const projects = {
   removeEntry: (uuid: string, entryUuid: string) => api.delete(`/projects/${uuid}/entries/${entryUuid}`),
   summary: (uuid: string, params: Record<string, unknown> = {}) =>
     api.get<{ data: import('../types').ProjectSummaryRow[] }>(`/projects/${uuid}/summary`, { params }).then((r) => r.data.data),
+  share: (uuid: string, app_id: string, permission: 'view' | 'edit') =>
+    api.post<{ message: string }>(`/projects/${uuid}/share`, { app_id, permission }).then((r) => r.data),
+  unshare: (uuid: string, userUuid: string) =>
+    api.post<{ message: string }>(`/projects/${uuid}/unshare`, { user_uuid: userUuid }).then((r) => r.data),
   exportUrl: (uuid: string) => `${api.defaults.baseURL}/projects/${uuid}/export`,
 }
 

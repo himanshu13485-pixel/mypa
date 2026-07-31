@@ -596,6 +596,10 @@ export interface ProjectItem {
   notes?: string | null
   is_archived: boolean
   entries_count?: number | null
+  is_owner: boolean
+  permission: 'owner' | 'view' | 'edit' | null
+  owner?: { uuid: string; name: string } | null
+  shared_with: { uuid: string; name: string; username: string | null; permission: string }[]
   created_at: string
 }
 
@@ -610,6 +614,8 @@ export interface ProjectEntryItem {
   bank_account?: string | null
   counterparty?: string | null
   reminder_at?: string | null
+  created_by?: string | null
+  updated_by?: string | null
 }
 
 export interface ProjectSummaryRow {

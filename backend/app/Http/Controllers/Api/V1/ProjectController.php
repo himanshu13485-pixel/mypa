@@ -21,12 +21,16 @@ class ProjectController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $projects = Project::where('user_id', $request->user()->id)
+        $me = $request->user();
+
+        $projects = Project::with(['user:id,uuid,name', 'sharedWith:id,uuid,name,username'])
             ->withCount('entries')
+            ->where(fn ($q) => $q->where('user_id', $me->id)
+                ->orWhereHas('sharedWith', fn ($s) => $s->where('users.id', $me->id)))
             ->orderBy('is_archived')
             ->latest()
             ->get()
-            ->map(fn ($p) => $this->serializeProject($p));
+            ->map(fn ($p) => $this->serializeProject($p, $me));
 
         return response()->json(['data' => $projects]);
     }
@@ -37,7 +41,7 @@ class ProjectController extends Controller
 
         $project = Project::create($data + ['user_id' => $request->user()->id]);
 
-        return response()->json(['message' => 'Project created.', 'data' => $this->serializeProject($project)], 201);
+        return response()->json(['message' => 'Project created.', 'data' => $this->serializeProject($project->load('user:id,uuid,name'), $request->user())], 201);
     }
 
     public function update(Request $request, Project $project): JsonResponse
@@ -45,7 +49,7 @@ class ProjectController extends Controller
         $this->authorizeOwner($request, $project);
         $project->update($this->validateProject($request, updating: true));
 
-        return response()->json(['message' => 'Project updated.', 'data' => $this->serializeProject($project->fresh())]);
+        return response()->json(['message' => 'Project updated.', 'data' => $this->serializeProject($project->fresh()->load('user:id,uuid,name', 'sharedWith:id,uuid,name,username'), $request->user())]);
     }
 
     public function destroy(Request $request, Project $project): JsonResponse
@@ -60,9 +64,10 @@ class ProjectController extends Controller
 
     public function entries(Request $request, Project $project): JsonResponse
     {
-        $this->authorizeOwner($request, $project);
+        $this->authorizeView($request, $project);
 
         $entries = $this->filteredEntries($request, $project)
+            ->with(['creator:id,uuid,name', 'editor:id,uuid,name'])
             ->orderByDesc('entry_date')
             ->orderByDesc('id')
             ->paginate(25);
@@ -74,26 +79,27 @@ class ProjectController extends Controller
 
     public function storeEntry(Request $request, Project $project): JsonResponse
     {
-        $this->authorizeOwner($request, $project);
+        $this->authorizeEdit($request, $project);
         $data = $this->validateEntry($request);
 
-        $entry = $project->entries()->create($data);
+        $entry = $project->entries()->create($data + ['created_by' => $request->user()->id]);
 
-        return response()->json(['message' => 'Entry added.', 'data' => $this->serializeEntry($entry)], 201);
+        return response()->json(['message' => 'Entry added.', 'data' => $this->serializeEntry($entry->load(['creator:id,uuid,name', 'editor:id,uuid,name']))], 201);
     }
 
     public function updateEntry(Request $request, Project $project, ProjectEntry $entry): JsonResponse
     {
-        $this->authorizeOwner($request, $project);
+        $this->authorizeEdit($request, $project);
         abort_unless($entry->project_id === $project->id, 404);
 
         $data = $this->validateEntry($request, updating: true);
+        $data['updated_by'] = $request->user()->id;
         if (array_key_exists('reminder_at', $data) && $data['reminder_at'] !== null) {
             $data['reminder_sent_at'] = null; // re-arm a rescheduled reminder
         }
         $entry->update($data);
 
-        return response()->json(['message' => 'Entry updated.', 'data' => $this->serializeEntry($entry->fresh())]);
+        return response()->json(['message' => 'Entry updated.', 'data' => $this->serializeEntry($entry->fresh()->load(['creator:id,uuid,name', 'editor:id,uuid,name']))]);
     }
 
     public function destroyEntry(Request $request, Project $project, ProjectEntry $entry): JsonResponse
@@ -110,7 +116,7 @@ class ProjectController extends Controller
     /** Per-currency totals (credit / debit / net) plus cash-vs-bank split, honouring the same filters. */
     public function summary(Request $request, Project $project): JsonResponse
     {
-        $this->authorizeOwner($request, $project);
+        $this->authorizeView($request, $project);
 
         $rows = $this->filteredEntries($request, $project)
             ->selectRaw('currency, direction, mode, COUNT(*) as n, SUM(amount) as total')
@@ -137,7 +143,7 @@ class ProjectController extends Controller
     /** Excel-compatible CSV of the filtered entries. */
     public function export(Request $request, Project $project): StreamedResponse
     {
-        $this->authorizeOwner($request, $project);
+        $this->authorizeView($request, $project);
 
         $query = $this->filteredEntries($request, $project)->orderBy('entry_date')->orderBy('id');
         $filename = str($project->name)->slug() . '-ledger-' . now()->format('Ymd-Hi') . '.csv';
@@ -174,11 +180,69 @@ class ProjectController extends Controller
         }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
+    // ---- Sharing -----------------------------------------------------------
+
+    /** Share with a connection by username/email. Creator only. */
+    public function share(Request $request, Project $project): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+
+        $data = $request->validate([
+            'app_id' => ['required', 'string', 'max:255'],
+            'permission' => ['sometimes', 'in:view,edit'],
+        ]);
+
+        $target = app(\App\Services\AppIdService::class)->findVisibleUser($data['app_id'], $request->user());
+        if (! $target || $target->id === $request->user()->id) {
+            return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
+        }
+
+        $permission = $data['permission'] ?? 'view';
+        $project->sharedWith()->syncWithoutDetaching([$target->id => ['permission' => $permission]]);
+
+        $target->notify(new \App\Notifications\SocialNotification(
+            'project_shared',
+            "{$request->user()->name} shared the project \u{201C}{$project->name}\u{201D} with you ("
+                . ($permission === 'edit' ? 'can add & edit' : 'view only') . ').',
+            ['project_uuid' => $project->uuid],
+            '/projects',
+        ));
+
+        return response()->json([
+            'message' => "Shared with {$target->name} (" . ($permission === 'edit' ? 'can add & edit, cannot delete' : 'view only') . ').',
+        ]);
+    }
+
+    /** Take back access. Creator only. */
+    public function unshare(Request $request, Project $project): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+        $data = $request->validate(['user_uuid' => ['required', 'uuid']]);
+
+        $target = \App\Models\User::where('uuid', $data['user_uuid'])->firstOrFail();
+        $project->sharedWith()->detach($target->id);
+
+        return response()->json(['message' => "Access removed for {$target->name}."]);
+    }
+
     // ---- Helpers -----------------------------------------------------------
 
     protected function authorizeOwner(Request $request, Project $project): void
     {
-        abort_unless($project->user_id === $request->user()->id, 403);
+        abort_unless($project->user_id === $request->user()->id, 403, 'Only the project creator can do this.');
+    }
+
+    /** Owner or anyone the project is shared with. */
+    protected function authorizeView(Request $request, Project $project): void
+    {
+        abort_unless($project->permissionFor($request->user()) !== null, 403);
+    }
+
+    /** Owner or a share with edit permission. Editors may add/change, never delete. */
+    protected function authorizeEdit(Request $request, Project $project): void
+    {
+        abort_unless(in_array($project->permissionFor($request->user()), ['owner', 'edit'], true), 403,
+            'You have view-only access to this project.');
     }
 
     protected function validateProject(Request $request, bool $updating = false): array
@@ -235,8 +299,10 @@ class ProjectController extends Controller
         return $query;
     }
 
-    protected function serializeProject(Project $project): array
+    protected function serializeProject(Project $project, ?\App\Models\User $me = null): array
     {
+        $isOwner = $me ? $project->user_id === $me->id : true;
+
         return [
             'uuid' => $project->uuid,
             'name' => $project->name,
@@ -245,6 +311,19 @@ class ProjectController extends Controller
             'notes' => $project->notes,
             'is_archived' => $project->is_archived,
             'entries_count' => $project->entries_count ?? null,
+            'is_owner' => $isOwner,
+            'permission' => $me ? $project->permissionFor($me) : 'owner',
+            'owner' => $project->relationLoaded('user') && $project->user
+                ? ['uuid' => $project->user->uuid, 'name' => $project->user->name]
+                : null,
+            'shared_with' => $isOwner && $project->relationLoaded('sharedWith')
+                ? $project->sharedWith->map(fn ($u) => [
+                    'uuid' => $u->uuid,
+                    'name' => $u->name,
+                    'username' => $u->username,
+                    'permission' => $u->pivot->permission,
+                ])->values()
+                : [],
             'created_at' => $project->created_at,
         ];
     }
@@ -262,6 +341,8 @@ class ProjectController extends Controller
             'bank_account' => $entry->bank_account,
             'counterparty' => $entry->counterparty,
             'reminder_at' => $entry->reminder_at?->toIso8601String(),
+            'created_by' => $entry->relationLoaded('creator') && $entry->creator ? $entry->creator->name : null,
+            'updated_by' => $entry->relationLoaded('editor') && $entry->editor ? $entry->editor->name : null,
         ];
     }
 }

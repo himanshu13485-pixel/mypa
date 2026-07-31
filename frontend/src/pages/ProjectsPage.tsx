@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowDownCircle, ArrowUpCircle, Bell, Briefcase, Download, Pencil, Plus, Search, Trash2,
+  ArrowDownCircle, ArrowUpCircle, Bell, Briefcase, Download, Pencil, Plus, Search, Share2, Trash2,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { clsx } from 'clsx'
@@ -80,10 +80,19 @@ export default function ProjectsPage() {
                 p.is_archived && 'opacity-50',
               )}
             >
-              <p className="font-medium">{p.name}</p>
+              <p className="font-medium">
+                {p.name}
+                {!p.is_owner && (
+                  <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300">
+                    {p.permission === 'edit' ? 'can edit' : 'view only'}
+                  </span>
+                )}
+              </p>
               <p className="text-[11px] capitalize text-slate-400">
                 {p.purpose} · {p.base_currency}
                 {p.entries_count != null && ` · ${p.entries_count} entries`}
+                {!p.is_owner && p.owner && ` · shared by ${p.owner.name}`}
+                {p.is_owner && p.shared_with.length > 0 && ` · shared with ${p.shared_with.length}`}
                 {p.is_archived && ' · archived'}
               </p>
             </button>
@@ -219,6 +228,8 @@ function ProjectFormModal({
 
 function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () => void }) {
   const queryClient = useQueryClient()
+  const canEdit = project.is_owner || project.permission === 'edit'
+  const [showShare, setShowShare] = useState(false)
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState({ date_from: '', date_to: '', mode: '', direction: '', q: '' })
   const [search, setSearch] = useState('')
@@ -235,13 +246,16 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
 
   useEffect(() => setPage(1), [JSON.stringify(filters)]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Shared ledgers stay live: refresh every 10s so everyone sees updates.
   const { data: entries, isLoading } = useQuery({
     queryKey: ['project-entries', project.uuid, params, page],
     queryFn: () => projectsApi.entries(project.uuid, { ...params, page }),
+    refetchInterval: 10_000,
   })
   const { data: summary } = useQuery({
     queryKey: ['project-summary', project.uuid, params],
     queryFn: () => projectsApi.summary(project.uuid, params),
+    refetchInterval: 10_000,
   })
 
   const invalidate = () => {
@@ -352,12 +366,21 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
           <Button variant="secondary" size="sm" onClick={exportCsv} title="Download the filtered entries as an Excel-compatible CSV">
             <Download className="size-3.5" /> Export
           </Button>
-          <Button variant="secondary" size="sm" onClick={onEdit}>
-            <Pencil className="size-3.5" /> Project
-          </Button>
-          <Button size="sm" onClick={() => setShowEntry(true)}>
-            <Plus className="size-3.5" /> Add entry
-          </Button>
+          {project.is_owner && (
+            <Button variant="secondary" size="sm" onClick={() => setShowShare(true)} title="Share with connections (view or edit)">
+              <Share2 className="size-3.5" /> Share
+            </Button>
+          )}
+          {project.is_owner && (
+            <Button variant="secondary" size="sm" onClick={onEdit}>
+              <Pencil className="size-3.5" /> Project
+            </Button>
+          )}
+          {canEdit && (
+            <Button size="sm" onClick={() => setShowEntry(true)}>
+              <Plus className="size-3.5" /> Add entry
+            </Button>
+          )}
         </div>
       </Card>
 
@@ -389,6 +412,12 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
                     <td className="px-3 py-2">
                       {e.description}
                       {e.reminder_at && <Bell className="ml-1 inline size-3 text-amber-500" />}
+                      {(e.created_by || e.updated_by) && (
+                        <span className="block text-[10px] text-slate-400">
+                          {e.created_by && `by ${e.created_by}`}
+                          {e.updated_by && `${e.created_by ? ' · ' : ''}edited by ${e.updated_by}`}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-slate-500">{e.counterparty ?? '—'}</td>
                     <td className="px-3 py-2 text-xs capitalize text-slate-500">
@@ -403,16 +432,20 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex justify-end gap-1">
-                        <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Edit" onClick={() => setEditEntry(e)}>
-                          <Pencil className="size-3.5" />
-                        </button>
-                        <button
-                          className="rounded p-1 text-slate-400 hover:text-red-600"
-                          title="Delete"
-                          onClick={() => confirm('Delete this entry?') && removeEntry.mutate(e.uuid)}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                        {canEdit && (
+                          <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Edit" onClick={() => setEditEntry(e)}>
+                            <Pencil className="size-3.5" />
+                          </button>
+                        )}
+                        {project.is_owner && (
+                          <button
+                            className="rounded p-1 text-slate-400 hover:text-red-600"
+                            title="Delete (creator only)"
+                            onClick={() => confirm('Delete this entry?') && removeEntry.mutate(e.uuid)}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -424,6 +457,14 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
             <Pager resp={entries} onPage={setPage} />
           </div>
         </Card>
+      )}
+
+      {showShare && (
+        <ShareProjectModal
+          project={project}
+          onClose={() => setShowShare(false)}
+          onChanged={() => queryClient.invalidateQueries({ queryKey: ['projects'] })}
+        />
       )}
 
       {(showEntry || editEntry) && (
@@ -567,6 +608,104 @@ function EntryFormModal({
           <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Saving…' : entry ? 'Save changes' : 'Add entry'}</Button>
         </div>
       </form>
+    </Modal>
+  )
+}
+
+function ShareProjectModal({
+  project,
+  onClose,
+  onChanged,
+}: {
+  project: ProjectItem
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [identifier, setIdentifier] = useState('')
+  const [permission, setPermission] = useState<'view' | 'edit'>('view')
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+
+  const share = useMutation({
+    mutationFn: () => projectsApi.share(project.uuid, identifier.trim(), permission),
+    onSuccess: (res) => {
+      setMessage(res.message)
+      setIdentifier('')
+      onChanged()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const unshare = useMutation({
+    mutationFn: (userUuid: string) => projectsApi.unshare(project.uuid, userUuid),
+    onSuccess: (res) => {
+      setMessage(res.message)
+      onChanged()
+    },
+    onError: (err) => alert(errorMessage(err)),
+  })
+
+  return (
+    <Modal title={`Share “${project.name}”`} onClose={onClose}>
+      <div className="space-y-4">
+        <ErrorNote message={error} />
+        {message && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">{message}</p>}
+
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Label>Share with (username or email)</Label>
+            <Input
+              value={identifier}
+              onChange={(e) => setIdentifier(e.target.value)}
+              placeholder="rahul or priya@mypa.local"
+              autoFocus
+            />
+          </div>
+          <div>
+            <Label>Access</Label>
+            <Select value={permission} onChange={(e) => setPermission(e.target.value as 'view' | 'edit')}>
+              <option value="view">View only</option>
+              <option value="edit">Can add & edit</option>
+            </Select>
+          </div>
+          <Button onClick={() => { setError(null); setMessage(null); share.mutate() }} disabled={!identifier.trim() || share.isPending}>
+            Share
+          </Button>
+        </div>
+        <p className="text-[11px] text-slate-400">
+          View: they see the live ledger, totals, and can export. Can add & edit: they can also add
+          and change entries (every change shows their name) — but only you, the creator, can delete
+          entries or the project.
+        </p>
+
+        {project.shared_with.length > 0 && (
+          <div className="space-y-1.5">
+            <Label>Currently shared with</Label>
+            {project.shared_with.map((person) => (
+              <div key={person.uuid} className="flex items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800">
+                <div>
+                  <span className="font-medium">{person.name}</span>
+                  {person.username && <span className="ml-1 text-xs text-slate-400">@{person.username}</span>}
+                  <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    {person.permission === 'edit' ? 'can add & edit' : 'view only'}
+                  </span>
+                </div>
+                <button
+                  className="text-xs font-semibold text-red-500 hover:underline"
+                  onClick={() => confirm(`Remove ${person.name}'s access?`) && unshare.mutate(person.uuid)}
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+            <p className="text-[11px] text-slate-400">To change someone's access level, share with them again with the new level.</p>
+          </div>
+        )}
+
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={onClose}>Done</Button>
+        </div>
+      </div>
     </Modal>
   )
 }

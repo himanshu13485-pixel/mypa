@@ -39,4 +39,20 @@ class Project extends Model
     {
         return $this->hasMany(ProjectEntry::class);
     }
+
+    public function sharedWith(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'project_shares')
+            ->withPivot('permission')
+            ->withTimestamps();
+    }
+
+    public function permissionFor(User $user): ?string
+    {
+        if ($this->user_id === $user->id) {
+            return 'owner';
+        }
+
+        return $this->sharedWith()->where('users.id', $user->id)->first()?->pivot->permission;
+    }
 }

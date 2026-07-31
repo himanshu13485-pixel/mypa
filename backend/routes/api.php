@@ -161,6 +161,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/projects/{project}/entries', [\App\Http\Controllers\Api\V1\ProjectController::class, 'storeEntry']);
         Route::put('/projects/{project}/entries/{entry}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'updateEntry']);
         Route::delete('/projects/{project}/entries/{entry}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'destroyEntry']);
+        Route::post('/projects/{project}/share', [\App\Http\Controllers\Api\V1\ProjectController::class, 'share']);
+        Route::post('/projects/{project}/unshare', [\App\Http\Controllers\Api\V1\ProjectController::class, 'unshare']);
         Route::get('/projects/{project}/summary', [\App\Http\Controllers\Api\V1\ProjectController::class, 'summary']);
         Route::get('/projects/{project}/export', [\App\Http\Controllers\Api\V1\ProjectController::class, 'export']);
 

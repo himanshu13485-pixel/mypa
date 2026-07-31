@@ -13,6 +13,7 @@ class ProjectEntry extends Model
     protected $fillable = [
         'project_id', 'entry_date', 'description', 'direction', 'amount', 'currency',
         'mode', 'bank_account', 'counterparty', 'reminder_at', 'reminder_sent_at',
+        'created_by', 'updated_by',
     ];
 
     protected function casts(): array
@@ -38,5 +39,15 @@ class ProjectEntry extends Model
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function editor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'updated_by');
     }
 }

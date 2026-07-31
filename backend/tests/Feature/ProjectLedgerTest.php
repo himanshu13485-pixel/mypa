@@ -81,6 +81,64 @@ class ProjectLedgerTest extends TestCase
         $this->actingAs($stranger)->postJson("/api/v1/projects/{$project['uuid']}/entries", [])->assertForbidden();
     }
 
+    public function test_project_sharing_view_and_edit_rights(): void
+    {
+        $appIds = app(\App\Services\AppIdService::class);
+        $viewer = User::factory()->create(['name' => 'Viewer', 'username' => 'viewer1']);
+        $editor = User::factory()->create(['name' => 'Editor', 'username' => 'editor1']);
+        foreach ([$this->user, $viewer, $editor] as $u) {
+            $appIds->generateFor($u);
+        }
+
+        $project = $this->actingAs($this->user)->postJson('/api/v1/projects', ['name' => 'Shared site'])->json('data');
+        $entry = $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/entries", [
+            'entry_date' => now()->toDateString(), 'description' => 'Bricks', 'direction' => 'debit', 'amount' => 9000,
+        ])->json('data');
+
+        // Share by username: viewer gets view, editor gets edit. Both are notified.
+        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/share", [
+            'app_id' => 'viewer1', 'permission' => 'view',
+        ])->assertOk();
+        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/share", [
+            'app_id' => 'editor1', 'permission' => 'edit',
+        ])->assertOk();
+        $this->assertEquals('project_shared', $viewer->notifications()->first()->data['kind']);
+
+        // Both see the project in their list and can read the live ledger.
+        $this->assertCount(1, $this->actingAs($viewer)->getJson('/api/v1/projects')->json('data'));
+        $this->actingAs($viewer)->getJson("/api/v1/projects/{$project['uuid']}/entries")->assertOk();
+        $this->actingAs($viewer)->getJson("/api/v1/projects/{$project['uuid']}/summary")->assertOk();
+
+        // View-only cannot write anything.
+        $this->actingAs($viewer)->postJson("/api/v1/projects/{$project['uuid']}/entries", [
+            'entry_date' => now()->toDateString(), 'description' => 'x', 'direction' => 'debit', 'amount' => 1,
+        ])->assertForbidden();
+
+        // Editor can add and edit — and the entry records their name.
+        $added = $this->actingAs($editor)->postJson("/api/v1/projects/{$project['uuid']}/entries", [
+            'entry_date' => now()->toDateString(), 'description' => 'Sand', 'direction' => 'debit', 'amount' => 3000,
+        ])->assertCreated();
+        $this->assertEquals('Editor', $added->json('data.created_by'));
+
+        $edited = $this->actingAs($editor)->putJson("/api/v1/projects/{$project['uuid']}/entries/{$entry['uuid']}", [
+            'amount' => 9500,
+        ])->assertOk();
+        $this->assertEquals('Editor', $edited->json('data.updated_by'));
+
+        // But editors can NEVER delete — entries or the project. Creator only.
+        $this->actingAs($editor)->deleteJson("/api/v1/projects/{$project['uuid']}/entries/{$entry['uuid']}")->assertForbidden();
+        $this->actingAs($editor)->deleteJson("/api/v1/projects/{$project['uuid']}")->assertForbidden();
+        $this->actingAs($editor)->postJson("/api/v1/projects/{$project['uuid']}/share", [
+            'app_id' => 'viewer1', 'permission' => 'edit',
+        ])->assertForbidden();
+
+        // Creator revokes the viewer's access.
+        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/unshare", [
+            'user_uuid' => $viewer->uuid,
+        ])->assertOk();
+        $this->actingAs($viewer)->getJson("/api/v1/projects/{$project['uuid']}/entries")->assertForbidden();
+    }
+
     public function test_entry_reminder_rings_once(): void
     {
         $project = Project::create(['user_id' => $this->user->id, 'name' => 'Shop', 'purpose' => 'business']);
