@@ -359,6 +359,57 @@ class UserController extends Controller
         ]);
     }
 
+    /**
+     * Call RECORDS for oversight: who / when / type / status / duration.
+     * Deliberately metadata-only — call audio is never stored anywhere.
+     */
+    public function callRecords(Request $request, User $user): JsonResponse
+    {
+        $calls = \App\Models\Call::whereHas('participants', fn ($p) => $p->where('users.id', $user->id))
+            ->with(['participants:id,uuid,name', 'caller:id,uuid,name'])
+            ->latest('started_at')
+            ->paginate(20);
+
+        $calls->getCollection()->transform(fn ($call) => [
+            'uuid' => $call->uuid,
+            'type' => $call->type,
+            'status' => $call->status,
+            'started_at' => $call->started_at?->toIso8601String(),
+            'duration_seconds' => $call->durationSeconds(),
+            'caller' => $call->caller?->name,
+            'participants' => $call->participants->map(fn ($p) => $p->name)->values(),
+        ]);
+
+        return response()->json($calls);
+    }
+
+    /**
+     * Conversation RECORDS for oversight: who talks to whom, how much, when.
+     * Message CONTENT is deliberately excluded — only moderation (via user
+     * reports) ever exposes a specific reported message.
+     */
+    public function messageRecords(Request $request, User $user): JsonResponse
+    {
+        $conversations = \App\Models\Conversation::whereHas('members', fn ($m) => $m->where('users.id', $user->id))
+            ->with(['members:id,uuid,name', 'group:id,uuid,name'])
+            ->withCount('messages')
+            ->orderByDesc('last_message_at')
+            ->paginate(20);
+
+        $conversations->getCollection()->transform(fn ($c) => [
+            'uuid' => $c->uuid,
+            'type' => $c->type,
+            'name' => $c->type === 'direct'
+                ? $c->members->where('id', '!=', $user->id)->pluck('name')->implode(', ')
+                : ($c->name ?? $c->group?->name ?? 'Group chat'),
+            'members' => $c->members->map(fn ($m) => $m->name)->values(),
+            'messages_count' => $c->messages_count,
+            'last_message_at' => $c->last_message_at,
+        ]);
+
+        return response()->json($conversations);
+    }
+
     /** Call participation: totals, this week, talk-time in minutes. */
     protected function callStats(User $user): array
     {

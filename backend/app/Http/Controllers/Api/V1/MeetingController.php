@@ -20,7 +20,7 @@ class MeetingController extends Controller
     {
         $me = $request->user();
 
-        $meetings = Meeting::with('host:id,uuid,name')
+        $meetings = Meeting::with(['host:id,uuid,name', 'participants:id,uuid,name'])
             ->withCount(['participants as joined_count' => fn ($q) => $q->where('meeting_participants.status', 'joined')])
             ->where(fn ($q) => $q->where('host_id', $me->id)
                 ->orWhereHas('participants', fn ($p) => $p->where('users.id', $me->id)))
@@ -173,6 +173,13 @@ class MeetingController extends Controller
             'host' => ['uuid' => $meeting->host->uuid, 'name' => $meeting->host->name],
             'is_host' => $meeting->host_id === $request->user()->id,
             'joined_count' => $meeting->joined_count ?? null,
+            'ended_at' => $meeting->ended_at?->toIso8601String(),
+            'duration_seconds' => $meeting->started_at && $meeting->ended_at
+                ? max(0, (int) $meeting->started_at->diffInSeconds($meeting->ended_at))
+                : null,
+            'participants' => $meeting->relationLoaded('participants')
+                ? $meeting->participants->map(fn ($p) => $p->name)->unique()->values()
+                : [],
             'created_at' => $meeting->created_at->toIso8601String(),
         ];
     }

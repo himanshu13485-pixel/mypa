@@ -4,8 +4,9 @@ import { Check, Flag, Search, UserPlus, X } from 'lucide-react'
 import { badges as badgesApi, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
 import { REPORT_REASONS } from '../types'
 import { errorMessage } from '../api/client'
+import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
-import { Badge, Button, Card, EmptyState, ErrorNote, Input, Spinner } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorNote, Spinner } from '../components/ui'
 
 export default function ConnectionsPage() {
   const queryClient = useQueryClient()
@@ -99,12 +100,14 @@ export default function ConnectionsPage() {
         <Card>
           <h2 className="mb-2 text-sm font-semibold">Find a user</h2>
           <div className="flex gap-2">
-            <Input
-              placeholder="username or email"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && search()}
-            />
+            <div className="flex-1">
+              <UserSuggest
+                placeholder="username or email"
+                value={query}
+                onChange={setQuery}
+                onEnter={search}
+              />
+            </div>
             <Button onClick={search}>
               <Search className="size-4" />
             </Button>

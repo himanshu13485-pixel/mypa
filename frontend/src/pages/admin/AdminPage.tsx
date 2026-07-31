@@ -11,6 +11,7 @@ import { admin, adminBilling, adminCare, adminInternal, adminOps, adminSales, id
 import type { AdminPlan } from '../../types'
 import { api, errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
+import UserSuggest from '../../components/UserSuggest'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner,
 } from '../../components/ui'
@@ -673,7 +674,83 @@ function UserSummaryModal({ user, onClose }: { user: User; onClose: () => void }
           ))}
         </div>
       )}
+      <RecordsSection userUuid={user.uuid} />
     </Modal>
+  )
+}
+
+/**
+ * Oversight records for admins: WHO called/messaged WHOM and when — never
+ * the content. Call audio is not stored anywhere; message bodies are only
+ * ever visible through the moderation flow when a user reports one.
+ */
+function RecordsSection({ userUuid }: { userUuid: string }) {
+  const [tab, setTab] = useState<'none' | 'calls' | 'chats'>('none')
+  const { data: callRecs } = useQuery({
+    queryKey: ['admin-call-records', userUuid],
+    queryFn: () => adminOps.callRecords(userUuid),
+    enabled: tab === 'calls',
+  })
+  const { data: chatRecs } = useQuery({
+    queryKey: ['admin-chat-records', userUuid],
+    queryFn: () => adminOps.messageRecords(userUuid),
+    enabled: tab === 'chats',
+  })
+
+  return (
+    <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+      <div className="mb-2 flex items-center gap-2">
+        <p className="text-xs font-semibold text-slate-500">Records (metadata only — no content)</p>
+        <Button size="sm" variant={tab === 'calls' ? 'primary' : 'secondary'} onClick={() => setTab(tab === 'calls' ? 'none' : 'calls')}>
+          Call records
+        </Button>
+        <Button size="sm" variant={tab === 'chats' ? 'primary' : 'secondary'} onClick={() => setTab(tab === 'chats' ? 'none' : 'chats')}>
+          Chat records
+        </Button>
+      </div>
+      {tab === 'calls' && (
+        !callRecs ? <Spinner /> : !callRecs.data.length ? (
+          <p className="text-xs text-slate-400">No calls on record.</p>
+        ) : (
+          <div className="max-h-52 space-y-1 overflow-y-auto">
+            {callRecs.data.map((c) => (
+              <div key={c.uuid} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-100 px-2.5 py-1.5 text-xs dark:border-slate-800">
+                <span>
+                  <Badge value={c.type} className="mr-1.5" />
+                  {c.participants.join(' ↔ ')}
+                </span>
+                <span className="text-slate-400">
+                  {c.status}
+                  {c.duration_seconds != null && c.status === 'ended' && ` · ${Math.floor(c.duration_seconds / 60)}:${String(c.duration_seconds % 60).padStart(2, '0')}`}
+                  {c.started_at && ` · ${format(new Date(c.started_at), 'd MMM, HH:mm')}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+      {tab === 'chats' && (
+        !chatRecs ? <Spinner /> : !chatRecs.data.length ? (
+          <p className="text-xs text-slate-400">No conversations on record.</p>
+        ) : (
+          <div className="max-h-52 space-y-1 overflow-y-auto">
+            {chatRecs.data.map((c) => (
+              <div key={c.uuid} className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate-100 px-2.5 py-1.5 text-xs dark:border-slate-800">
+                <span>
+                  <Badge value={c.type} className="mr-1.5" />
+                  {c.name}
+                  <span className="ml-1 text-slate-400">({c.members.join(', ')})</span>
+                </span>
+                <span className="text-slate-400">
+                  {c.messages_count} message(s)
+                  {c.last_message_at && ` · last ${format(new Date(c.last_message_at), 'd MMM, HH:mm')}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </div>
   )
 }
 
@@ -1170,12 +1247,14 @@ function InternalTab() {
       <Card className="self-start">
         <h2 className="mb-2 text-sm font-semibold">Discussions</h2>
         <div className="mb-3 flex gap-1">
-          <Input
-            placeholder="username or email…"
-            value={identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && identifier.trim() && startThread()}
-          />
+          <div className="flex-1">
+            <UserSuggest
+              placeholder="username or email…"
+              value={identifier}
+              onChange={setIdentifier}
+              onEnter={() => identifier.trim() && startThread()}
+            />
+          </div>
           <Button size="sm" variant="secondary" onClick={startThread} disabled={!identifier.trim()}>
             <Search className="size-4" />
           </Button>

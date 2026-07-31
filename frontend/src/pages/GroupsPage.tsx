@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom'
 import { CheckSquare, Plus, Trash2, UserPlus, Users } from 'lucide-react'
 import { badges as badgesApi, groups as groupsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
 import { GROUP_TYPES, type GroupItem } from '../types'
@@ -252,12 +253,14 @@ export default function GroupsPage() {
                 <h3 className="text-sm font-semibold">Add member</h3>
                 <ErrorNote message={error} />
                 <div className="flex gap-2">
-                  <Input
-                    placeholder="username or email"
-                    value={memberAppId}
-                    onChange={(e) => setMemberAppId(e.target.value)}
-                    required
-                  />
+                  <div className="flex-1">
+                    <UserSuggest
+                      placeholder="username or email"
+                      value={memberAppId}
+                      onChange={setMemberAppId}
+                      required
+                    />
+                  </div>
                   <Select className="w-32" value={memberRole} onChange={(e) => setMemberRole(e.target.value)}>
                     {['admin', 'manager', 'member', 'viewer'].map((r) => (
                       <option key={r} value={r}>{r}</option>

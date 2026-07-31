@@ -7,6 +7,7 @@ import { format } from 'date-fns'
 import { clsx } from 'clsx'
 import { projects as projectsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import type { ProjectItem, ProjectEntryItem, ProjectSummaryRow } from '../types'
 import {
@@ -654,9 +655,9 @@ function ShareProjectModal({
         <div className="flex items-end gap-2">
           <div className="flex-1">
             <Label>Share with (username or email)</Label>
-            <Input
+            <UserSuggest
               value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              onChange={setIdentifier}
               placeholder="rahul or priya@mypa.local"
               autoFocus
             />

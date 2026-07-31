@@ -12,6 +12,42 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
 class ConnectionController extends Controller
 {
+    /**
+     * Typeahead over MY accepted connections: matches name / username / email.
+     * Used by every share/search box so people never have to type exactly.
+     */
+    public function suggest(\Illuminate\Http\Request $request): \Illuminate\Http\JsonResponse
+    {
+        $q = trim((string) $request->query('q'));
+        if (mb_strlen($q) < 1) {
+            return response()->json(['data' => []]);
+        }
+
+        $me = $request->user();
+        $ids = \App\Models\Connection::where('status', 'accepted')
+            ->where(fn ($w) => $w->where('requester_id', $me->id)->orWhere('addressee_id', $me->id))
+            ->get(['requester_id', 'addressee_id'])
+            ->flatMap(fn ($c) => [$c->requester_id, $c->addressee_id])
+            ->unique()
+            ->reject(fn ($id) => $id === $me->id);
+
+        $users = \App\Models\User::whereIn('id', $ids)
+            ->where(fn ($w) => $w->where('name', 'like', "%{$q}%")
+                ->orWhere('username', 'like', "%{$q}%")
+                ->orWhere('email', 'like', "%{$q}%"))
+            ->orderBy('name')
+            ->limit(8)
+            ->get(['id', 'uuid', 'name', 'username', 'email'])
+            ->map(fn ($u) => [
+                'uuid' => $u->uuid,
+                'name' => $u->name,
+                'username' => $u->username,
+                'email' => $u->email,
+            ]);
+
+        return response()->json(['data' => $users]);
+    }
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $me = $request->user();

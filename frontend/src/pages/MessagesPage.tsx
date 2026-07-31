@@ -6,6 +6,7 @@ import {
   Square, Trash2, Video, X,
 } from 'lucide-react'
 import { conversationMembers, reportsApi } from '../api/endpoints'
+import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
 import { clsx } from 'clsx'
@@ -219,10 +220,10 @@ export default function MessagesPage() {
     sendMutation.mutate(form)
   }
 
-  const startNewChat = () => {
-    const appId = prompt('Enter the username or email to message:')
-    if (!appId?.trim()) return
-    chat.start(appId.trim()).then((c) => {
+  const [showNewChat, setShowNewChat] = useState(false)
+  const startNewChat = () => setShowNewChat(true)
+  const beginChatWith = (identifier: string) => {
+    chat.start(identifier).then((c) => {
       setSelected(c)
       queryClient.invalidateQueries({ queryKey: ['conversations'] })
     }).catch((err) => alert(errorMessage(err)))
@@ -311,7 +312,15 @@ export default function MessagesPage() {
                   )}
                 </div>
               </div>
-              {showMembers && selected && (
+              {showNewChat && (
+        <PickUserModal
+          title="Start a conversation"
+          actionLabel="Message"
+          onClose={() => setShowNewChat(false)}
+          onSubmit={beginChatWith}
+        />
+      )}
+      {showMembers && selected && (
                 <MembersModal conversationUuid={selected.uuid} onClose={() => setShowMembers(false)} />
               )}
               <div className="flex gap-1">

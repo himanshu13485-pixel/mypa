@@ -143,6 +143,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/notes/{note}/share', [NoteController::class, 'share']);
         Route::get('/notes/{note}/versions', [NoteController::class, 'versions']);
 
+        Route::get('/connections/suggest', [\App\Http\Controllers\Api\V1\ConnectionController::class, 'suggest']);
+
         // Meetings (Meet-style link rooms)
         Route::get('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'index']);
         Route::post('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'store']);
@@ -286,6 +288,8 @@ Route::prefix('v1')->group(function () {
             // Users (subadmins need a grant)
             Route::get('/users', [AdminUserController::class, 'index'])->middleware('module:users,view');
             Route::get('/users/{user}/summary', [AdminUserController::class, 'summary'])->middleware('module:users,view');
+            Route::get('/users/{user}/call-records', [AdminUserController::class, 'callRecords'])->middleware('module:users,view');
+            Route::get('/users/{user}/message-records', [AdminUserController::class, 'messageRecords'])->middleware('module:users,view');
             Route::post('/users/{user}/suspend', [AdminUserController::class, 'suspend'])->middleware('module:users,delete');
             Route::post('/users/{user}/activate', [AdminUserController::class, 'activate'])->middleware('module:users,edit');
 

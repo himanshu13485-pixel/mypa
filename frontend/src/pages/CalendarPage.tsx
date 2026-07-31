@@ -9,6 +9,7 @@ import { clsx } from 'clsx'
 import { Link } from 'react-router-dom'
 import { events as eventsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import UserSuggest from '../components/UserSuggest'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
 import { EVENT_TYPES, type CalendarEvent, type CalendarFeedTask } from '../types'
 
@@ -302,7 +303,7 @@ export default function CalendarPage() {
             </div>
             <div>
               <Label>Invite participants (usernames/emails, comma separated)</Label>
-              <Input placeholder="rahul, priya@mypa.local" value={form.participants} onChange={(e) => setForm({ ...form, participants: e.target.value })} />
+              <UserSuggest multi placeholder="rahul, priya@mypa.local" value={form.participants} onChange={(v) => setForm({ ...form, participants: v })} />
               {editing && editing.participants.length > 0 && (
                 <p className="mt-1 text-xs text-slate-400">
                   Invited: {editing.participants.map((p) => `${p.name} (${p.status})`).join(', ')}

@@ -5,6 +5,7 @@ import { formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import { badges as badgesApi, notes as notesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import UserSuggest from '../components/UserSuggest'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../components/ui'
 import type { Note } from '../types'
 
@@ -350,7 +351,7 @@ export default function NotesPage() {
             <ErrorNote message={error} />
             <div>
               <Label>Share with (username or email)</Label>
-              <Input placeholder="username or email" value={shareAppId} onChange={(e) => setShareAppId(e.target.value)} required autoFocus />
+              <UserSuggest placeholder="username or email" value={shareAppId} onChange={setShareAppId} required autoFocus />
             </div>
             <div>
               <Label>Permission</Label>

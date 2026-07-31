@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { clsx } from 'clsx'
 import { badges as badgesApi, categories as categoriesApi, groups as groupsApi, tasks as tasksApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import UserSuggest from '../components/UserSuggest'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea,
 } from '../components/ui'
@@ -413,9 +414,10 @@ export default function TasksPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Assign to (usernames/emails, comma separated)</Label>
-                <Input
+                <UserSuggest
+                  multi
                   value={form.assignees}
-                  onChange={(e) => setForm({ ...form, assignees: e.target.value })}
+                  onChange={(v) => setForm({ ...form, assignees: v })}
                   placeholder="rahul, priya@mypa.local"
                 />
               </div>

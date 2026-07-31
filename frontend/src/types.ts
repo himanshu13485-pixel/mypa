@@ -639,6 +639,9 @@ export interface MeetingItem {
   host: { uuid: string; name: string }
   is_host: boolean
   joined_count?: number | null
+  ended_at?: string | null
+  duration_seconds?: number | null
+  participants?: string[]
   created_at: string
 }
 
@@ -649,4 +652,23 @@ export interface MeetingSignalPayload {
   from_name?: string | null
   signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice'
   payload: Record<string, unknown>
+}
+
+export interface AdminCallRecord {
+  uuid: string
+  type: 'audio' | 'video'
+  status: string
+  started_at?: string | null
+  duration_seconds?: number | null
+  caller?: string | null
+  participants: string[]
+}
+
+export interface AdminChatRecord {
+  uuid: string
+  type: string
+  name: string
+  members: string[]
+  messages_count: number
+  last_message_at?: string | null
 }

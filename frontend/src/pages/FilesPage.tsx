@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { badges as badgesApi, files as filesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import { PickUserModal } from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card, EmptyState, Spinner } from '../components/ui'
 
@@ -45,6 +46,7 @@ export default function FilesPage() {
 
   const [folder, setFolder] = useState<string | undefined>(undefined)
   const [view, setView] = useState<'mine' | 'shared' | 'byme' | 'trash'>('mine')
+  const [shareTarget, setShareTarget] = useState<{ kind: 'file' | 'folder'; uuid: string; name: string } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const { data, isLoading } = useQuery({
@@ -194,14 +196,7 @@ export default function FilesPage() {
                   <button
                     className="rounded p-1.5 text-slate-400 hover:text-brand-600"
                     title="Share folder (all files inside)"
-                    onClick={() => {
-                      const target = prompt(`Share folder "${f.name}" with (username or email):`)
-                      if (target?.trim()) {
-                        filesApi.shareFolder(f.uuid, target.trim())
-                          .then((res) => alert((res as { data?: { message?: string } }).data?.message ?? 'Folder shared.'))
-                          .catch((err) => alert(errorMessage(err)))
-                      }
-                    }}
+                    onClick={() => setShareTarget({ kind: 'folder', uuid: f.uuid, name: f.name })}
                   >
                     <Share2 className="size-4" />
                   </button>
@@ -245,14 +240,7 @@ export default function FilesPage() {
                   <button
                     className="rounded p-1.5 text-slate-400 hover:text-brand-600"
                     title="Share"
-                    onClick={() => {
-                      const appId = prompt('Share with (username or email):')
-                      if (appId?.trim()) {
-                        filesApi.share(f.uuid, appId.trim())
-                          .then(() => alert('Shared.'))
-                          .catch((err) => alert(errorMessage(err)))
-                      }
-                    }}
+                    onClick={() => setShareTarget({ kind: 'file', uuid: f.uuid, name: f.name })}
                   >
                     <Share2 className="size-4" />
                   </button>
@@ -394,6 +382,23 @@ export default function FilesPage() {
             ))
           )}
         </div>
+      )}
+
+      {shareTarget && (
+        <PickUserModal
+          title={`Share ${shareTarget.kind} “${shareTarget.name}” with`}
+          actionLabel="Share"
+          onClose={() => setShareTarget(null)}
+          onSubmit={(identifier) => {
+            const call =
+              shareTarget.kind === 'folder'
+                ? filesApi.shareFolder(shareTarget.uuid, identifier)
+                : filesApi.share(shareTarget.uuid, identifier)
+            call
+              .then((res) => alert((res as { data?: { message?: string } }).data?.message ?? 'Shared.'))
+              .catch((err) => alert(errorMessage(err)))
+          }}
+        />
       )}
 
       {view === 'trash' && (

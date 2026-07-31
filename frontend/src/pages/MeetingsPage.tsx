@@ -116,6 +116,13 @@ export default function MeetingsPage() {
                   {m.scheduled_at && ` · ${format(new Date(m.scheduled_at), 'd MMM, HH:mm')}`}
                   {!m.scheduled_at && ` · created ${formatDistanceToNow(new Date(m.created_at), { addSuffix: true })}`}
                 </p>
+                {m.status === 'ended' && (
+                  <p className="text-[11px] text-slate-400">
+                    {m.started_at && `Held ${format(new Date(m.started_at), 'd MMM, HH:mm')}`}
+                    {m.duration_seconds != null && ` · lasted ${Math.max(1, Math.round(m.duration_seconds / 60))} min`}
+                    {!!m.participants?.length && ` · ${m.participants.length} attended: ${m.participants.join(', ')}`}
+                  </p>
+                )}
               </div>
               <div className="flex gap-1.5">
                 <Button size="sm" variant="secondary" title="Copy invite link" onClick={() => copyLink(m)}>

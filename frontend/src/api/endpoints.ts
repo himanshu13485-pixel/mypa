@@ -148,6 +148,10 @@ export const adminOps = {
     api.get<{ data: import('../types').ActiveMember[] }>('/admin/active-members').then((r) => r.data.data),
   userSummary: (uuid: string) =>
     api.get<{ data: import('../types').UserActivitySummary }>(`/admin/users/${uuid}/summary`).then((r) => r.data.data),
+  callRecords: (uuid: string, page = 1) =>
+    api.get<Paginated<import('../types').AdminCallRecord>>(`/admin/users/${uuid}/call-records`, { params: { page } }).then((r) => r.data),
+  messageRecords: (uuid: string, page = 1) =>
+    api.get<Paginated<import('../types').AdminChatRecord>>(`/admin/users/${uuid}/message-records`, { params: { page } }).then((r) => r.data),
   modulePermissions: (uuid: string) =>
     api.get<{ data: Record<string, { can_view: boolean; can_edit: boolean; can_delete: boolean }> }>(
       `/admin/users/${uuid}/module-permissions`,
