@@ -36,7 +36,11 @@ export default function MeetingsPage() {
   })
 
   const join = () => {
-    const code = joinCode.trim().toLowerCase().replace(/[^a-z-]/g, '')
+    // Accept a bare code OR a full pasted invite link — extract the
+    // xxx-xxxx-xxx part from whatever was entered.
+    const raw = joinCode.trim().toLowerCase()
+    const fromLink = raw.match(/[a-z]{3}-[a-z]{4}-[a-z]{3}/)
+    const code = fromLink ? fromLink[0] : raw.replace(/[^a-z-]/g, '')
     if (!code) return
     navigate(`/meetings/room/${code}`)
   }
@@ -79,7 +83,7 @@ export default function MeetingsPage() {
           <p className="text-sm font-semibold">Join with a code</p>
           <div className="flex w-full gap-1">
             <Input
-              placeholder="abc-defg-hij"
+              placeholder="code or invite link"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && join()}
