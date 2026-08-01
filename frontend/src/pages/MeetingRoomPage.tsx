@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Copy, Mic, MicOff, MonitorUp, PhoneOff, Users, Video, VideoOff,
+  Copy, Hand, Mic, MicOff, MonitorUp, PhoneOff, SmilePlus, Users, Video, VideoOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
@@ -13,13 +13,18 @@ import { Button, Card } from '../components/ui'
 import { meetingLink } from './MeetingsPage'
 import type { MeetingSignalPayload } from '../types'
 
+const REACTIONS: Record<string, string> = {
+  thumbsup: '\u{1F44D}', clap: '\u{1F44F}', heart: '\u{2764}\u{FE0F}', laugh: '\u{1F602}',
+  wow: '\u{1F62E}', party: '\u{1F389}', hand: '\u{270B}',
+}
+
 interface Peer {
   uuid: string
   name: string
   stream: MediaStream | null
 }
 
-function PeerTile({ peer, video }: { peer: Peer; video: boolean }) {
+function PeerTile({ peer, video, burst, hand }: { peer: Peer; video: boolean; burst?: string; hand?: boolean }) {
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
       el.srcObject = peer.stream
@@ -34,6 +39,8 @@ function PeerTile({ peer, video }: { peer: Peer; video: boolean }) {
           {peer.name.charAt(0)}
         </span>
         {peer.name}
+        {hand && <span className="text-base">{REACTIONS.hand}</span>}
+        {burst && <span className="animate-bounce text-xl">{REACTIONS[burst]}</span>}
       </div>
     )
   }
@@ -41,8 +48,11 @@ function PeerTile({ peer, video }: { peer: Peer; video: boolean }) {
     <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
       <video ref={attach} autoPlay playsInline className="h-full w-full object-cover" />
       <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
-        {peer.name}
+        {peer.name}{hand && ` ${REACTIONS.hand}`}
       </span>
+      {burst && (
+        <span className="absolute right-2 top-2 animate-bounce text-4xl drop-shadow">{REACTIONS[burst]}</span>
+      )}
     </div>
   )
 }
@@ -66,6 +76,10 @@ export default function MeetingRoomPage() {
   const [elapsed, setElapsed] = useState(0)
   const [copied, setCopied] = useState(false)
   const [myName, setMyName] = useState<string | null>(null)
+  const [showReactions, setShowReactions] = useState(false)
+  const [bursts, setBursts] = useState<Record<string, string>>({}) // uuid -> emoji key
+  const [hands, setHands] = useState<Set<string>>(new Set())
+  const [myHand, setMyHand] = useState(false)
 
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
@@ -137,6 +151,27 @@ export default function MeetingRoomPage() {
     setPeers((p) => p.filter((x) => x.uuid !== peerUuid))
   }, [])
 
+  const showBurst = useCallback((uuid: string, key: string) => {
+    if (key === 'hand') {
+      setHands((h) => new Set(h).add(uuid))
+      return
+    }
+    if (key === 'hand_down') {
+      setHands((h) => {
+        const next = new Set(h)
+        next.delete(uuid)
+        return next
+      })
+      return
+    }
+    setBursts((b) => ({ ...b, [uuid]: key }))
+    setTimeout(() => setBursts((b) => {
+      const next = { ...b }
+      if (next[uuid] === key) delete next[uuid]
+      return next
+    }), 3500)
+  }, [])
+
   const teardown = useCallback(() => {
     pcsRef.current.forEach((pc) => pc.close())
     pcsRef.current.clear()
@@ -191,6 +226,9 @@ export default function MeetingRoomPage() {
         case 'rename':
           setPeers((p) => p.map((x) => (x.uuid === signal.from_uuid ? { ...x, name: (signal.payload.name as string) ?? x.name } : x)))
           break
+        case 'react':
+          showBurst(signal.from_uuid, signal.payload.emoji as string)
+          break
         case 'end':
           teardown()
           setPhase('ended')
@@ -239,7 +277,7 @@ export default function MeetingRoomPage() {
     return () => {
       channel.stopListening('.meeting.signal')
     }
-  }, [user?.uuid, code, createPeer, removePeer, teardown, flushPendingIce])
+  }, [user?.uuid, code, createPeer, removePeer, teardown, flushPendingIce, showBurst])
 
   // Timer + leave-on-unmount.
   useEffect(() => {
@@ -317,6 +355,18 @@ export default function MeetingRoomPage() {
     navigate('/meetings')
   }
 
+  const sendReaction = (key: string) => {
+    setShowReactions(false)
+    if (key === 'hand') {
+      const next = !myHand
+      setMyHand(next)
+      meetingsApi.react(code, next ? 'hand' : 'hand_down').catch(() => undefined)
+      return
+    }
+    showBurst('me', key)
+    meetingsApi.react(code, key).catch(() => undefined)
+  }
+
   const changeMyName = () => {
     const name = prompt('Your name for this meeting:', myName ?? user?.name ?? '')
     if (!name?.trim()) return
@@ -377,12 +427,13 @@ export default function MeetingRoomPage() {
         {isVideo && (
           <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
             <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+            {bursts.me && <span className="absolute right-2 top-2 animate-bounce text-4xl drop-shadow">{REACTIONS[bursts.me]}</span>}
             <button
               className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white hover:bg-black/80"
               title="Change your name for this meeting"
               onClick={changeMyName}
             >
-              {myName ?? 'You'}{sharing && ' (sharing screen)'} ✎
+              {myName ?? 'You'}{myHand && ` ${REACTIONS.hand}`}{sharing && ' (sharing screen)'} ✎
             </button>
           </div>
         )}
@@ -392,7 +443,7 @@ export default function MeetingRoomPage() {
           </Card>
         )}
         {peers.map((p) => (
-          <PeerTile key={p.uuid} peer={p} video={isVideo} />
+          <PeerTile key={p.uuid} peer={p} video={isVideo} burst={bursts[p.uuid]} hand={hands.has(p.uuid)} />
         ))}
         {!isVideo && (
           <button
@@ -423,6 +474,28 @@ export default function MeetingRoomPage() {
             </Button>
           </>
         )}
+        <div className="relative">
+          <Button size="sm" variant="secondary" title="Send a reaction" onClick={() => setShowReactions((s) => !s)}>
+            <SmilePlus className="size-4" />
+          </Button>
+          {showReactions && (
+            <div className="absolute bottom-11 left-1/2 z-20 flex -translate-x-1/2 gap-1 rounded-xl border border-slate-200 bg-white p-1.5 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+              {Object.entries(REACTIONS).filter(([k]) => k !== 'hand').map(([key, emoji]) => (
+                <button key={key} className="rounded-lg p-1 text-xl hover:bg-slate-100 dark:hover:bg-slate-800" onClick={() => sendReaction(key)}>
+                  {emoji}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <Button
+          size="sm"
+          variant={myHand ? 'primary' : 'secondary'}
+          title={myHand ? 'Lower hand' : 'Raise hand'}
+          onClick={() => sendReaction('hand')}
+        >
+          <Hand className="size-4" />
+        </Button>
         <Button size="sm" variant="danger" onClick={leave}>
           <PhoneOff className="size-4" /> Leave
         </Button>

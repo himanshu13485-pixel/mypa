@@ -97,6 +97,45 @@ class MeetingTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_reactions_broadcast_to_the_room(): void
+    {
+        Event::fake([MeetingSignal::class]);
+        $meeting = $this->actingAs($this->host)->postJson('/api/v1/meetings', [])->json('data');
+        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
+
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting['code']}/react", [
+            'emoji' => 'thumbsup',
+        ])->assertOk();
+        Event::assertDispatched(MeetingSignal::class, fn ($e) => $e->signalType === 'react'
+            && $e->payload['emoji'] === 'thumbsup' && $e->toUserUuid === $this->host->uuid);
+
+        // Unknown emoji rejected; outsiders rejected.
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting['code']}/react", [
+            'emoji' => 'rocketship',
+        ])->assertStatus(422);
+        $this->actingAs($this->bob)->postJson("/api/v1/meetings/{$meeting['code']}/react", [
+            'emoji' => 'thumbsup',
+        ])->assertForbidden();
+    }
+
+    public function test_screen_sessions_are_separate_from_meetings(): void
+    {
+        $screen = $this->actingAs($this->host)->postJson('/api/v1/meetings', [
+            'is_screen' => true, 'title' => 'Screen share',
+        ])->assertCreated()->json('data');
+        $this->assertTrue($screen['is_screen']);
+        $this->actingAs($this->host)->postJson('/api/v1/meetings', ['title' => 'Normal'])->assertCreated();
+
+        // Meetings list excludes screen sessions and vice versa.
+        $meetings = $this->actingAs($this->host)->getJson('/api/v1/meetings')->json('data');
+        $screens = $this->actingAs($this->host)->getJson('/api/v1/meetings?screen=1')->json('data');
+        $this->assertCount(1, $meetings);
+        $this->assertEquals('Normal', $meetings[0]['title']);
+        $this->assertCount(1, $screens);
+        $this->assertEquals('Screen share', $screens[0]['title']);
+    }
+
     public function test_meeting_ends_itself_when_everyone_leaves(): void
     {
         $meeting = $this->actingAs($this->host)->postJson('/api/v1/meetings', [])->json('data');

@@ -22,6 +22,7 @@ class MeetingController extends Controller
 
         $meetings = Meeting::with(['host:id,uuid,name', 'participants:id,uuid,name'])
             ->withCount(['participants as joined_count' => fn ($q) => $q->where('meeting_participants.status', 'joined')])
+            ->where('is_screen', $request->boolean('screen'))
             ->where(fn ($q) => $q->where('host_id', $me->id)
                 ->orWhereHas('participants', fn ($p) => $p->where('users.id', $me->id)))
             ->orderByRaw("CASE status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 ELSE 2 END")
@@ -38,6 +39,7 @@ class MeetingController extends Controller
         $data = $request->validate([
             'title' => ['nullable', 'string', 'max:255'],
             'type' => ['sometimes', 'in:audio,video'],
+            'is_screen' => ['sometimes', 'boolean'],
             'scheduled_at' => ['sometimes', 'nullable', 'date'],
         ]);
 
@@ -46,6 +48,7 @@ class MeetingController extends Controller
             'code' => Meeting::generateCode(),
             'title' => $data['title'] ?? null,
             'type' => $data['type'] ?? 'video',
+            'is_screen' => (bool) ($data['is_screen'] ?? false),
             'scheduled_at' => $data['scheduled_at'] ?? null,
         ]);
 
@@ -142,6 +145,33 @@ class MeetingController extends Controller
         return response()->json(['message' => 'Meeting ended for everyone.']);
     }
 
+    /** Broadcast an emoji reaction (or raised hand) to everyone in the room. */
+    public function react(Request $request, Meeting $meeting): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($meeting->status === 'active', 409, 'Meeting is not active.');
+        $myPivot = $meeting->participants()->where('users.id', $me->id)->wherePivot('status', 'joined')->first()?->pivot;
+        abort_unless($myPivot !== null, 403, 'Join the meeting first.');
+
+        $data = $request->validate([
+            'emoji' => ['required', 'in:thumbsup,clap,heart,laugh,wow,party,hand,hand_down'],
+        ]);
+
+        $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
+        foreach ($others as $peer) {
+            broadcast(new MeetingSignal(
+                $meeting,
+                $me->uuid,
+                $myPivot->display_name ?? $me->name,
+                $peer->uuid,
+                'react',
+                ['emoji' => $data['emoji']],
+            ));
+        }
+
+        return response()->json(['message' => 'ok']);
+    }
+
     /** Change what I am called in THIS meeting; everyone inside sees it live. */
     public function rename(Request $request, Meeting $meeting): JsonResponse
     {
@@ -202,6 +232,7 @@ class MeetingController extends Controller
             'code' => $meeting->code,
             'title' => $meeting->title,
             'type' => $meeting->type,
+            'is_screen' => $meeting->is_screen,
             'status' => $meeting->status,
             'scheduled_at' => $meeting->scheduled_at?->toIso8601String(),
             'started_at' => $meeting->started_at?->toIso8601String(),

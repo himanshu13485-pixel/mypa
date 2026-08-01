@@ -638,6 +638,7 @@ export interface MeetingItem {
   started_at?: string | null
   host: { uuid: string; name: string }
   is_host: boolean
+  is_screen?: boolean
   joined_count?: number | null
   ended_at?: string | null
   duration_seconds?: number | null
@@ -650,7 +651,7 @@ export interface MeetingSignalPayload {
   meeting_type: 'audio' | 'video'
   from_uuid: string
   from_name?: string | null
-  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename'
+  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react'
   payload: Record<string, unknown>
 }
 

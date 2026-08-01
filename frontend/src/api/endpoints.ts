@@ -401,6 +401,9 @@ export const meetings = {
       `/meetings/${code}/join`,
     ).then((r) => r.data.data),
   leave: (code: string) => api.post(`/meetings/${code}/leave`),
+  react: (code: string, emoji: string) => api.post(`/meetings/${code}/react`, { emoji }),
+  listScreens: () =>
+    api.get<{ data: import('../types').MeetingItem[] }>('/meetings', { params: { screen: 1 } }).then((r) => r.data.data),
   rename: (code: string, display_name: string) =>
     api.post<{ message: string }>(`/meetings/${code}/name`, { display_name }).then((r) => r.data),
   end: (code: string) => api.post(`/meetings/${code}/end`),

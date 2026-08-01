@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
-  BarChart3, Calendar, CheckSquare, CreditCard, FileText, FolderKanban,
+  BarChart3, Calendar, CheckSquare, CreditCard, FileText, FolderKanban, MonitorUp,
   FolderOpen, LayoutDashboard, LogOut, Menu, MessageCircle, Moon, Phone,
   Briefcase, Receipt, Repeat, Settings, Shield, Star, Sun, Target, UserPlus, Users, Video, X,
 } from 'lucide-react'
@@ -31,6 +31,7 @@ const nav = [
   { to: '/messages', label: 'Messages', icon: MessageCircle },
   { to: '/calls', label: 'Calls', icon: Phone },
   { to: '/meetings', label: 'Meetings', icon: Video },
+  { to: '/screen', label: 'Screen', icon: MonitorUp },
   { to: '/notes', label: 'Notes', icon: FileText },
   { to: '/files', label: 'Files', icon: FolderOpen },
   { to: '/groups', label: 'Family & Teams', icon: Users },
