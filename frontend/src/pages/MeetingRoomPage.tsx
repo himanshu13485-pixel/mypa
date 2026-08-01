@@ -25,12 +25,18 @@ interface Peer {
 }
 
 function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boolean; burst?: string; hand?: boolean; isHost?: boolean }) {
+  const [portrait, setPortrait] = useState(false)
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
       el.srcObject = peer.stream
       el.play().catch(() => undefined)
+      if (el instanceof HTMLVideoElement) {
+        el.onloadedmetadata = () => setPortrait(el.videoHeight > el.videoWidth)
+      }
     }
   }
+  // Shared windows/screens must FIT (letterboxed), never crop like a camera.
+  const fit = peer.sharing || portrait
   if (!video) {
     return (
       <div className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white">
@@ -46,7 +52,7 @@ function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boo
   }
   return (
     <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
-      <video ref={attach} autoPlay playsInline className="h-full w-full object-cover" />
+      <video ref={attach} autoPlay playsInline className={fit ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
       <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
         {peer.name}{isHost && ' (Host)'}{hand && ` ${REACTIONS.hand}`}
       </span>
@@ -257,6 +263,9 @@ export default function MeetingRoomPage() {
           teardown()
           setPhase('denied')
           break
+        case 'share':
+          setPeers((p) => p.map((x) => (x.uuid === signal.from_uuid ? { ...x, sharing: !!signal.payload.on } : x)))
+          break
         case 'chat':
           setChatMsgs((m) => [...m, {
             from: signal.from_uuid,
@@ -279,6 +288,9 @@ export default function MeetingRoomPage() {
             const answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
             await meetingsApi.signal(code, 'answer', { sdp: answer.sdp, type: answer.type }, signal.from_uuid)
+            if (displayTrackRef.current) {
+              meetingsApi.signal(code, 'share', { on: true }, signal.from_uuid).catch(() => undefined)
+            }
           } catch (err) {
             console.warn('[meeting] offer handling failed', err)
           }
@@ -368,6 +380,9 @@ export default function MeetingRoomPage() {
       const track = display.getVideoTracks()[0]
       displayTrackRef.current = track
       track.onended = stopShare
+      pcsRef.current.forEach((_, uuid) => {
+        meetingsApi.signal(code, 'share', { on: true }, uuid).catch(() => undefined)
+      })
       pcsRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         sender?.replaceTrack(track).catch(() => undefined)
@@ -387,6 +402,9 @@ export default function MeetingRoomPage() {
     })
     displayTrackRef.current?.stop() // release the browser's "sharing your screen" bar
     displayTrackRef.current = null
+    pcsRef.current.forEach((_, uuid) => {
+      meetingsApi.signal(code, 'share', { on: false }, uuid).catch(() => undefined)
+    })
     if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
     setSharing(false)
   }
@@ -553,7 +571,7 @@ export default function MeetingRoomPage() {
       >
         {isVideo && (
           <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
-            <video ref={localVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+            <video ref={localVideoRef} autoPlay playsInline muted className={sharing ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
             {bursts.me && <span className="absolute right-2 top-2 animate-bounce text-4xl drop-shadow">{REACTIONS[bursts.me]}</span>}
             <button
               className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white hover:bg-black/80"

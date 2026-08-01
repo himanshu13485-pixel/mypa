@@ -307,7 +307,7 @@ class MeetingController extends Controller
         );
 
         $data = $request->validate([
-            'signal' => ['required', 'in:offer,answer,ice'],
+            'signal' => ['required', 'in:offer,answer,ice,share'],
             'payload' => ['required', 'array'],
             'to_uuid' => ['required', 'uuid'],
         ]);

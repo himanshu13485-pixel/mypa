@@ -652,7 +652,7 @@ export interface MeetingSignalPayload {
   meeting_type: 'audio' | 'video'
   from_uuid: string
   from_name?: string | null
-  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat'
+  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat' | 'share'
   payload: Record<string, unknown>
 }
 

@@ -413,7 +413,7 @@ export const meetings = {
   rename: (code: string, display_name: string) =>
     api.post<{ message: string }>(`/meetings/${code}/name`, { display_name }).then((r) => r.data),
   end: (code: string) => api.post(`/meetings/${code}/end`),
-  signal: (code: string, signal: 'offer' | 'answer' | 'ice', payload: Record<string, unknown>, toUuid: string) =>
+  signal: (code: string, signal: 'offer' | 'answer' | 'ice' | 'share', payload: Record<string, unknown>, toUuid: string) =>
     api.post(`/meetings/${code}/signal`, { signal, payload, to_uuid: toUuid }),
 }
 
