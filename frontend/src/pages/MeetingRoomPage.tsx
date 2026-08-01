@@ -22,6 +22,7 @@ interface Peer {
   uuid: string
   name: string
   stream: MediaStream | null
+  sharing?: boolean
 }
 
 function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boolean; burst?: string; hand?: boolean; isHost?: boolean }) {
