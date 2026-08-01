@@ -139,6 +139,9 @@ export default function Layout() {
           </div>
           <span className="text-base font-semibold">Netvork</span>
         </div>
+        <p className="-mt-2 px-5 pb-2 text-[10px] italic text-slate-400">
+          One App. Every Task. Every Connection.
+        </p>
         {links}
         <div className="border-t border-slate-200 p-3 dark:border-slate-800">
           <div className="px-3 py-1">
@@ -170,7 +173,9 @@ export default function Layout() {
           <button className="lg:hidden" onClick={() => setSidebarOpen(true)}>
             <Menu className="size-5" />
           </button>
-          <div className="hidden lg:block" />
+          <p className="hidden select-none text-sm font-medium italic tracking-wide text-slate-400 lg:block">
+            One App. Every Task. Every Connection.
+          </p>
           <div className="flex items-center gap-2">
             <NotificationBell />
             <button
