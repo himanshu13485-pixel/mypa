@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, Expand, MonitorOff, MonitorUp, Pause, Play, Users } from 'lucide-react'
+import { Copy, Expand, Eye, EyeOff, MonitorOff, MonitorUp, Pause, Play, Users, Volume2, VolumeX } from 'lucide-react'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
@@ -24,6 +24,8 @@ export default function ScreenSessionPage() {
   const [viewers, setViewers] = useState<{ uuid: string; name: string }[]>([])
   const [paused, setPaused] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
+  const [viewerMuted, setViewerMuted] = useState(true)
   const [elapsed, setElapsed] = useState(0)
 
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
@@ -78,7 +80,6 @@ export default function ScreenSessionPage() {
         if (session.is_host) {
           const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
           displayStreamRef.current = display
-          if (videoRef.current) videoRef.current.srcObject = display
           display.getVideoTracks()[0].onended = () => stopSharing()
           await meetingsApi.join(code)
           setPhase('live')
@@ -101,9 +102,10 @@ export default function ScreenSessionPage() {
             pc.ontrack = (e) => {
               if (videoRef.current && videoRef.current.srcObject !== e.streams[0]) {
                 videoRef.current.srcObject = e.streams[0]
-                videoRef.current.play().catch(() => undefined)
+                videoRef.current.play().catch((err) => console.warn('[screen] playback blocked', err))
               }
             }
+            pc.onconnectionstatechange = () => console.info('[screen] host connection:', pc.connectionState)
             const offer = await pc.createOffer()
             await pc.setLocalDescription(offer)
             await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, hostUuid)
@@ -138,9 +140,10 @@ export default function ScreenSessionPage() {
               pc.ontrack = (e) => {
                 if (videoRef.current && videoRef.current.srcObject !== e.streams[0]) {
                   videoRef.current.srcObject = e.streams[0]
-                  videoRef.current.play().catch(() => undefined)
+                  videoRef.current.play().catch((err) => console.warn('[screen] playback blocked', err))
                 }
               }
+              pc.onconnectionstatechange = () => console.info('[screen] host connection:', pc.connectionState)
               const offer = await pc.createOffer()
               await pc.setLocalDescription(offer)
               await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, signal.from_uuid)
@@ -221,6 +224,18 @@ export default function ScreenSessionPage() {
     return () => clearInterval(t)
   }, [phase])
 
+  // If the browser blocked playback, the first click anywhere resumes it.
+  useEffect(() => {
+    const resume = () => {
+      document.querySelectorAll('video, audio').forEach((el) => {
+        const media = el as HTMLMediaElement
+        if (media.paused && media.srcObject) media.play().catch(() => undefined)
+      })
+    }
+    document.addEventListener('click', resume)
+    return () => document.removeEventListener('click', resume)
+  }, [])
+
   useEffect(() => {
     return () => {
       teardown()
@@ -228,6 +243,15 @@ export default function ScreenSessionPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const togglePreview = () => {
+    const next = !showPreview
+    setShowPreview(next)
+    if (videoRef.current) {
+      videoRef.current.srcObject = next ? displayStreamRef.current : null
+      if (next) videoRef.current.play().catch(() => undefined)
+    }
+  }
 
   const togglePause = () => {
     const next = !paused
@@ -308,7 +332,19 @@ export default function ScreenSessionPage() {
             <Spinner />
           </div>
         )}
-        <video ref={videoRef} autoPlay playsInline muted={isHost} className="h-full w-full object-contain" />
+        <video ref={videoRef} autoPlay playsInline muted={isHost || viewerMuted} className="h-full w-full object-contain" />
+        {isHost && !showPreview && phase === 'live' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-white">
+            <MonitorUp className="size-8 text-emerald-400" />
+            <p className="font-semibold">Your screen is being shared</p>
+            <p className="text-xs text-slate-400">
+              Preview is off to avoid the mirror-tunnel effect. {viewers.length} watching.
+            </p>
+            <p className="text-[11px] text-slate-500">
+              Tip: share a single window instead of the entire screen for the cleanest result.
+            </p>
+          </div>
+        )}
         {isHost && paused && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm text-white">
             Sharing paused — viewers see a frozen frame
@@ -319,6 +355,9 @@ export default function ScreenSessionPage() {
       <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         {isHost ? (
           <>
+            <Button size="sm" variant="secondary" onClick={togglePreview} title={showPreview ? 'Hide my preview' : 'Preview what viewers see'}>
+              {showPreview ? <EyeOff className="size-4" /> : <Eye className="size-4" />} Preview
+            </Button>
             <Button size="sm" variant="secondary" onClick={togglePause} title={paused ? 'Resume' : 'Pause sharing'}>
               {paused ? <Play className="size-4" /> : <Pause className="size-4" />} {paused ? 'Resume' : 'Pause'}
             </Button>
@@ -328,6 +367,21 @@ export default function ScreenSessionPage() {
           </>
         ) : (
           <>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                const next = !viewerMuted
+                setViewerMuted(next)
+                if (videoRef.current) {
+                  videoRef.current.muted = next
+                  videoRef.current.play().catch(() => undefined)
+                }
+              }}
+              title={viewerMuted ? 'Unmute shared audio' : 'Mute'}
+            >
+              {viewerMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+            </Button>
             <Button size="sm" variant="secondary" onClick={fullscreen} title="Fullscreen">
               <Expand className="size-4" /> Fullscreen
             </Button>

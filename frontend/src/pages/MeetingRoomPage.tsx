@@ -317,6 +317,19 @@ export default function MeetingRoomPage() {
     }
   }, [user?.uuid, code, createPeer, removePeer, teardown, flushPendingIce, showBurst, joinRoom])
 
+  // If the browser blocked media playback (autoplay policy), the first
+  // click anywhere resumes every stalled video/audio element.
+  useEffect(() => {
+    const resume = () => {
+      document.querySelectorAll('video, audio').forEach((el) => {
+        const media = el as HTMLMediaElement
+        if (media.paused && media.srcObject) media.play().catch(() => undefined)
+      })
+    }
+    document.addEventListener('click', resume)
+    return () => document.removeEventListener('click', resume)
+  }, [])
+
   // Timer + leave-on-unmount.
   useEffect(() => {
     if (phase !== 'in') return
