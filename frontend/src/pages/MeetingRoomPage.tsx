@@ -224,12 +224,17 @@ export default function MeetingRoomPage() {
     }
   }, [code, createPeer, ensureLocalStream])
 
-  // Join once the meeting is loaded.
+  // Join once the meeting is loaded. Screen-share codes belong to the
+  // Screen module - send them there instead of a meeting room.
   useEffect(() => {
     if (!meeting || joinedRef.current) return
+    if (meeting.is_screen) {
+      navigate(`/screen/session/${code}`, { replace: true })
+      return
+    }
     joinedRef.current = true
     joinRoom()
-  }, [meeting, joinRoom])
+  }, [meeting, joinRoom, navigate, code])
 
   // Signalling listener — shares the personal channel with calls, so only
   // stop OUR listener on unmount (never leave the channel itself).

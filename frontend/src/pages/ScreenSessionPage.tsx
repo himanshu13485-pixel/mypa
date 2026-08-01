@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Copy, Expand, Eye, EyeOff, MonitorOff, MonitorUp, Pause, Play, Users, Volume2, VolumeX } from 'lucide-react'
+import { Copy, Expand, Eye, EyeOff, Lock, LockOpen, MessageSquare, MonitorOff, MonitorUp, Pause, Play, Users, Volume2, VolumeX } from 'lucide-react'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
@@ -19,13 +19,22 @@ export default function ScreenSessionPage() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
 
-  const [phase, setPhase] = useState<'starting' | 'live' | 'ended' | 'error'>('starting')
+  const [phase, setPhase] = useState<'starting' | 'waiting' | 'denied' | 'live' | 'ended' | 'error'>('starting')
   const [errorMsg, setErrorMsg] = useState('')
   const [viewers, setViewers] = useState<{ uuid: string; name: string }[]>([])
   const [paused, setPaused] = useState(false)
   const [copied, setCopied] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
   const [viewerMuted, setViewerMuted] = useState(true)
+  const [knocks, setKnocks] = useState<{ uuid: string; name: string }[]>([])
+  const [approvalOn, setApprovalOn] = useState<boolean | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatUnread, setChatUnread] = useState(0)
+  const [chatTo, setChatTo] = useState('')
+  const [chatDraft, setChatDraft] = useState('')
+  const [chatMsgs, setChatMsgs] = useState<{ name: string; text: string; priv: boolean; me: boolean }[]>([])
+  const chatOpenRef = useRef(false)
+  chatOpenRef.current = chatOpen
   const [elapsed, setElapsed] = useState(0)
 
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
@@ -71,27 +80,26 @@ export default function ScreenSessionPage() {
     setViewers([])
   }, [])
 
-  // Start: host captures the screen then joins; viewer joins and offers to the host.
-  useEffect(() => {
-    if (!session || joinedRef.current) return
-    joinedRef.current = true
-    ;(async () => {
+  const startSession = useCallback(async () => {
+    const runStart = async () => {
       try {
+        if (!session) return
         if (session.is_host) {
           const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
           displayStreamRef.current = display
           display.getVideoTracks()[0].onended = () => stopSharing()
-          await meetingsApi.join(code)
+          const hostInfo = await meetingsApi.join(code)
           setPhase('live')
+          if (!('waiting' in hostInfo)) setApprovalOn(hostInfo.requires_approval ?? null)
         } else {
           const info = await meetingsApi.join(code)
           if ('waiting' in info && info.waiting) {
-            setPhase('error')
-            setErrorMsg('The sharer has a waiting room on — ask them to admit you or open access.')
+            setPhase('waiting')
             return
           }
           const room = info as Exclude<typeof info, { waiting: true }>
           setPhase('live')
+          setApprovalOn(room.requires_approval ?? null)
           // Viewers connect ONLY to the host, receive-only.
           const hostUuid = room.host.uuid
           const hostInside = (room.joined_peers ?? []).some((p) => p.uuid === hostUuid)
@@ -115,9 +123,22 @@ export default function ScreenSessionPage() {
         setPhase('error')
         setErrorMsg(err instanceof Error ? err.message : 'Could not start the session.')
       }
-    })()
+    }
+    await runStart()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, code])
+
+  // Kick off once loaded. Meeting codes belong to the Meetings module.
+  useEffect(() => {
+    if (!session || joinedRef.current) return
+    if (!session.is_screen) {
+      navigate(`/meetings/room/${code}`, { replace: true })
+      return
+    }
+    joinedRef.current = true
+    startSession()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session])
 
   // Signalling: host answers viewer offers with the display stream attached.
   useEffect(() => {
@@ -168,6 +189,25 @@ export default function ScreenSessionPage() {
           teardown()
           setPhase('ended')
           break
+        case 'knock':
+          setKnocks((k) => (k.some((x) => x.uuid === signal.from_uuid) ? k : [...k, { uuid: signal.from_uuid, name: signal.from_name ?? 'Someone' }]))
+          break
+        case 'admitted':
+          startSession()
+          break
+        case 'denied':
+          teardown()
+          setPhase('denied')
+          break
+        case 'chat':
+          setChatMsgs((m) => [...m, {
+            name: signal.from_name ?? 'Someone',
+            text: signal.payload.message as string,
+            priv: !!signal.payload.private,
+            me: false,
+          }])
+          if (!chatOpenRef.current) setChatUnread((n) => n + 1)
+          break
         case 'offer': {
           // Only the HOST receives offers (from viewers).
           if (!session.is_host || !displayStreamRef.current) return
@@ -216,7 +256,7 @@ export default function ScreenSessionPage() {
     return () => {
       channel.stopListening('.meeting.signal')
     }
-  }, [user?.uuid, session, code, newPeer, teardown, flushPendingIce])
+  }, [user?.uuid, session, code, newPeer, teardown, flushPendingIce, startSession])
 
   useEffect(() => {
     if (phase !== 'live') return
@@ -243,6 +283,14 @@ export default function ScreenSessionPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  const sendChat = () => {
+    const text = chatDraft.trim()
+    if (!text) return
+    setChatDraft('')
+    setChatMsgs((m) => [...m, { name: 'You', text, priv: !!chatTo, me: true }])
+    meetingsApi.chat(code, text, chatTo || null).catch(() => undefined)
+  }
 
   const togglePreview = () => {
     const next = !showPreview
@@ -277,6 +325,27 @@ export default function ScreenSessionPage() {
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
+  if (phase === 'waiting') {
+    return (
+      <Card className="mx-auto mt-10 max-w-md text-center">
+        <p className="text-sm font-semibold">Asking the sharer to let you in…</p>
+        <p className="mt-1 text-xs text-slate-400">
+          You will start watching automatically the moment they admit you — keep this page open.
+        </p>
+        <Button className="mt-4" variant="secondary" onClick={() => navigate('/screen')}>Cancel</Button>
+      </Card>
+    )
+  }
+
+  if (phase === 'denied') {
+    return (
+      <Card className="mx-auto mt-10 max-w-md text-center">
+        <p className="text-sm font-semibold">The sharer did not admit you</p>
+        <Button className="mt-4" onClick={() => navigate('/screen')}>Back to Screen</Button>
+      </Card>
+    )
+  }
+
   if (loadError || phase === 'error' || phase === 'ended') {
     return (
       <Card className="mx-auto mt-10 max-w-md text-center">
@@ -307,7 +376,35 @@ export default function ScreenSessionPage() {
                 {viewers.length > 0 && `: ${viewers.map((v) => v.name).join(', ')}`}
               </span>
             )}
+            {isHost && approvalOn !== null && (
+              <button
+                className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:text-brand-600 dark:bg-slate-800 dark:text-slate-400"
+                title={approvalOn ? 'Approval required — click for open access' : 'Open access — click to require your approval'}
+                onClick={() => {
+                  const next = !approvalOn
+                  meetingsApi.setApproval(code, next).then(() => setApprovalOn(next)).catch(() => undefined)
+                }}
+              >
+                {approvalOn ? <Lock className="size-3" /> : <LockOpen className="size-3" />}
+                {approvalOn ? 'Approval required' : 'Open access'}
+              </button>
+            )}
           </p>
+          {isHost && knocks.length > 0 && (
+            <div className="mt-1.5 space-y-1">
+              {knocks.map((k) => (
+                <div key={k.uuid} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs dark:border-amber-900 dark:bg-amber-950">
+                  <span className="font-medium">{k.name}</span> wants to watch
+                  <Button size="sm" onClick={() => { meetingsApi.admit(code, k.uuid, true).catch(() => undefined); setKnocks((ks) => ks.filter((x) => x.uuid !== k.uuid)) }}>
+                    Allow
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => { meetingsApi.admit(code, k.uuid, false).catch(() => undefined); setKnocks((ks) => ks.filter((x) => x.uuid !== k.uuid)) }}>
+                    Deny
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <Button
           size="sm"
@@ -352,7 +449,55 @@ export default function ScreenSessionPage() {
         )}
       </div>
 
+      {chatOpen && (
+        <div className="flex max-h-56 flex-col rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex-1 space-y-1 overflow-y-auto">
+            {!chatMsgs.length ? (
+              <p className="text-center text-xs text-slate-400">No messages yet. Chat disappears when the session ends.</p>
+            ) : (
+              chatMsgs.map((m, i) => (
+                <p key={i} className="text-sm">
+                  <span className={m.me ? 'font-semibold text-brand-600' : 'font-semibold'}>{m.name}</span>
+                  {m.priv && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300">private</span>}
+                  <span className="ml-1.5">{m.text}</span>
+                </p>
+              ))
+            )}
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <select
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+              value={chatTo}
+              onChange={(e) => setChatTo(e.target.value)}
+            >
+              <option value="">To everyone</option>
+              {isHost
+                ? viewers.map((v) => <option key={v.uuid} value={v.uuid}>Privately to {v.name}</option>)
+                : session && <option value={session.host.uuid}>Privately to {session.host.name}</option>}
+            </select>
+            <input
+              className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              placeholder={chatTo ? 'Private message…' : 'Message everyone…'}
+              value={chatDraft}
+              onChange={(e) => setChatDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && sendChat()}
+            />
+            <Button size="sm" onClick={sendChat} disabled={!chatDraft.trim()}>Send</Button>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+        <div className="relative">
+          <Button size="sm" variant={chatOpen ? 'primary' : 'secondary'} title="Session chat" onClick={() => { setChatOpen(!chatOpen); setChatUnread(0) }}>
+            <MessageSquare className="size-4" />
+          </Button>
+          {chatUnread > 0 && !chatOpen && (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+              {chatUnread}
+            </span>
+          )}
+        </div>
         {isHost ? (
           <>
             <Button size="sm" variant="secondary" onClick={togglePreview} title={showPreview ? 'Hide my preview' : 'Preview what viewers see'}>

@@ -50,7 +50,7 @@ class MeetingController extends Controller
             'title' => $data['title'] ?? null,
             'type' => $data['type'] ?? 'video',
             'is_screen' => (bool) ($data['is_screen'] ?? false),
-            'requires_approval' => (bool) ($data['requires_approval'] ?? ! ($data['is_screen'] ?? false)),
+            'requires_approval' => (bool) ($data['requires_approval'] ?? true),
             'scheduled_at' => $data['scheduled_at'] ?? null,
         ]);
 
