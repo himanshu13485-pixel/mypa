@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Copy, Hand, Mic, MicOff, MonitorUp, PhoneOff, SmilePlus, Users, Video, VideoOff,
+  Copy, Hand, Lock, LockOpen, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, SmilePlus, Users, Video, VideoOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
@@ -24,7 +24,7 @@ interface Peer {
   stream: MediaStream | null
 }
 
-function PeerTile({ peer, video, burst, hand }: { peer: Peer; video: boolean; burst?: string; hand?: boolean }) {
+function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boolean; burst?: string; hand?: boolean; isHost?: boolean }) {
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
       el.srcObject = peer.stream
@@ -38,7 +38,7 @@ function PeerTile({ peer, video, burst, hand }: { peer: Peer; video: boolean; bu
         <span className="flex size-7 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold">
           {peer.name.charAt(0)}
         </span>
-        {peer.name}
+        {peer.name}{isHost && <span className="text-[10px] text-amber-400"> (Host)</span>}
         {hand && <span className="text-base">{REACTIONS.hand}</span>}
         {burst && <span className="animate-bounce text-xl">{REACTIONS[burst]}</span>}
       </div>
@@ -48,7 +48,7 @@ function PeerTile({ peer, video, burst, hand }: { peer: Peer; video: boolean; bu
     <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
       <video ref={attach} autoPlay playsInline className="h-full w-full object-cover" />
       <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
-        {peer.name}{hand && ` ${REACTIONS.hand}`}
+        {peer.name}{isHost && ' (Host)'}{hand && ` ${REACTIONS.hand}`}
       </span>
       {burst && (
         <span className="absolute right-2 top-2 animate-bounce text-4xl drop-shadow">{REACTIONS[burst]}</span>
@@ -68,7 +68,7 @@ export default function MeetingRoomPage() {
   const user = useAuthStore((s) => s.user)
 
   const [peers, setPeers] = useState<Peer[]>([])
-  const [phase, setPhase] = useState<'joining' | 'in' | 'ended' | 'error'>('joining')
+  const [phase, setPhase] = useState<'joining' | 'waiting' | 'denied' | 'in' | 'ended' | 'error'>('joining')
   const [errorMsg, setErrorMsg] = useState('')
   const [muted, setMuted] = useState(false)
   const [cameraOff, setCameraOff] = useState(false)
@@ -80,6 +80,15 @@ export default function MeetingRoomPage() {
   const [bursts, setBursts] = useState<Record<string, string>>({}) // uuid -> emoji key
   const [hands, setHands] = useState<Set<string>>(new Set())
   const [myHand, setMyHand] = useState(false)
+  const [knocks, setKnocks] = useState<{ uuid: string; name: string }[]>([])
+  const [approvalOn, setApprovalOn] = useState<boolean | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatUnread, setChatUnread] = useState(0)
+  const [chatTo, setChatTo] = useState('') // '' = everyone
+  const [chatDraft, setChatDraft] = useState('')
+  const [chatMsgs, setChatMsgs] = useState<{ from: string; name: string; text: string; priv: boolean; me: boolean }[]>([])
+  const chatOpenRef = useRef(false)
+  chatOpenRef.current = chatOpen
 
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
@@ -180,31 +189,40 @@ export default function MeetingRoomPage() {
     localStreamRef.current = null
     displayTrackRef.current?.stop() // otherwise the browser keeps sharing the screen
     displayTrackRef.current = null
+    setSharing(false)
     setPeers([])
   }, [])
+
+  const joinRoom = useCallback(async () => {
+    try {
+      await ensureLocalStream()
+      const info = await meetingsApi.join(code)
+      if ('waiting' in info && info.waiting) {
+        setPhase('waiting')
+        return
+      }
+      const room = info as Exclude<typeof info, { waiting: true }>
+      setPhase('in')
+      setApprovalOn(room.requires_approval ?? null)
+      for (const peer of room.joined_peers ?? []) {
+        const pc = await createPeer(peer.uuid, peer.name)
+        const offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, peer.uuid)
+      }
+    } catch (err) {
+      setPhase('error')
+      setErrorMsg(err instanceof Error ? err.message : 'Could not join the meeting.')
+      console.warn('[meeting] join failed', err)
+    }
+  }, [code, createPeer, ensureLocalStream])
 
   // Join once the meeting is loaded.
   useEffect(() => {
     if (!meeting || joinedRef.current) return
     joinedRef.current = true
-    ;(async () => {
-      try {
-        await ensureLocalStream()
-        const info = await meetingsApi.join(code)
-        setPhase('in')
-        for (const peer of info.joined_peers ?? []) {
-          const pc = await createPeer(peer.uuid, peer.name)
-          const offer = await pc.createOffer()
-          await pc.setLocalDescription(offer)
-          await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, peer.uuid)
-        }
-      } catch (err) {
-        setPhase('error')
-        setErrorMsg(err instanceof Error ? err.message : 'Could not join the meeting.')
-        console.warn('[meeting] join failed', err)
-      }
-    })()
-  }, [meeting, code, createPeer, ensureLocalStream])
+    joinRoom()
+  }, [meeting, joinRoom])
 
   // Signalling listener — shares the personal channel with calls, so only
   // stop OUR listener on unmount (never leave the channel itself).
@@ -228,6 +246,26 @@ export default function MeetingRoomPage() {
           break
         case 'react':
           showBurst(signal.from_uuid, signal.payload.emoji as string)
+          break
+        case 'knock':
+          setKnocks((k) => (k.some((x) => x.uuid === signal.from_uuid) ? k : [...k, { uuid: signal.from_uuid, name: signal.from_name ?? 'Someone' }]))
+          break
+        case 'admitted':
+          joinRoom()
+          break
+        case 'denied':
+          teardown()
+          setPhase('denied')
+          break
+        case 'chat':
+          setChatMsgs((m) => [...m, {
+            from: signal.from_uuid,
+            name: signal.from_name ?? 'Someone',
+            text: signal.payload.message as string,
+            priv: !!signal.payload.private,
+            me: false,
+          }])
+          if (!chatOpenRef.current) setChatUnread((n) => n + 1)
           break
         case 'end':
           teardown()
@@ -277,7 +315,7 @@ export default function MeetingRoomPage() {
     return () => {
       channel.stopListening('.meeting.signal')
     }
-  }, [user?.uuid, code, createPeer, removePeer, teardown, flushPendingIce, showBurst])
+  }, [user?.uuid, code, createPeer, removePeer, teardown, flushPendingIce, showBurst, joinRoom])
 
   // Timer + leave-on-unmount.
   useEffect(() => {
@@ -367,6 +405,16 @@ export default function MeetingRoomPage() {
     meetingsApi.react(code, key).catch(() => undefined)
   }
 
+  const sendChat = () => {
+    const text = chatDraft.trim()
+    if (!text) return
+    setChatDraft('')
+    const target = peers.find((p) => p.uuid === chatTo)
+    setChatMsgs((m) => [...m, { from: 'me', name: 'You', text, priv: !!chatTo, me: true }])
+    meetingsApi.chat(code, text, chatTo || null).catch((err) => alert(errorMessage(err)))
+    void target
+  }
+
   const changeMyName = () => {
     const name = prompt('Your name for this meeting:', myName ?? user?.name ?? '')
     if (!name?.trim()) return
@@ -376,6 +424,28 @@ export default function MeetingRoomPage() {
   }
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+
+  if (phase === 'waiting') {
+    return (
+      <Card className="mx-auto mt-10 max-w-md text-center">
+        <p className="text-sm font-semibold">Asking the host to let you in…</p>
+        <p className="mt-1 text-xs text-slate-400">
+          The host has a waiting room on. You will join automatically the moment they admit you —
+          keep this page open.
+        </p>
+        <Button className="mt-4" variant="secondary" onClick={() => navigate('/meetings')}>Cancel</Button>
+      </Card>
+    )
+  }
+
+  if (phase === 'denied') {
+    return (
+      <Card className="mx-auto mt-10 max-w-md text-center">
+        <p className="text-sm font-semibold">The host did not admit you</p>
+        <Button className="mt-4" onClick={() => navigate('/meetings')}>Back to Meetings</Button>
+      </Card>
+    )
+  }
 
   if (phase === 'error' || phase === 'ended') {
     return (
@@ -396,7 +466,51 @@ export default function MeetingRoomPage() {
             <span className="font-mono">{code}</span>
             {phase === 'in' ? <span className="text-emerald-600">{fmt(elapsed)}</span> : 'Connecting…'}
             <span className="flex items-center gap-1"><Users className="size-3" /> {peers.length + 1}</span>
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              Host: {meeting?.is_host ? 'you' : meeting?.host.name}
+            </span>
+            {meeting?.is_host && approvalOn !== null && (
+              <button
+                className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:text-brand-600 dark:bg-slate-800 dark:text-slate-400"
+                title={approvalOn ? 'Waiting room ON — click for open access' : 'Open access — click to require your approval'}
+                onClick={() => {
+                  const next = !approvalOn
+                  meetingsApi.setApproval(code, next).then(() => setApprovalOn(next)).catch((err) => alert(errorMessage(err)))
+                }}
+              >
+                {approvalOn ? <Lock className="size-3" /> : <LockOpen className="size-3" />}
+                {approvalOn ? 'Approval required' : 'Open access'}
+              </button>
+            )}
           </p>
+          {meeting?.is_host && knocks.length > 0 && (
+            <div className="mt-1.5 space-y-1">
+              {knocks.map((k) => (
+                <div key={k.uuid} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs dark:border-amber-900 dark:bg-amber-950">
+                  <span className="font-medium">{k.name}</span> wants to join
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      meetingsApi.admit(code, k.uuid, true).catch(() => undefined)
+                      setKnocks((ks) => ks.filter((x) => x.uuid !== k.uuid))
+                    }}
+                  >
+                    Admit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      meetingsApi.admit(code, k.uuid, false).catch(() => undefined)
+                      setKnocks((ks) => ks.filter((x) => x.uuid !== k.uuid))
+                    }}
+                  >
+                    Deny
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <Button
           size="sm"
@@ -443,7 +557,14 @@ export default function MeetingRoomPage() {
           </Card>
         )}
         {peers.map((p) => (
-          <PeerTile key={p.uuid} peer={p} video={isVideo} burst={bursts[p.uuid]} hand={hands.has(p.uuid)} />
+          <PeerTile
+            key={p.uuid}
+            peer={p}
+            video={isVideo}
+            burst={bursts[p.uuid]}
+            hand={hands.has(p.uuid)}
+            isHost={p.uuid === meeting?.host.uuid}
+          />
         ))}
         {!isVideo && (
           <button
@@ -458,6 +579,44 @@ export default function MeetingRoomPage() {
           </button>
         )}
       </div>
+
+      {chatOpen && (
+        <div className="flex max-h-64 flex-col rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+          <div className="flex-1 space-y-1 overflow-y-auto">
+            {!chatMsgs.length ? (
+              <p className="text-center text-xs text-slate-400">No messages yet — say hello. Chat disappears when the meeting ends.</p>
+            ) : (
+              chatMsgs.map((m, i) => (
+                <p key={i} className="text-sm">
+                  <span className={m.me ? 'font-semibold text-brand-600' : 'font-semibold'}>{m.name}</span>
+                  {m.priv && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300">private</span>}
+                  <span className="ml-1.5">{m.text}</span>
+                </p>
+              ))
+            )}
+          </div>
+          <div className="mt-2 flex gap-1.5">
+            <select
+              className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs dark:border-slate-700 dark:bg-slate-900"
+              value={chatTo}
+              onChange={(e) => setChatTo(e.target.value)}
+            >
+              <option value="">To everyone</option>
+              {peers.map((p) => (
+                <option key={p.uuid} value={p.uuid}>Privately to {p.name}</option>
+              ))}
+            </select>
+            <input
+              className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700 dark:bg-slate-900"
+              placeholder={chatTo ? 'Private message…' : 'Message everyone…'}
+              value={chatDraft}
+              onChange={(e) => setChatDraft(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && sendChat()}
+            />
+            <Button size="sm" onClick={sendChat} disabled={!chatDraft.trim()}>Send</Button>
+          </div>
+        </div>
+      )}
 
       {/* Controls */}
       <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
@@ -496,6 +655,16 @@ export default function MeetingRoomPage() {
         >
           <Hand className="size-4" />
         </Button>
+        <div className="relative">
+          <Button size="sm" variant={chatOpen ? 'primary' : 'secondary'} title="Meeting chat" onClick={() => { setChatOpen(!chatOpen); setChatUnread(0) }}>
+            <MessageSquare className="size-4" />
+          </Button>
+          {chatUnread > 0 && !chatOpen && (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+              {chatUnread}
+            </span>
+          )}
+        </div>
         <Button size="sm" variant="danger" onClick={leave}>
           <PhoneOff className="size-4" /> Leave
         </Button>

@@ -40,6 +40,7 @@ class MeetingController extends Controller
             'title' => ['nullable', 'string', 'max:255'],
             'type' => ['sometimes', 'in:audio,video'],
             'is_screen' => ['sometimes', 'boolean'],
+            'requires_approval' => ['sometimes', 'boolean'],
             'scheduled_at' => ['sometimes', 'nullable', 'date'],
         ]);
 
@@ -49,6 +50,7 @@ class MeetingController extends Controller
             'title' => $data['title'] ?? null,
             'type' => $data['type'] ?? 'video',
             'is_screen' => (bool) ($data['is_screen'] ?? false),
+            'requires_approval' => (bool) ($data['requires_approval'] ?? ! ($data['is_screen'] ?? false)),
             'scheduled_at' => $data['scheduled_at'] ?? null,
         ]);
 
@@ -70,6 +72,33 @@ class MeetingController extends Controller
         $me = $request->user();
         abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
         $data = $request->validate(['display_name' => ['sometimes', 'nullable', 'string', 'max:50']]);
+
+        // Waiting room: non-hosts must be admitted first (unless bypassed or
+        // previously admitted/inside).
+        if ($meeting->requires_approval && $meeting->host_id !== $me->id) {
+            $pivot = $meeting->participants()->where('users.id', $me->id)->first()?->pivot;
+            $everAdmitted = $pivot && in_array($pivot->status, ['joined', 'left', 'admitted'], true);
+            if (! $everAdmitted) {
+                $meeting->participants()->syncWithoutDetaching([
+                    $me->id => [
+                        'status' => 'waiting',
+                        'display_name' => $data['display_name'] ?? null,
+                    ],
+                ]);
+                broadcast(new MeetingSignal(
+                    $meeting,
+                    $me->uuid,
+                    $data['display_name'] ?? $me->name,
+                    $meeting->host->uuid,
+                    'knock',
+                ));
+
+                return response()->json([
+                    'message' => 'Waiting for the host to let you in.',
+                    'data' => ['waiting' => true],
+                ], 202);
+            }
+        }
 
         if ($meeting->status !== 'active') {
             $meeting->update(['status' => 'active', 'started_at' => $meeting->started_at ?? now()]);
@@ -143,6 +172,76 @@ class MeetingController extends Controller
             ->update(['status' => 'left', 'left_at' => now()]);
 
         return response()->json(['message' => 'Meeting ended for everyone.']);
+    }
+
+    /** Host lets a waiting person in (or turns them away). */
+    public function admit(Request $request, Meeting $meeting): JsonResponse
+    {
+        abort_unless($meeting->host_id === $request->user()->id, 403, 'Only the host can admit people.');
+
+        $data = $request->validate([
+            'user_uuid' => ['required', 'uuid'],
+            'allow' => ['required', 'boolean'],
+        ]);
+
+        $target = \App\Models\User::where('uuid', $data['user_uuid'])->firstOrFail();
+        $meeting->participants()->syncWithoutDetaching([
+            $target->id => ['status' => $data['allow'] ? 'admitted' : 'denied'],
+        ]);
+
+        broadcast(new MeetingSignal(
+            $meeting,
+            $request->user()->uuid,
+            $request->user()->name,
+            $target->uuid,
+            $data['allow'] ? 'admitted' : 'denied',
+        ));
+
+        return response()->json(['message' => $data['allow'] ? "{$target->name} admitted." : "{$target->name} turned away."]);
+    }
+
+    /** Host toggles the waiting room on/off mid-meeting (the bypass). */
+    public function setApproval(Request $request, Meeting $meeting): JsonResponse
+    {
+        abort_unless($meeting->host_id === $request->user()->id, 403, 'Only the host can change this.');
+        $data = $request->validate(['requires_approval' => ['required', 'boolean']]);
+        $meeting->update(['requires_approval' => $data['requires_approval']]);
+
+        return response()->json([
+            'message' => $data['requires_approval']
+                ? 'Approval required: new joiners now wait for you.'
+                : 'Open access: anyone with the link joins directly.',
+        ]);
+    }
+
+    /** In-meeting chat: to everyone, or privately to one participant. */
+    public function chat(Request $request, Meeting $meeting): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($meeting->status === 'active', 409, 'Meeting is not active.');
+        $myPivot = $meeting->participants()->where('users.id', $me->id)->wherePivot('status', 'joined')->first()?->pivot;
+        abort_unless($myPivot !== null, 403, 'Join the meeting first.');
+
+        $data = $request->validate([
+            'message' => ['required', 'string', 'max:1000'],
+            'to_uuid' => ['sometimes', 'nullable', 'uuid'],
+        ]);
+
+        $fromName = $myPivot->display_name ?? $me->name;
+        $payload = ['message' => $data['message'], 'private' => ! empty($data['to_uuid'])];
+
+        if (! empty($data['to_uuid'])) {
+            $target = $meeting->participants()->where('users.uuid', $data['to_uuid'])->wherePivot('status', 'joined')->first();
+            abort_unless($target && $target->id !== $me->id, 422, 'That participant is not in the meeting.');
+            broadcast(new MeetingSignal($meeting, $me->uuid, $fromName, $target->uuid, 'chat', $payload));
+        } else {
+            $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
+            foreach ($others as $peer) {
+                broadcast(new MeetingSignal($meeting, $me->uuid, $fromName, $peer->uuid, 'chat', $payload));
+            }
+        }
+
+        return response()->json(['message' => 'sent']);
     }
 
     /** Broadcast an emoji reaction (or raised hand) to everyone in the room. */
@@ -233,6 +332,7 @@ class MeetingController extends Controller
             'title' => $meeting->title,
             'type' => $meeting->type,
             'is_screen' => $meeting->is_screen,
+            'requires_approval' => $meeting->requires_approval,
             'status' => $meeting->status,
             'scheduled_at' => $meeting->scheduled_at?->toIso8601String(),
             'started_at' => $meeting->started_at?->toIso8601String(),

@@ -397,11 +397,17 @@ export const meetings = {
   show: (code: string) =>
     api.get<{ data: import('../types').MeetingItem }>(`/meetings/${code}`).then((r) => r.data.data),
   join: (code: string) =>
-    api.post<{ data: import('../types').MeetingItem & { joined_peers?: { uuid: string; name: string }[] } }>(
+    api.post<{ data: (import('../types').MeetingItem & { joined_peers?: { uuid: string; name: string }[] }) | { waiting: true } }>(
       `/meetings/${code}/join`,
     ).then((r) => r.data.data),
   leave: (code: string) => api.post(`/meetings/${code}/leave`),
   react: (code: string, emoji: string) => api.post(`/meetings/${code}/react`, { emoji }),
+  admit: (code: string, userUuid: string, allow: boolean) =>
+    api.post(`/meetings/${code}/admit`, { user_uuid: userUuid, allow }),
+  setApproval: (code: string, requiresApproval: boolean) =>
+    api.put(`/meetings/${code}/approval`, { requires_approval: requiresApproval }),
+  chat: (code: string, message: string, toUuid?: string | null) =>
+    api.post(`/meetings/${code}/chat`, { message, ...(toUuid ? { to_uuid: toUuid } : {}) }),
   listScreens: () =>
     api.get<{ data: import('../types').MeetingItem[] }>('/meetings', { params: { screen: 1 } }).then((r) => r.data.data),
   rename: (code: string, display_name: string) =>

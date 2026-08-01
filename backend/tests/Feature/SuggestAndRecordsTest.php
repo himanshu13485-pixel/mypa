@@ -95,7 +95,7 @@ class SuggestAndRecordsTest extends TestCase
 
     public function test_ended_meeting_summary_in_list(): void
     {
-        $meeting = $this->actingAs($this->alice)->postJson('/api/v1/meetings', ['title' => 'Retro'])->json('data');
+        $meeting = $this->actingAs($this->alice)->postJson('/api/v1/meetings', ['title' => 'Retro', 'requires_approval' => false])->json('data');
         $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
         $this->actingAs($this->bob)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
         $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting['code']}/end")->assertOk();

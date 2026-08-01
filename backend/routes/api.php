@@ -155,6 +155,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/meetings/{meeting}/signal', [\App\Http\Controllers\Api\V1\MeetingController::class, 'signal']);
         Route::post('/meetings/{meeting}/name', [\App\Http\Controllers\Api\V1\MeetingController::class, 'rename']);
         Route::post('/meetings/{meeting}/react', [\App\Http\Controllers\Api\V1\MeetingController::class, 'react']);
+        Route::post('/meetings/{meeting}/admit', [\App\Http\Controllers\Api\V1\MeetingController::class, 'admit']);
+        Route::put('/meetings/{meeting}/approval', [\App\Http\Controllers\Api\V1\MeetingController::class, 'setApproval']);
+        Route::post('/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chat']);
 
         // Projects (money ledgers)
         Route::get('/projects', [\App\Http\Controllers\Api\V1\ProjectController::class, 'index']);

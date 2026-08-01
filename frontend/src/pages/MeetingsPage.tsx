@@ -154,7 +154,7 @@ export default function MeetingsPage() {
 }
 
 function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '' })
+  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true })
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<MeetingItem | null>(null)
 
@@ -164,6 +164,7 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         title: form.title || null,
         type: form.type,
         scheduled_at: form.scheduled_at || null,
+        requires_approval: form.requires_approval,
       }),
     onSuccess: (m) => {
       setCreated(m)
@@ -221,6 +222,14 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               <Input type="datetime-local" value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
             </div>
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.requires_approval}
+              onChange={(e) => setForm({ ...form, requires_approval: e.target.checked })}
+            />
+            Require my approval before anyone joins (waiting room)
+          </label>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={create.isPending}>{create.isPending ? 'Creating…' : 'Create & get link'}</Button>

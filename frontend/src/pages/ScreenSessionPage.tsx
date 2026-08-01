@@ -84,10 +84,16 @@ export default function ScreenSessionPage() {
           setPhase('live')
         } else {
           const info = await meetingsApi.join(code)
+          if ('waiting' in info && info.waiting) {
+            setPhase('error')
+            setErrorMsg('The sharer has a waiting room on — ask them to admit you or open access.')
+            return
+          }
+          const room = info as Exclude<typeof info, { waiting: true }>
           setPhase('live')
           // Viewers connect ONLY to the host, receive-only.
-          const hostUuid = info.host.uuid
-          const hostInside = (info.joined_peers ?? []).some((p) => p.uuid === hostUuid)
+          const hostUuid = room.host.uuid
+          const hostInside = (room.joined_peers ?? []).some((p) => p.uuid === hostUuid)
           if (hostInside) {
             const pc = await newPeer(hostUuid)
             pc.addTransceiver('video', { direction: 'recvonly' })

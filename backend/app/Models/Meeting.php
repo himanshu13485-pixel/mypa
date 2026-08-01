@@ -12,13 +12,14 @@ class Meeting extends Model
     use HasUuids;
 
     protected $fillable = [
-        'host_id', 'code', 'title', 'type', 'is_screen', 'status', 'scheduled_at', 'started_at', 'ended_at',
+        'host_id', 'code', 'title', 'type', 'is_screen', 'requires_approval', 'status', 'scheduled_at', 'started_at', 'ended_at',
     ];
 
     protected function casts(): array
     {
         return [
             'is_screen' => 'boolean',
+            'requires_approval' => 'boolean',
             'scheduled_at' => 'datetime',
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
