@@ -91,7 +91,7 @@ export default function Layout() {
   }
 
   const links = (
-    <nav className="flex flex-1 flex-col gap-0.5 p-3">
+    <nav className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-3">
       {navSections.map((section, si) => (
         <div key={si}>
           {section.label && (
@@ -151,7 +151,7 @@ export default function Layout() {
 
   return (
     <CallProvider>
-    <div className="flex h-full">
+    <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:flex">
         <div className="flex items-center gap-2 px-5 py-4">
@@ -176,7 +176,7 @@ export default function Layout() {
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 flex w-64 flex-col bg-white dark:bg-slate-900">
+          <aside className="absolute inset-y-0 left-0 flex h-full w-64 flex-col overflow-hidden bg-white dark:bg-slate-900">
             <div className="flex items-center justify-between px-5 py-4">
               <span className="text-base font-semibold">Netvork</span>
               <button onClick={() => setSidebarOpen(false)}>
