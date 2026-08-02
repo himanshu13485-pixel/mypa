@@ -105,10 +105,13 @@ export default function MeetingRoomPage() {
   const [myHand, setMyHand] = useState(false)
   const [recording, setRecording] = useState(false)
   const [recorders, setRecorders] = useState<string[]>([]) // who else records
+  const [recPending, setRecPending] = useState(false)
+  const [recRequests, setRecRequests] = useState<{ uuid: string; name: string }[]>([])
   const [bgLabel, setBgLabel] = useState('none')
   const [blurBusy, setBlurBusy] = useState(false)
   const myMediaRef = useRef({ mic: true, cam: true })
   const recorderRef = useRef<CompositeRecorder | null>(null)
+  const startRecRef = useRef<() => void>(() => undefined)
   const blurRef = useRef<BlurPipeline | null>(null)
   const tilesRef = useRef<HTMLDivElement>(null)
   const [knocks, setKnocks] = useState<{ uuid: string; name: string }[]>([])
@@ -341,6 +344,17 @@ export default function MeetingRoomPage() {
             ? { ...x, micOff: signal.payload.mic === false, camOff: signal.payload.cam === false }
             : x)))
           break
+        case 'rec-request':
+          setRecRequests((r) => (r.some((x) => x.uuid === signal.from_uuid) ? r : [...r, { uuid: signal.from_uuid, name: signal.from_name ?? 'Someone' }]))
+          break
+        case 'rec-allow':
+          setRecPending(false)
+          startRecRef.current()
+          break
+        case 'rec-deny':
+          setRecPending(false)
+          alert('The host did not allow recording.')
+          break
         case 'chat':
           setChatMsgs((m) => [...m, {
             from: signal.from_uuid,
@@ -543,14 +557,7 @@ export default function MeetingRoomPage() {
     })
   }
 
-  const toggleRecord = () => {
-    if (recording) {
-      recorderRef.current?.stop()
-      recorderRef.current = null
-      setRecording(false)
-      broadcastRecord(false)
-      return
-    }
+  const startRecordingNow = () => {
     if (!tilesRef.current) return
     recorderRef.current = startCompositeRecording({
       container: tilesRef.current,
@@ -563,6 +570,29 @@ export default function MeetingRoomPage() {
     })
     setRecording(true)
     broadcastRecord(true)
+  }
+
+  startRecRef.current = startRecordingNow
+
+  const toggleRecord = () => {
+    if (recording) {
+      recorderRef.current?.stop()
+      recorderRef.current = null
+      setRecording(false)
+      broadcastRecord(false)
+      return
+    }
+    // Recording is a HOST right - everyone else asks first.
+    if (!meeting?.is_host) {
+      if (recPending) return
+      const hostUuid = meeting?.host.uuid
+      if (!hostUuid) return
+      setRecPending(true)
+      meetingsApi.signal(code, 'rec-request', {}, hostUuid).catch(() => setRecPending(false))
+      return
+    }
+    if (!tilesRef.current) return
+    startRecordingNow()
   }
 
   const applyBackground = async (choice: BackgroundChoice) => {
@@ -718,6 +748,28 @@ export default function MeetingRoomPage() {
         </Button>
       </div>
 
+      {meeting?.is_host && recRequests.length > 0 && (
+        <div className="space-y-1">
+          {recRequests.map((r) => (
+            <div key={r.uuid} className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs dark:border-red-900 dark:bg-red-950">
+              <span className="font-medium">{r.name}</span> wants to record this meeting
+              <Button size="sm" onClick={() => {
+                meetingsApi.signal(code, 'rec-allow', {}, r.uuid).catch(() => undefined)
+                setRecRequests((rs) => rs.filter((x) => x.uuid !== r.uuid))
+              }}>
+                Allow
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => {
+                meetingsApi.signal(code, 'rec-deny', {}, r.uuid).catch(() => undefined)
+                setRecRequests((rs) => rs.filter((x) => x.uuid !== r.uuid))
+              }}>
+                Deny
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+
       {(recording || recorders.length > 0) && (
         <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
           <span className="relative flex size-2">
@@ -837,11 +889,16 @@ export default function MeetingRoomPage() {
         <Button
           size="sm"
           variant={recording ? 'danger' : 'secondary'}
-          title={recording ? 'Stop recording (saves to your Downloads folder)' : 'Record this meeting — everyone is notified'}
+          title={recording
+            ? 'Stop recording (saves to your Downloads folder)'
+            : meeting?.is_host
+              ? 'Record this meeting — everyone is notified'
+              : 'Ask the host for permission to record'}
           onClick={toggleRecord}
+          disabled={recPending}
         >
           {recording ? <Square className="size-4" /> : <Circle className="size-4 text-red-500" />}
-          {recording ? 'Stop' : 'Rec'}
+          {recording ? 'Stop' : recPending ? 'Asking…' : 'Rec'}
         </Button>
         {isVideo && (
           <BackgroundPicker active={bgLabel} disabled={sharing} busy={blurBusy} onPick={applyBackground} />

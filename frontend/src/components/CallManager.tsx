@@ -15,6 +15,7 @@ interface ActiveCall {
   uuid: string
   type: 'audio' | 'video'
   direction: 'outgoing' | 'incoming'
+  callerUuid?: string
   peerName: string
   isGroup: boolean
   status: 'ringing' | 'connecting' | 'ongoing'
@@ -89,6 +90,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [elapsed, setElapsed] = useState(0)
   const [recording, setRecording] = useState(false)
   const [peerRecording, setPeerRecording] = useState<string | null>(null)
+  const [recPending, setRecPending] = useState(false)
+  const [recRequest, setRecRequest] = useState<{ uuid: string; name: string } | null>(null)
+  const startRecRef = useRef<() => void>(() => undefined)
   const [bgLabel, setBgLabel] = useState('none')
   const [blurBusy, setBlurBusy] = useState(false)
   const myMediaRef = useRef({ mic: true, cam: true })
@@ -131,6 +135,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     recorderRef.current = null
     setRecording(false)
     setPeerRecording(null)
+    setRecPending(false)
+    setRecRequest(null)
     blurRef.current?.stop()
     blurRef.current = null
     setBgLabel('none')
@@ -267,6 +273,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       uuid: signal.call_uuid,
       type: signal.call_type,
       direction: 'incoming',
+      callerUuid: signal.from_uuid,
       peerName: signal.from_name ?? 'Caller',
       isGroup: false, // corrected below from the respond payload
       status: 'connecting',
@@ -298,17 +305,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     calls.respond(uuid, 'decline').catch(() => undefined)
   }, [incoming])
 
-  const toggleRecord = () => {
+  const startRecordingNow = () => {
     const uuid = callRef.current?.uuid
-    if (!uuid) return
-    if (recording) {
-      recorderRef.current?.stop()
-      recorderRef.current = null
-      setRecording(false)
-      peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'record', { on: false }, peerUuid).catch(() => undefined))
-      return
-    }
-    if (!callBodyRef.current) return
+    if (!uuid || !callBodyRef.current) return
     recorderRef.current = startCompositeRecording({
       container: callBodyRef.current,
       audioStreams: () => [
@@ -320,6 +319,28 @@ export function CallProvider({ children }: { children: ReactNode }) {
     })
     setRecording(true)
     peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'record', { on: true }, peerUuid).catch(() => undefined))
+  }
+  startRecRef.current = startRecordingNow
+
+  const toggleRecord = () => {
+    const uuid = callRef.current?.uuid
+    if (!uuid) return
+    if (recording) {
+      recorderRef.current?.stop()
+      recorderRef.current = null
+      setRecording(false)
+      peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'record', { on: false }, peerUuid).catch(() => undefined))
+      return
+    }
+    // Only the caller (call host) records freely; others ask first.
+    const call = callRef.current
+    if (call && call.direction !== 'outgoing') {
+      if (recPending || !call.callerUuid) return
+      setRecPending(true)
+      calls.signal(uuid, 'rec-request', {}, call.callerUuid).catch(() => setRecPending(false))
+      return
+    }
+    startRecordingNow()
   }
 
   const applyBackground = async (choice: BackgroundChoice) => {
@@ -425,6 +446,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
           setRemotePeers((p) => p.map((x) => (x.uuid === signal.from_uuid
             ? { ...x, micOff: signal.payload.mic === false, camOff: signal.payload.cam === false }
             : x)))
+          break
+        case 'rec-request':
+          setRecRequest({ uuid: signal.from_uuid, name: signal.from_name ?? 'Someone' })
+          break
+        case 'rec-allow':
+          setRecPending(false)
+          startRecRef.current()
+          break
+        case 'rec-deny':
+          setRecPending(false)
+          alert('The call host did not allow recording.')
           break
         case 'ice': {
           const candidate = signal.payload.candidate as RTCIceCandidateInit | undefined
@@ -578,6 +610,25 @@ export function CallProvider({ children }: { children: ReactNode }) {
             )}
           </div>
           <div className="p-3">
+            {recRequest && activeCall.direction === 'outgoing' && (
+              <div className="mb-1.5 flex items-center gap-1.5 rounded bg-red-50 px-2 py-1 text-[11px] dark:bg-red-950">
+                <span className="font-medium">{recRequest.name}</span> wants to record
+                <Button size="sm" onClick={() => {
+                  const uuid = callRef.current?.uuid
+                  if (uuid) calls.signal(uuid, 'rec-allow', {}, recRequest.uuid).catch(() => undefined)
+                  setRecRequest(null)
+                }}>
+                  Allow
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => {
+                  const uuid = callRef.current?.uuid
+                  if (uuid) calls.signal(uuid, 'rec-deny', {}, recRequest.uuid).catch(() => undefined)
+                  setRecRequest(null)
+                }}>
+                  Deny
+                </Button>
+              </div>
+            )}
             {(recording || peerRecording) && (
               <div className="mb-1.5 flex items-center gap-1.5 rounded bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
                 <span className="relative flex size-1.5">
@@ -606,8 +657,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
               <Button
                 size="sm"
                 variant={recording ? 'danger' : 'secondary'}
-                title={recording ? 'Stop recording (saves to Downloads)' : 'Record this call — the other side is notified'}
+                title={recording
+                  ? 'Stop recording (saves to Downloads)'
+                  : activeCall.direction === 'outgoing'
+                    ? 'Record this call — the other side is notified'
+                    : 'Ask the caller for permission to record'}
                 onClick={toggleRecord}
+                disabled={recPending}
               >
                 {recording ? <Square className="size-3.5" /> : <Circle className="size-3.5 text-red-500" />}
               </Button>
