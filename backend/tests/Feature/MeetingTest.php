@@ -220,6 +220,32 @@ class MeetingTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_chat_file_share_and_participant_only_download(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+        Event::fake([MeetingSignal::class]);
+        $meeting = $this->actingAs($this->host)->postJson('/api/v1/meetings', ['requires_approval' => false])->json('data');
+        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
+
+        $file = \Illuminate\Http\UploadedFile::fake()->image('site-plan.png', 800, 600);
+        $res = $this->actingAs($this->host)->post("/api/v1/meetings/{$meeting['code']}/chat-file", [
+            'file' => $file,
+        ])->assertOk();
+        $uuid = $res->json('data.uuid');
+        Event::assertDispatched(MeetingSignal::class, fn ($e) => $e->signalType === 'chat'
+            && ($e->payload['file']['name'] ?? null) === 'site-plan.png' && $e->toUserUuid === $this->alice->uuid);
+
+        // Participant can download; outsider cannot.
+        $this->actingAs($this->alice)->get("/api/v1/meetings/{$meeting['code']}/chat-file/{$uuid}")->assertOk();
+        $this->actingAs($this->bob)->get("/api/v1/meetings/{$meeting['code']}/chat-file/{$uuid}")->assertForbidden();
+
+        // Non-participants cannot share files either.
+        $this->actingAs($this->bob)->post("/api/v1/meetings/{$meeting['code']}/chat-file", [
+            'file' => \Illuminate\Http\UploadedFile::fake()->create('x.pdf', 10),
+        ])->assertForbidden();
+    }
+
     public function test_meetings_index_lists_hosted_and_attended(): void
     {
         $meeting = $this->actingAs($this->host)->postJson('/api/v1/meetings', ['title' => 'A', 'requires_approval' => false])->json('data');
