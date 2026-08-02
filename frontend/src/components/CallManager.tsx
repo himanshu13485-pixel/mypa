@@ -415,7 +415,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   autoPlay
                   playsInline
                   muted
-                  className="absolute bottom-2 right-2 h-16 w-24 rounded-lg border border-slate-700 object-cover"
+                  className="absolute bottom-2 right-2 h-16 w-24 rounded-lg border border-slate-700 object-cover -scale-x-100"
                 />
               </>
             ) : (

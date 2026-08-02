@@ -577,7 +577,7 @@ export default function MeetingRoomPage() {
       >
         {isVideo && (
           <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
-            <video ref={localVideoRef} autoPlay playsInline muted className={sharing ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
+            <video ref={localVideoRef} autoPlay playsInline muted className={sharing ? 'h-full w-full bg-black object-contain' : 'h-full w-full -scale-x-100 object-cover'} />
             {bursts.me && <span className="absolute right-2 top-2 animate-bounce text-4xl drop-shadow">{REACTIONS[bursts.me]}</span>}
             <button
               className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white hover:bg-black/80"
