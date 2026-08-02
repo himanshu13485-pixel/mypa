@@ -356,7 +356,7 @@ export const calls = {
   respond: (uuid: string, action: 'accept' | 'decline') =>
     api.post<{ data: CallInfo }>(`/calls/${uuid}/respond`, { action }).then((r) => r.data.data),
   end: (uuid: string) => api.post<{ data: CallInfo }>(`/calls/${uuid}/end`).then((r) => r.data.data),
-  signal: (uuid: string, signal: 'offer' | 'answer' | 'ice' | 'record', payload: Record<string, unknown>, toUuid?: string) =>
+  signal: (uuid: string, signal: 'offer' | 'answer' | 'ice' | 'record' | 'media', payload: Record<string, unknown>, toUuid?: string) =>
     api.post(`/calls/${uuid}/signal`, { signal, payload, ...(toUuid ? { to_uuid: toUuid } : {}) }),
   invite: (uuid: string, identifier: string) =>
     api.post<{ message: string }>(`/calls/${uuid}/invite`, { identifier }).then((r) => r.data),
@@ -417,7 +417,7 @@ export const meetings = {
   rename: (code: string, display_name: string) =>
     api.post<{ message: string }>(`/meetings/${code}/name`, { display_name }).then((r) => r.data),
   end: (code: string) => api.post(`/meetings/${code}/end`),
-  signal: (code: string, signal: 'offer' | 'answer' | 'ice' | 'share' | 'record', payload: Record<string, unknown>, toUuid: string) =>
+  signal: (code: string, signal: 'offer' | 'answer' | 'ice' | 'share' | 'record' | 'media', payload: Record<string, unknown>, toUuid: string) =>
     api.post(`/meetings/${code}/signal`, { signal, payload, to_uuid: toUuid }),
 }
 

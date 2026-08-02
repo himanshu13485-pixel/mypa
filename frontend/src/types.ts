@@ -556,7 +556,7 @@ export interface CallSignalPayload {
   call_type: 'audio' | 'video'
   from_uuid: string
   from_name?: string | null
-  signal: 'ring' | 'accept' | 'decline' | 'end' | 'offer' | 'answer' | 'ice' | 'peer-left' | 'record'
+  signal: 'ring' | 'accept' | 'decline' | 'end' | 'offer' | 'answer' | 'ice' | 'peer-left' | 'record' | 'media'
   payload: Record<string, unknown>
 }
 
@@ -655,7 +655,7 @@ export interface MeetingSignalPayload {
   meeting_type: 'audio' | 'video'
   from_uuid: string
   from_name?: string | null
-  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat' | 'share' | 'record'
+  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat' | 'share' | 'record' | 'media'
   payload: Record<string, unknown>
 }
 

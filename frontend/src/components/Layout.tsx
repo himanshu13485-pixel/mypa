@@ -27,6 +27,7 @@ const navSections: { label: string | null; items: { to: string; label: string; i
   ]},
   { label: 'Connect', items: [
     { to: '/connections', label: 'Connections', icon: UserPlus },
+    { to: '/groups', label: 'Family & Teams', icon: Users },
     { to: '/messages', label: 'Messages', icon: MessageCircle },
     { to: '/calls', label: 'Calls', icon: Phone },
     { to: '/meetings', label: 'Meetings', icon: Video },
@@ -36,7 +37,6 @@ const navSections: { label: string | null; items: { to: string; label: string; i
     { to: '/projects', label: 'Projects', icon: Briefcase },
     { to: '/notes', label: 'Notes', icon: FileText },
     { to: '/files', label: 'Files', icon: FolderOpen },
-    { to: '/groups', label: 'Family & Teams', icon: Users },
   ]},
   { label: 'Plan', items: [
     { to: '/tasks', label: 'My Tasks', icon: CheckSquare },

@@ -93,7 +93,11 @@ export function startCompositeRecording(opts: {
   const mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
     ? 'video/webm;codecs=vp8,opus'
     : 'video/webm'
-  const recorder = new MediaRecorder(mixed, { mimeType: mime, videoBitsPerSecond: 2_500_000 })
+  const recorder = new MediaRecorder(mixed, {
+    mimeType: mime,
+    videoBitsPerSecond: 1_200_000, // ~9 MB/min - good 720p15 quality at half the size
+    audioBitsPerSecond: 96_000,
+  })
   const chunks: Blob[] = []
   recorder.ondataavailable = (e) => {
     if (e.data.size) chunks.push(e.data)

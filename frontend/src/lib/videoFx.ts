@@ -40,7 +40,56 @@ function loadSelfieSegmentation() {
   return segCtorPromise
 }
 
-export async function createBlurredTrack(cameraTrack: MediaStreamTrack): Promise<BlurPipeline> {
+export type BackgroundEffect =
+  | { type: 'blur' }
+  | { type: 'image'; image: CanvasImageSource }
+
+/** Built-in virtual backgrounds drawn at runtime (no image assets needed). */
+export function presetBackground(kind: 'office' | 'sunset' | 'forest' | 'night'): CanvasImageSource {
+  const c = document.createElement('canvas')
+  c.width = 1280
+  c.height = 720
+  const g = c.getContext('2d')!
+  const grad = g.createLinearGradient(0, 0, 0, c.height)
+  const stops: Record<string, [string, string, string]> = {
+    office: ['#e2e8f0', '#cbd5e1', '#94a3b8'],
+    sunset: ['#fbbf24', '#f97316', '#7c2d12'],
+    forest: ['#bbf7d0', '#22c55e', '#14532d'],
+    night: ['#1e293b', '#0f172a', '#020617'],
+  }
+  const [a, b, d] = stops[kind]
+  grad.addColorStop(0, a)
+  grad.addColorStop(0.6, b)
+  grad.addColorStop(1, d)
+  g.fillStyle = grad
+  g.fillRect(0, 0, c.width, c.height)
+  if (kind === 'night') {
+    g.fillStyle = 'rgba(255,255,255,0.8)'
+    for (let i = 0; i < 80; i++) {
+      g.beginPath()
+      g.arc(Math.random() * c.width, Math.random() * c.height * 0.7, Math.random() * 1.5, 0, Math.PI * 2)
+      g.fill()
+    }
+  }
+  if (kind === 'office') {
+    g.fillStyle = 'rgba(255,255,255,0.5)'
+    for (let x = 80; x < c.width; x += 220) g.fillRect(x, 90, 150, 250)
+  }
+  return c
+}
+
+export async function loadImageBackground(file: File): Promise<CanvasImageSource> {
+  const url = URL.createObjectURL(file)
+  const img = new Image()
+  await new Promise((res, rej) => {
+    img.onload = res
+    img.onerror = rej
+    img.src = url
+  })
+  return img
+}
+
+export async function createEffectTrack(cameraTrack: MediaStreamTrack, effect: BackgroundEffect): Promise<BlurPipeline> {
   const SelfieSegmentation = await loadSelfieSegmentation()
   const settings = cameraTrack.getSettings()
   const width = settings.width ?? 1280
@@ -71,10 +120,14 @@ export async function createBlurredTrack(cameraTrack: MediaStreamTrack): Promise
     ctx.drawImage(results.segmentationMask, 0, 0, canvas.width, canvas.height)
     ctx.globalCompositeOperation = 'source-in'
     ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height)
-    // blurred background behind it
+    // background behind it: blurred camera frame OR the virtual image
     ctx.globalCompositeOperation = 'destination-over'
-    ctx.filter = 'blur(14px)'
-    ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height)
+    if (effect.type === 'blur') {
+      ctx.filter = 'blur(14px)'
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height)
+    } else {
+      ctx.drawImage(effect.image, 0, 0, canvas.width, canvas.height)
+    }
     ctx.restore()
   })
 
@@ -103,4 +156,9 @@ export async function createBlurredTrack(cameraTrack: MediaStreamTrack): Promise
       seg.close().catch(() => undefined)
     },
   }
+}
+
+/** Back-compat wrapper: plain background blur. */
+export function createBlurredTrack(cameraTrack: MediaStreamTrack): Promise<BlurPipeline> {
+  return createEffectTrack(cameraTrack, { type: 'blur' })
 }

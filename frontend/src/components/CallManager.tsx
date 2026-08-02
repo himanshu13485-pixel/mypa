@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Circle, Mic, MicOff, Phone, PhoneOff, Sparkles, Square, UserPlus, Users, Video, VideoOff } from 'lucide-react'
+import { Circle, Mic, MicOff, Phone, PhoneOff, Square, UserPlus, Users, Video, VideoOff } from 'lucide-react'
 import { calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
@@ -8,7 +8,8 @@ import { Button } from './ui'
 import type { CallSignalPayload } from '../types'
 import { startRingtone } from '../lib/alerts'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
-import { createBlurredTrack, type BlurPipeline } from '../lib/videoFx'
+import { createEffectTrack, type BlurPipeline } from '../lib/videoFx'
+import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
 
 interface ActiveCall {
   uuid: string
@@ -24,6 +25,8 @@ interface RemotePeer {
   uuid: string
   name: string
   stream: MediaStream | null
+  micOff?: boolean
+  camOff?: boolean
 }
 
 interface CallContextValue {
@@ -45,13 +48,27 @@ function RemoteTile({ peer, video }: { peer: RemotePeer; video: boolean }) {
     }
   }
   if (!video) {
-    return <audio ref={attach} autoPlay />
+    return (
+      <span className="flex items-center gap-1 text-[10px] text-slate-300">
+        <audio ref={attach} autoPlay />
+        {peer.micOff && <MicOff className="size-3 text-red-500" />}
+      </span>
+    )
   }
   return (
     <div className="relative overflow-hidden rounded-lg bg-slate-900">
       <video ref={attach} autoPlay playsInline className="h-full w-full object-cover" />
-      <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+      {peer.camOff && (
+        <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+          <span className="flex size-9 items-center justify-center rounded-full bg-brand-700 text-sm font-semibold text-white">
+            {peer.name.charAt(0)}
+          </span>
+        </div>
+      )}
+      <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
         {peer.name}
+        {peer.micOff && <MicOff className="size-3 text-red-500" />}
+        {peer.camOff && <VideoOff className="size-3 text-red-500" />}
       </span>
     </div>
   )
@@ -72,8 +89,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [elapsed, setElapsed] = useState(0)
   const [recording, setRecording] = useState(false)
   const [peerRecording, setPeerRecording] = useState<string | null>(null)
-  const [blurOn, setBlurOn] = useState(false)
+  const [bgLabel, setBgLabel] = useState('none')
   const [blurBusy, setBlurBusy] = useState(false)
+  const myMediaRef = useRef({ mic: true, cam: true })
   const recorderRef = useRef<CompositeRecorder | null>(null)
   const blurRef = useRef<BlurPipeline | null>(null)
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null)
@@ -115,7 +133,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setPeerRecording(null)
     blurRef.current?.stop()
     blurRef.current = null
-    setBlurOn(false)
+    setBgLabel('none')
+    myMediaRef.current = { mic: true, cam: true }
     peersRef.current.forEach((pc) => pc.close())
     peersRef.current.clear()
     pendingIceRef.current.clear()
@@ -303,9 +322,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'record', { on: true }, peerUuid).catch(() => undefined))
   }
 
-  const toggleBlur = async () => {
+  const applyBackground = async (choice: BackgroundChoice) => {
     if (blurBusy) return
-    if (blurOn) {
+    const restore = () => {
       const camera = cameraTrackRef.current
       peersRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
@@ -314,23 +333,28 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
       blurRef.current?.stop()
       blurRef.current = null
-      setBlurOn(false)
+    }
+    if (!choice.effect) {
+      restore()
+      setBgLabel('none')
       return
     }
     if (!cameraTrackRef.current) return
     setBlurBusy(true)
     try {
-      const pipeline = await createBlurredTrack(cameraTrackRef.current)
+      const pipeline = await createEffectTrack(cameraTrackRef.current, choice.effect)
+      blurRef.current?.stop()
       blurRef.current = pipeline
+      pipeline.track.enabled = !cameraOff
       peersRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         sender?.replaceTrack(pipeline.track).catch(() => undefined)
       })
       if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
-      setBlurOn(true)
+      setBgLabel(choice.label)
     } catch (err) {
-      alert('Background blur could not start (it needs internet for the model on first use).')
-      console.warn('[call] blur failed', err)
+      alert('Background effect could not start (it needs internet for the model on first use).')
+      console.warn('[call] background failed', err)
     } finally {
       setBlurBusy(false)
     }
@@ -397,6 +421,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
         case 'record':
           setPeerRecording(signal.payload.on ? (signal.from_name ?? 'Someone') : null)
           break
+        case 'media':
+          setRemotePeers((p) => p.map((x) => (x.uuid === signal.from_uuid
+            ? { ...x, micOff: signal.payload.mic === false, camOff: signal.payload.cam === false }
+            : x)))
+          break
         case 'ice': {
           const candidate = signal.payload.candidate as RTCIceCandidateInit | undefined
           if (!candidate) return
@@ -452,14 +481,28 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer)
   }, [activeCall?.status])
 
+  const broadcastMedia = (mic: boolean, cam: boolean) => {
+    myMediaRef.current = { mic, cam }
+    const uuid = callRef.current?.uuid
+    if (!uuid) return
+    peersRef.current.forEach((_, peerUuid) => {
+      calls.signal(uuid, 'media', { mic, cam }, peerUuid).catch(() => undefined)
+    })
+  }
+
   const toggleMute = () => {
-    localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = muted))
-    setMuted(!muted)
+    const next = !muted
+    localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !next))
+    setMuted(next)
+    broadcastMedia(!next, !cameraOff)
   }
 
   const toggleCamera = () => {
-    localStreamRef.current?.getVideoTracks().forEach((t) => (t.enabled = cameraOff))
-    setCameraOff(!cameraOff)
+    const next = !cameraOff
+    localStreamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !next))
+    if (blurRef.current) blurRef.current.track.enabled = !next
+    setCameraOff(next)
+    broadcastMedia(!muted, !next)
   }
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
@@ -553,11 +596,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
             </p>
             <div className="mt-2 flex gap-2">
               <Button size="sm" variant="secondary" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'}>
-                {muted ? <MicOff className="size-3.5" /> : <Mic className="size-3.5" />}
+                {muted ? <MicOff className="size-3.5 text-red-500" /> : <Mic className="size-3.5" />}
               </Button>
               {isVideo && (
                 <Button size="sm" variant="secondary" onClick={toggleCamera} title="Toggle camera">
-                  {cameraOff ? <VideoOff className="size-3.5" /> : <Video className="size-3.5" />}
+                  {cameraOff ? <VideoOff className="size-3.5 text-red-500" /> : <Video className="size-3.5" />}
                 </Button>
               )}
               <Button
@@ -569,15 +612,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 {recording ? <Square className="size-3.5" /> : <Circle className="size-3.5 text-red-500" />}
               </Button>
               {isVideo && (
-                <Button
-                  size="sm"
-                  variant={blurOn ? 'primary' : 'secondary'}
-                  title={blurOn ? 'Remove background blur' : 'Blur my background'}
-                  onClick={toggleBlur}
-                  disabled={blurBusy}
-                >
-                  <Sparkles className="size-3.5" />
-                </Button>
+                <BackgroundPicker active={bgLabel} busy={blurBusy} onPick={applyBackground} compact />
               )}
               <Button
                 size="sm"

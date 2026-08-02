@@ -2,14 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Circle, Copy, Hand, Lock, LockOpen, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, SmilePlus, Sparkles, Square, Users, Video, VideoOff,
+  Circle, Copy, Hand, Lock, LockOpen, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, SmilePlus, Square, Users, Video, VideoOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
-import { createBlurredTrack, type BlurPipeline } from '../lib/videoFx'
+import { createEffectTrack, type BlurPipeline } from '../lib/videoFx'
+import BackgroundPicker, { type BackgroundChoice } from '../components/BackgroundPicker'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card } from '../components/ui'
 import { meetingLink } from './MeetingsPage'
@@ -25,6 +26,8 @@ interface Peer {
   name: string
   stream: MediaStream | null
   sharing?: boolean
+  micOff?: boolean
+  camOff?: boolean
 }
 
 function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boolean; burst?: string; hand?: boolean; isHost?: boolean }) {
@@ -48,6 +51,7 @@ function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boo
           {peer.name.charAt(0)}
         </span>
         {peer.name}{isHost && <span className="text-[10px] text-amber-400"> (Host)</span>}
+        {peer.micOff && <MicOff className="size-3.5 text-red-500" />}
         {hand && <span className="text-base">{REACTIONS.hand}</span>}
         {burst && <span className="animate-bounce text-xl">{REACTIONS[burst]}</span>}
       </div>
@@ -56,8 +60,18 @@ function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boo
   return (
     <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
       <video ref={attach} autoPlay playsInline className={fit ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
+      {peer.camOff && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-900 text-slate-300">
+          <span className="flex size-12 items-center justify-center rounded-full bg-brand-700 text-lg font-semibold text-white">
+            {peer.name.charAt(0)}
+          </span>
+          <VideoOff className="size-4 text-red-500" />
+        </div>
+      )}
       <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
         {peer.name}{isHost && ' (Host)'}{hand && ` ${REACTIONS.hand}`}
+        {peer.micOff && <MicOff className="ml-1 inline size-3 text-red-500" />}
+        {peer.camOff && <VideoOff className="ml-1 inline size-3 text-red-500" />}
       </span>
       {burst && (
         <span className="absolute right-2 top-2 animate-bounce text-4xl drop-shadow">{REACTIONS[burst]}</span>
@@ -91,8 +105,9 @@ export default function MeetingRoomPage() {
   const [myHand, setMyHand] = useState(false)
   const [recording, setRecording] = useState(false)
   const [recorders, setRecorders] = useState<string[]>([]) // who else records
-  const [blurOn, setBlurOn] = useState(false)
+  const [bgLabel, setBgLabel] = useState('none')
   const [blurBusy, setBlurBusy] = useState(false)
+  const myMediaRef = useRef({ mic: true, cam: true })
   const recorderRef = useRef<CompositeRecorder | null>(null)
   const blurRef = useRef<BlurPipeline | null>(null)
   const tilesRef = useRef<HTMLDivElement>(null)
@@ -235,7 +250,7 @@ export default function MeetingRoomPage() {
     setRecording(false)
     blurRef.current?.stop()
     blurRef.current = null
-    setBlurOn(false)
+    setBgLabel('none')
     setPeers([])
   }, [])
 
@@ -321,6 +336,11 @@ export default function MeetingRoomPage() {
           setRecorders((r) => (signal.payload.on ? (r.includes(who) ? r : [...r, who]) : r.filter((n) => n !== who)))
           break
         }
+        case 'media':
+          setPeers((p) => p.map((x) => (x.uuid === signal.from_uuid
+            ? { ...x, micOff: signal.payload.mic === false, camOff: signal.payload.cam === false }
+            : x)))
+          break
         case 'chat':
           setChatMsgs((m) => [...m, {
             from: signal.from_uuid,
@@ -348,6 +368,9 @@ export default function MeetingRoomPage() {
             }
             if (recorderRef.current) {
               meetingsApi.signal(code, 'record', { on: true }, signal.from_uuid).catch(() => undefined)
+            }
+            if (!myMediaRef.current.mic || !myMediaRef.current.cam) {
+              meetingsApi.signal(code, 'media', myMediaRef.current, signal.from_uuid).catch(() => undefined)
             }
           } catch (err) {
             console.warn('[meeting] offer handling failed', err)
@@ -415,16 +438,26 @@ export default function MeetingRoomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const broadcastMedia = (mic: boolean, cam: boolean) => {
+    myMediaRef.current = { mic, cam }
+    pcsRef.current.forEach((_, uuid) => {
+      meetingsApi.signal(code, 'media', { mic, cam }, uuid).catch(() => undefined)
+    })
+  }
+
   const toggleMute = () => {
     const next = !muted
     localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = !next))
     setMuted(next)
+    broadcastMedia(!next, !cameraOff)
   }
 
   const toggleCamera = () => {
     const next = !cameraOff
     localStreamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !next))
+    blurRef.current?.track && (blurRef.current.track.enabled = !next)
     setCameraOff(next)
+    broadcastMedia(!muted, !next)
   }
 
   /** Screen share: swap the outgoing video track on every peer connection. */
@@ -532,9 +565,10 @@ export default function MeetingRoomPage() {
     broadcastRecord(true)
   }
 
-  const toggleBlur = async () => {
+  const applyBackground = async (choice: BackgroundChoice) => {
     if (blurBusy || sharing) return
-    if (blurOn) {
+    // Back to the raw camera first.
+    const restore = () => {
       const camera = cameraTrackRef.current
       pcsRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
@@ -543,23 +577,28 @@ export default function MeetingRoomPage() {
       if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
       blurRef.current?.stop()
       blurRef.current = null
-      setBlurOn(false)
+    }
+    if (!choice.effect) {
+      restore()
+      setBgLabel('none')
       return
     }
     if (!cameraTrackRef.current) return
     setBlurBusy(true)
     try {
-      const pipeline = await createBlurredTrack(cameraTrackRef.current)
+      const pipeline = await createEffectTrack(cameraTrackRef.current, choice.effect)
+      blurRef.current?.stop()
       blurRef.current = pipeline
+      pipeline.track.enabled = !cameraOff
       pcsRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         sender?.replaceTrack(pipeline.track).catch(() => undefined)
       })
       if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
-      setBlurOn(true)
+      setBgLabel(choice.label)
     } catch (err) {
-      alert('Background blur could not start (it needs internet for the model on first use).')
-      console.warn('[meeting] blur failed', err)
+      alert('Background effect could not start (it needs internet for the model on first use).')
+      console.warn('[meeting] background failed', err)
     } finally {
       setBlurBusy(false)
     }
@@ -783,12 +822,12 @@ export default function MeetingRoomPage() {
       {/* Controls */}
       <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <Button size="sm" variant="secondary" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'}>
-          {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+          {muted ? <MicOff className="size-4 text-red-500" /> : <Mic className="size-4" />}
         </Button>
         {isVideo && (
           <>
             <Button size="sm" variant="secondary" onClick={toggleCamera} title="Toggle camera">
-              {cameraOff ? <VideoOff className="size-4" /> : <Video className="size-4" />}
+              {cameraOff ? <VideoOff className="size-4 text-red-500" /> : <Video className="size-4" />}
             </Button>
             <Button size="sm" variant={sharing ? 'primary' : 'secondary'} onClick={toggleShare} title={sharing ? 'Stop sharing' : 'Share screen'}>
               <MonitorUp className="size-4" />
@@ -805,15 +844,7 @@ export default function MeetingRoomPage() {
           {recording ? 'Stop' : 'Rec'}
         </Button>
         {isVideo && (
-          <Button
-            size="sm"
-            variant={blurOn ? 'primary' : 'secondary'}
-            title={sharing ? 'Blur is unavailable while screen-sharing' : blurOn ? 'Remove background blur' : 'Blur my background'}
-            onClick={toggleBlur}
-            disabled={blurBusy || sharing}
-          >
-            <Sparkles className="size-4" />
-          </Button>
+          <BackgroundPicker active={bgLabel} disabled={sharing} busy={blurBusy} onPick={applyBackground} />
         )}
         <div className="relative">
           <Button size="sm" variant="secondary" title="Send a reaction" onClick={() => setShowReactions((s) => !s)}>
