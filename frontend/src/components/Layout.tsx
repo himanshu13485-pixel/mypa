@@ -26,23 +26,23 @@ const navSections: { label: string | null; items: { to: string; label: string; i
     { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   ]},
   { label: 'Connect', items: [
+    { to: '/connections', label: 'Connections', icon: UserPlus },
     { to: '/messages', label: 'Messages', icon: MessageCircle },
     { to: '/calls', label: 'Calls', icon: Phone },
     { to: '/meetings', label: 'Meetings', icon: Video },
     { to: '/screen', label: 'Screen', icon: MonitorUp },
-    { to: '/connections', label: 'Connections', icon: UserPlus },
-  ]},
-  { label: 'Plan', items: [
-    { to: '/tasks', label: 'My Tasks', icon: CheckSquare },
-    { to: '/tasks?important=1', label: 'Important', icon: Star },
-    { to: '/calendar', label: 'Calendar', icon: Calendar },
-    { to: '/categories', label: 'Categories', icon: FolderKanban },
   ]},
   { label: 'Workspace', items: [
     { to: '/projects', label: 'Projects', icon: Briefcase },
     { to: '/notes', label: 'Notes', icon: FileText },
     { to: '/files', label: 'Files', icon: FolderOpen },
     { to: '/groups', label: 'Family & Teams', icon: Users },
+  ]},
+  { label: 'Plan', items: [
+    { to: '/tasks', label: 'My Tasks', icon: CheckSquare },
+    { to: '/tasks?important=1', label: 'Important', icon: Star },
+    { to: '/calendar', label: 'Calendar', icon: Calendar },
+    { to: '/categories', label: 'Categories', icon: FolderKanban },
   ]},
   { label: 'Life', items: [
     { to: '/habits', label: 'Habits', icon: Repeat },
