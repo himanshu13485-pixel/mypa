@@ -66,11 +66,8 @@ class MessageController extends Controller
             $replyTo = $conversation->messages()->where('uuid', $data['reply_to'])->first();
         }
 
-        $blocked = config('mypa.files.blocked_extensions', []);
         foreach ($request->file('attachments', []) as $upload) {
-            if (in_array(strtolower($upload->getClientOriginalExtension()), $blocked, true)) {
-                return response()->json(['message' => 'That file type is not allowed.'], 422);
-            }
+            \App\Support\UploadGuard::assertSafe($upload);
         }
 
         $message = $conversation->messages()->create([

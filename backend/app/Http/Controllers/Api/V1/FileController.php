@@ -242,16 +242,10 @@ class FileController extends Controller
             ], 422);
         }
 
-        $blocked = config('mypa.files.blocked_extensions', []);
         $uploaded = [];
 
         foreach ($request->file('files') as $upload) {
-            $ext = strtolower($upload->getClientOriginalExtension());
-            if (in_array($ext, $blocked, true)) {
-                return response()->json([
-                    'message' => "Files of type .{$ext} are not allowed.",
-                ], 422);
-            }
+            \App\Support\UploadGuard::assertSafe($upload);
 
             $path = $upload->store('user-files/' . $user->id, 'local');
 

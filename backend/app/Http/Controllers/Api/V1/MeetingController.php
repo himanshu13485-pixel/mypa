@@ -262,6 +262,7 @@ class MeetingController extends Controller
         ]);
 
         $upload = $data['file'];
+        \App\Support\UploadGuard::assertSafe($upload);
         $path = $upload->store('meeting-files/' . $meeting->id, 'local');
         $file = \App\Models\MeetingFile::create([
             'meeting_id' => $meeting->id,
