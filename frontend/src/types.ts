@@ -556,7 +556,7 @@ export interface CallSignalPayload {
   call_type: 'audio' | 'video'
   from_uuid: string
   from_name?: string | null
-  signal: 'ring' | 'accept' | 'decline' | 'end' | 'offer' | 'answer' | 'ice' | 'peer-left' | 'record' | 'media' | 'rec-request' | 'rec-allow' | 'rec-deny'
+  signal: 'ring' | 'accept' | 'decline' | 'end' | 'offer' | 'answer' | 'ice' | 'peer-left' | 'share' | 'record' | 'media' | 'rec-request' | 'rec-allow' | 'rec-deny'
   payload: Record<string, unknown>
 }
 

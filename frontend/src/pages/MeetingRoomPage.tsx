@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Circle, Copy, Hand, Lock, LockOpen, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, SmilePlus, Square, Users, Video, VideoOff,
+  Circle, Copy, Expand, Hand, Lock, LockOpen, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, SmilePlus, Square, Users, Video, VideoOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
@@ -10,6 +10,7 @@ import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
 import { createEffectTrack, type BlurPipeline } from '../lib/videoFx'
+import { useActiveSpeaker } from '../lib/activeSpeaker'
 import BackgroundPicker, { type BackgroundChoice } from '../components/BackgroundPicker'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card } from '../components/ui'
@@ -30,7 +31,7 @@ interface Peer {
   camOff?: boolean
 }
 
-function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boolean; burst?: string; hand?: boolean; isHost?: boolean }) {
+function PeerTile({ peer, video, burst, hand, isHost, active, className }: { peer: Peer; video: boolean; burst?: string; hand?: boolean; isHost?: boolean; active?: boolean; className?: string }) {
   const [portrait, setPortrait] = useState(false)
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
@@ -45,7 +46,7 @@ function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boo
   const fit = peer.sharing || portrait
   if (!video) {
     return (
-      <div className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white">
+      <div className={clsx('flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white', active && 'ring-2 ring-emerald-400')}>
         <audio ref={attach} autoPlay />
         <span className="flex size-7 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold">
           {peer.name.charAt(0)}
@@ -58,7 +59,7 @@ function PeerTile({ peer, video, burst, hand, isHost }: { peer: Peer; video: boo
     )
   }
   return (
-    <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
+    <div className={clsx('relative min-h-40 overflow-hidden rounded-lg bg-slate-900 transition-shadow', active && 'ring-2 ring-emerald-400', className)}>
       <video ref={attach} autoPlay playsInline className={fit ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
       {peer.camOff && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-900 text-slate-300">
@@ -107,6 +108,7 @@ export default function MeetingRoomPage() {
   const [recorders, setRecorders] = useState<string[]>([]) // who else records
   const [recPending, setRecPending] = useState(false)
   const [recRequests, setRecRequests] = useState<{ uuid: string; name: string }[]>([])
+  const [isFs, setIsFs] = useState(false)
   const [bgLabel, setBgLabel] = useState('none')
   const [blurBusy, setBlurBusy] = useState(false)
   const myMediaRef = useRef({ mic: true, cam: true })
@@ -139,6 +141,10 @@ export default function MeetingRoomPage() {
     retry: false,
   })
   const isVideo = meeting?.type !== 'audio'
+  const activeSpeaker = useActiveSpeaker([
+    { uuid: 'me', stream: localStreamRef.current },
+    ...peers.map((p) => ({ uuid: p.uuid, stream: p.stream })),
+  ])
 
   const ensureLocalStream = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current
@@ -436,6 +442,21 @@ export default function MeetingRoomPage() {
     document.addEventListener('click', resume)
     return () => document.removeEventListener('click', resume)
   }, [])
+
+  // Track fullscreen so the layout can switch to the split/speaker view.
+  useEffect(() => {
+    const onFs = () => setIsFs(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => undefined)
+    } else {
+      tilesRef.current?.requestFullscreen().catch(() => undefined)
+    }
+  }
 
   // Timer + leave-on-unmount.
   useEffect(() => {
@@ -785,14 +806,21 @@ export default function MeetingRoomPage() {
       <div
         ref={tilesRef}
         className={clsx(
-          'grid flex-1 content-start gap-2',
+          'grid flex-1 gap-2',
+          isFs ? 'content-stretch bg-slate-950 p-2 auto-rows-fr' : 'content-start',
           isVideo
-            ? peers.length <= 1 ? 'grid-cols-1 sm:grid-cols-2' : peers.length <= 3 ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-3'
+            ? isFs
+              ? peers.length <= 1 ? 'grid-cols-2' : 'grid-cols-3'
+              : peers.length <= 1 ? 'grid-cols-1 sm:grid-cols-2' : peers.length <= 3 ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-3'
             : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
         )}
       >
         {isVideo && (
-          <div className="relative min-h-40 overflow-hidden rounded-lg bg-slate-900">
+          <div className={clsx(
+            'relative min-h-40 overflow-hidden rounded-lg bg-slate-900 transition-shadow',
+            activeSpeaker === 'me' && 'ring-2 ring-emerald-400',
+            isFs && activeSpeaker === 'me' && peers.length > 0 && 'col-span-2 row-span-2 order-first',
+          )}>
             <video ref={localVideoRef} autoPlay playsInline muted className={sharing ? 'h-full w-full bg-black object-contain' : 'h-full w-full -scale-x-100 object-cover'} />
             {bursts.me && <span className="absolute right-2 top-2 animate-bounce text-4xl drop-shadow">{REACTIONS[bursts.me]}</span>}
             <button
@@ -817,6 +845,8 @@ export default function MeetingRoomPage() {
             burst={bursts[p.uuid]}
             hand={hands.has(p.uuid)}
             isHost={p.uuid === meeting?.host.uuid}
+            active={activeSpeaker === p.uuid}
+            className={clsx(isFs && (activeSpeaker === p.uuid || (activeSpeaker === null && p.sharing)) && 'col-span-2 row-span-2 order-first')}
           />
         ))}
         {!isVideo && (
@@ -935,6 +965,9 @@ export default function MeetingRoomPage() {
             </span>
           )}
         </div>
+        <Button size="sm" variant="secondary" title={isFs ? 'Exit fullscreen' : 'Fullscreen — everyone stays visible, the speaker is enlarged'} onClick={toggleFullscreen}>
+          <Expand className="size-4" />
+        </Button>
         <Button size="sm" variant="danger" onClick={leave}>
           <PhoneOff className="size-4" /> Leave
         </Button>

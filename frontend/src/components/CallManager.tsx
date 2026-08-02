@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Circle, Mic, MicOff, Phone, PhoneOff, Square, UserPlus, Users, Video, VideoOff } from 'lucide-react'
+import { Circle, Expand, Mic, MicOff, MonitorUp, Phone, PhoneOff, Square, UserPlus, Users, Video, VideoOff } from 'lucide-react'
 import { calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
@@ -7,6 +7,7 @@ import { useAuthStore } from '../stores/auth'
 import { Button } from './ui'
 import type { CallSignalPayload } from '../types'
 import { startRingtone } from '../lib/alerts'
+import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
 import { createEffectTrack, type BlurPipeline } from '../lib/videoFx'
 import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
@@ -28,6 +29,7 @@ interface RemotePeer {
   stream: MediaStream | null
   micOff?: boolean
   camOff?: boolean
+  sharing?: boolean
 }
 
 interface CallContextValue {
@@ -40,7 +42,7 @@ const CallContext = createContext<CallContextValue>({ startCall: async () => {},
 export const useCalls = () => useContext(CallContext)
 
 /** Attaches a MediaStream to a video/audio element via ref callback. */
-function RemoteTile({ peer, video }: { peer: RemotePeer; video: boolean }) {
+function RemoteTile({ peer, video, active }: { peer: RemotePeer; video: boolean; active?: boolean }) {
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
       el.srcObject = peer.stream
@@ -57,8 +59,8 @@ function RemoteTile({ peer, video }: { peer: RemotePeer; video: boolean }) {
     )
   }
   return (
-    <div className="relative overflow-hidden rounded-lg bg-slate-900">
-      <video ref={attach} autoPlay playsInline className="h-full w-full object-cover" />
+    <div className={'relative overflow-hidden rounded-lg bg-slate-900' + (active ? ' ring-2 ring-emerald-400' : '')}>
+      <video ref={attach} autoPlay playsInline className={peer.sharing ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
       {peer.camOff && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
           <span className="flex size-9 items-center justify-center rounded-full bg-brand-700 text-sm font-semibold text-white">
@@ -93,6 +95,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [recPending, setRecPending] = useState(false)
   const [recRequest, setRecRequest] = useState<{ uuid: string; name: string } | null>(null)
   const startRecRef = useRef<() => void>(() => undefined)
+  const [sharing, setSharing] = useState(false)
+  const displayTrackRef = useRef<MediaStreamTrack | null>(null)
+  const [isFs, setIsFs] = useState(false)
   const [bgLabel, setBgLabel] = useState('none')
   const [blurBusy, setBlurBusy] = useState(false)
   const myMediaRef = useRef({ mic: true, cam: true })
@@ -130,6 +135,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
     )
   }, [])
 
+  const activeSpeaker = useActiveSpeaker([
+    { uuid: 'me', stream: localStreamRef.current },
+    ...remotePeers.map((p) => ({ uuid: p.uuid, stream: p.stream })),
+  ])
+
+  useEffect(() => {
+    const onFs = () => setIsFs(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
+
   const cleanup = useCallback(() => {
     recorderRef.current?.stop()
     recorderRef.current = null
@@ -140,6 +156,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     blurRef.current?.stop()
     blurRef.current = null
     setBgLabel('none')
+    displayTrackRef.current?.stop()
+    displayTrackRef.current = null
+    setSharing(false)
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined)
     myMediaRef.current = { mic: true, cam: true }
     peersRef.current.forEach((pc) => pc.close())
     peersRef.current.clear()
@@ -439,6 +459,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
           markLive()
           break
         }
+        case 'share':
+          setRemotePeers((p) => p.map((x) => (x.uuid === signal.from_uuid ? { ...x, sharing: !!signal.payload.on } : x)))
+          break
         case 'record':
           setPeerRecording(signal.payload.on ? (signal.from_name ?? 'Someone') : null)
           break
@@ -513,6 +536,51 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer)
   }, [activeCall?.status])
 
+  const stopShare = () => {
+    const camera = blurRef.current?.track ?? cameraTrackRef.current
+    peersRef.current.forEach((pc) => {
+      const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+      if (camera) sender?.replaceTrack(camera).catch(() => undefined)
+    })
+    displayTrackRef.current?.stop()
+    displayTrackRef.current = null
+    if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+    setSharing(false)
+    const uuid = callRef.current?.uuid
+    if (uuid) peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'share', { on: false }, peerUuid).catch(() => undefined))
+  }
+
+  const toggleShare = async () => {
+    if (sharing) {
+      stopShare()
+      return
+    }
+    try {
+      const display = await navigator.mediaDevices.getDisplayMedia({ video: true })
+      const track = display.getVideoTracks()[0]
+      displayTrackRef.current = track
+      track.onended = stopShare
+      peersRef.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+        sender?.replaceTrack(track).catch(() => undefined)
+      })
+      if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([track])
+      setSharing(true)
+      const uuid = callRef.current?.uuid
+      if (uuid) peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'share', { on: true }, peerUuid).catch(() => undefined))
+    } catch {
+      /* user cancelled the picker */
+    }
+  }
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => undefined)
+    } else {
+      callBodyRef.current?.requestFullscreen().catch(() => undefined)
+    }
+  }
+
   const broadcastMedia = (mic: boolean, cam: boolean) => {
     myMediaRef.current = { mic, cam }
     const uuid = callRef.current?.uuid
@@ -577,11 +645,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
           <div ref={callBodyRef} className="relative bg-slate-950 p-1">
             {isVideo ? (
               <>
-                <div className={`grid ${gridCols} h-56 gap-1`}>
+                <div className={`grid ${gridCols} ${isFs ? 'h-full' : 'h-56'} gap-1`}>
                   {remotePeers.length === 0 ? (
                     <div className="flex items-center justify-center text-xs text-slate-500">Waiting for others…</div>
                   ) : (
-                    remotePeers.map((p) => <RemoteTile key={p.uuid} peer={p} video />)
+                    remotePeers.map((p) => <RemoteTile key={p.uuid} peer={p} video active={activeSpeaker === p.uuid} />)
                   )}
                 </div>
                 <video
@@ -652,6 +720,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
               {isVideo && (
                 <Button size="sm" variant="secondary" onClick={toggleCamera} title="Toggle camera">
                   {cameraOff ? <VideoOff className="size-3.5 text-red-500" /> : <Video className="size-3.5" />}
+                </Button>
+              )}
+              {isVideo && (
+                <Button size="sm" variant={sharing ? 'primary' : 'secondary'} title={sharing ? 'Stop sharing my screen' : 'Share my screen'} onClick={toggleShare}>
+                  <MonitorUp className="size-3.5" />
+                </Button>
+              )}
+              {isVideo && (
+                <Button size="sm" variant="secondary" title="Fullscreen" onClick={toggleFullscreen}>
+                  <Expand className="size-3.5" />
                 </Button>
               )}
               <Button
