@@ -40,6 +40,16 @@ function loadSelfieSegmentation() {
   return segCtorPromise
 }
 
+/** Draw an image covering the canvas without distortion (center-crop). */
+function drawCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource, w: number, h: number) {
+  const iw = (img as HTMLImageElement).naturalWidth ?? (img as HTMLCanvasElement).width ?? w
+  const ih = (img as HTMLImageElement).naturalHeight ?? (img as HTMLCanvasElement).height ?? h
+  const scale = Math.max(w / iw, h / ih)
+  const dw = iw * scale
+  const dh = ih * scale
+  ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh)
+}
+
 export type BackgroundEffect =
   | { type: 'blur' }
   | { type: 'image'; image: CanvasImageSource }
@@ -72,8 +82,12 @@ export function presetBackground(kind: 'office' | 'sunset' | 'forest' | 'night')
     }
   }
   if (kind === 'office') {
-    g.fillStyle = 'rgba(255,255,255,0.5)'
-    for (let x = 80; x < c.width; x += 220) g.fillRect(x, 90, 150, 250)
+    // soft vignette instead of fake windows - reads as a studio wall
+    const v = g.createRadialGradient(c.width / 2, c.height / 2, c.height / 4, c.width / 2, c.height / 2, c.width / 1.1)
+    v.addColorStop(0, 'rgba(255,255,255,0.25)')
+    v.addColorStop(1, 'rgba(0,0,0,0.25)')
+    g.fillStyle = v
+    g.fillRect(0, 0, c.width, c.height)
   }
   return c
 }
@@ -116,8 +130,10 @@ export async function createEffectTrack(cameraTrack: MediaStreamTrack, effect: B
     if (!running) return
     ctx.save()
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    // sharp person
+    // person mask, slightly feathered so edges blend instead of halo-ing
+    ctx.filter = 'blur(4px)'
     ctx.drawImage(results.segmentationMask, 0, 0, canvas.width, canvas.height)
+    ctx.filter = 'none'
     ctx.globalCompositeOperation = 'source-in'
     ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height)
     // background behind it: blurred camera frame OR the virtual image
@@ -125,8 +141,9 @@ export async function createEffectTrack(cameraTrack: MediaStreamTrack, effect: B
     if (effect.type === 'blur') {
       ctx.filter = 'blur(14px)'
       ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height)
+      ctx.filter = 'none'
     } else {
-      ctx.drawImage(effect.image, 0, 0, canvas.width, canvas.height)
+      drawCover(ctx, effect.image, canvas.width, canvas.height)
     }
     ctx.restore()
   })

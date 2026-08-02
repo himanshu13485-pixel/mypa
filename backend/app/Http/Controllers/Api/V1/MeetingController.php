@@ -244,6 +244,73 @@ class MeetingController extends Controller
         return response()->json(['message' => 'sent']);
     }
 
+    /**
+     * Share a file/image in the meeting chat. The file lives with the meeting
+     * (participants-only download) and a chat signal announces it - to
+     * everyone or privately.
+     */
+    public function chatFile(Request $request, Meeting $meeting): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($meeting->status === 'active', 409, 'Meeting is not active.');
+        $myPivot = $meeting->participants()->where('users.id', $me->id)->wherePivot('status', 'joined')->first()?->pivot;
+        abort_unless($myPivot !== null, 403, 'Join the meeting first.');
+
+        $data = $request->validate([
+            'file' => ['required', 'file', 'max:10240'], // 10 MB
+            'to_uuid' => ['sometimes', 'nullable', 'uuid'],
+        ]);
+
+        $upload = $data['file'];
+        $path = $upload->store('meeting-files/' . $meeting->id, 'local');
+        $file = \App\Models\MeetingFile::create([
+            'meeting_id' => $meeting->id,
+            'user_id' => $me->id,
+            'path' => $path,
+            'name' => $upload->getClientOriginalName(),
+            'mime' => $upload->getClientMimeType(),
+            'size' => $upload->getSize(),
+        ]);
+
+        $fromName = $myPivot->display_name ?? $me->name;
+        $payload = [
+            'message' => '',
+            'private' => ! empty($data['to_uuid']),
+            'file' => [
+                'uuid' => $file->uuid,
+                'name' => $file->name,
+                'mime' => $file->mime,
+                'size' => $file->size,
+            ],
+        ];
+
+        if (! empty($data['to_uuid'])) {
+            $target = $meeting->participants()->where('users.uuid', $data['to_uuid'])->wherePivot('status', 'joined')->first();
+            abort_unless($target && $target->id !== $me->id, 422, 'That participant is not in the meeting.');
+            broadcast(new MeetingSignal($meeting, $me->uuid, $fromName, $target->uuid, 'chat', $payload));
+        } else {
+            $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
+            foreach ($others as $peer) {
+                broadcast(new MeetingSignal($meeting, $me->uuid, $fromName, $peer->uuid, 'chat', $payload));
+            }
+        }
+
+        return response()->json(['message' => 'Shared.', 'data' => $payload['file']]);
+    }
+
+    /** Download a chat file - meeting participants only. */
+    public function chatFileDownload(Request $request, Meeting $meeting, \App\Models\MeetingFile $file)
+    {
+        abort_unless($file->meeting_id === $meeting->id, 404);
+        abort_unless(
+            $meeting->participants()->where('users.id', $request->user()->id)->exists()
+                || $meeting->host_id === $request->user()->id,
+            403
+        );
+
+        return \Illuminate\Support\Facades\Storage::disk('local')->download($file->path, $file->name);
+    }
+
     /** Broadcast an emoji reaction (or raised hand) to everyone in the room. */
     public function react(Request $request, Meeting $meeting): JsonResponse
     {

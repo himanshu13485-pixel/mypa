@@ -158,6 +158,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/meetings/{meeting}/admit', [\App\Http\Controllers\Api\V1\MeetingController::class, 'admit']);
         Route::put('/meetings/{meeting}/approval', [\App\Http\Controllers\Api\V1\MeetingController::class, 'setApproval']);
         Route::post('/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chat']);
+        Route::post('/meetings/{meeting}/chat-file', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chatFile']);
+        Route::get('/meetings/{meeting}/chat-file/{file}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chatFileDownload']);
 
         // Projects (money ledgers)
         Route::get('/projects', [\App\Http\Controllers\Api\V1\ProjectController::class, 'index']);

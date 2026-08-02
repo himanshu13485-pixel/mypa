@@ -410,6 +410,15 @@ export const meetings = {
     api.post(`/meetings/${code}/admit`, { user_uuid: userUuid, allow }),
   setApproval: (code: string, requiresApproval: boolean) =>
     api.put(`/meetings/${code}/approval`, { requires_approval: requiresApproval }),
+  chatFile: (code: string, file: File, toUuid?: string | null) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (toUuid) form.append('to_uuid', toUuid)
+    return api.post<{ data: { uuid: string; name: string; mime: string | null; size: number } }>(
+      `/meetings/${code}/chat-file`, form,
+    ).then((r) => r.data.data)
+  },
+  chatFileUrl: (code: string, fileUuid: string) => `${api.defaults.baseURL}/meetings/${code}/chat-file/${fileUuid}`,
   chat: (code: string, message: string, toUuid?: string | null) =>
     api.post(`/meetings/${code}/chat`, { message, ...(toUuid ? { to_uuid: toUuid } : {}) }),
   listScreens: () =>

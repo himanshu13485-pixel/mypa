@@ -13,6 +13,7 @@ import { createEffectTrack, type BlurPipeline } from '../lib/videoFx'
 import { useActiveSpeaker } from '../lib/activeSpeaker'
 import BackgroundPicker, { type BackgroundChoice } from '../components/BackgroundPicker'
 import { useAuthStore } from '../stores/auth'
+import { Paperclip } from 'lucide-react'
 import { Button, Card } from '../components/ui'
 import { meetingLink } from './MeetingsPage'
 import type { MeetingSignalPayload } from '../types'
@@ -122,7 +123,8 @@ export default function MeetingRoomPage() {
   const [chatUnread, setChatUnread] = useState(0)
   const [chatTo, setChatTo] = useState('') // '' = everyone
   const [chatDraft, setChatDraft] = useState('')
-  const [chatMsgs, setChatMsgs] = useState<{ from: string; name: string; text: string; priv: boolean; me: boolean }[]>([])
+  const [chatMsgs, setChatMsgs] = useState<{ from: string; name: string; text: string; priv: boolean; me: boolean; file?: { uuid: string; name: string; mime: string | null; size: number } }[]>([])
+  const chatFileRef = useRef<HTMLInputElement>(null)
   const chatOpenRef = useRef(false)
   chatOpenRef.current = chatOpen
 
@@ -365,9 +367,10 @@ export default function MeetingRoomPage() {
           setChatMsgs((m) => [...m, {
             from: signal.from_uuid,
             name: signal.from_name ?? 'Someone',
-            text: signal.payload.message as string,
+            text: (signal.payload.message as string) ?? '',
             priv: !!signal.payload.private,
             me: false,
+            file: signal.payload.file as { uuid: string; name: string; mime: string | null; size: number } | undefined,
           }])
           if (!chatOpenRef.current) setChatUnread((n) => n + 1)
           break
@@ -655,6 +658,28 @@ export default function MeetingRoomPage() {
     }
   }
 
+  const sendChatFile = async (file: File) => {
+    try {
+      const meta = await meetingsApi.chatFile(code, file, chatTo || null)
+      setChatMsgs((m) => [...m, { from: 'me', name: 'You', text: '', priv: !!chatTo, me: true, file: meta }])
+    } catch (err) {
+      alert(errorMessage(err))
+    }
+  }
+
+  const downloadChatFile = async (fileUuid: string, name: string) => {
+    const token = useAuthStore.getState().token
+    const res = await fetch(meetingsApi.chatFileUrl(code, fileUuid), { headers: { Authorization: `Bearer ${token}` } })
+    if (!res.ok) return alert('Download failed.')
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  }
+
   const changeMyName = () => {
     const name = prompt('Your name for this meeting:', myName ?? user?.name ?? '')
     if (!name?.trim()) return
@@ -664,6 +689,19 @@ export default function MeetingRoomPage() {
   }
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+
+  // Zoom-like fullscreen sizing: 16:9 tiles wrap-centered; the stage
+  // (active speaker / screen-sharer) gets a bigger tile.
+  const tileCount = peers.length + (isVideo ? 1 : 0)
+  const fsTile = (stage: boolean): string => {
+    if (!isFs) return ''
+    if (stage) return tileCount <= 2 ? 'w-[72%]' : tileCount <= 5 ? 'w-[56%]' : 'w-[44%]'
+    if (tileCount <= 2) return 'w-[44%]'
+    if (tileCount <= 4) return 'w-[40%]'
+    if (tileCount <= 9) return 'w-[28%]'
+    return 'w-[21%]'
+  }
+  const stageUuid = activeSpeaker ?? peers.find((p) => p.sharing)?.uuid ?? null
 
   if (phase === 'waiting') {
     return (
@@ -806,20 +844,21 @@ export default function MeetingRoomPage() {
       <div
         ref={tilesRef}
         className={clsx(
-          'grid flex-1 gap-2',
-          isFs ? 'content-stretch bg-slate-950 p-2 auto-rows-fr' : 'content-start',
-          isVideo
-            ? isFs
-              ? peers.length <= 1 ? 'grid-cols-2' : 'grid-cols-3'
-              : peers.length <= 1 ? 'grid-cols-1 sm:grid-cols-2' : peers.length <= 3 ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-3'
-            : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+          isFs
+            ? 'flex flex-1 flex-wrap content-center items-center justify-center gap-2 bg-slate-950 p-3'
+            : clsx(
+                'grid flex-1 content-start gap-2',
+                isVideo
+                  ? peers.length <= 1 ? 'grid-cols-1 sm:grid-cols-2' : peers.length <= 3 ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-3'
+                  : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
+              ),
         )}
       >
         {isVideo && (
           <div className={clsx(
-            'relative min-h-40 overflow-hidden rounded-lg bg-slate-900 transition-shadow',
+            'relative overflow-hidden rounded-lg bg-slate-900 transition-all',
             activeSpeaker === 'me' && 'ring-2 ring-emerald-400',
-            isFs && activeSpeaker === 'me' && peers.length > 0 && 'col-span-2 row-span-2 order-first',
+            isFs ? clsx('aspect-video', fsTile(stageUuid === 'me'), stageUuid === 'me' && 'order-first') : 'min-h-40',
           )}>
             <video ref={localVideoRef} autoPlay playsInline muted className={sharing ? 'h-full w-full bg-black object-contain' : 'h-full w-full -scale-x-100 object-cover'} />
             {bursts.me && <span className="absolute right-2 top-2 animate-bounce text-4xl drop-shadow">{REACTIONS[bursts.me]}</span>}
@@ -846,7 +885,7 @@ export default function MeetingRoomPage() {
             hand={hands.has(p.uuid)}
             isHost={p.uuid === meeting?.host.uuid}
             active={activeSpeaker === p.uuid}
-            className={clsx(isFs && (activeSpeaker === p.uuid || (activeSpeaker === null && p.sharing)) && 'col-span-2 row-span-2 order-first')}
+            className={clsx(isFs && clsx('aspect-video min-h-0', fsTile(stageUuid === p.uuid), stageUuid === p.uuid && 'order-first'))}
           />
         ))}
         {!isVideo && (
@@ -873,7 +912,16 @@ export default function MeetingRoomPage() {
                 <p key={i} className="text-sm">
                   <span className={m.me ? 'font-semibold text-brand-600' : 'font-semibold'}>{m.name}</span>
                   {m.priv && <span className="ml-1 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-700 dark:bg-amber-950 dark:text-amber-300">private</span>}
-                  <span className="ml-1.5">{m.text}</span>
+                  {m.text && <span className="ml-1.5">{m.text}</span>}
+                  {m.file && (
+                    <button
+                      className="ml-1.5 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-0.5 text-xs text-brand-600 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+                      onClick={() => downloadChatFile(m.file!.uuid, m.file!.name)}
+                      title={`Download (${Math.max(1, Math.round(m.file.size / 1024))} KB)`}
+                    >
+                      <Paperclip className="size-3" /> {m.file.name}
+                    </button>
+                  )}
                 </p>
               ))
             )}
@@ -896,13 +944,26 @@ export default function MeetingRoomPage() {
               onChange={(e) => setChatDraft(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && sendChat()}
             />
+            <Button size="sm" variant="secondary" title="Share a file or image (max 10 MB)" onClick={() => chatFileRef.current?.click()}>
+              <Paperclip className="size-3.5" />
+            </Button>
+            <input
+              ref={chatFileRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                e.target.value = ''
+                if (f) sendChatFile(f)
+              }}
+            />
             <Button size="sm" onClick={sendChat} disabled={!chatDraft.trim()}>Send</Button>
           </div>
         </div>
       )}
 
       {/* Controls */}
-      <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-wrap items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <Button size="sm" variant="secondary" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'}>
           {muted ? <MicOff className="size-4 text-red-500" /> : <Mic className="size-4" />}
         </Button>
