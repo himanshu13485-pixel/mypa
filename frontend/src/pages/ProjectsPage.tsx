@@ -213,6 +213,7 @@ function ProjectFormModal({
           <Label>{project?.has_password ? 'Change project password' : 'Project password (optional)'}</Label>
           <Input
             type="password"
+            autoComplete="new-password"
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value, remove_password: false })}
             placeholder={project?.has_password ? 'Leave blank to keep the current password' : 'Locks the ledger — min 4 characters'}
@@ -815,6 +816,7 @@ function UnlockProjectCard({ project, onUnlocked }: { project: ProjectItem; onUn
           <div className="mx-auto mt-3 flex max-w-xs gap-2">
             <Input
               type="password"
+              autoComplete="new-password"
               value={value}
               onChange={(e) => setValue(e.target.value)}
               placeholder="Project password"
@@ -849,7 +851,7 @@ function UnlockProjectCard({ project, onUnlocked }: { project: ProjectItem; onUn
           </div>
           <div>
             <Label>New project password</Label>
-            <Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="min 4 characters" />
+            <Input type="password" autoComplete="new-password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="min 4 characters" />
           </div>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" size="sm" onClick={() => setShowReset(false)}>Back</Button>
