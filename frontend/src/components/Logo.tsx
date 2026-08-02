@@ -1,31 +1,46 @@
 /**
- * The Netvork mark: a rounded N inside a network circle with four nodes,
- * in the brand blue gradient — recreated as SVG from the brand logo so it
- * stays crisp at every size.
+ * The Netvork mark, taken 1:1 from the brand logo file
+ * (public/icons/logo-full.svg): dashed orbital ring, four network nodes,
+ * and the two-pillar N — in the official blue gradient.
  */
 export default function NetvorkMark({ className = 'size-8' }: { className?: string }) {
   return (
-    <svg viewBox="0 0 100 100" className={className} aria-label="Netvork">
+    <svg viewBox="0 0 510 510" className={className} aria-label="Netvork">
       <defs>
-        <linearGradient id="nv-grad" x1="0%" y1="100%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#1e3a8a" />
-          <stop offset="55%" stopColor="#2563eb" />
-          <stop offset="100%" stopColor="#3b82f6" />
+        <linearGradient id="nv-grad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#1428B8" />
+          <stop offset="55%" stopColor="#1769E8" />
+          <stop offset="100%" stopColor="#14A8F4" />
         </linearGradient>
       </defs>
-      {/* network ring */}
-      <circle cx="50" cy="50" r="38" fill="none" stroke="url(#nv-grad)" strokeWidth="5" />
-      {/* four nodes on the ring */}
-      <circle cx="50" cy="12" r="8" fill="url(#nv-grad)" />
-      <circle cx="88" cy="50" r="8" fill="url(#nv-grad)" />
-      <circle cx="50" cy="88" r="8" fill="url(#nv-grad)" />
-      <circle cx="12" cy="50" r="8" fill="url(#nv-grad)" />
-      {/* rounded N */}
-      <g stroke="url(#nv-grad)" strokeWidth="13" strokeLinecap="round" fill="none">
-        <path d="M 36 68 L 36 34" />
-        <path d="M 36 36 L 63 66" />
-        <path d="M 63 66 L 63 32" />
-      </g>
+      {/* orbital ring */}
+      <circle
+        cx="255"
+        cy="255"
+        r="185"
+        fill="none"
+        stroke="url(#nv-grad)"
+        strokeWidth="12"
+        strokeDasharray="270 35 270 35 270 35 270 35"
+        strokeLinecap="round"
+        transform="rotate(-45 255 255)"
+      />
+      {/* nodes */}
+      <circle cx="255" cy="55" r="25" fill="url(#nv-grad)" />
+      <circle cx="455" cy="255" r="25" fill="url(#nv-grad)" />
+      <circle cx="255" cy="455" r="25" fill="url(#nv-grad)" />
+      <circle cx="55" cy="255" r="25" fill="url(#nv-grad)" />
+      {/* stylized N */}
+      <rect x="150" y="145" width="52" height="220" rx="26" fill="url(#nv-grad)" />
+      <rect x="308" y="145" width="52" height="220" rx="26" fill="url(#nv-grad)" />
+      <path
+        d="M176 170 L334 340"
+        fill="none"
+        stroke="url(#nv-grad)"
+        strokeWidth="56"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
