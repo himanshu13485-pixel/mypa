@@ -151,7 +151,7 @@ class ProjectController extends Controller
         return response()->streamDownload(function () use ($query) {
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF"); // UTF-8 BOM so Excel opens it cleanly
-            fputcsv($out, ['Date', 'Description', 'Party', 'Type', 'Mode', 'Bank account', 'Currency', 'Credit (in)', 'Debit (out)']);
+            fputcsv($out, ['Date', 'Description', 'Party', 'Type', 'Mode', 'Bank account', 'Currency', 'Credit (in)', 'Debit (out)'], ',', '"', '\\');
 
             $running = [];
             $query->chunk(500, function ($entries) use ($out, &$running) {
@@ -168,13 +168,13 @@ class ProjectController extends Controller
                         $e->currency,
                         $e->direction === 'credit' ? number_format((float) $e->amount, 2, '.', '') : '',
                         $e->direction === 'debit' ? number_format((float) $e->amount, 2, '.', '') : '',
-                    ]);
+                    ], ',', '"', '\\');
                 }
             });
 
-            fputcsv($out, []);
+            fputcsv($out, [], ',', '"', '\\');
             foreach ($running as $currency => $net) {
-                fputcsv($out, ['', '', '', '', '', 'NET TOTAL', $currency, $net >= 0 ? number_format($net, 2, '.', '') : '', $net < 0 ? number_format(-$net, 2, '.', '') : '']);
+                fputcsv($out, ['', '', '', '', '', 'NET TOTAL', $currency, $net >= 0 ? number_format($net, 2, '.', '') : '', $net < 0 ? number_format(-$net, 2, '.', '') : ''], ',', '"', '\\');
             }
             fclose($out);
         }, $filename, ['Content-Type' => 'text/csv; charset=UTF-8']);
@@ -253,6 +253,8 @@ class ProjectController extends Controller
             'base_currency' => ['sometimes', 'string', 'max:8'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'is_archived' => ['sometimes', 'boolean'],
+            'daily_report' => ['sometimes', 'boolean'],
+            'report_format' => ['sometimes', 'in:excel,pdf'],
         ]);
     }
 
@@ -310,6 +312,8 @@ class ProjectController extends Controller
             'base_currency' => $project->base_currency,
             'notes' => $project->notes,
             'is_archived' => $project->is_archived,
+            'daily_report' => $project->daily_report,
+            'report_format' => $project->report_format,
             'entries_count' => $project->entries_count ?? null,
             'is_owner' => $isOwner,
             'permission' => $me ? $project->permissionFor($me) : 'owner',

@@ -141,6 +141,8 @@ function ProjectFormModal({
     base_currency: project?.base_currency ?? 'INR',
     notes: project?.notes ?? '',
     is_archived: project?.is_archived ?? false,
+    daily_report: project?.daily_report ?? false,
+    report_format: project?.report_format ?? 'excel',
   })
   const [error, setError] = useState<string | null>(null)
   const queryClient = useQueryClient()
@@ -198,6 +200,32 @@ function ProjectFormModal({
         <div>
           <Label>Notes</Label>
           <Textarea rows={2} value={form.notes ?? ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        </div>
+        <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.daily_report}
+              onChange={(e) => setForm({ ...form, daily_report: e.target.checked })}
+            />
+            Email me a daily report
+          </label>
+          <p className="mt-0.5 pl-6 text-[11px] text-slate-400">
+            Sent every evening — but only on days the ledger changed. Needs a verified email.
+          </p>
+          {form.daily_report && (
+            <div className="mt-2 pl-6">
+              <Label>Report format</Label>
+              <Select
+                className="w-40"
+                value={form.report_format}
+                onChange={(e) => setForm({ ...form, report_format: e.target.value as 'excel' | 'pdf' })}
+              >
+                <option value="excel">Excel (CSV)</option>
+                <option value="pdf">PDF</option>
+              </Select>
+            </div>
+          )}
         </div>
         {project && (
           <label className="flex items-center gap-2 text-sm">

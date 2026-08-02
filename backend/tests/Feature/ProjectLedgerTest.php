@@ -139,6 +139,45 @@ class ProjectLedgerTest extends TestCase
         $this->actingAs($viewer)->getJson("/api/v1/projects/{$project['uuid']}/entries")->assertForbidden();
     }
 
+    public function test_daily_report_mails_only_on_days_with_changes(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        $project = $this->actingAs($this->user)->postJson('/api/v1/projects', [
+            'name' => 'Reported site', 'daily_report' => true, 'report_format' => 'excel',
+        ])->assertCreated()->json('data');
+        $this->assertTrue($project['daily_report']);
+
+        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/entries", [
+            'entry_date' => now()->toDateString(), 'description' => 'Steel', 'direction' => 'debit', 'amount' => 7000,
+        ])->assertCreated();
+
+        // Day with changes -> report goes out with the CSV attached.
+        $this->assertEquals(0, \Illuminate\Support\Facades\Artisan::call('mypa:project-daily-reports'));
+
+        \Illuminate\Support\Facades\Mail::assertQueued(\App\Mail\ProjectDailyReport::class, function ($mail) {
+            return $mail->changesCount === 1
+                && str_contains($mail->fileName, '.csv')
+                && str_contains($mail->fileContents, 'Steel');
+        });
+
+        // No further changes -> silent next run.
+        $this->assertEquals(0, \Illuminate\Support\Facades\Artisan::call('mypa:project-daily-reports'));
+        \Illuminate\Support\Facades\Mail::assertQueuedCount(1);
+
+        // PDF format produces a PDF attachment. Travel forward so the new
+        // entry is unambiguously AFTER the first report (second-level clocks).
+        $this->travel(1)->minutes();
+        $this->actingAs($this->user)->putJson("/api/v1/projects/{$project['uuid']}", ['report_format' => 'pdf'])->assertOk();
+        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/entries", [
+            'entry_date' => now()->toDateString(), 'description' => 'Paint', 'direction' => 'debit', 'amount' => 2000,
+        ])->assertCreated();
+        $this->assertEquals(0, \Illuminate\Support\Facades\Artisan::call('mypa:project-daily-reports'));
+        \Illuminate\Support\Facades\Mail::assertQueued(\App\Mail\ProjectDailyReport::class, function ($mail) {
+            return str_contains($mail->fileName, '.pdf') && str_starts_with($mail->fileContents, '%PDF');
+        });
+    }
+
     public function test_entry_reminder_rings_once(): void
     {
         $project = Project::create(['user_id' => $this->user->id, 'name' => 'Shop', 'purpose' => 'business']);

@@ -595,6 +595,8 @@ export interface ProjectItem {
   base_currency: string
   notes?: string | null
   is_archived: boolean
+  daily_report?: boolean
+  report_format?: 'excel' | 'pdf'
   entries_count?: number | null
   is_owner: boolean
   permission: 'owner' | 'view' | 'edit' | null

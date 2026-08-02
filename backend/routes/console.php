@@ -16,6 +16,9 @@ Schedule::command('mypa:send-bill-alarms')->everyMinute()->withoutOverlapping();
 
 Schedule::command('mypa:project-reminders')->everyMinute()->withoutOverlapping();
 
+// Daily ledger emails go out in the evening, only for projects that changed.
+Schedule::command('mypa:project-daily-reports')->dailyAt('19:00')->withoutOverlapping();
+
 // Subscription lifecycle: expiry, renewal reminders, stale order cleanup.
 Schedule::command('mypa:subscription-lifecycle')->dailyAt('07:30')->withoutOverlapping();
 
