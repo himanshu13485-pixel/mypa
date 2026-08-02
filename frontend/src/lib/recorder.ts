@@ -95,8 +95,9 @@ export function startCompositeRecording(opts: {
     : 'video/webm'
   const recorder = new MediaRecorder(mixed, {
     mimeType: mime,
-    videoBitsPerSecond: 1_200_000, // ~9 MB/min - good 720p15 quality at half the size
-    audioBitsPerSecond: 96_000,
+    // Quality first: crisp 720p and clean audio (~18-20 MB per minute).
+    videoBitsPerSecond: 2_500_000,
+    audioBitsPerSecond: 128_000,
   })
   const chunks: Blob[] = []
   recorder.ondataavailable = (e) => {
