@@ -211,7 +211,7 @@ function ProjectFormModal({
             Email me a daily report
           </label>
           <p className="mt-0.5 pl-6 text-[11px] text-slate-400">
-            Sent every evening — but only on days the ledger changed. Needs a verified email.
+            Sent every morning at 6 AM — but only when the ledger changed the day before. Needs a verified email.
           </p>
           {form.daily_report && (
             <div className="mt-2 pl-6">
