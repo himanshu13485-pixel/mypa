@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Mic, MicOff, Phone, PhoneOff, UserPlus, Users, Video, VideoOff } from 'lucide-react'
+import { Circle, Mic, MicOff, Phone, PhoneOff, Sparkles, Square, UserPlus, Users, Video, VideoOff } from 'lucide-react'
 import { calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
@@ -7,6 +7,8 @@ import { useAuthStore } from '../stores/auth'
 import { Button } from './ui'
 import type { CallSignalPayload } from '../types'
 import { startRingtone } from '../lib/alerts'
+import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
+import { createBlurredTrack, type BlurPipeline } from '../lib/videoFx'
 
 interface ActiveCall {
   uuid: string
@@ -68,6 +70,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [muted, setMuted] = useState(false)
   const [cameraOff, setCameraOff] = useState(false)
   const [elapsed, setElapsed] = useState(0)
+  const [recording, setRecording] = useState(false)
+  const [peerRecording, setPeerRecording] = useState<string | null>(null)
+  const [blurOn, setBlurOn] = useState(false)
+  const [blurBusy, setBlurBusy] = useState(false)
+  const recorderRef = useRef<CompositeRecorder | null>(null)
+  const blurRef = useRef<BlurPipeline | null>(null)
+  const cameraTrackRef = useRef<MediaStreamTrack | null>(null)
+  const callBodyRef = useRef<HTMLDivElement>(null)
 
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   // ICE candidates that arrived before their peer connection / remote
@@ -99,6 +109,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const cleanup = useCallback(() => {
+    recorderRef.current?.stop()
+    recorderRef.current = null
+    setRecording(false)
+    setPeerRecording(null)
+    blurRef.current?.stop()
+    blurRef.current = null
+    setBlurOn(false)
     peersRef.current.forEach((pc) => pc.close())
     peersRef.current.clear()
     pendingIceRef.current.clear()
@@ -118,8 +135,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: type === 'video',
+        audio: { echoCancellation: true, noiseSuppression: true },
+        video: type === 'video'
+          ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+          : false,
       })
     } catch (err) {
       if (type === 'video') {
@@ -132,6 +151,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
     }
     localStreamRef.current = stream
+    cameraTrackRef.current = stream.getVideoTracks()[0] ?? null
     if (localVideoRef.current) localVideoRef.current.srcObject = stream
     return stream
   }, [])
@@ -150,6 +170,13 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       const stream = await ensureLocalStream(type)
       stream.getTracks().forEach((track) => pc.addTrack(track, stream))
+      pc.getSenders().forEach((sender) => {
+        if (sender.track?.kind !== 'video') return
+        const params = sender.getParameters()
+        params.encodings = params.encodings?.length ? params.encodings : [{}]
+        params.encodings[0].maxBitrate = 1_500_000
+        sender.setParameters(params).catch(() => undefined)
+      })
 
       setRemotePeers((peers) =>
         peers.some((p) => p.uuid === peerUuid) ? peers : [...peers, { uuid: peerUuid, name: peerName, stream: null }],
@@ -252,6 +279,63 @@ export function CallProvider({ children }: { children: ReactNode }) {
     calls.respond(uuid, 'decline').catch(() => undefined)
   }, [incoming])
 
+  const toggleRecord = () => {
+    const uuid = callRef.current?.uuid
+    if (!uuid) return
+    if (recording) {
+      recorderRef.current?.stop()
+      recorderRef.current = null
+      setRecording(false)
+      peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'record', { on: false }, peerUuid).catch(() => undefined))
+      return
+    }
+    if (!callBodyRef.current) return
+    recorderRef.current = startCompositeRecording({
+      container: callBodyRef.current,
+      audioStreams: () => [
+        ...(localStreamRef.current ? [localStreamRef.current] : []),
+        ...remotePeers.map((p) => p.stream).filter((s): s is MediaStream => !!s),
+      ],
+      fileLabel: 'netvork-call',
+      onStop: () => setRecording(false),
+    })
+    setRecording(true)
+    peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'record', { on: true }, peerUuid).catch(() => undefined))
+  }
+
+  const toggleBlur = async () => {
+    if (blurBusy) return
+    if (blurOn) {
+      const camera = cameraTrackRef.current
+      peersRef.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+        if (camera) sender?.replaceTrack(camera).catch(() => undefined)
+      })
+      if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+      blurRef.current?.stop()
+      blurRef.current = null
+      setBlurOn(false)
+      return
+    }
+    if (!cameraTrackRef.current) return
+    setBlurBusy(true)
+    try {
+      const pipeline = await createBlurredTrack(cameraTrackRef.current)
+      blurRef.current = pipeline
+      peersRef.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+        sender?.replaceTrack(pipeline.track).catch(() => undefined)
+      })
+      if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
+      setBlurOn(true)
+    } catch (err) {
+      alert('Background blur could not start (it needs internet for the model on first use).')
+      console.warn('[call] blur failed', err)
+    } finally {
+      setBlurBusy(false)
+    }
+  }
+
   const hangUp = useCallback(async () => {
     const uuid = callRef.current?.uuid
     cleanup()
@@ -310,6 +394,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
           markLive()
           break
         }
+        case 'record':
+          setPeerRecording(signal.payload.on ? (signal.from_name ?? 'Someone') : null)
+          break
         case 'ice': {
           const candidate = signal.payload.candidate as RTCIceCandidateInit | undefined
           if (!candidate) return
@@ -412,7 +499,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
             (wide ? 'w-[34rem] max-w-[calc(100vw-2rem)]' : 'w-80')
           }
         >
-          <div className="relative bg-slate-950 p-1">
+          <div ref={callBodyRef} className="relative bg-slate-950 p-1">
             {isVideo ? (
               <>
                 <div className={`grid ${gridCols} h-56 gap-1`}>
@@ -448,6 +535,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
             )}
           </div>
           <div className="p-3">
+            {(recording || peerRecording) && (
+              <div className="mb-1.5 flex items-center gap-1.5 rounded bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 dark:bg-red-950 dark:text-red-300">
+                <span className="relative flex size-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+                  <span className="relative inline-flex size-1.5 rounded-full bg-red-600" />
+                </span>
+                Recording in progress{recording && ' — you'}{peerRecording && ` — ${peerRecording}`}
+              </div>
+            )}
             <p className="text-sm font-semibold">{activeCall.peerName}</p>
             <p className="text-xs text-slate-400">
               {activeCall.status === 'ringing' && 'Ringing…'}
@@ -462,6 +558,25 @@ export function CallProvider({ children }: { children: ReactNode }) {
               {isVideo && (
                 <Button size="sm" variant="secondary" onClick={toggleCamera} title="Toggle camera">
                   {cameraOff ? <VideoOff className="size-3.5" /> : <Video className="size-3.5" />}
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant={recording ? 'danger' : 'secondary'}
+                title={recording ? 'Stop recording (saves to Downloads)' : 'Record this call — the other side is notified'}
+                onClick={toggleRecord}
+              >
+                {recording ? <Square className="size-3.5" /> : <Circle className="size-3.5 text-red-500" />}
+              </Button>
+              {isVideo && (
+                <Button
+                  size="sm"
+                  variant={blurOn ? 'primary' : 'secondary'}
+                  title={blurOn ? 'Remove background blur' : 'Blur my background'}
+                  onClick={toggleBlur}
+                  disabled={blurBusy}
+                >
+                  <Sparkles className="size-3.5" />
                 </Button>
               )}
               <Button

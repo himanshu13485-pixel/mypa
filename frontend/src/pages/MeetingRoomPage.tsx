@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Copy, Hand, Lock, LockOpen, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, SmilePlus, Users, Video, VideoOff,
+  Circle, Copy, Hand, Lock, LockOpen, MessageSquare, Mic, MicOff, MonitorUp, PhoneOff, SmilePlus, Sparkles, Square, Users, Video, VideoOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
+import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
+import { createBlurredTrack, type BlurPipeline } from '../lib/videoFx'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card } from '../components/ui'
 import { meetingLink } from './MeetingsPage'
@@ -87,6 +89,13 @@ export default function MeetingRoomPage() {
   const [bursts, setBursts] = useState<Record<string, string>>({}) // uuid -> emoji key
   const [hands, setHands] = useState<Set<string>>(new Set())
   const [myHand, setMyHand] = useState(false)
+  const [recording, setRecording] = useState(false)
+  const [recorders, setRecorders] = useState<string[]>([]) // who else records
+  const [blurOn, setBlurOn] = useState(false)
+  const [blurBusy, setBlurBusy] = useState(false)
+  const recorderRef = useRef<CompositeRecorder | null>(null)
+  const blurRef = useRef<BlurPipeline | null>(null)
+  const tilesRef = useRef<HTMLDivElement>(null)
   const [knocks, setKnocks] = useState<{ uuid: string; name: string }[]>([])
   const [approvalOn, setApprovalOn] = useState<boolean | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
@@ -118,8 +127,10 @@ export default function MeetingRoomPage() {
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-        video: meeting?.type !== 'audio',
+        audio: { echoCancellation: true, noiseSuppression: true },
+        video: meeting?.type !== 'audio'
+          ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+          : false,
       })
     } catch (err) {
       // Camera busy (another app/browser window) or missing: join with mic
@@ -157,6 +168,15 @@ export default function MeetingRoomPage() {
 
       const stream = await ensureLocalStream()
       stream.getTracks().forEach((t) => pc.addTrack(t, stream))
+
+      // Allow decent video bandwidth so 720p does not get crushed.
+      pc.getSenders().forEach((sender) => {
+        if (sender.track?.kind !== 'video') return
+        const params = sender.getParameters()
+        params.encodings = params.encodings?.length ? params.encodings : [{}]
+        params.encodings[0].maxBitrate = 1_500_000
+        sender.setParameters(params).catch(() => undefined)
+      })
 
       setPeers((p) => (p.some((x) => x.uuid === peerUuid) ? p : [...p, { uuid: peerUuid, name: peerName, stream: null }]))
 
@@ -210,6 +230,12 @@ export default function MeetingRoomPage() {
     displayTrackRef.current?.stop() // otherwise the browser keeps sharing the screen
     displayTrackRef.current = null
     setSharing(false)
+    recorderRef.current?.stop()
+    recorderRef.current = null
+    setRecording(false)
+    blurRef.current?.stop()
+    blurRef.current = null
+    setBlurOn(false)
     setPeers([])
   }, [])
 
@@ -290,6 +316,11 @@ export default function MeetingRoomPage() {
         case 'share':
           setPeers((p) => p.map((x) => (x.uuid === signal.from_uuid ? { ...x, sharing: !!signal.payload.on } : x)))
           break
+        case 'record': {
+          const who = signal.from_name ?? 'Someone'
+          setRecorders((r) => (signal.payload.on ? (r.includes(who) ? r : [...r, who]) : r.filter((n) => n !== who)))
+          break
+        }
         case 'chat':
           setChatMsgs((m) => [...m, {
             from: signal.from_uuid,
@@ -314,6 +345,9 @@ export default function MeetingRoomPage() {
             await meetingsApi.signal(code, 'answer', { sdp: answer.sdp, type: answer.type }, signal.from_uuid)
             if (displayTrackRef.current) {
               meetingsApi.signal(code, 'share', { on: true }, signal.from_uuid).catch(() => undefined)
+            }
+            if (recorderRef.current) {
+              meetingsApi.signal(code, 'record', { on: true }, signal.from_uuid).catch(() => undefined)
             }
           } catch (err) {
             console.warn('[meeting] offer handling failed', err)
@@ -470,6 +504,67 @@ export default function MeetingRoomPage() {
     void target
   }
 
+  const broadcastRecord = (on: boolean) => {
+    pcsRef.current.forEach((_, uuid) => {
+      meetingsApi.signal(code, 'record', { on }, uuid).catch(() => undefined)
+    })
+  }
+
+  const toggleRecord = () => {
+    if (recording) {
+      recorderRef.current?.stop()
+      recorderRef.current = null
+      setRecording(false)
+      broadcastRecord(false)
+      return
+    }
+    if (!tilesRef.current) return
+    recorderRef.current = startCompositeRecording({
+      container: tilesRef.current,
+      audioStreams: () => [
+        ...(localStreamRef.current ? [localStreamRef.current] : []),
+        ...peers.map((p) => p.stream).filter((s): s is MediaStream => !!s),
+      ],
+      fileLabel: `netvork-meeting-${code}`,
+      onStop: () => setRecording(false),
+    })
+    setRecording(true)
+    broadcastRecord(true)
+  }
+
+  const toggleBlur = async () => {
+    if (blurBusy || sharing) return
+    if (blurOn) {
+      const camera = cameraTrackRef.current
+      pcsRef.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+        if (camera) sender?.replaceTrack(camera).catch(() => undefined)
+      })
+      if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+      blurRef.current?.stop()
+      blurRef.current = null
+      setBlurOn(false)
+      return
+    }
+    if (!cameraTrackRef.current) return
+    setBlurBusy(true)
+    try {
+      const pipeline = await createBlurredTrack(cameraTrackRef.current)
+      blurRef.current = pipeline
+      pcsRef.current.forEach((pc) => {
+        const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+        sender?.replaceTrack(pipeline.track).catch(() => undefined)
+      })
+      if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
+      setBlurOn(true)
+    } catch (err) {
+      alert('Background blur could not start (it needs internet for the model on first use).')
+      console.warn('[meeting] blur failed', err)
+    } finally {
+      setBlurBusy(false)
+    }
+  }
+
   const changeMyName = () => {
     const name = prompt('Your name for this meeting:', myName ?? user?.name ?? '')
     if (!name?.trim()) return
@@ -584,8 +679,20 @@ export default function MeetingRoomPage() {
         </Button>
       </div>
 
+      {(recording || recorders.length > 0) && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
+          <span className="relative flex size-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-75" />
+            <span className="relative inline-flex size-2 rounded-full bg-red-600" />
+          </span>
+          Recording in progress{recording && ' — you are recording'}
+          {recorders.length > 0 && ` — ${recorders.join(', ')} ${recorders.length === 1 ? 'is' : 'are'} recording`}
+        </div>
+      )}
+
       {/* Tiles */}
       <div
+        ref={tilesRef}
         className={clsx(
           'grid flex-1 content-start gap-2',
           isVideo
@@ -687,6 +794,26 @@ export default function MeetingRoomPage() {
               <MonitorUp className="size-4" />
             </Button>
           </>
+        )}
+        <Button
+          size="sm"
+          variant={recording ? 'danger' : 'secondary'}
+          title={recording ? 'Stop recording (saves to your Downloads folder)' : 'Record this meeting — everyone is notified'}
+          onClick={toggleRecord}
+        >
+          {recording ? <Square className="size-4" /> : <Circle className="size-4 text-red-500" />}
+          {recording ? 'Stop' : 'Rec'}
+        </Button>
+        {isVideo && (
+          <Button
+            size="sm"
+            variant={blurOn ? 'primary' : 'secondary'}
+            title={sharing ? 'Blur is unavailable while screen-sharing' : blurOn ? 'Remove background blur' : 'Blur my background'}
+            onClick={toggleBlur}
+            disabled={blurBusy || sharing}
+          >
+            <Sparkles className="size-4" />
+          </Button>
         )}
         <div className="relative">
           <Button size="sm" variant="secondary" title="Send a reaction" onClick={() => setShowReactions((s) => !s)}>

@@ -250,7 +250,7 @@ class CallController extends Controller
         $this->authorizeParticipant($call, $me->id);
 
         $data = $request->validate([
-            'signal' => ['required', 'in:offer,answer,ice'],
+            'signal' => ['required', 'in:offer,answer,ice,record'],
             'payload' => ['required', 'array'],
             'to_uuid' => ['sometimes', 'uuid'],
         ]);
