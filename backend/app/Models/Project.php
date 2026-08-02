@@ -14,11 +14,12 @@ class Project extends Model
     protected $fillable = [
         'user_id', 'name', 'purpose', 'base_currency', 'notes', 'is_archived',
         'daily_report', 'report_format', 'last_reported_at',
+        'password_hash', 'reset_code_hash', 'reset_code_expires_at',
     ];
 
     protected function casts(): array
     {
-        return ['is_archived' => 'boolean', 'daily_report' => 'boolean', 'last_reported_at' => 'datetime'];
+        return ['is_archived' => 'boolean', 'daily_report' => 'boolean', 'last_reported_at' => 'datetime', 'reset_code_expires_at' => 'datetime'];
     }
 
     public function uniqueIds(): array

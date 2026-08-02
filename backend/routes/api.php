@@ -172,6 +172,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/projects/{project}/unshare', [\App\Http\Controllers\Api\V1\ProjectController::class, 'unshare']);
         Route::get('/projects/{project}/summary', [\App\Http\Controllers\Api\V1\ProjectController::class, 'summary']);
         Route::get('/projects/{project}/export', [\App\Http\Controllers\Api\V1\ProjectController::class, 'export']);
+        Route::post('/projects/{project}/request-password-reset', [\App\Http\Controllers\Api\V1\ProjectController::class, 'requestPasswordReset']);
+        Route::post('/projects/{project}/reset-password', [\App\Http\Controllers\Api\V1\ProjectController::class, 'resetPassword']);
 
         // Files & folders
         Route::get('/files/browse', [FileController::class, 'browse']);
@@ -331,6 +333,8 @@ Route::prefix('v1')->group(function () {
             Route::post('/users/{user}/verify-email', [AdminUserController::class, 'verifyEmail']);
             Route::get('/salespeople', [AdminUserController::class, 'salespeople']);
             Route::post('/users/{user}/salesperson', [AdminUserController::class, 'assignSalesperson']);
+            Route::get('/users/{user}/locked-projects', [AdminUserController::class, 'lockedProjects']);
+            Route::post('/projects/{uuid}/send-password-reset', [AdminUserController::class, 'sendProjectPasswordReset']);
             Route::get('/settings', [AdminUserController::class, 'settings']);
             Route::put('/settings', [AdminUserController::class, 'updateSettings']);
             Route::get('/plans', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'index']);

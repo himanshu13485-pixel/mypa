@@ -675,7 +675,44 @@ function UserSummaryModal({ user, onClose }: { user: User; onClose: () => void }
         </div>
       )}
       <RecordsSection userUuid={user.uuid} />
+      <LockedProjectsSection userUuid={user.uuid} />
     </Modal>
+  )
+}
+
+/** Password-locked projects of this user: one click emails THEM a reset code. */
+function LockedProjectsSection({ userUuid }: { userUuid: string }) {
+  const { data } = useQuery({
+    queryKey: ['admin-locked-projects', userUuid],
+    queryFn: () => adminOps.lockedProjects(userUuid),
+  })
+  const [sentFor, setSentFor] = useState<string | null>(null)
+
+  if (!data?.length) return null
+
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
+      <p className="mb-1.5 text-xs font-semibold text-slate-500">Password-locked projects</p>
+      <div className="space-y-1">
+        {data.map((p) => (
+          <div key={p.uuid} className="flex items-center justify-between rounded border border-slate-100 px-2.5 py-1.5 text-xs dark:border-slate-800">
+            <span>🔒 {p.name}</span>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                adminOps.sendProjectReset(p.uuid)
+                  .then((r) => { setSentFor(p.uuid); alert(r.message) })
+                  .catch((err) => alert(errorMessage(err)))
+              }}
+            >
+              {sentFor === p.uuid ? 'Code sent ✓' : 'Email reset code'}
+            </Button>
+          </div>
+        ))}
+      </div>
+      <p className="mt-1 text-[10px] text-slate-400">The code goes to the project owner's email, never to you.</p>
+    </div>
   )
 }
 

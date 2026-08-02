@@ -85,7 +85,9 @@ export default function ScreenSessionPage() {
       try {
         if (!session) return
         if (session.is_host) {
-          const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+          const display = await navigator.mediaDevices
+            .getDisplayMedia({ video: true, audio: true })
+            .catch(() => navigator.mediaDevices.getDisplayMedia({ video: true }))
           displayStreamRef.current = display
           display.getVideoTracks()[0].onended = () => stopSharing()
           const hostInfo = await meetingsApi.join(code)

@@ -597,6 +597,7 @@ export interface ProjectItem {
   is_archived: boolean
   daily_report?: boolean
   report_format?: 'excel' | 'pdf'
+  has_password?: boolean
   entries_count?: number | null
   is_owner: boolean
   permission: 'owner' | 'view' | 'edit' | null

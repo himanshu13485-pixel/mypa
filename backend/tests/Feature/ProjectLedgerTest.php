@@ -139,6 +139,61 @@ class ProjectLedgerTest extends TestCase
         $this->actingAs($viewer)->getJson("/api/v1/projects/{$project['uuid']}/entries")->assertForbidden();
     }
 
+    public function test_password_lock_and_admin_reset_flow(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+        $admin = User::factory()->create();
+        $admin->roles()->attach(\App\Models\Role::where('slug', 'admin')->first()->id);
+
+        // Lock the project with a password.
+        $project = $this->actingAs($this->user)->postJson('/api/v1/projects', [
+            'name' => 'Vault', 'password' => 'secret99',
+        ])->assertCreated()->json('data');
+        $this->assertTrue($project['has_password']);
+
+        // Without the password: 423 locked. With it: open. Wrong: locked.
+        $this->actingAs($this->user)->getJson("/api/v1/projects/{$project['uuid']}/entries")->assertStatus(423);
+        $this->actingAs($this->user)
+            ->withHeader('X-Project-Password', 'wrong')
+            ->getJson("/api/v1/projects/{$project['uuid']}/summary")->assertStatus(423);
+        $this->actingAs($this->user)
+            ->withHeader('X-Project-Password', 'secret99')
+            ->getJson("/api/v1/projects/{$project['uuid']}/entries")->assertOk();
+        $this->actingAs($this->user)
+            ->withHeader('X-Project-Password', 'secret99')
+            ->postJson("/api/v1/projects/{$project['uuid']}/entries", [
+                'entry_date' => now()->toDateString(), 'description' => 'Locked entry', 'direction' => 'debit', 'amount' => 100,
+            ])->assertCreated();
+
+        // Owner forgot: request pings admins; only an admin can issue the code.
+        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/request-password-reset")->assertOk();
+        $this->assertEquals('project_reset_request', $admin->notifications()->first()->data['kind']);
+        $this->actingAs($this->user)->postJson("/api/v1/admin/projects/{$project['uuid']}/send-password-reset")->assertForbidden();
+
+        $this->actingAs($admin)->postJson("/api/v1/admin/projects/{$project['uuid']}/send-password-reset")->assertOk();
+        \Illuminate\Support\Facades\Mail::assertQueued(\App\Mail\ProjectPasswordResetCode::class);
+
+        // Wrong code rejected; the real one resets the password.
+        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/reset-password", [
+            'code' => '000000', 'new_password' => 'fresh123',
+        ])->assertStatus(422);
+
+        $code = null;
+        \Illuminate\Support\Facades\Mail::assertQueued(\App\Mail\ProjectPasswordResetCode::class, function ($mail) use (&$code) {
+            $code = $mail->code;
+            return true;
+        });
+        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/reset-password", [
+            'code' => $code, 'new_password' => 'fresh123',
+        ])->assertOk();
+        $this->actingAs($this->user)
+            ->withHeader('X-Project-Password', 'fresh123')
+            ->getJson("/api/v1/projects/{$project['uuid']}/entries")->assertOk();
+        $this->actingAs($this->user)
+            ->withHeader('X-Project-Password', 'secret99')
+            ->getJson("/api/v1/projects/{$project['uuid']}/entries")->assertStatus(423);
+    }
+
     public function test_daily_report_mails_only_on_days_with_changes(): void
     {
         \Illuminate\Support\Facades\Mail::fake();

@@ -410,6 +410,46 @@ class UserController extends Controller
         return response()->json($conversations);
     }
 
+    /** Password-locked projects of a user (for issuing reset codes). */
+    public function lockedProjects(Request $request, User $user): JsonResponse
+    {
+        $projects = \App\Models\Project::where('user_id', $user->id)
+            ->whereNotNull('password_hash')
+            ->get(['uuid', 'name'])
+            ->map(fn ($p) => ['uuid' => $p->uuid, 'name' => $p->name]);
+
+        return response()->json(['data' => $projects]);
+    }
+
+    /**
+     * Email the project OWNER a one-time password reset code (30 min).
+     * Only admins can issue codes; the code goes to the owner, never the admin.
+     */
+    public function sendProjectPasswordReset(Request $request, string $uuid): JsonResponse
+    {
+        $project = \App\Models\Project::with('user')->where('uuid', $uuid)->firstOrFail();
+        abort_unless($project->password_hash, 422, 'This project has no password.');
+
+        $owner = $project->user;
+        abort_unless($owner->email && $owner->email_verified_at, 422,
+            'The owner has no verified email to receive the code.');
+
+        $code = (string) random_int(100000, 999999);
+        $project->forceFill([
+            'reset_code_hash' => \Illuminate\Support\Facades\Hash::make($code),
+            'reset_code_expires_at' => now()->addMinutes(30),
+        ])->save();
+
+        \Illuminate\Support\Facades\Mail::to($owner->email)->queue(
+            new \App\Mail\ProjectPasswordResetCode($project->name, $owner->name, $code)
+        );
+        \App\Models\AuditLog::record($request->user(), 'project.reset_code_sent', $project, [
+            'owner' => $owner->name,
+        ]);
+
+        return response()->json(['message' => "Reset code emailed to {$owner->name}. It expires in 30 minutes."]);
+    }
+
     /** Call participation: totals, this week, talk-time in minutes. */
     protected function callStats(User $user): array
     {

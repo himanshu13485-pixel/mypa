@@ -143,12 +143,20 @@ function ProjectFormModal({
     is_archived: project?.is_archived ?? false,
     daily_report: project?.daily_report ?? false,
     report_format: project?.report_format ?? 'excel',
+    password: '',
+    remove_password: false,
   })
   const [error, setError] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const save = useMutation({
-    mutationFn: () => (project ? projectsApi.update(project.uuid, form) : projectsApi.create(form)),
+    mutationFn: () => {
+      const { password, remove_password, ...rest } = form
+      const payload: Record<string, unknown> = { ...rest }
+      if (remove_password) payload.password = null
+      else if (password) payload.password = password
+      return project ? projectsApi.update(project.uuid, payload) : projectsApi.create(payload)
+    },
     onSuccess: (p) => {
       onSaved(p)
       onClose()
@@ -200,6 +208,29 @@ function ProjectFormModal({
         <div>
           <Label>Notes</Label>
           <Textarea rows={2} value={form.notes ?? ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+        </div>
+        <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+          <Label>{project?.has_password ? 'Change project password' : 'Project password (optional)'}</Label>
+          <Input
+            type="password"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value, remove_password: false })}
+            placeholder={project?.has_password ? 'Leave blank to keep the current password' : 'Locks the ledger — min 4 characters'}
+          />
+          {project?.has_password && (
+            <label className="mt-1.5 flex items-center gap-2 text-xs text-slate-500">
+              <input
+                type="checkbox"
+                checked={form.remove_password}
+                onChange={(e) => setForm({ ...form, remove_password: e.target.checked, password: '' })}
+              />
+              Remove the password (unlock for everyone with access)
+            </label>
+          )}
+          <p className="mt-1 text-[11px] text-slate-400">
+            With a password, everyone (including you) must enter it to open this ledger. Forgot it?
+            Only an admin can email you a reset code.
+          </p>
         </div>
         <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
           <label className="flex items-center gap-2 text-sm">
@@ -259,6 +290,8 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
   const queryClient = useQueryClient()
   const canEdit = project.is_owner || project.permission === 'edit'
   const [showShare, setShowShare] = useState(false)
+  const [pw, setPw] = useState<string | undefined>(undefined)
+  const locked = !!project.has_password && pw === undefined
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState({ date_from: '', date_to: '', mode: '', direction: '', q: '' })
   const [search, setSearch] = useState('')
@@ -278,13 +311,15 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
   // Shared ledgers stay live: refresh every 10s so everyone sees updates.
   const { data: entries, isLoading } = useQuery({
     queryKey: ['project-entries', project.uuid, params, page],
-    queryFn: () => projectsApi.entries(project.uuid, { ...params, page }),
+    queryFn: () => projectsApi.entries(project.uuid, { ...params, page }, pw),
     refetchInterval: 10_000,
+    enabled: !locked,
   })
   const { data: summary } = useQuery({
     queryKey: ['project-summary', project.uuid, params],
-    queryFn: () => projectsApi.summary(project.uuid, params),
+    queryFn: () => projectsApi.summary(project.uuid, params, pw),
     refetchInterval: 10_000,
+    enabled: !locked,
   })
 
   const invalidate = () => {
@@ -294,7 +329,7 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
   }
 
   const removeEntry = useMutation({
-    mutationFn: (uuid: string) => projectsApi.removeEntry(project.uuid, uuid),
+    mutationFn: (uuid: string) => projectsApi.removeEntry(project.uuid, uuid, pw),
     onSuccess: invalidate,
     onError: (err) => alert(errorMessage(err)),
   })
@@ -303,7 +338,7 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
     const token = useAuthStore.getState().token
     const qs = new URLSearchParams(params as Record<string, string>).toString()
     const res = await fetch(projectsApi.exportUrl(project.uuid) + (qs ? `?${qs}` : ''), {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: `Bearer ${token}`, ...(pw ? { 'X-Project-Password': pw } : {}) },
     })
     if (!res.ok) return alert('Export failed.')
     const blob = await res.blob()
@@ -313,6 +348,10 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
     a.download = `${project.name}-ledger.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  if (locked) {
+    return <UnlockProjectCard project={project} onUnlocked={setPw} />
   }
 
   return (
@@ -499,6 +538,7 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
       {(showEntry || editEntry) && (
         <EntryFormModal
           project={project}
+          pw={pw}
           entry={editEntry}
           onClose={() => {
             setShowEntry(false)
@@ -513,11 +553,13 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
 
 function EntryFormModal({
   project,
+  pw,
   entry,
   onClose,
   onSaved,
 }: {
   project: ProjectItem
+  pw?: string
   entry: ProjectEntryItem | null
   onClose: () => void
   onSaved: () => void
@@ -549,8 +591,8 @@ function EntryFormModal({
         reminder_at: form.reminder_at || null,
       }
       return entry
-        ? projectsApi.updateEntry(project.uuid, entry.uuid, payload)
-        : projectsApi.createEntry(project.uuid, payload)
+        ? projectsApi.updateEntry(project.uuid, entry.uuid, payload, pw)
+        : projectsApi.createEntry(project.uuid, payload, pw)
     },
     onSuccess: () => {
       onSaved()
@@ -736,5 +778,102 @@ function ShareProjectModal({
         </div>
       </div>
     </Modal>
+  )
+}
+
+function UnlockProjectCard({ project, onUnlocked }: { project: ProjectItem; onUnlocked: (pw: string) => void }) {
+  const [value, setValue] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [message, setMessage] = useState<string | null>(null)
+  const [showReset, setShowReset] = useState(false)
+  const [code, setCode] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const unlock = async (candidate: string) => {
+    setBusy(true)
+    setError(null)
+    try {
+      await projectsApi.summary(project.uuid, {}, candidate)
+      onUnlocked(candidate)
+    } catch {
+      setError('Wrong password.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card className="mx-auto max-w-md text-center">
+      <p className="text-sm font-semibold">🔒 {project.name} is password protected</p>
+      <p className="mt-1 text-xs text-slate-400">Enter the project password to open the ledger.</p>
+      <ErrorNote message={error} />
+      {message && <p className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">{message}</p>}
+
+      {!showReset ? (
+        <>
+          <div className="mx-auto mt-3 flex max-w-xs gap-2">
+            <Input
+              type="password"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              placeholder="Project password"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && value && unlock(value)}
+            />
+            <Button onClick={() => unlock(value)} disabled={!value || busy}>Open</Button>
+          </div>
+          {project.is_owner && (
+            <div className="mt-3 flex justify-center gap-4 text-xs">
+              <button
+                className="text-brand-600 hover:underline"
+                onClick={() => {
+                  projectsApi.requestPasswordReset(project.uuid)
+                    .then((r) => setMessage(r.message))
+                    .catch((err) => setError(errorMessage(err)))
+                }}
+              >
+                Forgot? Ask an admin for a reset code
+              </button>
+              <button className="text-slate-400 hover:underline" onClick={() => setShowReset(true)}>
+                Have a reset code?
+              </button>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="mx-auto mt-3 max-w-xs space-y-2 text-left">
+          <div>
+            <Label>Reset code (from the admin email)</Label>
+            <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="6-digit code" autoFocus />
+          </div>
+          <div>
+            <Label>New project password</Label>
+            <Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="min 4 characters" />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setShowReset(false)}>Back</Button>
+            <Button
+              size="sm"
+              disabled={!code || newPw.length < 4 || busy}
+              onClick={async () => {
+                setBusy(true)
+                setError(null)
+                try {
+                  await projectsApi.resetPassword(project.uuid, code, newPw)
+                  onUnlocked(newPw)
+                } catch (err) {
+                  setError(errorMessage(err))
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              Set new password
+            </Button>
+          </div>
+        </div>
+      )}
+    </Card>
   )
 }

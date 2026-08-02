@@ -115,10 +115,23 @@ export default function MeetingRoomPage() {
 
   const ensureLocalStream = useCallback(async () => {
     if (localStreamRef.current) return localStreamRef.current
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: meeting?.type !== 'audio',
-    })
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: meeting?.type !== 'audio',
+      })
+    } catch (err) {
+      // Camera busy (another app/browser window) or missing: join with mic
+      // only instead of failing the whole meeting.
+      if (meeting?.type !== 'audio') {
+        console.warn('[meeting] camera unavailable, falling back to audio-only', err)
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        setCameraOff(true)
+      } else {
+        throw err
+      }
+    }
     localStreamRef.current = stream
     cameraTrackRef.current = stream.getVideoTracks()[0] ?? null
     if (localVideoRef.current) localVideoRef.current.srcObject = stream
@@ -219,7 +232,12 @@ export default function MeetingRoomPage() {
       }
     } catch (err) {
       setPhase('error')
-      setErrorMsg(err instanceof Error ? err.message : 'Could not join the meeting.')
+      const raw = err instanceof Error ? err.message : ''
+      setErrorMsg(
+        /video source|could not start|notreadable|in use|notallowed|permission/i.test(raw)
+          ? 'Your camera or microphone is busy or blocked - close the other app/browser window using it (or allow access) and try again.'
+          : raw || 'Could not join the meeting.',
+      )
       console.warn('[meeting] join failed', err)
     }
   }, [code, createPeer, ensureLocalStream])

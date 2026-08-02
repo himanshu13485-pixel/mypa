@@ -115,10 +115,22 @@ export function CallProvider({ children }: { children: ReactNode }) {
   /** Grab mic/camera once per call; shared by all peer connections. */
   const ensureLocalStream = useCallback(async (type: 'audio' | 'video') => {
     if (localStreamRef.current) return localStreamRef.current
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: type === 'video',
-    })
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: type === 'video',
+      })
+    } catch (err) {
+      if (type === 'video') {
+        // Camera busy elsewhere: continue the call audio-only.
+        console.warn('[call] camera unavailable, audio-only fallback', err)
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+        setCameraOff(true)
+      } else {
+        throw err
+      }
+    }
     localStreamRef.current = stream
     if (localVideoRef.current) localVideoRef.current.srcObject = stream
     return stream

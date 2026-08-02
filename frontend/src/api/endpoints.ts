@@ -148,6 +148,10 @@ export const adminOps = {
     api.get<{ data: import('../types').ActiveMember[] }>('/admin/active-members').then((r) => r.data.data),
   userSummary: (uuid: string) =>
     api.get<{ data: import('../types').UserActivitySummary }>(`/admin/users/${uuid}/summary`).then((r) => r.data.data),
+  lockedProjects: (uuid: string) =>
+    api.get<{ data: { uuid: string; name: string }[] }>(`/admin/users/${uuid}/locked-projects`).then((r) => r.data.data),
+  sendProjectReset: (projectUuid: string) =>
+    api.post<{ message: string }>(`/admin/projects/${projectUuid}/send-password-reset`).then((r) => r.data),
   callRecords: (uuid: string, page = 1) =>
     api.get<Paginated<import('../types').AdminCallRecord>>(`/admin/users/${uuid}/call-records`, { params: { page } }).then((r) => r.data),
   messageRecords: (uuid: string, page = 1) =>
@@ -417,6 +421,8 @@ export const meetings = {
     api.post(`/meetings/${code}/signal`, { signal, payload, to_uuid: toUuid }),
 }
 
+const pwHeaders = (pw?: string) => (pw ? { headers: { 'X-Project-Password': pw } } : {})
+
 export const projects = {
   list: () => api.get<{ data: import('../types').ProjectItem[] }>('/projects').then((r) => r.data.data),
   create: (payload: Record<string, unknown>) =>
@@ -424,15 +430,19 @@ export const projects = {
   update: (uuid: string, payload: Record<string, unknown>) =>
     api.put<{ data: import('../types').ProjectItem }>(`/projects/${uuid}`, payload).then((r) => r.data.data),
   remove: (uuid: string) => api.delete(`/projects/${uuid}`),
-  entries: (uuid: string, params: Record<string, unknown> = {}) =>
-    api.get<Paginated<import('../types').ProjectEntryItem>>(`/projects/${uuid}/entries`, { params }).then((r) => r.data),
-  createEntry: (uuid: string, payload: Record<string, unknown>) =>
-    api.post(`/projects/${uuid}/entries`, payload).then((r) => r.data),
-  updateEntry: (uuid: string, entryUuid: string, payload: Record<string, unknown>) =>
-    api.put(`/projects/${uuid}/entries/${entryUuid}`, payload).then((r) => r.data),
-  removeEntry: (uuid: string, entryUuid: string) => api.delete(`/projects/${uuid}/entries/${entryUuid}`),
-  summary: (uuid: string, params: Record<string, unknown> = {}) =>
-    api.get<{ data: import('../types').ProjectSummaryRow[] }>(`/projects/${uuid}/summary`, { params }).then((r) => r.data.data),
+  entries: (uuid: string, params: Record<string, unknown> = {}, pw?: string) =>
+    api.get<Paginated<import('../types').ProjectEntryItem>>(`/projects/${uuid}/entries`, { params, ...pwHeaders(pw) }).then((r) => r.data),
+  createEntry: (uuid: string, payload: Record<string, unknown>, pw?: string) =>
+    api.post(`/projects/${uuid}/entries`, payload, pwHeaders(pw)).then((r) => r.data),
+  updateEntry: (uuid: string, entryUuid: string, payload: Record<string, unknown>, pw?: string) =>
+    api.put(`/projects/${uuid}/entries/${entryUuid}`, payload, pwHeaders(pw)).then((r) => r.data),
+  removeEntry: (uuid: string, entryUuid: string, pw?: string) => api.delete(`/projects/${uuid}/entries/${entryUuid}`, pwHeaders(pw)),
+  summary: (uuid: string, params: Record<string, unknown> = {}, pw?: string) =>
+    api.get<{ data: import('../types').ProjectSummaryRow[] }>(`/projects/${uuid}/summary`, { params, ...pwHeaders(pw) }).then((r) => r.data.data),
+  requestPasswordReset: (uuid: string) =>
+    api.post<{ message: string }>(`/projects/${uuid}/request-password-reset`).then((r) => r.data),
+  resetPassword: (uuid: string, code: string, newPassword: string) =>
+    api.post<{ message: string }>(`/projects/${uuid}/reset-password`, { code, new_password: newPassword }).then((r) => r.data),
   share: (uuid: string, app_id: string, permission: 'view' | 'edit') =>
     api.post<{ message: string }>(`/projects/${uuid}/share`, { app_id, permission }).then((r) => r.data),
   unshare: (uuid: string, userUuid: string) =>

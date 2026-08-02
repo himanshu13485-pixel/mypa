@@ -39,6 +39,10 @@ class ProjectController extends Controller
     {
         $data = $this->validateProject($request);
 
+        if (array_key_exists('password', $data)) {
+            $data['password_hash'] = $data['password'] ? \Illuminate\Support\Facades\Hash::make($data['password']) : null;
+            unset($data['password']);
+        }
         $project = Project::create($data + ['user_id' => $request->user()->id]);
 
         return response()->json(['message' => 'Project created.', 'data' => $this->serializeProject($project->load('user:id,uuid,name'), $request->user())], 201);
@@ -47,7 +51,13 @@ class ProjectController extends Controller
     public function update(Request $request, Project $project): JsonResponse
     {
         $this->authorizeOwner($request, $project);
-        $project->update($this->validateProject($request, updating: true));
+        $data = $this->validateProject($request, updating: true);
+        if (array_key_exists('password', $data)) {
+            $data['password_hash'] = $data['password'] ? \Illuminate\Support\Facades\Hash::make($data['password']) : null;
+            unset($data['password']);
+            \App\Models\AuditLog::record($request->user(), $data['password_hash'] ? 'project.password_set' : 'project.password_removed', $project);
+        }
+        $project->update($data);
 
         return response()->json(['message' => 'Project updated.', 'data' => $this->serializeProject($project->fresh()->load('user:id,uuid,name', 'sharedWith:id,uuid,name,username'), $request->user())]);
     }
@@ -65,6 +75,7 @@ class ProjectController extends Controller
     public function entries(Request $request, Project $project): JsonResponse
     {
         $this->authorizeView($request, $project);
+        $this->authorizeUnlocked($request, $project);
 
         $entries = $this->filteredEntries($request, $project)
             ->with(['creator:id,uuid,name', 'editor:id,uuid,name'])
@@ -80,6 +91,7 @@ class ProjectController extends Controller
     public function storeEntry(Request $request, Project $project): JsonResponse
     {
         $this->authorizeEdit($request, $project);
+        $this->authorizeUnlocked($request, $project);
         $data = $this->validateEntry($request);
 
         $entry = $project->entries()->create($data + ['created_by' => $request->user()->id]);
@@ -90,6 +102,7 @@ class ProjectController extends Controller
     public function updateEntry(Request $request, Project $project, ProjectEntry $entry): JsonResponse
     {
         $this->authorizeEdit($request, $project);
+        $this->authorizeUnlocked($request, $project);
         abort_unless($entry->project_id === $project->id, 404);
 
         $data = $this->validateEntry($request, updating: true);
@@ -105,6 +118,7 @@ class ProjectController extends Controller
     public function destroyEntry(Request $request, Project $project, ProjectEntry $entry): JsonResponse
     {
         $this->authorizeOwner($request, $project);
+        $this->authorizeUnlocked($request, $project);
         abort_unless($entry->project_id === $project->id, 404);
         $entry->delete();
 
@@ -117,6 +131,7 @@ class ProjectController extends Controller
     public function summary(Request $request, Project $project): JsonResponse
     {
         $this->authorizeView($request, $project);
+        $this->authorizeUnlocked($request, $project);
 
         $rows = $this->filteredEntries($request, $project)
             ->selectRaw('currency, direction, mode, COUNT(*) as n, SUM(amount) as total')
@@ -144,6 +159,7 @@ class ProjectController extends Controller
     public function export(Request $request, Project $project): StreamedResponse
     {
         $this->authorizeView($request, $project);
+        $this->authorizeUnlocked($request, $project);
 
         $query = $this->filteredEntries($request, $project)->orderBy('entry_date')->orderBy('id');
         $filename = str($project->name)->slug() . '-ledger-' . now()->format('Ymd-Hi') . '.csv';
@@ -225,6 +241,55 @@ class ProjectController extends Controller
         return response()->json(['message' => "Access removed for {$target->name}."]);
     }
 
+    // ---- Password reset (admin-issued codes) --------------------------------
+
+    /** Owner forgot the project password: ping the admins to send a reset code. */
+    public function requestPasswordReset(Request $request, Project $project): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+        abort_unless($project->password_hash, 422, 'This project has no password.');
+
+        $admins = \App\Models\User::whereHas('roles', fn ($r) => $r->whereIn('slug', ['admin', 'super_admin']))->get();
+        foreach ($admins as $admin) {
+            $admin->notify(new \App\Notifications\SocialNotification(
+                'project_reset_request',
+                "{$request->user()->name} forgot the password of project \u{201C}{$project->name}\u{201D} and needs a reset code.",
+                ['project_uuid' => $project->uuid, 'owner' => $request->user()->name],
+                '/admin',
+            ));
+        }
+
+        return response()->json(['message' => 'The admins have been asked to send you a reset code by email.']);
+    }
+
+    /** Owner redeems the admin-issued code and sets a fresh password. */
+    public function resetPassword(Request $request, Project $project): JsonResponse
+    {
+        $this->authorizeOwner($request, $project);
+
+        $data = $request->validate([
+            'code' => ['required', 'string'],
+            'new_password' => ['required', 'string', 'min:4', 'max:100'],
+        ]);
+
+        abort_unless(
+            $project->reset_code_hash
+                && $project->reset_code_expires_at?->isFuture()
+                && \Illuminate\Support\Facades\Hash::check($data['code'], $project->reset_code_hash),
+            422,
+            'That reset code is wrong or has expired - ask an admin for a new one.'
+        );
+
+        $project->forceFill([
+            'password_hash' => \Illuminate\Support\Facades\Hash::make($data['new_password']),
+            'reset_code_hash' => null,
+            'reset_code_expires_at' => null,
+        ])->save();
+        \App\Models\AuditLog::record($request->user(), 'project.password_reset', $project);
+
+        return response()->json(['message' => 'Password changed - the project now opens with your new password.']);
+    }
+
     // ---- Helpers -----------------------------------------------------------
 
     protected function authorizeOwner(Request $request, Project $project): void
@@ -245,6 +310,24 @@ class ProjectController extends Controller
             'You have view-only access to this project.');
     }
 
+    /**
+     * Password-locked ledgers require the X-Project-Password header on every
+     * data request - for the owner AND anyone it is shared with.
+     */
+    protected function authorizeUnlocked(Request $request, Project $project): void
+    {
+        if (! $project->password_hash) {
+            return;
+        }
+
+        $given = (string) $request->header('X-Project-Password', '');
+        abort_unless(
+            $given !== '' && \Illuminate\Support\Facades\Hash::check($given, $project->password_hash),
+            423,
+            'This project is password protected.'
+        );
+    }
+
     protected function validateProject(Request $request, bool $updating = false): array
     {
         return $request->validate([
@@ -255,6 +338,7 @@ class ProjectController extends Controller
             'is_archived' => ['sometimes', 'boolean'],
             'daily_report' => ['sometimes', 'boolean'],
             'report_format' => ['sometimes', 'in:excel,pdf'],
+            'password' => ['sometimes', 'nullable', 'string', 'min:4', 'max:100'],
         ]);
     }
 
@@ -314,6 +398,7 @@ class ProjectController extends Controller
             'is_archived' => $project->is_archived,
             'daily_report' => $project->daily_report,
             'report_format' => $project->report_format,
+            'has_password' => (bool) $project->password_hash,
             'entries_count' => $project->entries_count ?? null,
             'is_owner' => $isOwner,
             'permission' => $me ? $project->permissionFor($me) : 'owner',
