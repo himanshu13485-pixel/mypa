@@ -1,62 +1,63 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1800" height="700" viewBox="0 0 1800 700">
   <defs>
-    <linearGradient id="blueGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#1428B8"/>
-      <stop offset="55%" stop-color="#1769E8"/>
-      <stop offset="100%" stop-color="#14A8F4"/>
+    <linearGradient id="purpleIcon" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#171A8F"/>
+      <stop offset="55%" stop-color="#4022B7"/>
+      <stop offset="100%" stop-color="#8B35F0"/>
     </linearGradient>
-    <linearGradient id="wordGrad" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#1428B8"/>
-      <stop offset="55%" stop-color="#1358D8"/>
-      <stop offset="100%" stop-color="#0F95F0"/>
+    <linearGradient id="purpleWord" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#24159A"/>
+      <stop offset="55%" stop-color="#4B20C8"/>
+      <stop offset="100%" stop-color="#6D2AF2"/>
     </linearGradient>
   </defs>
 
   <!-- Background -->
   <rect width="1800" height="700" fill="#FFFFFF"/>
 
-  <!-- Network icon -->
-  <g transform="translate(85,75)">
-    <!-- orbital ring -->
-    <circle cx="255" cy="255" r="185"
+  <!-- App icon -->
+  <g transform="translate(85,120)">
+    <rect x="0" y="0" width="340" height="340" rx="48" fill="url(#purpleIcon)"/>
+
+    <!-- Orbit -->
+    <circle cx="170" cy="170" r="112"
             fill="none"
-            stroke="url(#blueGrad)"
-            stroke-width="12"
-            stroke-dasharray="270 35 270 35 270 35 270 35"
-            stroke-linecap="round"
-            transform="rotate(-45 255 255)"/>
+            stroke="#FFFFFF"
+            stroke-width="7"
+            opacity="0.98"/>
 
-    <!-- nodes -->
-    <circle cx="255" cy="55" r="25" fill="url(#blueGrad)"/>
-    <circle cx="455" cy="255" r="25" fill="url(#blueGrad)"/>
-    <circle cx="255" cy="455" r="25" fill="url(#blueGrad)"/>
-    <circle cx="55" cy="255" r="25" fill="url(#blueGrad)"/>
+    <!-- Orbit nodes -->
+    <circle cx="170" cy="47" r="14" fill="#FFFFFF"/>
+    <circle cx="273" cy="92" r="14" fill="#FFFFFF"/>
+    <circle cx="281" cy="224" r="14" fill="#FFFFFF"/>
+    <circle cx="73" cy="222" r="14" fill="#FFFFFF"/>
+    <circle cx="71" cy="92" r="14" fill="#FFFFFF"/>
 
-    <!-- stylized N -->
-    <rect x="150" y="145" width="52" height="220" rx="26" fill="url(#blueGrad)"/>
-    <rect x="308" y="145" width="52" height="220" rx="26" fill="url(#blueGrad)"/>
-    <path d="M176 170 L334 340"
+    <!-- Stylized white N -->
+    <rect x="104" y="104" width="42" height="136" rx="21" fill="#FFFFFF"/>
+    <rect x="204" y="104" width="42" height="136" rx="21" fill="#FFFFFF"/>
+    <path d="M125 125 L225 220"
           fill="none"
-          stroke="url(#blueGrad)"
-          stroke-width="56"
+          stroke="#FFFFFF"
+          stroke-width="44"
           stroke-linecap="round"
           stroke-linejoin="round"/>
   </g>
 
   <!-- Divider -->
-  <line x1="585" y1="175" x2="585" y2="525" stroke="#15223A" stroke-width="5"/>
+  <line x1="505" y1="185" x2="505" y2="515" stroke="#18243A" stroke-width="5"/>
 
   <!-- Wordmark -->
-  <text x="655" y="355"
+  <text x="575" y="355"
         font-family="Arial, Helvetica, sans-serif"
         font-size="180"
         font-weight="700"
         letter-spacing="-5"
-        fill="url(#wordGrad)">Netvork</text>
+        fill="url(#purpleWord)">Netvork</text>
 
   <!-- Tagline -->
-  <text x="655" y="465"
+  <text x="575" y="465"
         font-family="Arial, Helvetica, sans-serif"
         font-size="54"
         font-weight="400"
