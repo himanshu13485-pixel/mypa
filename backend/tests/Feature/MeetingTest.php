@@ -228,7 +228,7 @@ class MeetingTest extends TestCase
         $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
         $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
 
-        $file = \Illuminate\Http\UploadedFile::fake()->image('site-plan.png', 800, 600);
+        $file = \Illuminate\Http\UploadedFile::fake()->create('site-plan.png', 100, 'image/png');
         $res = $this->actingAs($this->host)->post("/api/v1/meetings/{$meeting['code']}/chat-file", [
             'file' => $file,
         ])->assertOk();
