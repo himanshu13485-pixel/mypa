@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { auth } from '../../api/endpoints'
 import { errorMessage } from '../../api/client'
+import NetvorkMark from '../../components/Logo'
 import { useAuthStore } from '../../stores/auth'
 import { Button, ErrorNote, Input, Label } from '../../components/ui'
 
@@ -75,9 +76,7 @@ export default function Login() {
     <div className="flex min-h-full items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-xl bg-brand-600 text-lg font-bold text-white">
-            PA
-          </div>
+          <NetvorkMark className="mx-auto mb-3 size-14" />
           <h1 className="text-xl font-semibold">Welcome back</h1>
           <p className="mt-1 text-sm text-slate-500">Sign in to your Netvork account</p>
           <p className="mt-0.5 text-xs italic text-brand-600">One App. Every Task. Every Connection.</p>

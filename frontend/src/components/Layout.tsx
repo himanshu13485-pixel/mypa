@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query'
 import { auth, badges as badgesApi } from '../api/endpoints'
 import { isStaff, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
+import NetvorkMark from './Logo'
 import { CallProvider } from './CallManager'
 import VoiceAssistant from './VoiceAssistant'
 import MobileVerifyBanner from './MobileVerifyBanner'
@@ -155,9 +156,7 @@ export default function Layout() {
       {/* Desktop sidebar */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:flex">
         <div className="flex items-center gap-2 px-5 py-4">
-          <div className="flex size-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
-            N
-          </div>
+          <NetvorkMark className="size-8" />
           <span className="text-base font-semibold">Netvork</span>
         </div>
         <p className="-mt-2 px-5 pb-2 text-[10px] italic text-slate-400">
@@ -178,7 +177,9 @@ export default function Layout() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setSidebarOpen(false)} />
           <aside className="absolute inset-y-0 left-0 flex h-full w-64 flex-col overflow-hidden bg-white dark:bg-slate-900">
             <div className="flex items-center justify-between px-5 py-4">
-              <span className="text-base font-semibold">Netvork</span>
+              <span className="flex items-center gap-2 text-base font-semibold">
+                <NetvorkMark className="size-7" /> Netvork
+              </span>
               <button onClick={() => setSidebarOpen(false)}>
                 <X className="size-5" />
               </button>
