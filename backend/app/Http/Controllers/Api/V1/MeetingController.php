@@ -308,7 +308,7 @@ class MeetingController extends Controller
 
         $data = $request->validate([
             'signal' => ['required', 'in:offer,answer,ice,share,record,media,rec-request,rec-allow,rec-deny'],
-            'payload' => ['required', 'array'],
+            'payload' => ['sometimes', 'array'],
             'to_uuid' => ['required', 'uuid'],
         ]);
 
@@ -319,7 +319,7 @@ class MeetingController extends Controller
         abort_unless($target && $target->id !== $me->id, 422, 'That participant is not in the meeting.');
 
         $myPivot = $meeting->participants()->where('users.id', $me->id)->first()?->pivot;
-        broadcast(new MeetingSignal($meeting, $me->uuid, $myPivot?->display_name ?? $me->name, $target->uuid, $data['signal'], $data['payload']));
+        broadcast(new MeetingSignal($meeting, $me->uuid, $myPivot?->display_name ?? $me->name, $target->uuid, $data['signal'], $data['payload'] ?? []));
 
         return response()->json(['message' => 'ok']);
     }

@@ -588,7 +588,7 @@ export default function MeetingRoomPage() {
       const hostUuid = meeting?.host.uuid
       if (!hostUuid) return
       setRecPending(true)
-      meetingsApi.signal(code, 'rec-request', {}, hostUuid).catch(() => setRecPending(false))
+      meetingsApi.signal(code, 'rec-request', { ask: 1 }, hostUuid).catch(() => setRecPending(false))
       return
     }
     if (!tilesRef.current) return
@@ -754,13 +754,13 @@ export default function MeetingRoomPage() {
             <div key={r.uuid} className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs dark:border-red-900 dark:bg-red-950">
               <span className="font-medium">{r.name}</span> wants to record this meeting
               <Button size="sm" onClick={() => {
-                meetingsApi.signal(code, 'rec-allow', {}, r.uuid).catch(() => undefined)
+                meetingsApi.signal(code, 'rec-allow', { ok: 1 }, r.uuid).catch(() => undefined)
                 setRecRequests((rs) => rs.filter((x) => x.uuid !== r.uuid))
               }}>
                 Allow
               </Button>
               <Button size="sm" variant="secondary" onClick={() => {
-                meetingsApi.signal(code, 'rec-deny', {}, r.uuid).catch(() => undefined)
+                meetingsApi.signal(code, 'rec-deny', { ok: 0 }, r.uuid).catch(() => undefined)
                 setRecRequests((rs) => rs.filter((x) => x.uuid !== r.uuid))
               }}>
                 Deny

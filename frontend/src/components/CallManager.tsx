@@ -337,7 +337,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (call && call.direction !== 'outgoing') {
       if (recPending || !call.callerUuid) return
       setRecPending(true)
-      calls.signal(uuid, 'rec-request', {}, call.callerUuid).catch(() => setRecPending(false))
+      calls.signal(uuid, 'rec-request', { ask: 1 }, call.callerUuid).catch(() => setRecPending(false))
       return
     }
     startRecordingNow()
@@ -615,14 +615,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 <span className="font-medium">{recRequest.name}</span> wants to record
                 <Button size="sm" onClick={() => {
                   const uuid = callRef.current?.uuid
-                  if (uuid) calls.signal(uuid, 'rec-allow', {}, recRequest.uuid).catch(() => undefined)
+                  if (uuid) calls.signal(uuid, 'rec-allow', { ok: 1 }, recRequest.uuid).catch(() => undefined)
                   setRecRequest(null)
                 }}>
                   Allow
                 </Button>
                 <Button size="sm" variant="secondary" onClick={() => {
                   const uuid = callRef.current?.uuid
-                  if (uuid) calls.signal(uuid, 'rec-deny', {}, recRequest.uuid).catch(() => undefined)
+                  if (uuid) calls.signal(uuid, 'rec-deny', { ok: 0 }, recRequest.uuid).catch(() => undefined)
                   setRecRequest(null)
                 }}>
                   Deny

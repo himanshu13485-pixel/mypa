@@ -251,7 +251,7 @@ class CallController extends Controller
 
         $data = $request->validate([
             'signal' => ['required', 'in:offer,answer,ice,record,media,rec-request,rec-allow,rec-deny'],
-            'payload' => ['required', 'array'],
+            'payload' => ['sometimes', 'array'],
             'to_uuid' => ['sometimes', 'uuid'],
         ]);
 
