@@ -163,10 +163,12 @@ class VoiceDateParser
         }
 
         if ($time) {
+            $explicitDate = $due !== null;
             $due = ($due ?? $now->copy());
             $due->setTime($time[0], $time[1]);
-            if ($due->isPast() && $due->isSameDay($now)) {
-                // "at 3 pm" said after 3 pm → assume tomorrow.
+            if (! $explicitDate && $due->isPast() && $due->isSameDay($now)) {
+                // Time only, already past today ("at 3 pm" said after 3 pm)
+                // -> assume tomorrow. Never shift an explicitly spoken date.
                 $due->addDay();
             }
         } elseif ($due && $due->equalTo($due->copy()->startOfDay())) {
