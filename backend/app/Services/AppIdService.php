@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 class AppIdService
 {
     /**
-     * Generate the unique, permanent My PA App ID for a user (e.g. MYPA-100001).
+     * Generate the unique, permanent Netvork App ID for a user (e.g. NV-100001).
      * The number comes from the app_ids auto-increment, so uniqueness is
      * guaranteed by the database even under concurrent registrations.
      */
@@ -56,7 +56,7 @@ class AppIdService
 
     protected function format(int $sequence): string
     {
-        return config('mypa.app_id_prefix', 'MYPA') . '-' . $sequence;
+        return config('mypa.app_id_prefix', 'NV') . '-' . $sequence;
     }
 
     /**
@@ -96,8 +96,13 @@ class AppIdService
     {
         $identifier = trim($identifier);
 
-        // App ID (legacy handle, still accepted)
-        if (preg_match('/^' . preg_quote(config('mypa.app_id_prefix', 'MYPA'), '/') . '-/i', $identifier)) {
+        // App ID — current prefix plus legacy ones (old accounts keep their IDs)
+        $prefixes = array_merge(
+            [config('mypa.app_id_prefix', 'NV')],
+            config('mypa.app_id_legacy_prefixes', [])
+        );
+        $pattern = '/^(' . implode('|', array_map(fn ($p) => preg_quote($p, '/'), $prefixes)) . ')-/i';
+        if (preg_match($pattern, $identifier)) {
             return AppId::with('user.settings', 'user.profile')
                 ->where('app_id', strtoupper($identifier))
                 ->where('is_active', true)

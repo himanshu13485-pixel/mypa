@@ -1,7 +1,9 @@
 <?php
 
 return [
-    'app_id_prefix' => env('APP_ID_PREFIX', 'MYPA'),
+    'app_id_prefix' => env('APP_ID_PREFIX', 'NV'),
+    // Prefixes of previously issued App IDs that must keep resolving.
+    'app_id_legacy_prefixes' => ['MYPA'],
     'app_id_start' => (int) env('APP_ID_START', 100001),
 
     'frontend_url' => env('FRONTEND_URL', 'http://localhost:5173'),

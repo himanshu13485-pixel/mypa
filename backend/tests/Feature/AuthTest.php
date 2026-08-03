@@ -33,7 +33,7 @@ class AuthTest extends TestCase
             ->assertJsonStructure(['data' => ['uuid', 'name', 'username', 'app_id', 'roles'], 'token'])
             ->assertJsonPath('email_verification_pending', true);
 
-        $this->assertStringStartsWith('MYPA-', $response->json('data.app_id'));
+        $this->assertStringStartsWith('NV-', $response->json('data.app_id'));
         $this->assertContains('user', $response->json('data.roles'));
         $this->assertDatabaseHas('users', ['mobile' => '+919812345678', 'username' => 'testuser1']);
         $this->assertDatabaseHas('user_profiles', []);
