@@ -1,0 +1,17 @@
+# /etc/systemd/system/netvork-queue.service
+[Unit]
+Description=Netvork queue worker (reminders, emails, push)
+After=network.target mysql.service
+
+[Service]
+User=netvork
+Group=netvork
+Restart=always
+RestartSec=3
+WorkingDirectory=/home/netvork/mypa/backend
+ExecStart=/opt/cpanel/ea-php83/root/usr/bin/php artisan queue:work database --sleep=1 --tries=3 --timeout=300
+StandardOutput=append:/home/netvork/logs/queue.log
+StandardError=append:/home/netvork/logs/queue.log
+
+[Install]
+WantedBy=multi-user.target

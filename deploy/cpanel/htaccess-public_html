@@ -1,0 +1,27 @@
+# Netvork production .htaccess for /home/netvork/public_html
+# Layout: frontend build files live here; "apibase" is a symlink to
+# ../mypa/backend/public. API + broadcasting requests are handed to
+# Laravel; everything else is the SPA (with index.html fallback).
+
+RewriteEngine On
+
+# --- HTTPS ---------------------------------------------------------------
+RewriteCond %{HTTPS} !=on
+RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# --- Laravel: API + broadcasting auth ------------------------------------
+RewriteRule ^(api|broadcasting)(/.*)?$ apibase/index.php [L]
+
+# --- SPA -----------------------------------------------------------------
+# Real files (assets, /landing/index.html, icons) are served directly.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+RewriteRule ^ index.html [L]
+
+# --- Security headers ----------------------------------------------------
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
