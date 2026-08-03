@@ -25,8 +25,12 @@ class CallController extends Controller
         }
 
         if ($turn = config('mypa.webrtc.turn_url')) {
+            // Comma-separated URLs are allowed so one relay can be offered over
+            // UDP, TCP and TLS - restrictive networks often permit only 443.
+            $urls = array_values(array_filter(array_map('trim', explode(',', $turn))));
+
             $iceServers[] = array_filter([
-                'urls' => $turn,
+                'urls' => count($urls) === 1 ? $urls[0] : $urls,
                 'username' => config('mypa.webrtc.turn_username'),
                 'credential' => config('mypa.webrtc.turn_credential'),
             ]);
