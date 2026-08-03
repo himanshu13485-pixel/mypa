@@ -36,13 +36,19 @@ return [
             'secret' => env('REVERB_APP_SECRET'),
             'app_id' => env('REVERB_APP_ID'),
             'options' => [
-                'host' => env('REVERB_HOST'),
-                'port' => env('REVERB_PORT', 443),
-                'scheme' => env('REVERB_SCHEME', 'https'),
-                'useTLS' => env('REVERB_SCHEME', 'https') === 'https',
+                // Browsers connect to REVERB_HOST (the public name). PHP on the
+                // server must not hairpin back through it - a host behind NAT
+                // cannot reach its own public address - so the internal
+                // endpoint is separate, falling back to the public one.
+                'host' => env('REVERB_INTERNAL_HOST', env('REVERB_HOST')),
+                'port' => env('REVERB_INTERNAL_PORT', env('REVERB_PORT', 443)),
+                'scheme' => env('REVERB_INTERNAL_SCHEME', env('REVERB_SCHEME', 'https')),
+                'useTLS' => env('REVERB_INTERNAL_SCHEME', env('REVERB_SCHEME', 'https')) === 'https',
             ],
             'client_options' => [
-                // Guzzle client options: https://docs.guzzlephp.org/en/stable/request-options.html
+                // The certificate is issued for the public name, so dialling
+                // 127.0.0.1 over TLS cannot match it by design.
+                'verify' => env('REVERB_INTERNAL_VERIFY', true),
             ],
         ],
 
