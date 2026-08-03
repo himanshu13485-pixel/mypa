@@ -24,10 +24,15 @@ rpm -q coturn >/dev/null 2>&1 || dnf -y install coturn >/dev/null
 echo "   $(turnserver -o --help 2>/dev/null | head -1; rpm -q coturn)"
 
 echo "== certificate for turns:// =="
+# The package's service account differs by distro build.
+for U in coturn turnserver; do id -u "$U" >/dev/null 2>&1 && SVC_USER=$U && break; done
+SVC_USER=${SVC_USER:-root}
+echo "   coturn runs as: $SVC_USER"
+
 mkdir -p /etc/coturn/certs
 if [ -f "$SSLDIR/fullchain.pem" ]; then
   cp -f "$SSLDIR/fullchain.pem" "$SSLDIR/privkey.pem" /etc/coturn/certs/
-  chown -R turnserver:turnserver /etc/coturn/certs
+  chown -R "$SVC_USER":"$SVC_USER" /etc/coturn/certs
   chmod 600 /etc/coturn/certs/*.pem
   TLS_LINES="cert=/etc/coturn/certs/fullchain.pem
 pkey=/etc/coturn/certs/privkey.pem
