@@ -19,6 +19,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
+        // Session descriptions are CRLF-delimited and must keep their trailing
+        // terminator: trimming it makes Chrome reject the whole offer with
+        // "Invalid SDP line", so WebRTC never connects between browsers.
+        $middleware->trimStrings(except: ['payload.sdp', 'sdp']);
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureRole::class,
             'active' => \App\Http\Middleware\EnsureActiveUser::class,

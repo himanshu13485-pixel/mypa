@@ -17,6 +17,7 @@ import { Paperclip } from 'lucide-react'
 import { Button, Card } from '../components/ui'
 import { meetingLink } from './MeetingsPage'
 import type { MeetingSignalPayload } from '../types'
+import { normalizeSdp } from '../lib/sdp'
 
 const REACTIONS: Record<string, string> = {
   thumbsup: '\u{1F44D}', clap: '\u{1F44F}', heart: '\u{2764}\u{FE0F}', laugh: '\u{1F602}',
@@ -404,7 +405,7 @@ export default function MeetingRoomPage() {
         case 'offer': {
           try {
             const pc = await createPeer(signal.from_uuid, signal.from_name ?? 'Participant')
-            await pc.setRemoteDescription({ type: 'offer', sdp: signal.payload.sdp as string })
+            await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(signal.payload.sdp as string) })
             flushPendingIce(signal.from_uuid)
             const answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
@@ -427,7 +428,7 @@ export default function MeetingRoomPage() {
           const pc = pcsRef.current.get(signal.from_uuid)
           if (!pc) return
           try {
-            await pc.setRemoteDescription({ type: 'answer', sdp: signal.payload.sdp as string })
+            await pc.setRemoteDescription({ type: 'answer', sdp: normalizeSdp(signal.payload.sdp as string) })
             flushPendingIce(signal.from_uuid)
           } catch (err) {
             console.warn('[meeting] answer failed', err)

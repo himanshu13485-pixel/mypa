@@ -8,6 +8,7 @@ import { useAuthStore } from '../stores/auth'
 import { Button, Card, Spinner } from '../components/ui'
 import { screenLink } from './ScreenPage'
 import type { MeetingSignalPayload } from '../types'
+import { normalizeSdp } from '../lib/sdp'
 
 /**
  * A screen session: the HOST captures their screen and answers offers from
@@ -216,7 +217,7 @@ export default function ScreenSessionPage() {
           try {
             const pc = await newPeer(signal.from_uuid)
             displayStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, displayStreamRef.current!))
-            await pc.setRemoteDescription({ type: 'offer', sdp: signal.payload.sdp as string })
+            await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(signal.payload.sdp as string) })
             flushPendingIce(signal.from_uuid)
             const answer = await pc.createAnswer()
             await pc.setLocalDescription(answer)
@@ -231,7 +232,7 @@ export default function ScreenSessionPage() {
           const pc = pcsRef.current.get(signal.from_uuid)
           if (!pc) return
           try {
-            await pc.setRemoteDescription({ type: 'answer', sdp: signal.payload.sdp as string })
+            await pc.setRemoteDescription({ type: 'answer', sdp: normalizeSdp(signal.payload.sdp as string) })
             flushPendingIce(signal.from_uuid)
           } catch (err) {
             console.warn('[screen] answer failed', err)

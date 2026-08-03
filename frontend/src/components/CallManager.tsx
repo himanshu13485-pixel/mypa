@@ -11,6 +11,7 @@ import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
 import { createEffectTrack, type BlurPipeline } from '../lib/videoFx'
 import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
+import { normalizeSdp } from '../lib/sdp'
 
 interface ActiveCall {
   uuid: string
@@ -436,7 +437,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               signal.from_name ?? 'Participant',
               call.type,
             )
-            await pc.setRemoteDescription({ type: 'offer', sdp: signal.payload.sdp as string })
+            await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(signal.payload.sdp as string) })
             flushPendingIce(signal.from_uuid)
             markLive()
             const answer = await pc.createAnswer()
@@ -451,7 +452,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           const pc = peersRef.current.get(signal.from_uuid)
           if (!pc) return
           try {
-            await pc.setRemoteDescription({ type: 'answer', sdp: signal.payload.sdp as string })
+            await pc.setRemoteDescription({ type: 'answer', sdp: normalizeSdp(signal.payload.sdp as string) })
             flushPendingIce(signal.from_uuid)
           } catch (err) {
             console.warn('[call] applying answer failed', err)
