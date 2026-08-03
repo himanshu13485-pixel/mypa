@@ -27,10 +27,10 @@ chown -h $APP_USER:$APP_USER "$DOCROOT/apibase"
 chmod -R 775 "$APP_DIR/backend/storage" "$APP_DIR/backend/bootstrap/cache"
 
 echo "== rewrite rules =="
-if grep -q 'Netvork routing' "$DOCROOT/.htaccess" 2>/dev/null; then
-  echo "   already present, left untouched"
-else
-  cat >> "$DOCROOT/.htaccess" <<'HTEOF'
+# The managed block is replaced wholesale each run; cPanel's own
+# directives above it are never touched.
+sed -i '/# === Netvork routing/,/# === end Netvork routing ===/d' "$DOCROOT/.htaccess" 2>/dev/null || true
+cat >> "$DOCROOT/.htaccess" <<'HTEOF'
 
 # === Netvork routing (managed by deploy/cpanel/publish.sh) ===
 RewriteEngine On
@@ -41,6 +41,10 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 
 # API + broadcasting auth -> Laravel
 RewriteRule ^(api|broadcasting)(/.*)?$ apibase/index.php [L]
+
+# the site root serves the brand landing page (signed-in visitors are
+# bounced to /dashboard by the page itself)
+RewriteRule ^$ landing/index.html [L]
 
 # everything else -> the SPA (real files served as-is)
 RewriteCond %{REQUEST_FILENAME} -f [OR]
@@ -54,8 +58,7 @@ RewriteRule ^ index.html [L]
 </IfModule>
 # === end Netvork routing ===
 HTEOF
-  echo "   appended (cPanel's own directives left intact)"
-fi
+echo "   routing block written (cPanel's own directives left intact)"
 
 echo "== caching config =="
 cd "$APP_DIR/backend"

@@ -75,6 +75,9 @@ export default function App() {
             }
           >
             <Route path="/" element={<Dashboard />} />
+            {/* In production "/" serves the static brand landing, so signed-in
+                users arriving there are bounced to this alias instead. */}
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/categories" element={<CategoriesPage />} />

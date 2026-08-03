@@ -388,6 +388,15 @@ document.addEventListener('DOMContentLoaded', async function() {
    2) adds Pricing/About/Contact links into the header nav
    3) appends a footer row linking every site page */
 (function () {
+  // Signed-in visitors landing on "/" go straight to their dashboard.
+  try {
+    var saved = localStorage.getItem('mypa-auth');
+    if (saved && JSON.parse(saved).state && JSON.parse(saved).state.token) {
+      window.top.location.replace('/dashboard');
+      return;
+    }
+  } catch (e) { /* not signed in */ }
+
   function routeFor(t) {
     t = (t || '').replace(/\s+/g, ' ').trim().toLowerCase().replace(/[^a-z ]+$/, '').trim();
     if (/^(sign in|log ?in)$/.test(t)) return '/login';
