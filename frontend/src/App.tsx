@@ -32,6 +32,11 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminPage = lazy(() => import('./pages/admin/AdminPage'))
 const PricingPage = lazy(() => import('./pages/PricingPage'))
+const LandingPage = lazy(() => import('./pages/site/LandingPage'))
+const AboutPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.AboutPage })))
+const ContactPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.ContactPage })))
+const TermsPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.TermsPage })))
+const PrivacyPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.PrivacyPage })))
 const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage'))
 const PaymentStatusPage = lazy(() => import('./pages/PaymentStatusPage'))
 
@@ -44,6 +49,11 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/home" element={<LandingPage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route
             path="/payment/status"

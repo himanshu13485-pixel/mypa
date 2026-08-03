@@ -1,10 +1,15 @@
 import type { ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { isStaff, useAuthStore } from '../stores/auth'
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token)
-  if (!token) return <Navigate to="/login" replace />
+  const location = useLocation()
+  if (!token) {
+    // Visitors opening the site root see the public landing page;
+    // deep links into the app still go to sign-in.
+    return <Navigate to={location.pathname === '/' ? '/home' : '/login'} replace />
+  }
   return children
 }
 
