@@ -30,6 +30,8 @@ interface Peer {
   sharing?: boolean
   micOff?: boolean
   camOff?: boolean
+  /** ICE state, surfaced on the tile until the media path is established. */
+  conn?: string
 }
 
 function PeerTile({ peer, video, burst, hand, isHost, active, className }: { peer: Peer; video: boolean; burst?: string; hand?: boolean; isHost?: boolean; active?: boolean; className?: string }) {
@@ -69,6 +71,16 @@ function PeerTile({ peer, video, burst, hand, isHost, active, className }: { pee
           </span>
           <VideoOff className="size-4 text-red-500" />
         </div>
+      )}
+      {peer.conn && !['connected', 'completed'].includes(peer.conn) && (
+        <span
+          className={clsx(
+            'absolute left-1.5 top-1.5 rounded px-1.5 py-0.5 text-[10px] font-semibold',
+            peer.conn === 'failed' ? 'bg-red-600 text-white' : 'bg-amber-400 text-black',
+          )}
+        >
+          {peer.conn === 'failed' ? 'connection failed' : `connecting… ${peer.conn}`}
+        </span>
       )}
       <span className="absolute bottom-1.5 left-1.5 rounded bg-black/60 px-1.5 py-0.5 text-[11px] text-white">
         {peer.name}{isHost && ' (Host)'}{hand && ` ${REACTIONS.hand}`}
@@ -208,12 +220,23 @@ export default function MeetingRoomPage() {
 
       pc.ontrack = (event) => {
         const [remote] = event.streams
+        console.info('[meeting] track from', peerUuid, remote.getTracks().map((t) => t.kind).join('+'))
         setPeers((p) => p.map((x) => (x.uuid === peerUuid ? { ...x, stream: remote } : x)))
+      }
+      pc.oniceconnectionstatechange = () => {
+        console.info('[meeting] ice state', peerUuid, pc.iceConnectionState)
+        setPeers((p) => p.map((x) => (x.uuid === peerUuid ? { ...x, conn: pc.iceConnectionState } : x)))
       }
       pc.onicecandidate = (event) => {
         if (event.candidate) {
-          meetingsApi.signal(code, 'ice', { candidate: event.candidate.toJSON() }, peerUuid).catch(() => undefined)
+          console.debug('[meeting] local candidate', event.candidate.type, event.candidate.protocol)
+          meetingsApi.signal(code, 'ice', { candidate: event.candidate.toJSON() }, peerUuid).catch((err) => {
+            console.warn('[meeting] could not send candidate', err)
+          })
         }
+      }
+      pc.onicecandidateerror = (event) => {
+        console.warn('[meeting] ice candidate error', (event as RTCPeerConnectionIceErrorEvent).errorText)
       }
       return pc
     },
