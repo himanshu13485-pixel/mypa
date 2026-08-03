@@ -51,7 +51,9 @@ Route::prefix('v1')->group(function () {
         ->name('verification.verify');
 
     // --- Authenticated ----------------------------------------------------
-    Route::middleware(['auth:sanctum', 'active', 'throttle:60,1'])->group(function () {
+    // 60/min proved too tight for a realtime SPA: chat, badge and meeting
+    // polling alone can approach it before the user does anything.
+    Route::middleware(['auth:sanctum', 'active', 'throttle:180,1'])->group(function () {
 
         // Session & account
         Route::post('/auth/logout', [AuthController::class, 'logout']);
@@ -152,7 +154,12 @@ Route::prefix('v1')->group(function () {
         Route::post('/meetings/{meeting}/join', [\App\Http\Controllers\Api\V1\MeetingController::class, 'join']);
         Route::post('/meetings/{meeting}/leave', [\App\Http\Controllers\Api\V1\MeetingController::class, 'leave']);
         Route::post('/meetings/{meeting}/end', [\App\Http\Controllers\Api\V1\MeetingController::class, 'end']);
-        Route::post('/meetings/{meeting}/signal', [\App\Http\Controllers\Api\V1\MeetingController::class, 'signal']);
+        // WebRTC signalling posts one request per ICE candidate - with a TURN
+        // server in play that is dozens per peer, so the ordinary per-minute
+        // limit would drop candidates and strand the connection in "checking".
+        Route::post('/meetings/{meeting}/signal', [\App\Http\Controllers\Api\V1\MeetingController::class, 'signal'])
+            ->withoutMiddleware('throttle:180,1')
+            ->middleware('throttle:1200,1');
         Route::post('/meetings/{meeting}/name', [\App\Http\Controllers\Api\V1\MeetingController::class, 'rename']);
         Route::post('/meetings/{meeting}/react', [\App\Http\Controllers\Api\V1\MeetingController::class, 'react']);
         Route::post('/meetings/{meeting}/admit', [\App\Http\Controllers\Api\V1\MeetingController::class, 'admit']);
@@ -226,7 +233,9 @@ Route::prefix('v1')->group(function () {
         Route::post('/conversations/{conversation}/calls', [CallController::class, 'initiate']);
         Route::post('/calls/{call}/respond', [CallController::class, 'respond']);
         Route::post('/calls/{call}/end', [CallController::class, 'end']);
-        Route::post('/calls/{call}/signal', [CallController::class, 'signal']);
+        Route::post('/calls/{call}/signal', [CallController::class, 'signal'])
+            ->withoutMiddleware('throttle:180,1')
+            ->middleware('throttle:1200,1');
         Route::post('/calls/{call}/invite', [CallController::class, 'invite']);
 
         // Habits
