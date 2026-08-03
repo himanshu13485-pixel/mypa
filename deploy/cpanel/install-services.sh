@@ -69,17 +69,36 @@ fi
 rm -f "$TMP"
 
 echo "== apache: websocket proxy for wss://$DOMAIN/app =="
-for MODE in std ssl; do
-  DIR=/etc/apache2/conf.d/userdata/$MODE/2_4/$APP_USER/$DOMAIN
-  mkdir -p "$DIR"
-  cat > "$DIR/websocket.conf" <<EOF
+# An addon domain's vhost is named after its subdomain form
+# (netvork.app.grapme.com), so write the include for every vhost of this
+# account whose name mentions the domain - including the plain one.
+VHOSTS=$(ls /var/cpanel/userdata/$APP_USER 2>/dev/null \
+         | grep -F "$DOMAIN" | sed 's/_SSL$//' | sort -u)
+[ -n "$VHOSTS" ] || VHOSTS=$DOMAIN
+echo "   vhosts: $(echo $VHOSTS | tr '\n' ' ')"
+
+for VHOST in $VHOSTS; do
+  for MODE in std ssl; do
+    DIR=/etc/apache2/conf.d/userdata/$MODE/2_4/$APP_USER/$VHOST
+    mkdir -p "$DIR"
+    cat > "$DIR/websocket.conf" <<EOF
+# Netvork: tunnel the Reverb websocket (managed by install-services.sh)
 ProxyPreserveHost On
+RewriteEngine On
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
+RewriteRule ^/?app/(.*) ws://127.0.0.1:8080/app/\$1 [P,L]
 ProxyPass        /app ws://127.0.0.1:8080/app
 ProxyPassReverse /app ws://127.0.0.1:8080/app
 EOF
+  done
 done
-/scripts/ensure_vhost_includes --user=$APP_USER || /scripts/rebuildhttpdconf
-systemctl reload httpd || /scripts/restartsrv_httpd
+
+/scripts/ensure_vhost_includes --user=$APP_USER || true
+/scripts/rebuildhttpdconf
+systemctl restart httpd || /scripts/restartsrv_httpd
+
+echo "== proxy present in compiled config? =="
+grep -c '127.0.0.1:8080' /etc/apache2/conf/httpd.conf || echo "!! NOT PRESENT"
 
 echo
 echo "== status =="
