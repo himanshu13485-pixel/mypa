@@ -15,12 +15,19 @@ SSLDIR=/home/$APP_USER/ssl-netvork
 
 echo "== copying the domain certificate somewhere $APP_USER can read =="
 mkdir -p "$SSLDIR"
+# An addon domain's certificate is filed under its vhost name
+# (netvork.app.grapme.com), so fall back to any directory mentioning it.
 SRC=/var/cpanel/ssl/apache_tls/$DOMAIN/combined
 if [ ! -f "$SRC" ]; then
-  echo "!! $SRC not found - is AutoSSL issued for $DOMAIN?"
+  CANDIDATE=$(ls -d /var/cpanel/ssl/apache_tls/*"$DOMAIN"* 2>/dev/null | head -1)
+  SRC="$CANDIDATE/combined"
+fi
+if [ ! -f "$SRC" ]; then
+  echo "!! no certificate found for $DOMAIN - is AutoSSL issued?"
   ls /var/cpanel/ssl/apache_tls/ | head
   exit 1
 fi
+echo "   using $SRC"
 
 # "combined" holds key + cert + chain; split what Reverb needs.
 awk '/BEGIN (RSA |EC )?PRIVATE KEY/,/END (RSA |EC )?PRIVATE KEY/' "$SRC" > "$SSLDIR/privkey.pem"
@@ -30,6 +37,11 @@ chown -R $APP_USER:$APP_USER "$SSLDIR"
 chmod 700 "$SSLDIR"
 chmod 600 "$SSLDIR"/*.pem
 echo "   cert: $(openssl x509 -in "$SSLDIR/fullchain.pem" -noout -subject -enddate | tr '\n' ' ')"
+echo "   names on cert:"
+openssl x509 -in "$SSLDIR/fullchain.pem" -noout -text | grep -A1 'Subject Alternative Name' | tail -1 | tr ',' '\n' | sed 's/^ */     /'
+if ! openssl x509 -in "$SSLDIR/fullchain.pem" -noout -text | grep -q "DNS:$DOMAIN\b"; then
+  echo "!! WARNING: the certificate does not cover $DOMAIN - browsers will reject wss://$DOMAIN:$WSS_PORT"
+fi
 
 echo "== pointing the app at it =="
 ENV=$APP_DIR/backend/.env
