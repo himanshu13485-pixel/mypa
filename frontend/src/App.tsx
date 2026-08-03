@@ -32,7 +32,11 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const AdminPage = lazy(() => import('./pages/admin/AdminPage'))
 const PricingPage = lazy(() => import('./pages/PricingPage'))
-const LandingPage = lazy(() => import('./pages/site/LandingPage'))
+function LandingRedirect() {
+  // The brand landing is a self-contained static page (public/landing/).
+  window.location.replace('/landing/index.html')
+  return null
+}
 const AboutPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.AboutPage })))
 const ContactPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.ContactPage })))
 const TermsPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.TermsPage })))
@@ -49,7 +53,7 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/home" element={<LandingPage />} />
+          <Route path="/home" element={<LandingRedirect />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/terms" element={<TermsPage />} />
