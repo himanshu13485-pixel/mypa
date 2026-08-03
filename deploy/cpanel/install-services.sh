@@ -68,6 +68,11 @@ else
 fi
 rm -f "$TMP"
 
+echo "== cron: keep Reverb's certificate in step with AutoSSL =="
+CRONLINE="17 3 * * 1 bash $APP_DIR/deploy/cpanel/refresh-ssl.sh >> $LOGDIR/netvork-ssl.log 2>&1"
+( crontab -l 2>/dev/null | grep -v 'refresh-ssl.sh'; echo "$CRONLINE" ) | crontab -
+echo "   weekly root cron installed"
+
 echo "== apache: websocket proxy for wss://$DOMAIN/app =="
 # An addon domain's vhost is named after its subdomain form
 # (netvork.app.grapme.com), so write the include for every vhost of this
