@@ -21,7 +21,7 @@ echo "== linking Laravel public dir as apibase =="
 ln -sfn "$APP_DIR/backend/public" "$DOCROOT/apibase"
 
 echo "== storage symlink + permissions =="
-sudo -u $APP_USER $PHP "$APP_DIR/backend/artisan" storage:link || true
+[ -L "$APP_DIR/backend/public/storage" ] || sudo -u $APP_USER $PHP "$APP_DIR/backend/artisan" storage:link
 chown -R $APP_USER:$APP_USER "$DOCROOT"
 chown -h $APP_USER:$APP_USER "$DOCROOT/apibase"
 chmod -R 775 "$APP_DIR/backend/storage" "$APP_DIR/backend/bootstrap/cache"
