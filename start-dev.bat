@@ -6,9 +6,11 @@ rem Repo root = folder this script lives in (no hard-coded project path).
 set "ROOT=%~dp0"
 if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 
-rem PHP 8.3+ is required by backend/composer.json. XAMPP ships 8.2 here, so use C:\php84.
-set "PHP=C:\php84\php.exe"
+rem PHP 8.4+ is required by backend/composer.json. Checked in order:
+set "PHP=C:\xampp\apps\php\php.exe"
+if not exist "%PHP%" set "PHP=C:\php84\php.exe"
 if not exist "%PHP%" set "PHP=C:\xampp\php\php.exe"
+if not exist "%PHP%" for /f "delims=" %%P in ('where php.exe 2^>nul') do if not defined PHPFOUND (set "PHP=%%P" & set "PHPFOUND=1")
 if not exist "%PHP%" (
   echo [ERROR] No php.exe found. Edit the PHP= line in this script.
   pause & exit /b 1
