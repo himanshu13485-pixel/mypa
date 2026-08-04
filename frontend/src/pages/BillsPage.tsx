@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CheckCircle2, Plus, Receipt, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
@@ -12,7 +13,15 @@ import { BILL_FREQUENCIES } from '../types'
 export default function BillsPage() {
   const { toastError } = useToast()
   const queryClient = useQueryClient()
-  const [filter, setFilter] = useState<'unpaid' | 'paid' | ''>('unpaid')
+  const [params] = useSearchParams()
+  // "?status=paid|unpaid|all" lets links (and the voice assistant) land on a
+  // specific view; the default stays Unpaid.
+  const [filter, setFilter] = useState<'unpaid' | 'paid' | ''>(() => {
+    const wanted = params.get('status')
+    if (wanted === 'paid') return 'paid'
+    if (wanted === 'all') return ''
+    return 'unpaid'
+  })
   const { data, isLoading } = useQuery({
     queryKey: ['bills', filter],
     queryFn: () => billsApi.list(filter || undefined),

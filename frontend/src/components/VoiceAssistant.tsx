@@ -47,7 +47,7 @@ interface Candidate {
 interface Interpretation {
   intent:
     | 'create_task' | 'complete_task' | 'query_tasks' | 'unknown'
-    | 'call_person' | 'message_person' | 'start_meeting' | 'share_screen' | 'navigate' | 'end_call'
+    | 'call_person' | 'message_person' | 'start_meeting' | 'share_screen' | 'navigate' | 'end_call' | 'help'
     | 'create_habit' | 'log_habit' | 'create_goal' | 'create_bill' | 'pay_bill'
   language: string
   transcript: string
@@ -60,6 +60,7 @@ interface Interpretation {
     text?: string
     people?: { spoken: string; candidates: Candidate[] }[]
     page?: string
+    path?: string
     // Life intents
     habit?: { uuid?: string; name: string; frequency?: string; reminder_time?: string } | null
     goal?: { title: string; target_date?: string }
@@ -84,13 +85,15 @@ interface Interpretation {
   }
 }
 
-/** Where "open <page>" commands land. */
+/** Where "open <page>" commands land — every sidebar destination. */
 const PAGE_ROUTES: Record<string, string> = {
-  dashboard: '/dashboard', connections: '/connections', messages: '/messages',
-  calls: '/calls', meetings: '/meetings', screen: '/screen', tasks: '/tasks',
-  projects: '/projects', notes: '/notes', files: '/files', calendar: '/calendar',
-  settings: '/settings', habits: '/habits', goals: '/goals', bills: '/bills',
-  reports: '/reports',
+  dashboard: '/dashboard', connections: '/connections', groups: '/groups',
+  messages: '/messages', calls: '/calls', meetings: '/meetings', screen: '/screen',
+  projects: '/projects', notes: '/notes', files: '/files',
+  tasks: '/tasks', important: '/tasks?important=1', calendar: '/calendar',
+  categories: '/categories', habits: '/habits', goals: '/goals', bills: '/bills',
+  reports: '/reports', subscription: '/subscription', settings: '/settings',
+  admin: '/admin',
 }
 
 /**
@@ -227,7 +230,9 @@ export default function VoiceAssistant() {
 
       // Navigation is harmless and reversible — act on it immediately instead
       // of asking for confirmation.
-      const route = interpretation.intent === 'navigate' ? PAGE_ROUTES[interpretation.data.page ?? ''] : undefined
+      const route = interpretation.intent === 'navigate'
+        ? (interpretation.data.path ?? PAGE_ROUTES[interpretation.data.page ?? ''])
+        : undefined
       if (route) {
         close()
         navigate(route)
@@ -1306,6 +1311,21 @@ export default function VoiceAssistant() {
                     </div>
                   </>
                 )
+              )}
+
+              {result.intent === 'help' && (
+                <>
+                  <div className="space-y-1.5 text-xs text-slate-600 dark:text-slate-300">
+                    <p><b>{language === 'hi' ? 'बातचीत' : 'Connect'}:</b> {language === 'hi' ? '"Rahul को कॉल करो" · "Priya को मैसेज भेजो कि..." · "मीटिंग शुरू करो" · "स्क्रीन शेयर करो" · "कॉल काटो"' : '"Call Rahul" · "Message Priya saying…" · "Start a meeting with…" · "Share my screen with…" · "Hang up"'}</p>
+                    <p><b>{language === 'hi' ? 'काम' : 'Work'}:</b> {language === 'hi' ? '"याद दिलाओ..." · "टास्क पूरा करो" · "बाकी टास्क दिखाओ"' : '"Remind me to…" · "Mark the … task as completed" · "Show my pending tasks"'}</p>
+                    <p><b>{language === 'hi' ? 'जीवन' : 'Life'}:</b> {language === 'hi' ? '"आदत बनाओ..." · "लक्ष्य सेट करो..." · "बिल जोड़ो..." · "बिल भर दिया"' : '"Start a habit to…" · "Set a goal to…" · "Add … bill of …" · "Mark the … bill as paid"'}</p>
+                    <p><b>{language === 'hi' ? 'खोलना' : 'Open'}:</b> {language === 'hi' ? 'साइडबार का कोई भी पेज — "बिल खोलो", "एडमिन यूज़र्स खोलो", "paid bills दिखाओ"' : 'any sidebar page — "Open bills", "Open admin users", "Show paid bills", "Open family & teams"'}</p>
+                    <p className="text-slate-400">{language === 'hi' ? `हैंड्स-फ़्री: "${wakeWord}" बोलें, फिर कमांड। कार्ड पर "हाँ/नहीं" बोलकर कन्फ़र्म करें।` : `Hands-free: say "${wakeWord}", then the command. Confirm cards by voice with "yes" / "no".`}</p>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button variant="secondary" size="sm" onClick={() => setResult(null)}>OK</Button>
+                  </div>
+                </>
               )}
 
               {(result.intent === 'unknown' || result.intent === 'navigate') && (

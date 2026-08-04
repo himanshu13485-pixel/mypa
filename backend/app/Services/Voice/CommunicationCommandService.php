@@ -16,24 +16,55 @@ use Illuminate\Support\Collection;
  */
 class CommunicationCommandService
 {
-    /** Pages the user can ask to open, with the spoken forms that mean them. */
+    /**
+     * Every sidebar destination, with the spoken forms that mean it. Keys are
+     * the page ids the frontend routes on; 'path' overrides let a phrase land
+     * on a filtered view or a specific admin tab.
+     */
     protected const PAGES = [
-        'dashboard' => ['dashboard', 'home', 'डैशबोर्ड', 'होम'],
-        'connections' => ['connections', 'connection', 'contacts', 'कनेक्शन'],
-        'messages' => ['messages', 'message', 'chats', 'chat', 'मैसेज', 'चैट'],
-        'calls' => ['calls', 'call history', 'कॉल'],
-        'meetings' => ['meetings', 'meeting list', 'मीटिंग'],
-        'screen' => ['screen', 'screen sharing', 'स्क्रीन'],
-        'tasks' => ['tasks', 'task list', 'my tasks', 'टास्क'],
-        'projects' => ['projects', 'project', 'प्रोजेक्ट'],
-        'notes' => ['notes', 'नोट्स'],
-        'files' => ['files', 'documents', 'फाइल'],
-        'calendar' => ['calendar', 'कैलेंडर'],
-        'settings' => ['settings', 'सेटिंग'],
-        'habits' => ['habits'],
-        'goals' => ['goals'],
-        'bills' => ['bills'],
-        'reports' => ['reports'],
+        'dashboard' => ['dashboard', 'home', 'home page', 'डैशबोर्ड', 'होम'],
+        'connections' => ['connections', 'connection', 'contacts', 'my connections', 'कनेक्शन', 'संपर्क'],
+        'groups' => ['family & teams', 'family and teams', 'family teams', 'family', 'teams', 'groups', 'my family', 'परिवार', 'टीम', 'ग्रुप'],
+        'messages' => ['messages', 'message', 'chats', 'chat', 'inbox', 'मैसेज', 'चैट', 'संदेश'],
+        'calls' => ['calls', 'call history', 'call log', 'कॉल', 'कॉल हिस्ट्री'],
+        'meetings' => ['meetings', 'meeting list', 'my meetings', 'मीटिंग', 'बैठक'],
+        'screen' => ['screen', 'screen sharing', 'screen share', 'स्क्रीन'],
+        'projects' => ['projects', 'project', 'ledger', 'प्रोजेक्ट'],
+        'notes' => ['notes', 'my notes', 'नोट्स', 'नोट'],
+        'files' => ['files', 'documents', 'my files', 'फाइल', 'दस्तावेज़'],
+        'tasks' => ['tasks', 'task list', 'my tasks', 'todo', 'to do', 'टास्क', 'काम'],
+        'important' => ['important', 'important tasks', 'starred tasks', 'ज़रूरी टास्क', 'महत्वपूर्ण'],
+        'calendar' => ['calendar', 'my calendar', 'कैलेंडर'],
+        'categories' => ['categories', 'category', 'श्रेणियां', 'कैटेगरी'],
+        'habits' => ['habits', 'my habits', 'आदतें', 'हैबिट'],
+        'goals' => ['goals', 'my goals', 'लक्ष्य', 'गोल'],
+        'bills' => ['bills', 'my bills', 'बिल'],
+        'reports' => ['reports', 'my reports', 'रिपोर्ट'],
+        'subscription' => ['subscription', 'my plan', 'my subscription', 'plan', 'सब्सक्रिप्शन', 'प्लान'],
+        'settings' => ['settings', 'my settings', 'preferences', 'सेटिंग', 'सेटिंग्स'],
+        'admin' => ['admin', 'admin panel', 'एडमिन', 'एडमिन पैनल'],
+    ];
+
+    /** Spoken form => concrete path, for filtered views and admin tabs. */
+    protected const SUBPAGES = [
+        'paid bills' => '/bills?status=paid',
+        'unpaid bills' => '/bills?status=unpaid',
+        'all bills' => '/bills?status=all',
+        'pending bills' => '/bills?status=unpaid',
+        'admin overview' => '/admin?tab=overview',
+        'admin settings' => '/admin?tab=overview',
+        'admin users' => '/admin?tab=users',
+        'admin members' => '/admin?tab=active',
+        'active members' => '/admin?tab=active',
+        'admin plans' => '/admin?tab=plans',
+        'admin approvals' => '/admin?tab=approvals',
+        'approvals' => '/admin?tab=approvals',
+        'admin activity' => '/admin?tab=activity',
+        'admin logins' => '/admin?tab=logins',
+        'admin moderation' => '/admin?tab=moderation',
+        'moderation' => '/admin?tab=moderation',
+        'internal work' => '/admin?tab=internal',
+        'my users' => '/admin?tab=sales',
     ];
 
     public function __construct(protected ContactResolver $contacts)
@@ -43,12 +74,34 @@ class CommunicationCommandService
     /** @return array<string, mixed>|null */
     public function match(User $user, string $text, string $language): ?array
     {
-        return $this->matchEndCall($text, $language)
+        return $this->matchHelp($text, $language)
+            ?? $this->matchEndCall($text, $language)
             ?? $this->matchNavigate($text, $language)
             ?? $this->matchCall($user, $text, $language)
             ?? $this->matchMessage($user, $text, $language)
             ?? $this->matchMeeting($user, $text, $language)
             ?? $this->matchScreen($user, $text, $language);
+    }
+
+    // --- Help ----------------------------------------------------------------
+
+    protected function matchHelp(string $text, string $language): ?array
+    {
+        if (! preg_match(
+            '/^(?:help|what (?:all )?can you do|what do you do|commands|capabilities|मदद|हेल्प|तुम क्या( क्या)? कर सकती हो|क्या( क्या)? कर सकती हो|क्या कर सकते हो)\??$/u',
+            $text,
+        )) {
+            return null;
+        }
+
+        return [
+            'intent' => 'help',
+            'language' => $language,
+            'data' => [],
+            'speech' => $language === 'hi'
+                ? 'मैं कॉल, मैसेज, मीटिंग, टास्क, आदतें, लक्ष्य, बिल — सब संभाल सकती हूँ, और ऐप का कोई भी हिस्सा खोल सकती हूँ।'
+                : 'I can call and message your connections, run meetings and screen shares, manage tasks, habits, goals and bills, and open any part of the app.',
+        ];
     }
 
     // --- Hang up -------------------------------------------------------------
@@ -191,14 +244,33 @@ class CommunicationCommandService
     protected function matchNavigate(string $text, string $language): ?array
     {
         if (! preg_match(
-            '/^(?:open|go to|goto|take me to|show(?:\s+me)?(?:\s+my)?|खोलो|खोलें|दिखाओ)\s+(.+?)(?:\s*(?:page|tab|खोलो|खोलें|दिखाओ))?$/u',
+            '/^(?:open|go to|goto|take me to|show(?:\s+me)?(?:\s+my)?|खोलो|खोलें|दिखाओ|(.+?)\s+(?:खोलो|खोलें|दिखाओ))\s*(.*)$/u',
             $text,
             $m,
         )) {
             return null;
         }
 
-        $spoken = trim($m[1]);
+        // "बिल खोलो" puts the page before the verb; "open bills" after it.
+        $spoken = trim($m[1] !== '' ? $m[1] : ($m[2] ?? ''));
+        $spoken = trim(preg_replace('/\s*(?:page|tab|section|पेज|टैब)$/u', '', $spoken));
+        $spoken = trim(preg_replace('/^(?:the|my|मेरा|मेरी|मेरे)\s+/u', '', $spoken));
+
+        if ($spoken === '') {
+            return null;
+        }
+
+        // Specific views first ("paid bills", "admin plans", "internal work").
+        foreach (self::SUBPAGES as $form => $path) {
+            if ($spoken === $form) {
+                return [
+                    'intent' => 'navigate',
+                    'language' => $language,
+                    'data' => ['page' => $form, 'path' => $path],
+                    'speech' => $language === 'hi' ? 'ठीक है, खोल रही हूँ।' : "Okay, opening {$form}.",
+                ];
+            }
+        }
 
         foreach (self::PAGES as $page => $forms) {
             if (in_array($spoken, $forms, true)) {

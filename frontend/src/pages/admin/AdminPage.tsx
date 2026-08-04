@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity, Ban, BarChart3, CheckCircle2, ClipboardCheck, CreditCard, Flag,
@@ -1679,7 +1680,13 @@ function visibleTabs(roles: string[]) {
 export default function AdminPage() {
   const roles = useAuthStore((s) => s.user?.roles ?? [])
   const tabs = visibleTabs(roles)
-  const [tab, setTab] = useState<(typeof TABS)[number]['key']>(tabs[0]?.key ?? 'internal')
+  // "?tab=users" deep links (used by the voice assistant) land on that tab,
+  // as long as the current role is allowed to see it.
+  const [params] = useSearchParams()
+  const [tab, setTab] = useState<(typeof TABS)[number]['key']>(() => {
+    const wanted = params.get('tab')
+    return tabs.find((t) => t.key === wanted)?.key ?? tabs[0]?.key ?? 'internal'
+  })
 
   return (
     <div className="space-y-4">

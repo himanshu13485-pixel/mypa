@@ -158,6 +158,44 @@ class VoiceCommunicationTest extends TestCase
         $this->assertEquals('messages', $result['data']['page']);
     }
 
+    public function test_every_sidebar_page_is_reachable(): void
+    {
+        foreach ([
+            'Open family & teams' => 'groups',
+            'Open projects' => 'projects',
+            'Open my subscription' => 'subscription',
+            'Open categories' => 'categories',
+            'Open admin panel' => 'admin',
+            'Open reports' => 'reports',
+        ] as $command => $page) {
+            $result = $this->interpret($command);
+            $this->assertEquals('navigate', $result['intent'], "for: {$command}");
+            $this->assertEquals($page, $result['data']['page'], "for: {$command}");
+        }
+    }
+
+    public function test_subpage_navigation_carries_a_path(): void
+    {
+        $this->assertEquals('/bills?status=paid', $this->interpret('Show paid bills')['data']['path']);
+        $this->assertEquals('/admin?tab=users', $this->interpret('Open admin users')['data']['path']);
+        $this->assertEquals('/admin?tab=internal', $this->interpret('Open internal work')['data']['path']);
+    }
+
+    public function test_help_lists_capabilities(): void
+    {
+        $result = $this->interpret('What can you do?');
+
+        $this->assertEquals('help', $result['intent']);
+    }
+
+    public function test_hindi_page_before_verb(): void
+    {
+        $result = $this->interpret('बिल खोलो', 'hi');
+
+        $this->assertEquals('navigate', $result['intent']);
+        $this->assertEquals('bills', $result['data']['page']);
+    }
+
     public function test_task_intents_are_untouched(): void
     {
         // These historically resolved to task intents and must stay that way.
