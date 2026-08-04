@@ -230,6 +230,76 @@ class SalesAndGroupCallTest extends TestCase
         $this->assertEquals('ongoing', \App\Models\Call::where('uuid', $uuid)->first()->status);
     }
 
+    /**
+     * Closing a tab never calls /end, so without presence the person stays
+     * "joined" forever and everyone else keeps a frozen tile for them.
+     */
+    public function test_a_silent_participant_is_dropped_and_the_call_ends(): void
+    {
+        Event::fake([CallSignal::class]);
+        $this->connect($this->alice, $this->bob);
+        $conversation = \App\Models\Conversation::directBetween($this->alice, $this->bob);
+
+        $uuid = $this->actingAs($this->alice)
+            ->postJson("/api/v1/conversations/{$conversation->uuid}/calls", ['type' => 'audio'])
+            ->json('data.uuid');
+        $this->actingAs($this->bob)->postJson("/api/v1/calls/{$uuid}/respond", ['action' => 'accept'])->assertOk();
+
+        // Both are in and beating.
+        $beat = $this->actingAs($this->alice)->postJson("/api/v1/calls/{$uuid}/heartbeat")->assertOk();
+        $this->assertEquals('ongoing', $beat->json('data.status'));
+        $this->assertCount(2, $beat->json('data.participants'));
+
+        // Bob's browser vanishes: no /end, just silence.
+        $call = \App\Models\Call::where('uuid', $uuid)->first();
+        $stale = now()->subSeconds(\App\Models\Call::PRESENCE_TIMEOUT_SECONDS + 10);
+        \Illuminate\Support\Facades\DB::table('call_participants')
+            ->where('call_id', $call->id)->where('user_id', $this->bob->id)
+            ->update(['last_seen_at' => $stale]);
+        \Illuminate\Support\Facades\DB::table('call_participants')
+            ->where('call_id', $call->id)->where('user_id', $this->alice->id)
+            ->update(['last_seen_at' => now()]);
+        $call->update(['answered_at' => $stale]);
+
+        $this->artisan('mypa:reap-meetings')->assertSuccessful();
+
+        // Bob is out, Alice was told, and a call of one is no call at all.
+        $this->assertEquals('left', \Illuminate\Support\Facades\DB::table('call_participants')
+            ->where('call_id', $call->id)->where('user_id', $this->bob->id)->value('status'));
+        Event::assertDispatched(CallSignal::class, fn ($e) => $e->signalType === 'peer-left');
+        $this->assertEquals('ended', $call->fresh()->status);
+    }
+
+    public function test_an_ongoing_call_can_be_rejoined_and_reports_who_is_in_it(): void
+    {
+        Event::fake([CallSignal::class]);
+        $conversation = $this->groupConversation();
+
+        $uuid = $this->actingAs($this->alice)
+            ->postJson("/api/v1/conversations/{$conversation}/calls", ['type' => 'audio'])
+            ->json('data.uuid');
+        $this->actingAs($this->bob)->postJson("/api/v1/calls/{$uuid}/respond", ['action' => 'accept'])->assertOk();
+
+        $listed = fn ($user) => collect($this->actingAs($user)->getJson('/api/v1/calls/history')->json('data'))
+            ->firstWhere('uuid', $uuid);
+
+        $row = $listed($this->carol);
+        $this->assertTrue($row['is_active'], 'A live call has to be recognisable as one.');
+        $this->assertEquals(2, $row['joined_count']);
+        $this->assertEqualsCanonicalizing(['Alice', 'Bob'], $row['joined_names']);
+
+        // Carol walks in late — the same accept a ringing callee uses.
+        $join = $this->actingAs($this->carol)->postJson("/api/v1/calls/{$uuid}/respond", ['action' => 'accept'])->assertOk();
+        $this->assertCount(2, $join->json('data.joined_peers'), 'She needs both peers to offer to.');
+        $this->assertEquals(3, $listed($this->alice)['joined_count']);
+
+        // A finished call is no longer joinable.
+        $this->actingAs($this->alice)->postJson("/api/v1/calls/{$uuid}/end")->assertOk();
+        $this->actingAs($this->bob)->postJson("/api/v1/calls/{$uuid}/end")->assertOk();
+        $this->actingAs($this->carol)->postJson("/api/v1/calls/{$uuid}/end")->assertOk();
+        $this->assertFalse($listed($this->carol)['is_active']);
+    }
+
     public function test_direct_calls_still_work_one_to_one(): void
     {
         Event::fake([CallSignal::class]);

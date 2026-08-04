@@ -1,9 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Circle, Expand, Mic, MicOff, MonitorUp, Phone, PhoneOff, Square, UserPlus, Users, Video, VideoOff } from 'lucide-react'
+import {
+  Circle, Expand, Maximize2, Mic, MicOff, Minimize2, MonitorUp, Phone, PhoneOff, Square, UserPlus, Users,
+  Video, VideoOff,
+} from 'lucide-react'
+import { clsx } from 'clsx'
 import { calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
+import { PickUserModal } from './UserSuggest'
+import { useToast } from './Toast'
 import { Button } from './ui'
 import type { CallSignalPayload } from '../types'
 import { startRingtone } from '../lib/alerts'
@@ -31,14 +37,22 @@ interface RemotePeer {
   micOff?: boolean
   camOff?: boolean
   sharing?: boolean
+  /** ICE state — shown on the tile so a stuck connection is visible. */
+  conn?: string
 }
 
 interface CallContextValue {
   startCall: (conversationUuid: string, type: 'audio' | 'video', peerName: string) => Promise<void>
+  /** Walk into a call that is already running (from the Calls list). */
+  joinCall: (uuid: string, type: 'audio' | 'video', label: string) => Promise<void>
   activeCall: ActiveCall | null
 }
 
-const CallContext = createContext<CallContextValue>({ startCall: async () => {}, activeCall: null })
+const CallContext = createContext<CallContextValue>({
+  startCall: async () => {},
+  joinCall: async () => {},
+  activeCall: null,
+})
 
 export const useCalls = () => useContext(CallContext)
 
@@ -62,6 +76,16 @@ function RemoteTile({ peer, video, active }: { peer: RemotePeer; video: boolean;
   return (
     <div className={'relative overflow-hidden rounded-lg bg-slate-900' + (active ? ' ring-2 ring-emerald-400' : '')}>
       <video ref={attach} autoPlay playsInline className={peer.sharing ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
+      {peer.conn && !['connected', 'completed'].includes(peer.conn) && (
+        <span
+          className={
+            'absolute left-1 top-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ' +
+            (peer.conn === 'failed' ? 'bg-red-600 text-white' : 'bg-amber-400 text-black')
+          }
+        >
+          {peer.conn === 'failed' ? 'reconnecting…' : `connecting… ${peer.conn}`}
+        </span>
+      )}
       {peer.camOff && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
           <span className="flex size-9 items-center justify-center rounded-full bg-brand-700 text-sm font-semibold text-white">
@@ -85,6 +109,8 @@ function RemoteTile({ peer, video, active }: { peer: RemotePeer; video: boolean;
  */
 export function CallProvider({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
+  const { toast, toastError } = useToast()
+  const [showInvite, setShowInvite] = useState(false)
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<CallSignalPayload | null>(null)
   const [remotePeers, setRemotePeers] = useState<RemotePeer[]>([])
@@ -99,6 +125,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [sharing, setSharing] = useState(false)
   const displayTrackRef = useRef<MediaStreamTrack | null>(null)
   const [isFs, setIsFs] = useState(false)
+  /** Compact corner panel, or a big centred window. Remembered between calls. */
+  const [expanded, setExpanded] = useState(() => localStorage.getItem('mypa-call-expanded') === '1')
   const [bgLabel, setBgLabel] = useState('none')
   const [blurBusy, setBlurBusy] = useState(false)
   const myMediaRef = useRef({ mic: true, cam: true })
@@ -106,6 +134,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const blurRef = useRef<BlurPipeline | null>(null)
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null)
   const callBodyRef = useRef<HTMLDivElement>(null)
+
+  /** The whole panel — video AND controls. Fullscreen used to target only the
+   *  video, which is why the controls disappeared the moment you expanded. */
+  const panelRef = useRef<HTMLDivElement>(null)
+  const restartTimersRef = useRef<Map<string, number>>(new Map())
 
   const peersRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   // ICE candidates that arrived before their peer connection / remote
@@ -202,6 +235,28 @@ export function CallProvider({ children }: { children: ReactNode }) {
     return stream
   }, [])
 
+  /**
+   * Rebuild a broken media path without rebuilding the call.
+   *
+   * A dropped ICE route used to be permanent: the tile just stayed black and
+   * nothing retried, which is how a call ends up with some people seeing each
+   * other and others not. Only one side may restart or the two offers collide,
+   * so the peer with the lower uuid does it — arbitrary but consistent.
+   */
+  const restartIce = useCallback(async (peerUuid: string) => {
+    const pc = peersRef.current.get(peerUuid)
+    const uuid = callRef.current?.uuid
+    if (!pc || !uuid || !user?.uuid || user.uuid > peerUuid) return
+    try {
+      const offer = await pc.createOffer({ iceRestart: true })
+      await pc.setLocalDescription(offer)
+      await calls.signal(uuid, 'offer', { sdp: offer.sdp, type: offer.type }, peerUuid)
+      console.info('[call] ice restart sent to', peerUuid.slice(0, 8))
+    } catch (err) {
+      console.warn('[call] ice restart failed', err)
+    }
+  }, [user?.uuid])
+
   /** One RTCPeerConnection per remote participant. */
   const createPeer = useCallback(
     async (callUuid: string, peerUuid: string, peerName: string, type: 'audio' | 'video') => {
@@ -241,8 +296,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
         if (pc.connectionState === 'connected') markLive()
       }
       pc.oniceconnectionstatechange = () => {
-        console.info('[call] peer', peerUuid.slice(0, 8), 'ice:', pc.iceConnectionState)
-        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') markLive()
+        const state = pc.iceConnectionState
+        console.info('[call] peer', peerUuid.slice(0, 8), 'ice:', state)
+        setRemotePeers((peers) => peers.map((p) => (p.uuid === peerUuid ? { ...p, conn: state } : p)))
+        if (state === 'connected' || state === 'completed') markLive()
+
+        const timers = restartTimersRef.current
+        if (state === 'failed') {
+          void restartIce(peerUuid)
+        } else if (state === 'disconnected') {
+          // A brief blip often heals itself; give it a moment before retrying.
+          if (!timers.has(peerUuid)) {
+            timers.set(peerUuid, window.setTimeout(() => {
+              timers.delete(peerUuid)
+              if (peersRef.current.get(peerUuid)?.iceConnectionState === 'disconnected') void restartIce(peerUuid)
+            }, 4000))
+          }
+        } else {
+          const t = timers.get(peerUuid)
+          if (t) {
+            clearTimeout(t)
+            timers.delete(peerUuid)
+          }
+        }
       }
 
       pc.onicecandidate = (event) => {
@@ -253,12 +329,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       return pc
     },
-    [ensureLocalStream, markLive],
+    [ensureLocalStream, markLive, restartIce],
   )
 
   const removePeer = useCallback((peerUuid: string) => {
     peersRef.current.get(peerUuid)?.close()
     peersRef.current.delete(peerUuid)
+    const t = restartTimersRef.current.get(peerUuid)
+    if (t) {
+      clearTimeout(t)
+      restartTimersRef.current.delete(peerUuid)
+    }
     setRemotePeers((peers) => peers.filter((p) => p.uuid !== peerUuid))
   }, [])
 
@@ -318,6 +399,31 @@ export function CallProvider({ children }: { children: ReactNode }) {
       cleanup()
     }
   }, [incoming, ensureLocalStream, createPeer, cleanup])
+
+  /**
+   * Join a call that is already in progress. Same handshake as accepting a
+   * ringing one — accept, then offer to everyone already inside — which is
+   * why a late joiner works at all; there was simply no way to trigger it.
+   */
+  const joinCall = useCallback(async (uuid: string, type: 'audio' | 'video', label: string) => {
+    if (callRef.current) return
+    setActiveCall({ uuid, type, direction: 'incoming', peerName: label, isGroup: false, status: 'connecting' })
+    try {
+      await ensureLocalStream(type)
+      const info = await calls.respond(uuid, 'accept')
+      setActiveCall((c) => (c ? { ...c, isGroup: !!info.is_group, peerName: info.group_name ?? label } : c))
+
+      for (const peer of info.joined_peers ?? []) {
+        const pc = await createPeer(uuid, peer.uuid, peer.name, type)
+        const offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        await calls.signal(uuid, 'offer', { sdp: offer.sdp, type: offer.type }, peer.uuid)
+      }
+    } catch (err) {
+      cleanup()
+      toastError(errorMessage(err))
+    }
+  }, [ensureLocalStream, createPeer, cleanup, toastError])
 
   const declineIncoming = useCallback(async () => {
     if (!incoming) return
@@ -526,6 +632,54 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }, [activeCall?.status, activeCall?.direction])
 
+  /**
+   * Presence ping. The server sweeps anyone who stops sending this, so a
+   * closed tab or a dead connection stops leaving a permanent frozen tile on
+   * everyone else's screen, and a call nobody is left in ends by itself.
+   */
+  useEffect(() => {
+    if (activeCall?.status !== 'ongoing') return
+    const uuid = activeCall.uuid
+    let stop = false
+
+    const tick = async () => {
+      try {
+        const beat = await calls.heartbeat(uuid)
+        if (stop) return
+        if (beat.status !== 'ongoing' && beat.status !== 'ringing') cleanup()
+      } catch {
+        /* one missed beat is fine — the grace window is three of them */
+      }
+    }
+
+    void tick()
+    const timer = setInterval(tick, 15_000)
+    return () => {
+      stop = true
+      clearInterval(timer)
+    }
+  }, [activeCall?.status, activeCall?.uuid, cleanup])
+
+  /**
+   * Closing the tab never runs a normal request, so the hang-up has to go out
+   * with keepalive — otherwise the browser cancels it and we become the ghost
+   * the reaper cleans up 45 seconds later.
+   */
+  useEffect(() => {
+    const bye = () => {
+      const uuid = callRef.current?.uuid
+      if (!uuid) return
+      const token = useAuthStore.getState().token
+      fetch(`/api/v1/calls/${uuid}/end`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        keepalive: true,
+      }).catch(() => undefined)
+    }
+    window.addEventListener('pagehide', bye)
+    return () => window.removeEventListener('pagehide', bye)
+  }, [])
+
   // Call duration ticker
   useEffect(() => {
     if (activeCall?.status !== 'ongoing') return
@@ -578,8 +732,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => undefined)
     } else {
-      callBodyRef.current?.requestFullscreen().catch(() => undefined)
+      // The panel, not just the video: fullscreening the video element's
+      // wrapper left every control outside the fullscreen element, so mute,
+      // camera and hang-up all vanished until you pressed Escape.
+      panelRef.current?.requestFullscreen().catch(() => undefined)
     }
+  }
+
+  const toggleExpanded = () => {
+    setExpanded((e) => {
+      localStorage.setItem('mypa-call-expanded', e ? '0' : '1')
+      return !e
+    })
   }
 
   const broadcastMedia = (mic: boolean, cam: boolean) => {
@@ -614,7 +778,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const wide = activeCall?.isGroup && tiles > 1
 
   return (
-    <CallContext.Provider value={{ startCall, activeCall }}>
+    <CallContext.Provider value={{ startCall, joinCall, activeCall }}>
       {children}
 
       {/* Incoming call banner */}
@@ -638,15 +802,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
       {/* Active call window */}
       {activeCall && (
         <div
-          className={
-            'fixed bottom-4 right-4 z-[60] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900 ' +
-            (wide ? 'w-[34rem] max-w-[calc(100vw-2rem)]' : 'w-80')
-          }
+          ref={panelRef}
+          className={clsx(
+            'z-[60] flex flex-col overflow-hidden border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900',
+            isFs
+              // Fullscreen now covers the panel, so the controls come with it.
+              ? 'fixed inset-0 rounded-none'
+              : expanded
+                // Big centred window — the old panel was a fixed 20rem box with
+                // no way to make the other person any larger.
+                ? 'fixed inset-4 rounded-xl sm:inset-8 lg:inset-x-[12%] lg:inset-y-10'
+                : clsx(
+                    'fixed bottom-4 right-4 rounded-xl',
+                    wide ? 'w-[34rem] max-w-[calc(100vw-2rem)]' : 'w-80',
+                  ),
+          )}
         >
-          <div ref={callBodyRef} className="relative bg-slate-950 p-1">
+          <div
+            ref={callBodyRef}
+            className={clsx('relative min-h-0 bg-slate-950 p-1', (isFs || expanded) && 'flex-1')}
+          >
             {isVideo ? (
               <>
-                <div className={`grid ${gridCols} ${isFs ? 'h-full' : 'h-56'} gap-1`}>
+                <div className={clsx('grid gap-1', gridCols, isFs || expanded ? 'h-full' : 'h-56')}>
                   {remotePeers.length === 0 ? (
                     <div className="flex items-center justify-center text-xs text-slate-500">Waiting for others…</div>
                   ) : (
@@ -658,7 +836,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   autoPlay
                   playsInline
                   muted
-                  className="absolute bottom-2 right-2 h-16 w-24 rounded-lg border border-slate-700 object-cover -scale-x-100"
+                  className={clsx(
+                    'absolute bottom-2 right-2 rounded-lg border border-slate-700 object-cover -scale-x-100',
+                    isFs || expanded ? 'h-32 w-48' : 'h-16 w-24',
+                  )}
                 />
               </>
             ) : (
@@ -678,7 +859,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
               </div>
             )}
           </div>
-          <div className="p-3">
+          <div className="shrink-0 overflow-y-auto p-3">
             {recRequest && activeCall.direction === 'outgoing' && (
               <div className="mb-1.5 flex items-center gap-1.5 rounded bg-red-50 px-2 py-1 text-[11px] dark:bg-red-950">
                 <span className="font-medium">{recRequest.name}</span> wants to record
@@ -729,7 +910,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 </Button>
               )}
               {isVideo && (
-                <Button size="sm" variant="secondary" title="Fullscreen" onClick={toggleFullscreen}>
+                <Button
+                  size="sm"
+                  variant={expanded ? 'primary' : 'secondary'}
+                  title={expanded ? 'Shrink to the corner' : 'Make the call bigger'}
+                  onClick={toggleExpanded}
+                >
+                  {expanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+                </Button>
+              )}
+              {isVideo && (
+                <Button size="sm" variant="secondary" title={isFs ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
                   <Expand className="size-3.5" />
                 </Button>
               )}
@@ -753,15 +944,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 size="sm"
                 variant="secondary"
                 title="Add someone to this call"
-                onClick={() => {
-                  const uuid = callRef.current?.uuid
-                  if (!uuid) return
-                  const who = prompt('Add to call (username or email):')
-                  if (!who?.trim()) return
-                  calls.invite(uuid, who.trim())
-                    .then((res) => alert(res.message))
-                    .catch((err) => alert(errorMessage(err)))
-                }}
+                onClick={() => setShowInvite(true)}
               >
                 <UserPlus className="size-3.5" />
               </Button>
@@ -771,6 +954,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
             </div>
           </div>
         </div>
+      )}
+
+      {showInvite && activeCall && (
+        <PickUserModal
+          title="Add someone to this call"
+          actionLabel="Ring them"
+          onClose={() => setShowInvite(false)}
+          onSubmit={(identifier) => {
+            const uuid = callRef.current?.uuid
+            if (!uuid) return
+            calls.invite(uuid, identifier)
+              .then((res) => toast(res.message, 'success'))
+              .catch((err) => toastError(errorMessage(err)))
+          }}
+        />
       )}
     </CallContext.Provider>
   )

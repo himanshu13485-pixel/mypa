@@ -254,6 +254,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/conversations/{conversation}/calls', [CallController::class, 'initiate']);
         Route::post('/calls/{call}/respond', [CallController::class, 'respond']);
         Route::post('/calls/{call}/end', [CallController::class, 'end']);
+        Route::post('/calls/{call}/heartbeat', [CallController::class, 'heartbeat']);
         Route::post('/calls/{call}/signal', [CallController::class, 'signal'])
             ->withoutMiddleware('throttle:180,1')
             ->middleware('throttle:1200,1');

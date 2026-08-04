@@ -550,6 +550,11 @@ export interface CallInfo {
   is_outgoing: boolean
   is_missed?: boolean
   other_user?: { uuid: string; name: string } | null
+  /** Live count and names of whoever is in the call right now. */
+  joined_count?: number
+  joined_names?: string[]
+  /** Still ringing or ongoing — so it can be joined. */
+  is_active?: boolean
   started_at?: string
   duration_seconds?: number | null
 }

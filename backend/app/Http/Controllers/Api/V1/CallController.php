@@ -302,6 +302,34 @@ class CallController extends Controller
         return response()->json(['message' => 'Signal relayed.']);
     }
 
+    /**
+     * Presence ping for a live call.
+     *
+     * Without it, a browser that closes or loses the network stays "joined"
+     * forever: nobody else's tile for that person ever goes away, and the call
+     * never ends on its own. mypa:reap-meetings sweeps anyone who stops
+     * calling this. Doubles as the poll that tells a client the call ended.
+     */
+    public function heartbeat(Request $request, Call $call): JsonResponse
+    {
+        $me = $request->user();
+        $this->authorizeParticipant($call, $me->id);
+
+        if (! $call->isActive()) {
+            return response()->json(['data' => ['status' => $call->status, 'participants' => []]]);
+        }
+
+        $call->participants()->updateExistingPivot($me->id, ['last_seen_at' => now()]);
+
+        return response()->json(['data' => [
+            'status' => $call->status,
+            'participants' => $call->inCall()->map(fn ($u) => [
+                'uuid' => $u->uuid,
+                'name' => $u->name,
+            ])->values(),
+        ]]);
+    }
+
     public function history(Request $request): JsonResponse
     {
         $me = $request->user();
@@ -335,6 +363,16 @@ class CallController extends Controller
             'is_outgoing' => $call->caller_id === $me->id,
             'is_missed' => $call->status === 'missed' && $call->caller_id !== $me->id,
             'other_user' => $other ? ['uuid' => $other->uuid, 'name' => $other->name] : null,
+            // Who is actually in it right now, and can I walk back in? The
+            // calls list showed "ongoing" with no count and no way to rejoin,
+            // even though respond() has always accepted a late joiner.
+            'joined_count' => $call->relationLoaded('participants')
+                ? $call->participants->where('pivot.status', 'joined')->count()
+                : $call->participants()->wherePivot('status', 'joined')->count(),
+            'joined_names' => $call->relationLoaded('participants')
+                ? $call->participants->where('pivot.status', 'joined')->pluck('name')->values()
+                : $call->participants()->wherePivot('status', 'joined')->pluck('name'),
+            'is_active' => $call->isActive(),
             'started_at' => $call->started_at,
             'answered_at' => $call->answered_at,
             'ended_at' => $call->ended_at,
