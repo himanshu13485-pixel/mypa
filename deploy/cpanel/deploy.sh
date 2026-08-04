@@ -1,35 +1,49 @@
 #!/bin/bash
-# Netvork production update script — run as root on the cPanel server.
-# Pulls latest master, updates the API, rebuilds the frontend, restarts services.
+# Update the live site to the latest master.
+#   bash /home/grapme/netvork/deploy/cpanel/deploy.sh
+#
+# Pulls, installs any new dependencies, migrates, rebuilds the frontend,
+# republishes the docroot and restarts the workers. Safe to re-run.
 set -e
 
-APP_USER=netvork
-REPO=/home/$APP_USER/mypa
-DOCROOT=/home/$APP_USER/public_html
-PHP=/opt/cpanel/ea-php83/root/usr/bin/php
+APP_USER=${APP_USER:-grapme}
+APP_DIR=${APP_DIR:-/home/$APP_USER/netvork}
+PHP=${PHP:-/opt/cpanel/ea-php84/root/usr/bin/php}
+COMPOSER=${COMPOSER:-/usr/local/bin/composer}
 
-echo "== Pulling latest code =="
-sudo -u $APP_USER git -C $REPO pull --ff-only
+echo "== pulling =="
+BEFORE=$(sudo -u $APP_USER git -C "$APP_DIR" rev-parse --short HEAD)
+sudo -u $APP_USER git -C "$APP_DIR" pull --ff-only
+AFTER=$(sudo -u $APP_USER git -C "$APP_DIR" rev-parse --short HEAD)
+if [ "$BEFORE" = "$AFTER" ]; then
+  echo "   already up to date ($AFTER)"
+else
+  echo "   $BEFORE -> $AFTER"
+  sudo -u $APP_USER git -C "$APP_DIR" log --oneline "$BEFORE..$AFTER" | head -20
+fi
 
-echo "== Backend: dependencies + migrations =="
-cd $REPO/backend
-sudo -u $APP_USER $PHP /opt/cpanel/composer/bin/composer install --no-dev --optimize-autoloader --no-interaction
+echo
+echo "== backend =="
+cd "$APP_DIR/backend"
+sudo -u $APP_USER $PHP $COMPOSER install --no-dev -o -n
 sudo -u $APP_USER $PHP artisan migrate --force
-sudo -u $APP_USER $PHP artisan config:cache
-sudo -u $APP_USER $PHP artisan route:cache
-sudo -u $APP_USER $PHP artisan view:cache
 
-echo "== Frontend: build =="
-cd $REPO/frontend
+echo
+echo "== frontend =="
+cd "$APP_DIR/frontend"
 sudo -u $APP_USER npm ci
 sudo -u $APP_USER npm run build
 
-echo "== Publishing frontend to docroot =="
-sudo -u $APP_USER rsync -a --delete \
-  --exclude=.htaccess --exclude=apibase \
-  $REPO/frontend/dist/ $DOCROOT/
+echo
+echo "== publish (docroot, htaccess, caches) =="
+bash "$APP_DIR/deploy/cpanel/publish.sh"
 
-echo "== Restarting services =="
+echo
+echo "== restarting workers =="
 systemctl restart netvork-queue netvork-reverb
+sleep 2
+systemctl is-active netvork-queue netvork-reverb
 
-echo "== Done. =="
+echo
+echo "== done: now running $AFTER =="
+echo "Hard-refresh the browser (Ctrl+Shift+R) to pick up the new bundle."
