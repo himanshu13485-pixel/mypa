@@ -21,6 +21,35 @@ import type { ChatMessage, ConversationItem } from '../types'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
+/**
+ * Render message text with any http(s) URLs as clickable links (meeting
+ * invites, shared pages, …). Text is still rendered as plain React strings,
+ * so this cannot inject markup.
+ */
+function linkify(text: string, own: boolean) {
+  const parts = text.split(/(https?:\/\/[^\s<>"]+)/g)
+  if (parts.length === 1) return text
+
+  return parts.map((part, i) =>
+    /^https?:\/\//.test(part) ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={clsx(
+          'underline underline-offset-2 break-all',
+          own ? 'text-white hover:opacity-80' : 'text-brand-600 hover:text-brand-700 dark:text-brand-400',
+        )}
+      >
+        {part}
+      </a>
+    ) : (
+      part
+    ),
+  )
+}
+
 function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => void }) {
   const [recording, setRecording] = useState(false)
   const [seconds, setSeconds] = useState(0)
@@ -414,7 +443,7 @@ export default function MessagesPage() {
                         <p className="italic opacity-60">Message deleted</p>
                       ) : (
                         <>
-                          {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
+                          {m.body && <p className="whitespace-pre-wrap break-words">{linkify(m.body, m.is_own)}</p>}
                           {m.attachments.map((a) => (
                             <div key={a.id} className="mt-1">
                               {(m.type === 'voice' || m.type === 'audio') ? (
