@@ -56,6 +56,18 @@ if errorlevel 1 (
   echo MariaDB already running.
 )
 
+rem --- pending migrations ---------------------------------------------------
+rem After a git pull the code may expect columns the local DB doesn't have yet
+rem ("Unknown column" errors). Apply anything pending before starting services.
+echo Checking for pending database migrations...
+"%PHP%" "%ROOT%\backend\artisan" migrate --force
+if errorlevel 1 (
+  echo [WARN] Migrate failed - MariaDB may still be starting. Retrying in 5s...
+  timeout /t 5 /nobreak >nul
+  "%PHP%" "%ROOT%\backend\artisan" migrate --force
+  if errorlevel 1 echo [WARN] Still failing - run "artisan migrate" manually in backend\.
+)
+
 rem --- services ------------------------------------------------------------
 start "MyPA - API :8000"        cmd /k "cd /d "%ROOT%\backend" && "%PHP%" artisan serve --port=8000"
 start "MyPA - Queue worker"     cmd /k "cd /d "%ROOT%\backend" && "%PHP%" artisan queue:work --sleep=3"
