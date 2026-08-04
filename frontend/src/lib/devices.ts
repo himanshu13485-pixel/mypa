@@ -20,6 +20,8 @@ export interface DeviceChoice {
   speakerId?: string
   /** Which way a phone camera points; drives the reverse button. */
   facing?: 'user' | 'environment'
+  /** Flip your own preview like a mirror. Local only — never sent to peers. */
+  mirror?: boolean
 }
 
 const STORE_KEY = 'mypa-meeting-devices'

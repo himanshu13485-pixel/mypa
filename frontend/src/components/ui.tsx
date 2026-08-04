@@ -2,6 +2,19 @@ import { clsx } from 'clsx'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { AlertTriangle, RefreshCw, X } from 'lucide-react'
 
+/**
+ * These controls default to full width, but `w-full` and a caller's `w-32` are
+ * both width utilities — which one wins is decided by the order Tailwind emits
+ * them, not by the order they are written, and `w-full` was winning. Every
+ * `<Select className="w-32">` in the app was silently full width, which is how
+ * the Add-member row ended up with a name field squeezed to nothing beside a
+ * role dropdown spanning the row. So only apply the default when the caller
+ * has not asked for a width of their own.
+ */
+function widthClass(className?: string): string | false {
+  return !/(^|\s)(w-|min-w-|max-w-)\S/.test(className ?? '') && 'w-full'
+}
+
 export function Button({
   variant = 'primary',
   size = 'md',
@@ -36,7 +49,8 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return (
     <input
       className={clsx(
-        'tap w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        'tap rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        widthClass(className),
         'placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20',
         'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
         className,
@@ -50,7 +64,8 @@ export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTex
   return (
     <textarea
       className={clsx(
-        'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        widthClass(className),
         'placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20',
         'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
         className,
@@ -64,7 +79,8 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   return (
     <select
       className={clsx(
-        'tap w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        'tap rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        widthClass(className),
         'focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20',
         'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
         className,

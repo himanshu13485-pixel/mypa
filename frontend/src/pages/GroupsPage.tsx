@@ -256,8 +256,10 @@ export default function GroupsPage() {
               >
                 <h3 className="text-sm font-semibold">Add member</h3>
                 <ErrorNote message={error} />
-                <div className="flex gap-2">
-                  <div className="flex-1">
+                <div className="flex flex-wrap gap-2 sm:flex-nowrap">
+                  {/* min-w-0 so the name field can shrink rather than being
+                      pushed out by the role dropdown on a narrow dialog. */}
+                  <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                     <UserSuggest
                       placeholder="name, username, email or App ID"
                       value={memberAppId}
@@ -265,7 +267,7 @@ export default function GroupsPage() {
                       required
                     />
                   </div>
-                  <Select className="w-32" value={memberRole} onChange={(e) => setMemberRole(e.target.value)}>
+                  <Select className="w-32 shrink-0" value={memberRole} onChange={(e) => setMemberRole(e.target.value)}>
                     {['admin', 'manager', 'member', 'viewer'].map((r) => (
                       <option key={r} value={r}>{r}</option>
                     ))}

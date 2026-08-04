@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Circle, Copy, Expand, Grid3x3, Hand, LayoutGrid, Lock, LockOpen, MessageSquare, Mic, MicOff, MonitorUp,
-  MoreHorizontal, Paperclip, PhoneOff, PictureInPicture2, Rows3, Settings2, SmilePlus, Square, SwitchCamera,
-  User, Users, Video, VideoOff,
+  Circle, Copy, Expand, FlipHorizontal, Grid3x3, Hand, LayoutGrid, Lock, LockOpen, MessageSquare, Mic, MicOff,
+  MonitorUp, MoreHorizontal, Paperclip, PhoneOff, PictureInPicture2, Rows3, Settings2, SmilePlus, Square,
+  SwitchCamera, User, Users, Video, VideoOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
@@ -172,6 +172,16 @@ export default function MeetingRoomPage() {
   const [isFs, setIsFs] = useState(false)
   const [bgLabel, setBgLabel] = useState('none')
   const [blurBusy, setBlurBusy] = useState(false)
+  /**
+   * Your own tile is flipped so it behaves like a mirror, which is what people
+   * expect of their own face — but the flip applies to the whole frame, so any
+   * text in a virtual background comes out backwards. Only you saw it; peers
+   * always received the unflipped track. An image background therefore
+   * suppresses the mirror, and it is a preference besides.
+   */
+  const [mirror, setMirror] = useState(() => loadDeviceChoice().mirror !== false)
+  const [bgHasImage, setBgHasImage] = useState(false)
+  const mirrorSelf = mirror && !bgHasImage
 
   // Room state mirrored from the server (heartbeat + signals).
   const [roster, setRoster] = useState<MeetingParticipant[]>([])
@@ -1042,6 +1052,7 @@ export default function MeetingRoomPage() {
     if (!choice.effect) {
       restore()
       bgChoiceRef.current = null
+      setBgHasImage(false)
       setBgLabel('none')
       return
     }
@@ -1058,6 +1069,8 @@ export default function MeetingRoomPage() {
       })
       if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
       bgChoiceRef.current = choice
+      // Blur has nothing to read, so it can stay mirrored; a picture cannot.
+      setBgHasImage(choice.effect.type === 'image')
       setBgLabel(choice.label)
     } catch (err) {
       toastError('Background effect could not start (it needs internet for the model on first use).')
@@ -1172,7 +1185,17 @@ export default function MeetingRoomPage() {
         stagedLayout && stageUuid !== 'me' ? 'aspect-video w-40 shrink-0 sm:w-48' : 'aspect-video min-h-0',
       )}
     >
-      <video ref={localVideoRef} autoPlay playsInline muted className={sharing ? 'h-full w-full bg-black object-contain' : 'h-full w-full -scale-x-100 object-cover'} />
+      <video
+        ref={localVideoRef}
+        autoPlay
+        playsInline
+        muted
+        className={clsx(
+          'h-full w-full',
+          sharing ? 'bg-black object-contain' : 'object-cover',
+          !sharing && mirrorSelf && '-scale-x-100',
+        )}
+      />
       {cameraOff && !sharing && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
           <span className="flex size-12 items-center justify-center rounded-full bg-brand-700 text-lg font-semibold text-white">
@@ -1289,6 +1312,12 @@ export default function MeetingRoomPage() {
             audioOnly={!isVideo}
             hideSelf={hideSelf}
             onHideSelf={setHideSelf}
+            mirror={mirror}
+            mirrorSuppressed={bgHasImage}
+            onMirror={(v) => {
+              setMirror(v)
+              setDeviceChoice(saveDeviceChoice({ mirror: v }))
+            }}
             onChange={changeDevice}
             onClose={() => setShowSettings(false)}
           />
@@ -1503,7 +1532,10 @@ export default function MeetingRoomPage() {
         <div
           ref={tilesRef}
           className={clsx(
-            'min-h-0 flex-1 bg-slate-950/0',
+            // Tiles are 16:9, so two rows of them can be taller than the space
+            // left over — without a scroll container they spilled out of the
+            // flex child and painted straight over the control bar.
+            'scroll-pane min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-950/0',
             isFs && 'bg-slate-950 p-3',
             stagedLayout
               ? stripSide ? 'flex gap-2' : 'flex flex-col gap-2'
@@ -1724,12 +1756,16 @@ export default function MeetingRoomPage() {
 
 /** Mid-meeting device switcher — the same choices as the lobby, live. */
 function DeviceMenu({
-  choice, audioOnly, hideSelf, onHideSelf, onChange, onClose,
+  choice, audioOnly, hideSelf, onHideSelf, mirror, mirrorSuppressed, onMirror, onChange, onClose,
 }: {
   choice: DeviceChoice
   audioOnly: boolean
   hideSelf: boolean
   onHideSelf: (v: boolean) => void
+  mirror: boolean
+  /** A picture background overrides the preference — text has to read correctly. */
+  mirrorSuppressed: boolean
+  onMirror: (v: boolean) => void
   onChange: (kind: 'camera' | 'mic' | 'speaker', deviceId: string) => void
   onClose: () => void
 }) {
@@ -1778,10 +1814,26 @@ function DeviceMenu({
         </label>
       )}
       {!audioOnly && (
-        <label className="flex items-center gap-2 pt-1">
-          <input type="checkbox" checked={hideSelf} onChange={(e) => onHideSelf(e.target.checked)} />
-          <User className="size-3.5" /> Hide my own tile
-        </label>
+        <>
+          <label className="flex items-center gap-2 pt-1">
+            <input type="checkbox" checked={hideSelf} onChange={(e) => onHideSelf(e.target.checked)} />
+            <User className="size-3.5" /> Hide my own tile
+          </label>
+          <label className={clsx('flex items-center gap-2', mirrorSuppressed && 'opacity-50')}>
+            <input
+              type="checkbox"
+              checked={mirror && !mirrorSuppressed}
+              disabled={mirrorSuppressed}
+              onChange={(e) => onMirror(e.target.checked)}
+            />
+            <FlipHorizontal className="size-3.5" /> Mirror my own view
+          </label>
+          <p className="text-[11px] leading-snug text-slate-400">
+            {mirrorSuppressed
+              ? 'Off while you have a picture background — mirroring would show its text backwards. Only you ever saw the flip; others always see you the right way round.'
+              : 'Affects your tile only. Everyone else always sees you unmirrored.'}
+          </p>
+        </>
       )}
     </div>
   )
