@@ -24,9 +24,27 @@ class AiIntentResolver
         'navigate', 'create_task', 'complete_task', 'query_tasks',
     ];
 
+    /**
+     * Admin → Settings is the source of truth (toggle + key). The .env values
+     * remain as a fallback key/model for installs that predate the UI.
+     */
     public function isEnabled(): bool
     {
-        return (bool) config('mypa.voice.ai_key') && class_exists(Client::class);
+        return \App\Models\AppSetting::get('voice_ai_enabled') === '1'
+            && $this->apiKey() !== ''
+            && class_exists(Client::class);
+    }
+
+    protected function apiKey(): string
+    {
+        return \App\Models\AppSetting::get('voice_ai_key')
+            ?: (string) config('mypa.voice.ai_key');
+    }
+
+    protected function model(): string
+    {
+        return \App\Models\AppSetting::get('voice_ai_model')
+            ?: (string) config('mypa.voice.ai_model', 'claude-opus-5');
     }
 
     /**
@@ -40,10 +58,10 @@ class AiIntentResolver
         }
 
         try {
-            $client = new Client(apiKey: config('mypa.voice.ai_key'));
+            $client = new Client(apiKey: $this->apiKey());
 
             $message = $client->messages->create(
-                model: config('mypa.voice.ai_model', 'claude-opus-5'),
+                model: $this->model(),
                 maxTokens: 1024,
                 system: $this->systemPrompt($language),
                 messages: [['role' => 'user', 'content' => $transcript]],

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity, Ban, BarChart3, CheckCircle2, ClipboardCheck, CreditCard, Flag,
@@ -1169,12 +1169,47 @@ function Stat({ label, value }: { label: string; value: number }) {
 }
 
 function OverviewTab() {
+  const queryClient = useQueryClient()
   const { data: stats } = useQuery({ queryKey: ['admin-stats'], queryFn: admin.stats })
   const { data: settings } = useQuery({
     queryKey: ['admin-settings'],
-    queryFn: () => api.get<{ data: Record<string, string> }>('/admin/settings').then((r) => r.data.data),
+    queryFn: () =>
+      api.get<{ data: Record<string, string | boolean> }>('/admin/settings').then((r) => r.data.data),
   })
   const [days, setDays] = useState<string>('')
+
+  // Voice assistant AI settings (super admin only; the key is write-only —
+  // the server never sends the saved value back).
+  const [aiEnabled, setAiEnabled] = useState(false)
+  const [aiKey, setAiKey] = useState('')
+  const [aiModel, setAiModel] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
+  useEffect(() => {
+    if (settings) {
+      setAiEnabled(settings.voice_ai_enabled === '1')
+      setAiModel(String(settings.voice_ai_model ?? 'claude-opus-5'))
+    }
+  }, [settings])
+  const keySaved = settings?.voice_ai_key_saved === true
+
+  const saveVoiceAi = async (extra: Record<string, unknown> = {}) => {
+    setAiBusy(true)
+    try {
+      await api.put('/admin/settings', {
+        voice_ai_enabled: aiEnabled,
+        voice_ai_model: aiModel.trim() || 'claude-opus-5',
+        ...(aiKey.trim() ? { voice_ai_key: aiKey.trim() } : {}),
+        ...extra,
+      })
+      setAiKey('')
+      queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
+      alert('Saved.')
+    } catch (err) {
+      alert(errorMessage(err))
+    } finally {
+      setAiBusy(false)
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -1199,7 +1234,7 @@ function OverviewTab() {
               type="number"
               min={0}
               className="w-32"
-              value={days || (settings?.username_change_days ?? '')}
+              value={days || String(settings?.username_change_days ?? '')}
               onChange={(e) => setDays(e.target.value)}
             />
           </div>
@@ -1217,6 +1252,68 @@ function OverviewTab() {
         <p className="mt-1 text-[11px] text-slate-400">
           Mobile and email changes can be requested anytime; usernames only after this many days.
           (Super admin only.)
+        </p>
+      </Card>
+
+      <Card>
+        <h2 className="mb-2 text-sm font-semibold">Voice assistant — AI understanding</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          The assistant always understands its built-in commands. With AI enabled, phrasings the
+          rules miss are interpreted by Claude (Anthropic) — every AI-interpreted command still
+          asks the user for confirmation before doing anything.
+        </p>
+        <div className="space-y-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={aiEnabled}
+              onChange={(e) => setAiEnabled(e.target.checked)}
+            />
+            Enable AI understanding
+          </label>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-64 flex-1">
+              <Label>Anthropic API key</Label>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                placeholder={keySaved ? '•••••••• saved — enter a new key to replace' : 'sk-ant-…'}
+                value={aiKey}
+                onChange={(e) => setAiKey(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>Model</Label>
+              <Input className="w-44" value={aiModel} onChange={(e) => setAiModel(e.target.value)} />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button size="sm" onClick={() => saveVoiceAi()} disabled={aiBusy}>
+              Save
+            </Button>
+            {keySaved && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={aiBusy}
+                onClick={() => {
+                  if (confirm('Remove the saved API key and turn AI understanding off?')) {
+                    setAiEnabled(false)
+                    saveVoiceAi({ voice_ai_key: null, voice_ai_enabled: false })
+                  }
+                }}
+              >
+                Clear key
+              </Button>
+            )}
+            <span className="text-[11px] text-slate-400">
+              {keySaved ? 'A key is saved on the server.' : 'No key saved yet — get one at console.anthropic.com.'}
+            </span>
+          </div>
+        </div>
+        <p className="mt-2 text-[11px] text-slate-400">
+          The key is stored server-side and never shown again. Usage is billed by Anthropic
+          (a fraction of a cent per interpreted command). (Super admin only.)
         </p>
       </Card>
     </div>

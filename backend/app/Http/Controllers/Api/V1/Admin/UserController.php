@@ -211,15 +211,23 @@ class UserController extends Controller
         ]);
     }
 
-    /** Admin-editable app settings (username cooldown, OTP expiry). */
+    /** Admin-editable app settings (username cooldown, OTP expiry, voice AI). */
     public function settings(Request $request): JsonResponse
     {
         $keys = array_keys(\App\Models\AppSetting::DEFAULTS);
 
         return response()->json([
-            'data' => collect($keys)->mapWithKeys(
-                fn ($key) => [$key => \App\Models\AppSetting::get($key)]
-            ),
+            'data' => collect($keys)->mapWithKeys(function ($key) {
+                $value = \App\Models\AppSetting::get($key);
+
+                // Secrets never travel back to the browser — the UI only needs
+                // to know whether one is saved.
+                if (in_array($key, \App\Models\AppSetting::SECRET_KEYS, true)) {
+                    return [$key => '', "{$key}_saved" => $value !== ''];
+                }
+
+                return [$key => $value];
+            }),
         ]);
     }
 
@@ -230,12 +238,37 @@ class UserController extends Controller
         $data = $request->validate([
             'username_change_days' => ['sometimes', 'integer', 'min:0', 'max:3650'],
             'otp_expiry_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
+            'voice_ai_enabled' => ['sometimes', 'boolean'],
+            'voice_ai_key' => ['sometimes', 'nullable', 'string', 'max:300'],
+            'voice_ai_model' => ['sometimes', 'string', 'max:100'],
         ]);
+
+        // An empty key field means "keep the saved one" — the UI never sees
+        // the stored value, so it cannot resubmit it. Clearing is explicit
+        // via voice_ai_key = null.
+        if (array_key_exists('voice_ai_key', $data)) {
+            if ($data['voice_ai_key'] === null) {
+                $data['voice_ai_key'] = '';
+            } elseif (trim($data['voice_ai_key']) === '') {
+                unset($data['voice_ai_key']);
+            }
+        }
+        if (array_key_exists('voice_ai_enabled', $data)) {
+            $data['voice_ai_enabled'] = $data['voice_ai_enabled'] ? '1' : '0';
+        }
 
         foreach ($data as $key => $value) {
             \App\Models\AppSetting::set($key, (string) $value);
         }
-        \App\Models\AuditLog::record($request->user(), 'settings.updated', null, $data);
+
+        // The audit log must not record the key itself.
+        $audit = $data;
+        foreach (\App\Models\AppSetting::SECRET_KEYS as $secret) {
+            if (array_key_exists($secret, $audit)) {
+                $audit[$secret] = $audit[$secret] === '' ? '(cleared)' : '(updated)';
+            }
+        }
+        \App\Models\AuditLog::record($request->user(), 'settings.updated', null, $audit);
 
         return response()->json(['message' => 'Settings saved.']);
     }
