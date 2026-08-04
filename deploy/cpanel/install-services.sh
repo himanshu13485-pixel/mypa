@@ -34,6 +34,12 @@ WantedBy=multi-user.target
 EOF
 
 echo "== systemd: reverb websocket server =="
+# No --host/--port here on purpose. Reverb reads REVERB_SERVER_HOST/PORT and
+# the TLS cert paths from backend/.env, and it serves wss:// directly on 8443.
+# Passing those flags overrides the .env and drops Reverb onto plain 8080,
+# which is what took production down on 2026-08-04: browsers could not reach
+# it, and PHP's own publish to https://127.0.0.1:8443 was refused, so every
+# meeting join, call and chat broadcast answered 500.
 cat > /etc/systemd/system/netvork-reverb.service <<EOF
 [Unit]
 Description=Netvork Reverb websocket server
@@ -45,7 +51,7 @@ Group=$APP_USER
 Restart=always
 RestartSec=3
 WorkingDirectory=$APP_DIR/backend
-ExecStart=$PHP artisan reverb:start --host=127.0.0.1 --port=8080
+ExecStart=$PHP artisan reverb:start
 StandardOutput=append:$LOGDIR/netvork-reverb.log
 StandardError=append:$LOGDIR/netvork-reverb.log
 
@@ -73,41 +79,24 @@ CRONLINE="17 3 * * 1 bash $APP_DIR/deploy/cpanel/refresh-ssl.sh >> $LOGDIR/netvo
 ( crontab -l 2>/dev/null | grep -v 'refresh-ssl.sh'; echo "$CRONLINE" ) | crontab -
 echo "   weekly root cron installed"
 
-echo "== apache: websocket proxy for wss://$DOMAIN/app =="
-# An addon domain's vhost is named after its subdomain form
-# (netvork.app.grapme.com), so write the include for every vhost of this
-# account whose name mentions the domain - including the plain one.
-VHOSTS=$(ls /var/cpanel/userdata/$APP_USER 2>/dev/null \
-         | grep -F "$DOMAIN" | sed 's/_SSL$//' | sort -u)
-[ -n "$VHOSTS" ] || VHOSTS=$DOMAIN
-echo "   vhosts: $(echo $VHOSTS | tr '\n' ' ')"
-
-for VHOST in $VHOSTS; do
-  for MODE in std ssl; do
-    DIR=/etc/apache2/conf.d/userdata/$MODE/2_4/$APP_USER/$VHOST
-    mkdir -p "$DIR"
-    cat > "$DIR/websocket.conf" <<EOF
-# Netvork: tunnel the Reverb websocket (managed by install-services.sh)
-ProxyPreserveHost On
-RewriteEngine On
-RewriteCond %{HTTP:Upgrade} =websocket [NC]
-RewriteRule ^/?app/(.*) ws://127.0.0.1:8080/app/\$1 [P,L]
-ProxyPass        /app ws://127.0.0.1:8080/app
-ProxyPassReverse /app ws://127.0.0.1:8080/app
-EOF
-  done
-done
-
-/scripts/ensure_vhost_includes --user=$APP_USER || true
-/scripts/rebuildhttpdconf
-systemctl restart httpd || /scripts/restartsrv_httpd
-
-echo "== proxy present in compiled config? =="
-grep -c '127.0.0.1:8080' /etc/apache2/conf/httpd.conf || echo "!! NOT PRESENT"
+# NOTE: no Apache websocket proxy is installed.
+#
+# Reverb terminates TLS itself and browsers connect straight to
+# wss://$DOMAIN:8443 — the frontend build has that port baked in, and
+# refresh-ssl.sh keeps the certificate in step with AutoSSL. An earlier design
+# ran Reverb plain on 8080 behind a `/app` proxy; deploy/cpanel/websocket-proxy.conf
+# is the leftover from it and is NOT in use. Installing both at once is what
+# broke production on 2026-08-04.
 
 echo
 echo "== status =="
 systemctl --no-pager --lines=3 status netvork-queue  | head -6
 systemctl --no-pager --lines=3 status netvork-reverb | head -6
-ss -ltnp | grep 8080 || echo "!! reverb not listening on 8080 - check $LOGDIR/netvork-reverb.log"
+if ss -ltnp | grep -q ':8443'; then
+  echo "   reverb listening on 8443 (wss direct)"
+else
+  echo "!! reverb NOT listening on 8443 — check $LOGDIR/netvork-reverb.log"
+  echo "   usual causes: $APP_USER cannot read REVERB_TLS_CERT/REVERB_TLS_KEY,"
+  echo "   or REVERB_SERVER_PORT in backend/.env is not 8443."
+fi
 echo "== done =="

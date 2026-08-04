@@ -117,7 +117,7 @@ class MeetingController extends Controller
                         'display_name' => $data['display_name'] ?? null,
                     ],
                 ]);
-                broadcast(new MeetingSignal(
+                \App\Support\Realtime::send(new MeetingSignal(
                     $meeting,
                     $me->uuid,
                     $data['display_name'] ?? $me->name,
@@ -157,7 +157,7 @@ class MeetingController extends Controller
         // Tell everyone already inside that a participant arrived (for the roster).
         $myName = $data['display_name'] ?? $me->name;
         foreach ($joined as $peer) {
-            broadcast(new MeetingSignal($meeting, $me->uuid, $myName, $peer->uuid, 'join'));
+            \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $myName, $peer->uuid, 'join'));
         }
 
         $meeting = $meeting->fresh()->load('host:id,uuid,name');
@@ -220,7 +220,7 @@ class MeetingController extends Controller
 
         $remaining = $meeting->inRoom($me->id);
         foreach ($remaining as $peer) {
-            broadcast(new MeetingSignal($meeting, $me->uuid, $me->name, $peer->uuid, 'leave'));
+            \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $me->name, $peer->uuid, 'leave'));
         }
 
         // Room empties out -> meeting ends by itself.
@@ -263,7 +263,7 @@ class MeetingController extends Controller
 
         $joined = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
         foreach ($joined as $peer) {
-            broadcast(new MeetingSignal($meeting, $me->uuid, $me->name, $peer->uuid, 'end'));
+            \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $me->name, $peer->uuid, 'end'));
         }
         $meeting->participants()->newPivotStatement()
             ->where('meeting_id', $meeting->id)->where('status', 'joined')
@@ -287,7 +287,7 @@ class MeetingController extends Controller
             $target->id => ['status' => $data['allow'] ? 'admitted' : 'denied'],
         ]);
 
-        broadcast(new MeetingSignal(
+        \App\Support\Realtime::send(new MeetingSignal(
             $meeting,
             $request->user()->uuid,
             $request->user()->name,
@@ -370,23 +370,23 @@ class MeetingController extends Controller
         switch ($action) {
             case 'mute':
                 $meeting->participants()->updateExistingPivot($target->id, ['mic_on' => false]);
-                broadcast(new MeetingSignal($meeting, $me->uuid, $myName, $target->uuid, 'host-mute', []));
+                \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $myName, $target->uuid, 'host-mute', []));
                 $message = "{$targetName} muted.";
                 break;
 
             case 'ask_unmute':
-                broadcast(new MeetingSignal($meeting, $me->uuid, $myName, $target->uuid, 'host-ask-unmute', []));
+                \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $myName, $target->uuid, 'host-ask-unmute', []));
                 $message = "Asked {$targetName} to unmute.";
                 break;
 
             case 'stop_video':
                 $meeting->participants()->updateExistingPivot($target->id, ['cam_on' => false]);
-                broadcast(new MeetingSignal($meeting, $me->uuid, $myName, $target->uuid, 'host-stop-video', []));
+                \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $myName, $target->uuid, 'host-stop-video', []));
                 $message = "{$targetName}'s camera stopped.";
                 break;
 
             case 'remove':
-                broadcast(new MeetingSignal($meeting, $me->uuid, $myName, $target->uuid, 'removed', []));
+                \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $myName, $target->uuid, 'removed', []));
                 $meeting->participants()->updateExistingPivot($target->id, [
                     'status' => 'removed', 'left_at' => now(),
                 ]);
@@ -395,7 +395,7 @@ class MeetingController extends Controller
                     if ($peer->id === $target->id) {
                         continue;
                     }
-                    broadcast(new MeetingSignal($meeting, $target->uuid, $targetName, $peer->uuid, 'leave', []));
+                    \App\Support\Realtime::send(new MeetingSignal($meeting, $target->uuid, $targetName, $peer->uuid, 'leave', []));
                 }
                 $message = "{$targetName} was removed.";
                 break;
@@ -451,11 +451,11 @@ class MeetingController extends Controller
         if (! empty($data['to_uuid'])) {
             $target = $meeting->participants()->where('users.uuid', $data['to_uuid'])->wherePivot('status', 'joined')->first();
             abort_unless($target && $target->id !== $me->id, 422, 'That participant is not in the meeting.');
-            broadcast(new MeetingSignal($meeting, $me->uuid, $fromName, $target->uuid, 'chat', $payload));
+            \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $fromName, $target->uuid, 'chat', $payload));
         } else {
             $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
             foreach ($others as $peer) {
-                broadcast(new MeetingSignal($meeting, $me->uuid, $fromName, $peer->uuid, 'chat', $payload));
+                \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $fromName, $peer->uuid, 'chat', $payload));
             }
         }
 
@@ -514,11 +514,11 @@ class MeetingController extends Controller
         if (! empty($data['to_uuid'])) {
             $target = $meeting->participants()->where('users.uuid', $data['to_uuid'])->wherePivot('status', 'joined')->first();
             abort_unless($target && $target->id !== $me->id, 422, 'That participant is not in the meeting.');
-            broadcast(new MeetingSignal($meeting, $me->uuid, $fromName, $target->uuid, 'chat', $payload));
+            \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $fromName, $target->uuid, 'chat', $payload));
         } else {
             $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
             foreach ($others as $peer) {
-                broadcast(new MeetingSignal($meeting, $me->uuid, $fromName, $peer->uuid, 'chat', $payload));
+                \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $fromName, $peer->uuid, 'chat', $payload));
             }
         }
 
@@ -558,7 +558,7 @@ class MeetingController extends Controller
 
         $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
         foreach ($others as $peer) {
-            broadcast(new MeetingSignal(
+            \App\Support\Realtime::send(new MeetingSignal(
                 $meeting,
                 $me->uuid,
                 $myPivot->display_name ?? $me->name,
@@ -589,7 +589,7 @@ class MeetingController extends Controller
 
         $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
         foreach ($others as $peer) {
-            broadcast(new MeetingSignal($meeting, $me->uuid, $name, $peer->uuid, 'rename', ['name' => $name]));
+            \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $name, $peer->uuid, 'rename', ['name' => $name]));
         }
 
         return response()->json(['message' => "You will appear as {$name} in this meeting."]);
@@ -628,7 +628,7 @@ class MeetingController extends Controller
         }
 
         $myPivot = $meeting->participants()->where('users.id', $me->id)->first()?->pivot;
-        broadcast(new MeetingSignal($meeting, $me->uuid, $myPivot?->display_name ?? $me->name, $target->uuid, $data['signal'], $data['payload'] ?? []));
+        \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $myPivot?->display_name ?? $me->name, $target->uuid, $data['signal'], $data['payload'] ?? []));
 
         return response()->json(['message' => 'ok']);
     }
@@ -652,7 +652,7 @@ class MeetingController extends Controller
     protected function tellRoom(Meeting $meeting, \App\Models\User $from, string $fromName, string $signal, array $payload = []): void
     {
         foreach ($meeting->inRoom($from->id) as $peer) {
-            broadcast(new MeetingSignal($meeting, $from->uuid, $fromName, $peer->uuid, $signal, $payload));
+            \App\Support\Realtime::send(new MeetingSignal($meeting, $from->uuid, $fromName, $peer->uuid, $signal, $payload));
         }
     }
 

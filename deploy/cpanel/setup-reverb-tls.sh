@@ -85,7 +85,17 @@ else
 fi
 
 echo "== restarting reverb on $WSS_PORT (TLS) =="
-sed -i "s|--host=127.0.0.1 --port=8080|--host=0.0.0.0 --port=$WSS_PORT|" /etc/systemd/system/netvork-reverb.service
+# The unit deliberately carries no --host/--port: Reverb reads
+# REVERB_SERVER_HOST/PORT from the .env written above, so this script no longer
+# has to patch systemd. It used to sed the flags in, which meant re-running
+# install-services.sh silently reverted Reverb to plain 8080 while the .env,
+# the frontend build and the firewall all still expected $WSS_PORT — exactly
+# how production broke on 2026-08-04. Strip any leftover flags from an older
+# install so the unit follows the .env from here on.
+if grep -q -- '--port=' /etc/systemd/system/netvork-reverb.service 2>/dev/null; then
+  echo "   removing stale --host/--port flags from the unit"
+  sed -i -E 's| --host=[^ ]+||; s| --port=[0-9]+||' /etc/systemd/system/netvork-reverb.service
+fi
 systemctl daemon-reload
 cd "$APP_DIR/backend"
 sudo -u $APP_USER $PHP artisan config:cache

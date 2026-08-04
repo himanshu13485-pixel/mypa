@@ -256,6 +256,56 @@ class MeetingTest extends TestCase
         $this->assertCount(0, $this->actingAs($this->bob)->getJson('/api/v1/meetings')->json('data'));
     }
 
+    /**
+     * A websocket server that is down must not take the API down with it.
+     *
+     * MeetingSignal broadcasts inside the request, so when Reverb was
+     * unreachable the exception escaped and every join answered 500 — the
+     * participant row had already been written, only the notification failed.
+     */
+    public function test_a_dead_broadcaster_does_not_break_the_room(): void
+    {
+        $meeting = $this->openMeeting();
+        $this->join($meeting, $this->host);
+
+        // A broadcaster that fails the way an unreachable Reverb does: the
+        // Pusher client raises BroadcastException from inside the send.
+        \Illuminate\Support\Facades\Broadcast::extend('refusing', fn () => new class implements \Illuminate\Contracts\Broadcasting\Broadcaster
+        {
+            public function auth($request)
+            {
+                return true;
+            }
+
+            public function validAuthenticationResponse($request, $result)
+            {
+                return $result;
+            }
+
+            public function broadcast(array $channels, $event, array $payload = [])
+            {
+                throw new \Illuminate\Broadcasting\BroadcastException(
+                    'cURL error 7: Failed to connect to 127.0.0.1 port 8443: Connection refused'
+                );
+            }
+        });
+        config([
+            'broadcasting.default' => 'refusing',
+            'broadcasting.connections.refusing' => ['driver' => 'refusing'],
+        ]);
+
+        // Joining still works, and the roster is still correct.
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting}/join")->assertOk();
+        $roster = $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting}/heartbeat")->assertOk();
+        $this->assertCount(2, $roster->json('data.participants'));
+
+        // So do the other things that talk to the room.
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting}/react", ['emoji' => 'clap'])->assertOk();
+        $this->hostAction($meeting, $this->host, 'mute', $this->alice->uuid)->assertOk();
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting}/chat", ['message' => 'still here'])->assertOk();
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting}/leave")->assertOk();
+    }
+
     // --- Presence -----------------------------------------------------------
 
     public function test_heartbeat_returns_the_live_roster(): void

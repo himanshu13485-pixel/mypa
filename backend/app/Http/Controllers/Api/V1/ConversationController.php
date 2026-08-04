@@ -112,7 +112,7 @@ class ConversationController extends Controller
             return response()->json(['message' => 'ok']);
         }
 
-        broadcast(new \App\Events\UserTyping($conversation, $me))->toOthers();
+        \App\Support\Realtime::toOthers(new \App\Events\UserTyping($conversation, $me));
 
         return response()->json(['message' => 'ok']);
     }

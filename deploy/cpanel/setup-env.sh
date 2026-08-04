@@ -84,6 +84,10 @@ BROADCAST_CONNECTION=reverb
 REVERB_APP_ID=$REVERB_ID
 REVERB_APP_KEY=$REVERB_KEY
 REVERB_APP_SECRET=$REVERB_SECRET
+# Plain local defaults, correct only until the certificate exists.
+# setup-reverb-tls.sh rewrites all of these to TLS on 8443 and writes the
+# matching frontend/.env.production — run it before going live, or browsers
+# will have nothing to connect to.
 REVERB_HOST=127.0.0.1
 REVERB_PORT=8080
 REVERB_SCHEME=http

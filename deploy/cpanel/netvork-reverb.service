@@ -1,17 +1,25 @@
 # /etc/systemd/system/netvork-reverb.service
+#
+# Reference copy — install-services.sh writes the live file. Keep the two in
+# step if you edit either.
+#
+# Deliberately NO --host/--port flags: Reverb reads REVERB_SERVER_HOST,
+# REVERB_SERVER_PORT and the TLS cert paths from backend/.env and serves
+# wss:// directly on 8443. Passing those flags overrides the .env and drops
+# Reverb onto plain 8080, which took production down on 2026-08-04.
 [Unit]
-Description=Netvork Reverb WebSocket server
+Description=Netvork Reverb websocket server
 After=network.target
 
 [Service]
-User=netvork
-Group=netvork
+User=grapme
+Group=grapme
 Restart=always
 RestartSec=3
-WorkingDirectory=/home/netvork/mypa/backend
-ExecStart=/opt/cpanel/ea-php83/root/usr/bin/php artisan reverb:start --host=127.0.0.1 --port=8080
-StandardOutput=append:/home/netvork/logs/reverb.log
-StandardError=append:/home/netvork/logs/reverb.log
+WorkingDirectory=/home/grapme/netvork/backend
+ExecStart=/opt/cpanel/ea-php84/root/usr/bin/php artisan reverb:start
+StandardOutput=append:/home/grapme/logs/netvork-reverb.log
+StandardError=append:/home/grapme/logs/netvork-reverb.log
 
 [Install]
 WantedBy=multi-user.target

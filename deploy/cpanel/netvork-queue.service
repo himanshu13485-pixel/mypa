@@ -1,17 +1,24 @@
 # /etc/systemd/system/netvork-queue.service
+#
+# Reference copy — install-services.sh writes the live file. Keep the two in
+# step if you edit either.
+#
+# This worker is not optional: chat messages, read receipts, notifications and
+# push all broadcast through the queue, so if it stops they silently stop
+# arriving while calls and meetings (which broadcast synchronously) carry on.
 [Unit]
 Description=Netvork queue worker (reminders, emails, push)
 After=network.target mysql.service
 
 [Service]
-User=netvork
-Group=netvork
+User=grapme
+Group=grapme
 Restart=always
 RestartSec=3
-WorkingDirectory=/home/netvork/mypa/backend
-ExecStart=/opt/cpanel/ea-php83/root/usr/bin/php artisan queue:work database --sleep=1 --tries=3 --timeout=300
-StandardOutput=append:/home/netvork/logs/queue.log
-StandardError=append:/home/netvork/logs/queue.log
+WorkingDirectory=/home/grapme/netvork/backend
+ExecStart=/opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work database --sleep=1 --tries=3 --timeout=300
+StandardOutput=append:/home/grapme/logs/netvork-queue.log
+StandardError=append:/home/grapme/logs/netvork-queue.log
 
 [Install]
 WantedBy=multi-user.target

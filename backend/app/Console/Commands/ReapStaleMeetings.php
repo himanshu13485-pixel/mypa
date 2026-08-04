@@ -72,7 +72,7 @@ class ReapStaleMeetings extends Command
         $remaining = $meeting->participants()->wherePivot('status', 'joined')->get();
         foreach ($stale as $ghost) {
             foreach ($remaining as $peer) {
-                broadcast(new MeetingSignal(
+                \App\Support\Realtime::send(new MeetingSignal(
                     $meeting,
                     $ghost->uuid,
                     $ghost->pivot->display_name ?? $ghost->name,

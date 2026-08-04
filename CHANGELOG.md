@@ -4,6 +4,27 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Fixed — 2026-08-04 (A websocket outage no longer takes the API with it)
+- Call and meeting signals broadcast synchronously, so an unreachable Reverb
+  threw mid-request and answered 500. Joining a meeting failed outright even
+  though the participant row had been written — only the notification had.
+  `App\Support\Realtime` now logs and swallows broadcast transport failures, so
+  a realtime outage costs liveness rather than the whole feature. Programming
+  errors still surface; only `BroadcastException` is caught.
+- **Deploy scripts corrected.** `install-services.sh` wrote
+  `--host=127.0.0.1 --port=8080` into the Reverb unit, which overrides
+  `REVERB_SERVER_*` in the .env. `setup-reverb-tls.sh` then patched those flags
+  to 8443 — so re-running the installer alone reverted Reverb to plain 8080
+  while the .env, the frontend build and the firewall all still expected 8443,
+  and every meeting join, call and chat broadcast 500'd. The unit now carries
+  no flags and simply follows the .env, which makes both scripts idempotent.
+- `deploy.sh`, `netvork-reverb.service` and `netvork-queue.service` had the
+  wrong user, path and PHP version (`ea-php83` cannot satisfy composer.lock's
+  `>= 8.4.1`). `deploy.sh` also now verifies paths and PHP up front instead of
+  dying part-way and leaving the database behind the code.
+- `websocket-proxy.conf` is marked as the unused alternative design it is, and
+  README-DEPLOY.md documents the actual architecture.
+
 ### Added — 2026-08-04 (Chat presence, and failures that explain themselves)
 - Read receipts actually move. `last_read_at` was recorded and never sent
   anywhere, and the tick was hardcoded to a double check — so every message
