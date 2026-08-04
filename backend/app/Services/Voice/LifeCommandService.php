@@ -2,6 +2,7 @@
 
 namespace App\Services\Voice;
 
+use App\Models\Bill;
 use App\Models\Habit;
 use App\Models\User;
 
@@ -22,9 +23,71 @@ class LifeCommandService
     public function match(User $user, string $text, string $language, string $timezone): ?array
     {
         return $this->matchLogHabit($user, $text, $language)
+            ?? $this->matchPayBill($user, $text, $language)
             ?? $this->matchCreateHabit($text, $language)
             ?? $this->matchCreateGoal($text, $language, $timezone)
             ?? $this->matchCreateBill($text, $language, $timezone);
+    }
+
+    // --- Pay a bill ----------------------------------------------------------
+
+    protected function matchPayBill(User $user, string $text, string $language): ?array
+    {
+        // "remind me to pay the electricity bill tomorrow" is a reminder, not
+        // a payment record — leave anything phrased as a request to the task
+        // interpreter, along with task-completion phrasings that mention a bill.
+        if (preg_match('/^\s*(remind|create|add|schedule|set|मुझे|याद)/u', $text)) {
+            return null;
+        }
+        if (preg_match('/(task|टास्क)/u', $text) && preg_match('/(done|complete|completed|finish|finished|पूरा|पूर्ण)/u', $text)) {
+            return null;
+        }
+
+        $patterns = [
+            // "mark the electricity bill as paid", "electricity bill paid"
+            '/(?:mark\s+)?(?:the\s+|my\s+)?(.+?)\s+bill\s+(?:as\s+)?paid/u',
+            // "I paid the electricity bill", "pay electricity bill"
+            '/(?:i\s+)?(?:paid|pay)\s+(?:the\s+|my\s+)?(.+?)\s+bill\b/u',
+            // "बिजली का बिल भर दिया / चुका दिया / पेड कर दो"
+            '/(.+?)\s*(?:का|की)?\s*बिल\s*(?:भर\s*दिया|चुका\s*दिया|पे\s*कर\s*(?:दो|दिया)|पेड\s*(?:मार्क\s*)?कर(?:ो|\s*दो))/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (! preg_match($pattern, $text, $m)) {
+                continue;
+            }
+
+            $spoken = $this->tidy($m[1]);
+            if ($spoken === '') {
+                return null;
+            }
+
+            $bill = Bill::where('user_id', $user->id)
+                ->where('status', '!=', 'paid')
+                ->orderBy('due_on')
+                ->get()
+                ->first(fn (Bill $b) => str_contains(mb_strtolower($b->name), $spoken)
+                    || str_contains($spoken, mb_strtolower($b->name)));
+
+            return [
+                'intent' => 'pay_bill',
+                'language' => $language,
+                'data' => [
+                    'heard_name' => $spoken,
+                    'bill' => $bill ? [
+                        'uuid' => $bill->uuid,
+                        'name' => $bill->name,
+                        'amount' => $bill->amount !== null ? (float) $bill->amount : null,
+                        'due_on' => $bill->due_on?->toDateString(),
+                    ] : null,
+                ],
+                'speech' => $bill
+                    ? ($language === 'hi' ? "\"{$bill->name}\" बिल पेड मार्क करें?" : "Mark the \"{$bill->name}\" bill as paid?")
+                    : ($language === 'hi' ? "\"{$spoken}\" नाम का कोई बकाया बिल नहीं मिला।" : "I couldn't find an unpaid bill called \"{$spoken}\"."),
+            ];
+        }
+
+        return null;
     }
 
     // --- Habits --------------------------------------------------------------

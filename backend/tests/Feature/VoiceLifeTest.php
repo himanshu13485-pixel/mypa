@@ -93,6 +93,32 @@ class VoiceLifeTest extends TestCase
         $this->assertEquals(now('UTC')->addDay()->toDateString(), $result['data']['bill']['due_on']);
     }
 
+    public function test_pay_bill_resolves_unpaid_bill(): void
+    {
+        $bill = \App\Models\Bill::create([
+            'user_id' => $this->user->id,
+            'name' => 'Electricity',
+            'amount' => 2000,
+            'due_on' => now()->addDay()->toDateString(),
+            'status' => 'unpaid',
+        ]);
+
+        $result = $this->interpret('Mark the electricity bill as paid');
+
+        $this->assertEquals('pay_bill', $result['intent']);
+        $this->assertEquals($bill->uuid, $result['data']['bill']['uuid']);
+        $this->assertEquals(2000.0, $result['data']['bill']['amount']);
+    }
+
+    public function test_pay_unknown_bill_reports_not_found(): void
+    {
+        $result = $this->interpret('I paid the water bill');
+
+        $this->assertEquals('pay_bill', $result['intent']);
+        $this->assertNull($result['data']['bill']);
+        $this->assertEquals('water', $result['data']['heard_name']);
+    }
+
     public function test_hindi_habit_command(): void
     {
         $result = $this->interpret('रोज़ पानी पीने की आदत बनाओ', 'hi');

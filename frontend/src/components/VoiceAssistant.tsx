@@ -47,7 +47,7 @@ interface Interpretation {
   intent:
     | 'create_task' | 'complete_task' | 'query_tasks' | 'unknown'
     | 'call_person' | 'message_person' | 'start_meeting' | 'share_screen' | 'navigate'
-    | 'create_habit' | 'log_habit' | 'create_goal' | 'create_bill'
+    | 'create_habit' | 'log_habit' | 'create_goal' | 'create_bill' | 'pay_bill'
   language: string
   transcript: string
   speech: string
@@ -62,7 +62,7 @@ interface Interpretation {
     // Life intents
     habit?: { uuid?: string; name: string; frequency?: string; reminder_time?: string } | null
     goal?: { title: string; target_date?: string }
-    bill?: { name: string; amount?: number; due_on: string; repeat_frequency?: string; remind_days_before?: number }
+    bill?: { uuid?: string; name: string; amount?: number | null; due_on: string; repeat_frequency?: string; remind_days_before?: number }
     heard_name?: string
     // Task intents
     task?: {
@@ -260,7 +260,7 @@ export default function VoiceAssistant() {
   // --- Life intents (habits, goals, bills) -----------------------------------
 
   /** Create the reviewed habit/goal/bill, invalidate its list, close. */
-  const executeLife = async (kind: 'create_habit' | 'create_goal' | 'create_bill' | 'log_habit') => {
+  const executeLife = async (kind: 'create_habit' | 'create_goal' | 'create_bill' | 'log_habit' | 'pay_bill') => {
     setBusy(true)
     try {
       if (kind === 'create_habit' && result?.data.habit) {
@@ -279,6 +279,10 @@ export default function VoiceAssistant() {
         await billsApi.create(result.data.bill as Record<string, unknown>)
         queryClient.invalidateQueries({ queryKey: ['bills'] })
         speak(language === 'hi' ? 'बिल जुड़ गया।' : 'Bill added.', language)
+      } else if (kind === 'pay_bill' && result?.data.bill?.uuid) {
+        await billsApi.pay(result.data.bill.uuid)
+        queryClient.invalidateQueries({ queryKey: ['bills'] })
+        speak(language === 'hi' ? 'बिल पेड मार्क कर दिया।' : 'Bill marked as paid.', language)
       }
       close()
     } catch (err) {
@@ -890,6 +894,43 @@ export default function VoiceAssistant() {
                     </Button>
                   </div>
                 </>
+              )}
+
+              {result.intent === 'pay_bill' && (
+                result.data.bill ? (
+                  <>
+                    <p className="text-sm">
+                      {language === 'hi' ? 'पेड मार्क करें: ' : 'Mark as paid: '}
+                      <span className="font-semibold">{result.data.bill.name}</span>
+                      {result.data.bill.amount != null && (
+                        <span className="text-slate-500"> · {result.data.bill.amount}</span>
+                      )}
+                      {result.data.bill.due_on && (
+                        <span className="text-slate-500"> · due {result.data.bill.due_on}</span>
+                      )}
+                      ?
+                    </p>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => setResult(null)}>
+                        {language === 'hi' ? 'नहीं' : 'No'}
+                      </Button>
+                      <Button size="sm" disabled={busy} onClick={() => executeLife('pay_bill')}>
+                        <Check className="size-3.5" /> {language === 'hi' ? 'हाँ, पेड' : 'Yes, paid'}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-slate-500">
+                      {language === 'hi'
+                        ? `"${result.data.heard_name}" नाम का कोई बकाया बिल नहीं मिला।`
+                        : `No unpaid bill matching "${result.data.heard_name}" was found.`}
+                    </p>
+                    <div className="flex justify-end">
+                      <Button variant="secondary" size="sm" onClick={() => setResult(null)}>Try again</Button>
+                    </div>
+                  </>
+                )
               )}
 
               {(result.intent === 'unknown' || result.intent === 'navigate') && (
