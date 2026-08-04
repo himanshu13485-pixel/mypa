@@ -135,6 +135,8 @@ export default function MessagesPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const lastConvRef = useRef<string | null>(null)
+  /** True once the opened conversation has been pinned to its newest message. */
+  const pinnedRef = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const { data: conversations, isLoading } = useQuery({
@@ -236,13 +238,21 @@ export default function MessagesPage() {
   useEffect(() => {
     const el = listRef.current
     if (!el) return
-    const conversationChanged = lastConvRef.current !== selected?.uuid
-    lastConvRef.current = selected?.uuid ?? null
+    if (lastConvRef.current !== selected?.uuid) {
+      lastConvRef.current = selected?.uuid ?? null
+      pinnedRef.current = false
+    }
+
+    // The initial pin must wait until the conversation's messages have
+    // actually rendered — they usually arrive a beat after the conversation
+    // opens, and scrolling an empty list pins nothing.
+    const needInitialPin = !pinnedRef.current && (messages?.length ?? 0) > 0
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
-    if (!conversationChanged && !nearBottom) return
+    if (!needInitialPin && !nearBottom) return
+    if (needInitialPin) pinnedRef.current = true
 
     const toBottom = (smooth: boolean) => el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
-    toBottom(!conversationChanged)
+    toBottom(!needInitialPin)
     // Attachments, call chips and fonts finish laying out after first paint
     // and grow the list — follow up until the height settles, or opening a
     // chat lands somewhere in the middle instead of on the latest message.
