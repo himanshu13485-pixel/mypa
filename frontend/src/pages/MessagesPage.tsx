@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Check, CheckCheck, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Send, Smile,
+  Check, CheckCheck, ChevronLeft, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Send, Smile,
   Square, Trash2, Video, X,
 } from 'lucide-react'
 import { conversationMembers, reportsApi } from '../api/endpoints'
@@ -15,6 +15,7 @@ import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { useCalls } from '../components/CallManager'
+import { useToast } from '../components/Toast'
 import { Button, EmptyState, Input, Modal, Spinner } from '../components/ui'
 import type { ChatMessage, ConversationItem } from '../types'
 
@@ -92,6 +93,7 @@ function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => vo
 export default function MessagesPage() {
   const queryClient = useQueryClient()
   const { startCall } = useCalls()
+  const { toastError } = useToast()
   const [showMembers, setShowMembers] = useState(false)
   const [params, setParams] = useSearchParams()
   const [selected, setSelected] = useState<ConversationItem | null>(null)
@@ -99,6 +101,8 @@ export default function MessagesPage() {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [reactFor, setReactFor] = useState<string | null>(null)
+  const [typing, setTyping] = useState<{ uuid: string; name: string }[]>([])
+  const typingSentRef = useRef(0)
   const bottomRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const lastConvRef = useRef<string | null>(null)
@@ -129,7 +133,7 @@ export default function MessagesPage() {
       setReplyTo(null)
       invalidateMessages()
     },
-    onError: (err) => alert(errorMessage(err)),
+    onError: (err) => toastError(errorMessage(err)),
   })
 
   // Deep link: ?start=<app_id> (from connections page) or ?group=<uuid>
@@ -140,7 +144,7 @@ export default function MessagesPage() {
       chat.start(startWith).then((c) => {
         setSelected(c)
         queryClient.invalidateQueries({ queryKey: ['conversations'] })
-      }).catch((err) => alert(errorMessage(err)))
+      }).catch((err) => toastError(errorMessage(err)))
     } else if (groupUuid) {
       chat.groupConversation(groupUuid).then((c) => {
         setSelected(c)
@@ -166,7 +170,23 @@ export default function MessagesPage() {
     })
     channel.listen('.message.updated', invalidateMessages)
 
+    // "X is typing…" — each signal keeps the name alive for a few seconds and
+    // then lets it lapse, so a sender who closes the tab mid-word does not
+    // leave the indicator stuck on forever.
+    const timers = new Map<string, ReturnType<typeof setTimeout>>()
+    channel.listen('.user.typing', (e: { user_uuid: string; name: string }) => {
+      setTyping((t) => (t.some((x) => x.uuid === e.user_uuid) ? t : [...t, { uuid: e.user_uuid, name: e.name }]))
+      clearTimeout(timers.get(e.user_uuid))
+      timers.set(e.user_uuid, setTimeout(() => {
+        setTyping((t) => t.filter((x) => x.uuid !== e.user_uuid))
+        timers.delete(e.user_uuid)
+      }, 4000))
+    })
+
     return () => {
+      timers.forEach(clearTimeout)
+      timers.clear()
+      setTyping([])
       echo.leave(`conversation.${selected.uuid}`)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -226,7 +246,7 @@ export default function MessagesPage() {
     chat.start(identifier).then((c) => {
       setSelected(c)
       queryClient.invalidateQueries({ queryKey: ['conversations'] })
-    }).catch((err) => alert(errorMessage(err)))
+    }).catch((err) => toastError(errorMessage(err)))
   }
 
   const timeLabel = (iso: string) => {
@@ -235,10 +255,13 @@ export default function MessagesPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-4">
+    // h-full, not a 100vh calculation: the shell already gives <main> a
+    // definite height, and a vh sum is wrong on any phone whose URL bar
+    // shows and hides.
+    <div className="flex h-full min-h-0 gap-4">
       {/* Conversation list */}
-      <div className={clsx('w-full shrink-0 md:w-72', selected && 'hidden md:block')}>
-        <div className="mb-3 flex items-center justify-between">
+      <div className={clsx('flex w-full min-h-0 shrink-0 flex-col md:w-72', selected && 'hidden md:flex')}>
+        <div className="mb-3 flex shrink-0 items-center justify-between">
           <h1 className="text-lg font-semibold">Messages</h1>
           <Button size="sm" onClick={startNewChat}>
             <Plus className="size-3.5" /> New
@@ -249,7 +272,7 @@ export default function MessagesPage() {
         ) : !conversations?.data.length ? (
           <EmptyState title="No conversations" hint="Start a chat with a connection's App ID." />
         ) : (
-          <div className="space-y-1 overflow-y-auto">
+          <div className="scroll-pane min-h-0 flex-1 space-y-1 overflow-y-auto">
             {conversations.data.map((c) => (
               <button
                 key={c.uuid}
@@ -291,11 +314,15 @@ export default function MessagesPage() {
           <>
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <button className="md:hidden" onClick={() => setSelected(null)}>
-                  <X className="size-4" />
+              <div className="flex min-w-0 items-center gap-1.5">
+                <button
+                  className="tap -ml-2 flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 md:hidden"
+                  aria-label="Back to conversations"
+                  onClick={() => setSelected(null)}
+                >
+                  <ChevronLeft className="size-5" />
                 </button>
-                <div>
+                <div className="min-w-0">
                   <p className="text-sm font-semibold">{selected.name}</p>
                   {selected.type === 'group' ? (
                     <button
@@ -419,7 +446,11 @@ export default function MessagesPage() {
                       <p className={clsx('mt-0.5 flex items-center justify-end gap-1 text-[10px]', m.is_own ? 'text-white/70' : 'text-slate-400')}>
                         {m.edited_at && 'edited · '}
                         {timeLabel(m.created_at)}
-                        {m.is_own && (m.is_deleted ? null : <CheckCheck className="size-3" />)}
+                        {m.is_own && !m.is_deleted && (
+                          m.read_by_others
+                            ? <CheckCheck className="size-3" aria-label="Read" />
+                            : <Check className="size-3 opacity-70" aria-label="Sent" />
+                        )}
                       </p>
                     </div>
 
@@ -467,7 +498,7 @@ export default function MessagesPage() {
                               if (!reason) return
                               reportsApi.fileMessage(m.uuid, reason)
                                 .then((res) => alert((res as { message?: string }).message ?? 'Reported.'))
-                                .catch((err) => alert(errorMessage(err)))
+                                .catch((err) => toastError(errorMessage(err)))
                             }}
                           >
                             <Flag className="size-3.5" />
@@ -509,6 +540,22 @@ export default function MessagesPage() {
 
             {/* Composer */}
             <div className="border-t border-slate-200 p-3 dark:border-slate-800">
+              {typing.length > 0 && (
+                <p className="mb-1.5 flex items-center gap-1.5 text-xs text-slate-400">
+                  <span className="flex gap-0.5">
+                    {[0, 150, 300].map((delay) => (
+                      <span
+                        key={delay}
+                        className="size-1.5 animate-bounce rounded-full bg-slate-400"
+                        style={{ animationDelay: `${delay}ms` }}
+                      />
+                    ))}
+                  </span>
+                  {typing.length === 1
+                    ? `${typing[0].name} is typing…`
+                    : `${typing.map((t) => t.name.split(' ')[0]).join(', ')} are typing…`}
+                </p>
+              )}
               {(replyTo || editing) && (
                 <div className="mb-2 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-1.5 text-xs dark:bg-slate-800">
                   <span className="truncate">
@@ -548,7 +595,15 @@ export default function MessagesPage() {
                 <Input
                   placeholder={editing ? 'Edit your message…' : 'Type a message…'}
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => {
+                    setDraft(e.target.value)
+                    // One signal every couple of seconds, not one per keystroke.
+                    const now = Date.now()
+                    if (selected && e.target.value && now - typingSentRef.current > 2000) {
+                      typingSentRef.current = now
+                      chat.typing(selected.uuid).catch(() => undefined)
+                    }
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()

@@ -53,27 +53,41 @@ Route::prefix('v1')->group(function () {
     // --- Authenticated ----------------------------------------------------
     // 60/min proved too tight for a realtime SPA: chat, badge and meeting
     // polling alone can approach it before the user does anything.
-    Route::middleware(['auth:sanctum', 'active', 'throttle:180,1'])->group(function () {
+    //
+    // 'verified.email' covers the whole group. Registration must hand back a
+    // token (confirming the address is an authenticated call), and that token
+    // used to unlock the entire app before the address was ever proven — so
+    // the handful of routes an unverified account legitimately needs opt out
+    // of it explicitly below, and nothing else does.
+    Route::middleware(['auth:sanctum', 'active', 'verified.email', 'throttle:180,1'])->group(function () {
 
         // Session & account
-        Route::post('/auth/logout', [AuthController::class, 'logout']);
+        Route::post('/auth/logout', [AuthController::class, 'logout'])
+            ->withoutMiddleware('verified.email');
         Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
         Route::post('/auth/email/verification-notification', [AuthController::class, 'resendVerification'])
+            ->withoutMiddleware('verified.email')
             ->middleware('throttle:6,1');
         Route::post('/auth/mobile/verify', [AuthController::class, 'verifyMobile'])
+            ->withoutMiddleware('verified.email')
             ->middleware('throttle:10,1');
         Route::post('/auth/mobile/resend-otp', [AuthController::class, 'resendMobileOtp'])
+            ->withoutMiddleware('verified.email')
             ->middleware('throttle:5,1');
         Route::post('/auth/email/resend-otp', [AuthController::class, 'resendEmailOtp'])
+            ->withoutMiddleware('verified.email')
             ->middleware('throttle:5,1');
         Route::post('/auth/email/verify-otp', [AuthController::class, 'verifyEmailOtp'])
+            ->withoutMiddleware('verified.email')
             ->middleware('throttle:10,1');
         Route::get('/auth/sessions', [AuthController::class, 'sessions']);
         Route::delete('/auth/sessions/{tokenId}', [AuthController::class, 'revokeSession']);
         Route::get('/auth/login-history', [AuthController::class, 'loginHistory']);
 
-        // Me
-        Route::get('/me', [ProfileController::class, 'me']);
+        // Me — readable while unverified so the client knows whose account it
+        // is holding and can show the right address on the OTP screen.
+        Route::get('/me', [ProfileController::class, 'me'])
+            ->withoutMiddleware('verified.email');
         Route::put('/me/profile', [ProfileController::class, 'updateProfile']);
         Route::put('/me/settings', [ProfileController::class, 'updateSettings']);
         Route::post('/me/photo', [ProfileController::class, 'uploadPhoto']);
@@ -153,6 +167,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'show']);
         Route::post('/meetings/{meeting}/join', [\App\Http\Controllers\Api\V1\MeetingController::class, 'join']);
         Route::post('/meetings/{meeting}/leave', [\App\Http\Controllers\Api\V1\MeetingController::class, 'leave']);
+        Route::post('/meetings/{meeting}/heartbeat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'heartbeat']);
+        Route::post('/meetings/{meeting}/host-action', [\App\Http\Controllers\Api\V1\MeetingController::class, 'hostAction']);
         Route::post('/meetings/{meeting}/end', [\App\Http\Controllers\Api\V1\MeetingController::class, 'end']);
         // WebRTC signalling posts one request per ICE candidate - with a TURN
         // server in play that is dozens per peer, so the ordinary per-minute
@@ -217,6 +233,11 @@ Route::prefix('v1')->group(function () {
         Route::post('/conversations', [ConversationController::class, 'store']);
         Route::get('/groups/{group}/conversation', [ConversationController::class, 'forGroup']);
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markRead']);
+        // Fires on every few keystrokes, so it gets its own generous bucket
+        // rather than eating the shared per-minute allowance.
+        Route::post('/conversations/{conversation}/typing', [ConversationController::class, 'typing'])
+            ->withoutMiddleware('throttle:180,1')
+            ->middleware('throttle:600,1');
         Route::post('/conversations/{conversation}/mute', [ConversationController::class, 'toggleMute']);
         Route::post('/conversations/{conversation}/archive', [ConversationController::class, 'toggleArchive']);
         Route::get('/conversations/{conversation}/members', [ConversationController::class, 'members']);

@@ -6,7 +6,7 @@ import { badges as badgesApi, groups as groupsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
-import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, Spinner, Textarea } from '../components/ui'
 import { GROUP_TYPES, type GroupItem } from '../types'
 
 export default function GroupsPage() {
@@ -28,7 +28,7 @@ export default function GroupsPage() {
   const [memberRole, setMemberRole] = useState('member')
   const [error, setError] = useState<string | null>(null)
 
-  const { data: list, isLoading } = useQuery({ queryKey: ['groups'], queryFn: groupsApi.list })
+  const { data: list, isLoading, isError, error: loadError, refetch } = useQuery({ queryKey: ['groups'], queryFn: groupsApi.list })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['groups'] })
 
@@ -70,6 +70,10 @@ export default function GroupsPage() {
 
       {isLoading ? (
         <Spinner />
+      ) : isError ? (
+        <Card>
+          <LoadError what="your groups" message={errorMessage(loadError)} onRetry={() => refetch()} />
+        </Card>
       ) : !list?.length ? (
         <Card>
           <EmptyState
@@ -255,7 +259,7 @@ export default function GroupsPage() {
                 <div className="flex gap-2">
                   <div className="flex-1">
                     <UserSuggest
-                      placeholder="username or email"
+                      placeholder="name, username, email or App ID"
                       value={memberAppId}
                       onChange={setMemberAppId}
                       required
@@ -270,6 +274,9 @@ export default function GroupsPage() {
                     <UserPlus className="size-4" />
                   </Button>
                 </div>
+                <p className="text-[11px] text-slate-400">
+                  Start typing to search — you do not have to be connected first.
+                </p>
               </form>
             )}
 

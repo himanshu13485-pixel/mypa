@@ -57,10 +57,26 @@ class CallController extends Controller
         abort_unless($callees->isNotEmpty(), 422, 'No one to call in this conversation.');
 
         if ($conversation->type === 'direct') {
-            // Privacy: who can call me (direct calls only — group members opted in by joining).
-            $pref = $callees->first()->settings?->privacyValue('who_can_call') ?? 'connections';
+            if ($block = $conversation->blockBetween($me)) {
+                return response()->json([
+                    'message' => $block === 'mine'
+                        ? 'You have blocked this person. Unblock them to call.'
+                        : 'This call could not be connected.',
+                ], 403);
+            }
+
+            // Privacy: who can call me (direct calls only — group members opted
+            // in by joining). 'connections' was previously ignored, so the
+            // setting only ever worked as an on/off switch.
+            $target = $callees->first();
+            $pref = $target->settings?->privacyValue('who_can_call') ?? 'connections';
             if ($pref === 'nobody') {
                 return response()->json(['message' => 'This user is not accepting calls.'], 403);
+            }
+            if ($pref === 'connections' && ! app(\App\Services\AppIdService::class)->areConnected($me, $target)) {
+                return response()->json([
+                    'message' => 'You can only call your connections. Send a connection request first.',
+                ], 403);
             }
         }
 
@@ -220,7 +236,8 @@ class CallController extends Controller
 
         $data = $request->validate(['identifier' => ['required', 'string', 'max:255']]);
 
-        $target = app(\App\Services\AppIdService::class)->findVisibleUser($data['identifier'], $me);
+        $appIds = app(\App\Services\AppIdService::class);
+        $target = $appIds->findVisibleUser($data['identifier'], $me);
         if (! $target || $target->id === $me->id) {
             return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
         }
@@ -230,10 +247,17 @@ class CallController extends Controller
             return response()->json(['message' => "{$target->name} is already in the call."], 409);
         }
 
-        // Privacy: who can call me.
+        // Privacy: who can call me. Pulling someone into a live call is still
+        // calling them, so this matches the check in initiate() — 'connections'
+        // used to be ignored here too.
         $pref = $target->settings?->privacyValue('who_can_call') ?? 'connections';
         if ($pref === 'nobody') {
             return response()->json(['message' => 'This user is not accepting calls.'], 403);
+        }
+        if ($pref === 'connections' && ! $appIds->areConnected($me, $target)) {
+            return response()->json([
+                'message' => "You can only add your connections to a call. Send {$target->name} a connection request first.",
+            ], 403);
         }
 
         if ($pivot) {

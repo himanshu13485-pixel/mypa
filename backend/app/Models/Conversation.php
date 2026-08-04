@@ -75,6 +75,52 @@ class Conversation extends Model
             ?? $this->members()->where('users.id', '!=', $me->id)->first();
     }
 
+    /**
+     * How far everyone *else* has read to: the earliest last_read_at among the
+     * other members. Null when any of them has never opened the conversation,
+     * so a group message only counts as read once it has been seen by all.
+     */
+    public function othersReadAt(User $me): ?\Illuminate\Support\Carbon
+    {
+        $stamps = $this->members()
+            ->where('users.id', '!=', $me->id)
+            ->get()
+            ->map(fn ($u) => $u->pivot->last_read_at);
+
+        if ($stamps->isEmpty() || $stamps->contains(null)) {
+            return null;
+        }
+
+        return $stamps->map(fn ($t) => \Illuminate\Support\Carbon::parse($t))->min();
+    }
+
+    /**
+     * Is a block standing between the two sides of a DIRECT conversation?
+     *
+     * Blocking used to be checked only when a conversation was first opened,
+     * so once one existed the block did nothing. Returns 'mine' when the
+     * caller is the blocker, 'theirs' when they are the blocked party, and
+     * null when the way is clear. Group chats are exempt — everyone in a
+     * group opted into it.
+     */
+    public function blockBetween(User $me): ?string
+    {
+        if ($this->type !== 'direct') {
+            return null;
+        }
+
+        $other = $this->otherMember($me);
+        if (! $other) {
+            return null;
+        }
+
+        if ($me->hasBlocked($other)) {
+            return 'mine';
+        }
+
+        return $other->hasBlocked($me) ? 'theirs' : null;
+    }
+
     /** Find or create the direct conversation between two users. */
     public static function directBetween(User $a, User $b): self
     {

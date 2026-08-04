@@ -194,6 +194,84 @@ class Phase4Test extends TestCase
             ->assertForbidden();
     }
 
+    public function test_read_receipts_are_broadcast_and_reflected_on_messages(): void
+    {
+        Event::fake([MessageSent::class, \App\Events\MessageUpdated::class]);
+        $conversation = $this->converse();
+
+        $this->actingAs($this->alice)->postJson("/api/v1/conversations/{$conversation->uuid}/messages", [
+            'body' => 'did you see this?',
+        ])->assertCreated();
+
+        // Bob has not opened it yet, so Alice's tick stays single.
+        $mine = $this->actingAs($this->alice)
+            ->getJson("/api/v1/conversations/{$conversation->uuid}/messages")->json('data.0');
+        $this->assertFalse($mine['read_by_others']);
+
+        // Bob opens the conversation — the senders are told, not just the pivot.
+        $this->actingAs($this->bob)->postJson("/api/v1/conversations/{$conversation->uuid}/read")->assertOk();
+        Event::assertDispatched(\App\Events\MessageUpdated::class, fn ($e) => $e->action === 'read');
+
+        $mine = $this->actingAs($this->alice)
+            ->getJson("/api/v1/conversations/{$conversation->uuid}/messages")->json('data.0');
+        $this->assertTrue($mine['read_by_others']);
+
+        // A message sent after Bob last looked is unread again.
+        $this->travel(1)->minute();
+        $this->actingAs($this->alice)->postJson("/api/v1/conversations/{$conversation->uuid}/messages", [
+            'body' => 'and this one?',
+        ])->assertCreated();
+        $latest = $this->actingAs($this->alice)
+            ->getJson("/api/v1/conversations/{$conversation->uuid}/messages")->json('data.1');
+        $this->assertEquals('and this one?', $latest['body']);
+        $this->assertFalse($latest['read_by_others']);
+    }
+
+    public function test_group_message_is_read_only_once_everyone_has_seen_it(): void
+    {
+        $carol = User::factory()->create(['name' => 'Carol']);
+        app(AppIdService::class)->generateFor($carol);
+        $carol->settings()->create([]);
+
+        $group = Group::create(['owner_id' => $this->alice->id, 'name' => 'Trio', 'type' => 'team']);
+        $group->members()->attach([
+            $this->alice->id => ['role' => 'owner'],
+            $this->bob->id => ['role' => 'member'],
+            $carol->id => ['role' => 'member'],
+        ]);
+        $uuid = $this->actingAs($this->alice)
+            ->getJson("/api/v1/groups/{$group->uuid}/conversation")->assertOk()->json('data.uuid');
+
+        $this->actingAs($this->alice)->postJson("/api/v1/conversations/{$uuid}/messages", ['body' => 'all here?'])
+            ->assertCreated();
+
+        $read = fn () => $this->actingAs($this->alice)
+            ->getJson("/api/v1/conversations/{$uuid}/messages")->json('data.0.read_by_others');
+
+        $this->assertFalse($read());
+        $this->actingAs($this->bob)->postJson("/api/v1/conversations/{$uuid}/read")->assertOk();
+        $this->assertFalse($read(), 'One of two readers is not everyone.');
+
+        $this->actingAs($carol)->postJson("/api/v1/conversations/{$uuid}/read")->assertOk();
+        $this->assertTrue($read());
+    }
+
+    public function test_typing_signal_reaches_the_others_and_stores_nothing(): void
+    {
+        Event::fake([\App\Events\UserTyping::class]);
+        $conversation = $this->converse();
+
+        $this->actingAs($this->alice)->postJson("/api/v1/conversations/{$conversation->uuid}/typing")->assertOk();
+        Event::assertDispatched(\App\Events\UserTyping::class, fn ($e) => $e->user->id === $this->alice->id);
+
+        // Nothing was written — it is a signal, not a message.
+        $this->assertEquals(0, $conversation->messages()->count());
+
+        // Outsiders cannot announce themselves into someone else's conversation.
+        $stranger = User::factory()->create();
+        $this->actingAs($stranger)->postJson("/api/v1/conversations/{$conversation->uuid}/typing")->assertForbidden();
+    }
+
     public function test_unread_count_and_mark_read(): void
     {
         $conversation = $this->converse();

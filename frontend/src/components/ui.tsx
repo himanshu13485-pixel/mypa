@@ -1,6 +1,6 @@
 import { clsx } from 'clsx'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
-import { X } from 'lucide-react'
+import { AlertTriangle, RefreshCw, X } from 'lucide-react'
 
 export function Button({
   variant = 'primary',
@@ -16,7 +16,10 @@ export function Button({
       className={clsx(
         'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors',
         'disabled:cursor-not-allowed disabled:opacity-50',
-        size === 'sm' ? 'px-2.5 py-1.5 text-xs' : 'px-4 py-2 text-sm',
+        // `tap` only bites on coarse pointers, so desktop keeps its compact
+        // proportions while a thumb still gets 44px to aim at.
+        'tap touch-manipulation',
+        size === 'sm' ? 'px-3 py-1.5 text-xs sm:px-2.5' : 'px-4 py-2 text-sm',
         variant === 'primary' && 'bg-brand-600 text-white hover:bg-brand-700',
         variant === 'secondary' &&
           'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800',
@@ -33,7 +36,7 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return (
     <input
       className={clsx(
-        'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        'tap w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
         'placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20',
         'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
         className,
@@ -61,7 +64,7 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   return (
     <select
       className={clsx(
-        'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        'tap w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
         'focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20',
         'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
         className,
@@ -138,6 +141,39 @@ export function Spinner({ className }: { className?: string }) {
   )
 }
 
+/**
+ * What a page shows when its data could not be loaded.
+ *
+ * Every list in the app used to fall through to its empty state on failure,
+ * so "the server is down" and "you have nothing here" looked identical — and
+ * the reassuring one was the lie.
+ */
+export function LoadError({
+  message,
+  onRetry,
+  what = 'this',
+}: {
+  message?: string | null
+  onRetry?: () => void
+  /** e.g. "your tasks" — reads as "Could not load your tasks." */
+  what?: string
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
+      <AlertTriangle className="size-5 text-amber-500" />
+      <p className="text-sm font-medium text-slate-600 dark:text-slate-300">Could not load {what}.</p>
+      <p className="max-w-sm text-xs text-slate-400">
+        {message || 'Check your connection and try again — nothing has been lost.'}
+      </p>
+      {onRetry && (
+        <Button size="sm" variant="secondary" className="mt-1" onClick={onRetry}>
+          <RefreshCw className="size-3.5" /> Try again
+        </Button>
+      )}
+    </div>
+  )
+}
+
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -168,26 +204,31 @@ export function Modal({
   wide?: boolean
 }) {
   return (
+    // Bottom sheet on a phone (thumb reaches the controls, and a tall form
+    // scrolls inside the sheet instead of pushing the page around); a centred
+    // dialog from sm up.
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm sm:p-8"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-start sm:overflow-y-auto sm:p-8"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
         className={clsx(
-          'w-full rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900',
-          wide ? 'max-w-2xl' : 'max-w-md',
+          'flex max-h-[92dvh] w-full flex-col rounded-t-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900',
+          'sm:max-h-none sm:rounded-xl',
+          wide ? 'sm:max-w-2xl' : 'sm:max-w-md',
         )}
       >
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3 dark:border-slate-800">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-5">
           <h2 className="text-sm font-semibold">{title}</h2>
           <button
             onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+            aria-label="Close"
+            className="tap -mr-2 flex items-center justify-center rounded p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
           >
-            <X className="size-4" />
+            <X className="size-5 sm:size-4" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="scroll-pane pb-safe min-h-0 flex-1 overflow-y-auto p-4 sm:overflow-visible sm:p-5">{children}</div>
       </div>
     </div>
   )

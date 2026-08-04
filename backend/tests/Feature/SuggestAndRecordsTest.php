@@ -37,20 +37,102 @@ class SuggestAndRecordsTest extends TestCase
         ]);
     }
 
-    public function test_suggest_matches_only_my_connections(): void
+    public function test_suggest_ranks_connections_first_but_finds_everyone_reachable(): void
     {
-        // "bob" matches both Bobby (connected) and Bobcat (not connected) —
-        // only the connection is suggested.
+        // "bob" matches Bobby (connected) and Bobcat (not). Both are offered —
+        // you can add someone to a group without connecting to them first —
+        // but the connection sorts first and is flagged as such.
         $out = $this->actingAs($this->alice)->getJson('/api/v1/connections/suggest?q=bob')->assertOk()->json('data');
-        $this->assertCount(1, $out);
+        $this->assertCount(2, $out);
         $this->assertEquals('Bobby', $out[0]['name']);
+        $this->assertTrue($out[0]['connected']);
+        $this->assertEquals('Bobcat', $out[1]['name']);
+        $this->assertFalse($out[1]['connected']);
 
-        // Matching by email works too; empty query returns nothing.
+        // Matching by email works; empty query returns nothing.
         $this->assertCount(1, $this->actingAs($this->alice)->getJson('/api/v1/connections/suggest?q=bobby@mypa')->json('data'));
         $this->assertCount(0, $this->actingAs($this->alice)->getJson('/api/v1/connections/suggest?q=')->json('data'));
 
-        // The stranger has no connections, so no suggestions at all.
-        $this->assertCount(0, $this->actingAs($this->stranger)->getJson('/api/v1/connections/suggest?q=bob')->json('data'));
+        // Someone with no connections at all is no longer stuck with an empty
+        // dropdown — that was the whole bug. (Bobcat sees Bobby, not himself.)
+        $alone = $this->actingAs($this->stranger)->getJson('/api/v1/connections/suggest?q=bob')->json('data');
+        $this->assertCount(1, $alone);
+        $this->assertEquals('Bobby', $alone[0]['name']);
+        $this->assertFalse($alone[0]['connected']);
+
+        // You never see yourself in your own suggestions.
+        $mine = $this->actingAs($this->alice)->getJson('/api/v1/connections/suggest?q=alice')->json('data');
+        $this->assertCount(0, $mine);
+    }
+
+    public function test_suggest_finds_people_by_app_id(): void
+    {
+        $appId = $this->stranger->appId->app_id;
+
+        $out = $this->actingAs($this->alice)->getJson('/api/v1/connections/suggest?q=' . $appId)->assertOk()->json('data');
+        $this->assertCount(1, $out);
+        $this->assertEquals('Bobcat', $out[0]['name']);
+        $this->assertEquals($appId, $out[0]['app_id']);
+    }
+
+    public function test_suggest_respects_privacy_blocks_and_inactive_accounts(): void
+    {
+        $find = fn (User $viewer, string $q) => collect(
+            $this->actingAs($viewer)->getJson("/api/v1/connections/suggest?q={$q}")->json('data')
+        )->pluck('name')->all();
+
+        // "Findable by nobody" drops out for strangers...
+        $this->stranger->settings()->create(['privacy' => ['who_can_find_me' => 'nobody']]);
+        $this->assertEquals(['Bobby'], $find($this->alice, 'bob'));
+
+        // ...and so does "connections only" when you are not connected.
+        $this->stranger->settings->update(['privacy' => ['who_can_find_me' => 'connections']]);
+        $this->assertEquals(['Bobby'], $find($this->alice, 'bob'));
+
+        // A connection's own setting never hides them from you.
+        $this->bob->settings()->create(['privacy' => ['who_can_find_me' => 'connections']]);
+        $this->assertContains('Bobby', $find($this->alice, 'bob'));
+
+        // Blocks cut both ways.
+        $this->stranger->settings->update(['privacy' => ['who_can_find_me' => 'everyone']]);
+        $this->alice->blockedUsers()->attach($this->stranger->id);
+        $this->assertEquals(['Bobby'], $find($this->alice, 'bob'));
+        $this->alice->blockedUsers()->detach($this->stranger->id);
+        $this->stranger->blockedUsers()->attach($this->alice->id);
+        $this->assertEquals(['Bobby'], $find($this->alice->fresh(), 'bob'));
+        $this->stranger->blockedUsers()->detach($this->alice->id);
+
+        // Suspended accounts are not offered.
+        $this->stranger->update(['status' => 'suspended']);
+        $this->assertEquals(['Bobby'], $find($this->alice, 'bob'));
+    }
+
+    public function test_suggest_does_not_hand_out_a_strangers_email(): void
+    {
+        $out = collect($this->actingAs($this->alice)->getJson('/api/v1/connections/suggest?q=bob')->json('data'))
+            ->keyBy('name');
+
+        // Your own connection's email is fair game — you already have it.
+        $this->assertEquals('bobby@mypa.local', $out['Bobby']['email']);
+        // A stranger is identified by username and App ID, not their email.
+        $this->assertNull($out['Bobcat']['email']);
+        $this->assertEquals('bobcat1', $out['Bobcat']['username']);
+        $this->assertNotNull($out['Bobcat']['app_id']);
+    }
+
+    public function test_a_group_member_can_be_added_without_being_a_connection(): void
+    {
+        $group = $this->actingAs($this->alice)->postJson('/api/v1/groups', [
+            'name' => 'Site team', 'type' => 'team',
+        ])->assertCreated()->json('data');
+
+        // Bobcat is a stranger to Alice; adding by username still works.
+        $this->actingAs($this->alice)->postJson("/api/v1/groups/{$group['uuid']}/members", [
+            'app_id' => 'bobcat1', 'role' => 'member',
+        ])->assertStatus(201);
+
+        $members = $this->actingAs($this->alice)->getJson("/api/v1/groups/{$group['uuid']}")->json('data.members');
+        $this->assertContains('Bobcat', collect($members)->pluck('name')->all());
     }
 
     public function test_admin_records_are_metadata_only(): void

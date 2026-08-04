@@ -1,7 +1,9 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
 import { RequireAdmin, RequireAuth } from './components/Protected'
+import { ToastProvider } from './components/Toast'
 import { Spinner } from './components/ui'
 import Login from './pages/auth/Login'
 import Register from './pages/auth/Register'
@@ -10,6 +12,7 @@ import Register from './pages/auth/Register'
 // eager so first paint is instant.
 const ForgotPassword = lazy(() => import('./pages/auth/ForgotPassword'))
 const ResetPassword = lazy(() => import('./pages/auth/ResetPassword'))
+const VerifyEmail = lazy(() => import('./pages/auth/VerifyEmail'))
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const TasksPage = lazy(() => import('./pages/TasksPage'))
 const CalendarPage = lazy(() => import('./pages/CalendarPage'))
@@ -46,12 +49,15 @@ const PaymentStatusPage = lazy(() => import('./pages/PaymentStatusPage'))
 
 export default function App() {
   return (
+    <ErrorBoundary>
+    <ToastProvider>
     <BrowserRouter>
       <Suspense fallback={<Spinner className="h-screen" />}>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/home" element={<LandingRedirect />} />
           <Route path="/about" element={<AboutPage />} />
@@ -110,5 +116,7 @@ export default function App() {
         </Routes>
       </Suspense>
     </BrowserRouter>
+    </ToastProvider>
+    </ErrorBoundary>
   )
 }

@@ -2,21 +2,56 @@
 rem My PA — start the full dev stack. Each service gets its own window.
 title My PA launcher
 
-rem MariaDB (only if not already listening on 3306)
+rem Repo root = folder this script lives in (no hard-coded project path).
+set "ROOT=%~dp0"
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
+
+rem PHP 8.3+ is required by backend/composer.json. XAMPP ships 8.2 here, so use C:\php84.
+set "PHP=C:\php84\php.exe"
+if not exist "%PHP%" set "PHP=C:\xampp\php\php.exe"
+if not exist "%PHP%" (
+  echo [ERROR] No php.exe found. Edit the PHP= line in this script.
+  pause & exit /b 1
+)
+
+rem MariaDB from XAMPP.
+set "MYSQLD=C:\xampp\mysql\bin\mysqld.exe"
+set "MYSQL_DATA=C:/xampp/mysql/data"
+
+rem --- sanity checks -------------------------------------------------------
+if not exist "%ROOT%\backend\vendor" (
+  echo [ERROR] backend\vendor is missing. Run first:
+  echo         "%PHP%" composer.phar install     ^(in %ROOT%\backend^)
+  pause & exit /b 1
+)
+if not exist "%ROOT%\backend\.env" (
+  echo [ERROR] backend\.env is missing. Run first:
+  echo         copy backend\.env.example backend\.env
+  echo         "%PHP%" backend\artisan key:generate
+  pause & exit /b 1
+)
+if not exist "%ROOT%\frontend\node_modules" (
+  echo [ERROR] frontend\node_modules is missing. Run first:
+  echo         cd /d "%ROOT%\frontend" ^&^& npm install
+  pause & exit /b 1
+)
+
+rem --- MariaDB (only if not already listening on 3306) ----------------------
 netstat -an | findstr /C:":3306" | findstr /C:"LISTENING" >nul
 if errorlevel 1 (
   echo Starting MariaDB...
-  start "MyPA - MariaDB" "C:\xampp\apps\mysql\bin\mysqld.exe" --datadir="C:/xampp/apps/mysql/data" --port=3306 --console
+  start "MyPA - MariaDB" "%MYSQLD%" --datadir="%MYSQL_DATA%" --port=3306 --console
   timeout /t 4 /nobreak >nul
 ) else (
   echo MariaDB already running.
 )
 
-start "MyPA - API :8000"        cmd /k "cd /d D:\SOFTWARE-LOCAL\mypa\backend && php artisan serve --port=8000"
-start "MyPA - Queue worker"     cmd /k "cd /d D:\SOFTWARE-LOCAL\mypa\backend && php artisan queue:work --sleep=3"
-start "MyPA - Scheduler"        cmd /k "cd /d D:\SOFTWARE-LOCAL\mypa\backend && php artisan schedule:work"
-start "MyPA - Reverb ws :8080"  cmd /k "cd /d D:\SOFTWARE-LOCAL\mypa\backend && php artisan reverb:start"
-start "MyPA - Web :5173"        cmd /k "cd /d D:\SOFTWARE-LOCAL\mypa\frontend && npm run dev"
+rem --- services ------------------------------------------------------------
+start "MyPA - API :8000"        cmd /k "cd /d "%ROOT%\backend" && "%PHP%" artisan serve --port=8000"
+start "MyPA - Queue worker"     cmd /k "cd /d "%ROOT%\backend" && "%PHP%" artisan queue:work --sleep=3"
+start "MyPA - Scheduler"        cmd /k "cd /d "%ROOT%\backend" && "%PHP%" artisan schedule:work"
+start "MyPA - Reverb ws :8080"  cmd /k "cd /d "%ROOT%\backend" && "%PHP%" artisan reverb:start"
+start "MyPA - Web :5173"        cmd /k "cd /d "%ROOT%\frontend" && npm run dev"
 
 echo.
 echo All services launching. Open http://localhost:5173

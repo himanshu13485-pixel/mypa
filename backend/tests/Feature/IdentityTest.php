@@ -33,6 +33,19 @@ class IdentityTest extends TestCase
         ], $overrides));
     }
 
+    /**
+     * Registering leaves the account unverified, and an unverified account can
+     * no longer reach the rest of the API. Tests that are about what happens
+     * *after* sign-up confirm the address first, exactly as a real user would.
+     */
+    protected function verifiedUser(string $username): User
+    {
+        $user = User::where('username', $username)->firstOrFail();
+        $user->forceFill(['email_verified_at' => now()])->save();
+
+        return $user->fresh();
+    }
+
     // --- Registration & OTP ---------------------------------------------------
 
     public function test_registration_issues_email_otp_and_verifies(): void
@@ -57,6 +70,53 @@ class IdentityTest extends TestCase
             ->postJson('/api/v1/auth/email/verify-otp', ['code' => $code])
             ->assertOk();
         $this->assertNotNull($user->fresh()->email_verified_at);
+    }
+
+    /**
+     * Signing up with an address you do not own must not get you into the app.
+     * The token registration hands back is deliberately limited: it can verify
+     * the address and little else, so following a deep link (a meeting invite,
+     * say) cannot walk past the OTP screen into a working account.
+     */
+    public function test_an_unverified_account_cannot_use_the_app(): void
+    {
+        // This test makes a couple of dozen calls in the same second purely to
+        // probe the gate; the per-minute limiters are not what is under test.
+        $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
+
+        $this->register()->assertCreated();
+        $user = User::where('username', 'ashak')->first();
+        $this->assertNull($user->email_verified_at);
+
+        foreach ([
+            ['get', '/api/v1/dashboard/summary'],
+            ['get', '/api/v1/meetings'],
+            ['get', '/api/v1/conversations'],
+            ['get', '/api/v1/tasks'],
+            ['get', '/api/v1/connections/suggest?q=a'],
+            ['post', '/api/v1/meetings'],
+        ] as [$verb, $url]) {
+            $response = $this->actingAs($user)->{$verb . 'Json'}($url);
+            $response->assertForbidden();
+            $this->assertEquals('email_unverified', $response->json('code'), "{$verb} {$url} should be gated");
+        }
+
+        // A meeting they were invited to is no more reachable than anything else.
+        $host = User::factory()->create();
+        $meeting = $this->actingAs($host)->postJson('/api/v1/meetings', ['requires_approval' => false])->json('data');
+        $this->actingAs($user)->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertForbidden();
+
+        // What they DO need stays open: read the account, resend, verify, log out.
+        $this->actingAs($user)->getJson('/api/v1/me')->assertOk();
+        $this->actingAs($user)->postJson('/api/v1/auth/email/resend-otp')->assertOk();
+
+        $code = \App\Models\MobileOtp::where('user_id', $user->id)
+            ->where('purpose', 'verify_email')->whereNull('consumed_at')->latest()->first()->code;
+        $this->actingAs($user)->postJson('/api/v1/auth/email/verify-otp', ['code' => $code])->assertOk();
+
+        // Verified: the app opens up.
+        $this->actingAs($user->fresh())->getJson('/api/v1/dashboard/summary')->assertOk();
+        $this->actingAs($user->fresh())->postJson("/api/v1/meetings/{$meeting['code']}/join")->assertOk();
     }
 
     public function test_registration_requires_email_and_password(): void
@@ -162,7 +222,7 @@ class IdentityTest extends TestCase
     public function test_email_change_via_otp_after_approval(): void
     {
         $this->register()->assertCreated();
-        $user = User::where('username', 'ashak')->first();
+        $user = $this->verifiedUser('ashak');
         $this->assertEquals('asha@example.com', $user->email);
 
         // User requests changing the email from the profile.
@@ -234,7 +294,7 @@ class IdentityTest extends TestCase
     public function test_mobile_is_editable_directly_in_profile(): void
     {
         $this->registerSecond()->assertCreated();
-        $user = User::where('username', 'kiranrao')->first();
+        $user = $this->verifiedUser('kiranrao');
 
         // Records-only: direct profile update, no approval, no OTP.
         $this->actingAs($user)->putJson('/api/v1/me/profile', [
@@ -261,7 +321,7 @@ class IdentityTest extends TestCase
     public function test_username_change_needs_cooldown_and_approval(): void
     {
         $this->register()->assertCreated();
-        $user = User::where('username', 'ashak')->first();
+        $user = $this->verifiedUser('ashak');
         $user->update(['username_changed_at' => now()->subDays(5)]);
         AppSetting::set('username_change_days', '30');
 
@@ -301,7 +361,7 @@ class IdentityTest extends TestCase
     public function test_rejection_does_not_apply_and_regular_user_cannot_review(): void
     {
         $this->register()->assertCreated();
-        $user = User::where('username', 'ashak')->first();
+        $user = $this->verifiedUser('ashak');
 
         $this->actingAs($user)->postJson('/api/v1/me/change-requests', [
             'type' => 'email', 'new_value' => 'new@example.com',

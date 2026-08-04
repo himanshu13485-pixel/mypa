@@ -198,9 +198,11 @@ class FileController extends Controller
 
     public function usage(Request $request): JsonResponse
     {
-        $used = (int) File::where('user_id', $request->user()->id)->sum('size');
-        $limit = (int) app(\App\Services\SubscriptionEntitlementService::class)
-            ->storageLimitBytes($request->user());
+        // Through the service, so chat attachments and meeting files are in
+        // the figure the user sees — they occupy the same allowance.
+        $entitlements = app(\App\Services\SubscriptionEntitlementService::class);
+        $used = $entitlements->usedStorageBytes($request->user());
+        $limit = (int) $entitlements->storageLimitBytes($request->user());
 
         return response()->json([
             'data' => [

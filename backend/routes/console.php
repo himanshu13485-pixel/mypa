@@ -16,6 +16,10 @@ Schedule::command('mypa:send-bill-alarms')->everyMinute()->withoutOverlapping();
 
 Schedule::command('mypa:project-reminders')->everyMinute()->withoutOverlapping();
 
+// Meeting presence: drop participants whose browser vanished without leaving,
+// and end meetings once the room is empty.
+Schedule::command('mypa:reap-meetings')->everyMinute()->withoutOverlapping();
+
 // Daily ledger emails go out at 6 AM, only for projects that changed.
 Schedule::command('mypa:project-daily-reports')->dailyAt('06:00')->withoutOverlapping();
 

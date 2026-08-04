@@ -33,6 +33,11 @@ class UserResource extends JsonResource
                 ] : null
             ),
             'email_verified' => $this->email_verified_at !== null,
+            // Mirrors EnsureVerifiedEmail so the client can gate on exactly the
+            // same rule. Unlike `email` this is always present — that one is
+            // withheld from unauthenticated responses such as registration,
+            // which is precisely when the client needs to know.
+            'email_verification_required' => $this->email !== null && $this->email_verified_at === null,
             'app_id' => $this->whenLoaded('appId', fn () => $this->appId?->app_id),
             'roles' => $this->whenLoaded('roles', fn () => $this->roles->pluck('slug')),
             'profile' => $this->whenLoaded('profile', fn () => [

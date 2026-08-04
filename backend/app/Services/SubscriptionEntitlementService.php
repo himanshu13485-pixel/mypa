@@ -63,8 +63,29 @@ class SubscriptionEntitlementService
     {
         $limit = $this->storageLimitBytes($user);
 
-        return $limit === null
-            || ((int) File::where('user_id', $user->id)->sum('size') + $incoming) <= $limit;
+        return $limit === null || ($this->usedStorageBytes($user) + $incoming) <= $limit;
+    }
+
+    /**
+     * Everything this user has put on disk, not just their Drive.
+     *
+     * Chat attachments and meeting chat files were never counted, so the
+     * quota could be bypassed entirely by sending files through a
+     * conversation instead of uploading them — and the storage figure shown
+     * to the user understated what they were actually using.
+     */
+    public function usedStorageBytes(User $user): int
+    {
+        $drive = (int) File::where('user_id', $user->id)->sum('size');
+
+        $chat = (int) \App\Models\MessageAttachment::whereHas(
+            'message',
+            fn ($m) => $m->where('user_id', $user->id),
+        )->sum('size');
+
+        $meetings = (int) \App\Models\MeetingFile::where('user_id', $user->id)->sum('size');
+
+        return $drive + $chat + $meetings;
     }
 
     public function storageLimitBytes(User $user): ?int
@@ -112,7 +133,7 @@ class SubscriptionEntitlementService
                 'limit' => $plan->limit('max_tasks'),
             ],
             'storage' => [
-                'used' => (int) File::where('user_id', $user->id)->sum('size'),
+                'used' => $this->usedStorageBytes($user),
                 'limit' => $this->storageLimitBytes($user),
             ],
             'groups' => [

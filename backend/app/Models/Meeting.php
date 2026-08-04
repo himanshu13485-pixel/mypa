@@ -11,15 +11,22 @@ class Meeting extends Model
 {
     use HasUuids;
 
+    /** Presence grace: a participant silent for this long is treated as gone. */
+    public const PRESENCE_TIMEOUT_SECONDS = 45;
+
     protected $fillable = [
-        'host_id', 'code', 'title', 'type', 'is_screen', 'requires_approval', 'status', 'scheduled_at', 'started_at', 'ended_at',
+        'host_id', 'code', 'title', 'type', 'is_screen', 'requires_approval', 'passcode', 'is_locked',
+        'spotlight_uuid', 'status', 'scheduled_at', 'started_at', 'ended_at',
     ];
+
+    protected $hidden = ['passcode'];
 
     protected function casts(): array
     {
         return [
             'is_screen' => 'boolean',
             'requires_approval' => 'boolean',
+            'is_locked' => 'boolean',
             'scheduled_at' => 'datetime',
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
@@ -60,7 +67,41 @@ class Meeting extends Model
     public function participants(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'meeting_participants')
-            ->withPivot(['status', 'display_name', 'joined_at', 'left_at'])
+            ->withPivot([
+                'status', 'display_name', 'role', 'mic_on', 'cam_on', 'hand_raised',
+                'joined_at', 'left_at', 'last_seen_at',
+            ])
             ->withTimestamps();
+    }
+
+    /** Everyone currently in the room (excluding one user when asked). */
+    public function inRoom(?int $exceptUserId = null): \Illuminate\Support\Collection
+    {
+        return $this->participants()
+            ->wherePivot('status', 'joined')
+            ->when($exceptUserId, fn ($q) => $q->where('users.id', '!=', $exceptUserId))
+            ->get();
+    }
+
+    /** The host and any co-host they promoted share the moderation controls. */
+    public function canModerate(User $user): bool
+    {
+        if ($this->host_id === $user->id) {
+            return true;
+        }
+
+        return $this->participants()
+            ->where('users.id', $user->id)
+            ->wherePivot('role', 'cohost')
+            ->exists();
+    }
+
+    public function roleFor(User $user): string
+    {
+        if ($this->host_id === $user->id) {
+            return 'host';
+        }
+
+        return $this->participants()->where('users.id', $user->id)->first()?->pivot->role ?? 'participant';
     }
 }

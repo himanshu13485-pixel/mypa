@@ -8,7 +8,7 @@ import { badges as badgesApi, categories as categoriesApi, groups as groupsApi, 
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
 import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea,
+  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Pager, Select, Spinner, Textarea,
 } from '../components/ui'
 import { TASK_PRIORITIES, TASK_STATUSES, type Task } from '../types'
 
@@ -95,7 +95,7 @@ export default function TasksPage() {
     return f
   }, [params])
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ['tasks', filters, page],
     queryFn: () => tasksApi.list({ ...filters, page }),
   })
@@ -263,6 +263,10 @@ export default function TasksPage() {
       {/* Task list */}
       {isLoading ? (
         <Spinner />
+      ) : isError ? (
+        <Card>
+          <LoadError what="your tasks" message={errorMessage(loadError)} onRetry={() => refetch()} />
+        </Card>
       ) : taskList.length === 0 ? (
         <Card>
           <EmptyState title="No tasks found" hint="Create a task or change your filters." />

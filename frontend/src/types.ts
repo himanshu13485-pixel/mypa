@@ -5,6 +5,8 @@ export interface User {
   mobile?: string | null
   status?: string
   email_verified: boolean
+  /** Server's own gate: the account has an email address that is unconfirmed. */
+  email_verification_required?: boolean
   app_id?: string
   plan?: string | null
   salesperson?: { uuid: string; name: string } | null
@@ -527,6 +529,8 @@ export interface ChatMessage {
   body: string | null
   is_deleted: boolean
   is_own: boolean
+  /** Everyone else in the conversation has read this one. */
+  read_by_others?: boolean
   sender?: { uuid: string; name: string } | null
   reply_to?: { uuid: string; body: string | null; sender_name?: string } | null
   attachments: { id: number; name: string; mime_type?: string | null; size: number; duration_seconds?: number | null }[]
@@ -631,6 +635,17 @@ export interface ProjectSummaryRow {
   entries: number
 }
 
+export type MeetingRole = 'host' | 'cohost' | 'participant'
+
+export interface MeetingParticipant {
+  uuid: string
+  name: string
+  role: MeetingRole
+  mic_on: boolean
+  cam_on: boolean
+  hand_raised: boolean
+}
+
 export interface MeetingItem {
   uuid: string
   code: string
@@ -643,6 +658,13 @@ export interface MeetingItem {
   is_host: boolean
   is_screen?: boolean
   requires_approval?: boolean
+  is_locked?: boolean
+  has_passcode?: boolean
+  /** Only sent to the host / co-hosts — they are the ones sharing it. */
+  passcode?: string | null
+  spotlight_uuid?: string | null
+  my_role?: MeetingRole
+  can_moderate?: boolean
   joined_count?: number | null
   ended_at?: string | null
   duration_seconds?: number | null
@@ -650,12 +672,25 @@ export interface MeetingItem {
   created_at: string
 }
 
+export interface MeetingHeartbeat {
+  status: 'scheduled' | 'active' | 'ended'
+  is_locked?: boolean
+  spotlight_uuid?: string | null
+  participants: MeetingParticipant[]
+  waiting: { uuid: string; name: string }[]
+}
+
+export type MeetingHostAction =
+  | 'mute' | 'mute_all' | 'ask_unmute' | 'stop_video' | 'remove'
+  | 'lock' | 'unlock' | 'promote' | 'demote' | 'transfer_host'
+  | 'spotlight' | 'clear_spotlight'
+
 export interface MeetingSignalPayload {
   meeting_code: string
   meeting_type: 'audio' | 'video'
   from_uuid: string
   from_name?: string | null
-  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat' | 'share' | 'record' | 'media' | 'rec-request' | 'rec-allow' | 'rec-deny'
+  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat' | 'share' | 'record' | 'media' | 'rec-request' | 'rec-allow' | 'rec-deny' | 'host-mute' | 'host-ask-unmute' | 'host-stop-video' | 'removed' | 'lock' | 'role' | 'spotlight'
   payload: Record<string, unknown>
 }
 
