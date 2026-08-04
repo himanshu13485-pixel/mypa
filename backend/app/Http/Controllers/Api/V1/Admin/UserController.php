@@ -240,7 +240,7 @@ class UserController extends Controller
             'otp_expiry_minutes' => ['sometimes', 'integer', 'min:1', 'max:1440'],
             'voice_ai_enabled' => ['sometimes', 'boolean'],
             'voice_ai_key' => ['sometimes', 'nullable', 'string', 'max:300'],
-            'voice_ai_model' => ['sometimes', 'string', 'max:100'],
+            'voice_ai_model' => ['sometimes', 'in:claude-opus-5,claude-sonnet-5,claude-haiku-4-5'],
         ]);
 
         // An empty key field means "keep the saved one" — the UI never sees

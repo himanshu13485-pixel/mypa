@@ -1284,7 +1284,11 @@ function OverviewTab() {
             </div>
             <div>
               <Label>Model</Label>
-              <Input className="w-44" value={aiModel} onChange={(e) => setAiModel(e.target.value)} />
+              <Select className="w-56" value={aiModel} onChange={(e) => setAiModel(e.target.value)}>
+                <option value="claude-opus-5">Claude Opus 5 — best understanding</option>
+                <option value="claude-sonnet-5">Claude Sonnet 5 — balanced</option>
+                <option value="claude-haiku-4-5">Claude Haiku 4.5 — fastest, cheapest</option>
+              </Select>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
