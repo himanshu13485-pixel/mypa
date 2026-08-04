@@ -16,9 +16,17 @@ if not exist "%PHP%" (
   pause & exit /b 1
 )
 
-rem MariaDB from XAMPP.
-set "MYSQLD=C:\xampp\mysql\bin\mysqld.exe"
-set "MYSQL_DATA=C:/xampp/mysql/data"
+rem MariaDB from XAMPP. Checked in order (layouts differ per machine).
+set "MYSQLD=C:\xampp\apps\mysql\bin\mysqld.exe"
+set "MYSQL_DATA=C:/xampp/apps/mysql/data"
+if not exist "%MYSQLD%" (
+  set "MYSQLD=C:\xampp\mysql\bin\mysqld.exe"
+  set "MYSQL_DATA=C:/xampp/mysql/data"
+)
+if not exist "%MYSQLD%" (
+  echo [ERROR] No mysqld.exe found. Edit the MYSQLD= line in this script.
+  pause & exit /b 1
+)
 
 rem --- sanity checks -------------------------------------------------------
 if not exist "%ROOT%\backend\vendor" (
