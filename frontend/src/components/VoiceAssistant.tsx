@@ -121,11 +121,34 @@ function findWakeWord(text: string, word: string): number {
   return best === -1 ? -1 : best
 }
 
-function speak(text: string, language: string) {
+/** Assistant voice (male/female), shared with the module-level speak(). */
+let ttsGender: 'male' | 'female' =
+  (localStorage.getItem('mypa-voice-gender') as 'male' | 'female') || 'male'
+
+function pickVoice(language: string): SpeechSynthesisVoice | null {
+  try {
+    const voices = window.speechSynthesis.getVoices()
+    const prefix = language === 'hi' ? 'hi' : 'en'
+    const candidates = voices.filter((v) => v.lang.toLowerCase().startsWith(prefix))
+    if (!candidates.length) return null
+
+    const femaleHints = ['female', 'woman', 'zira', 'susan', 'heera', 'kalpana', 'swara', 'neerja', 'samantha', 'victoria', 'aria', 'jenny']
+    const maleHints = ['male', 'man', 'david', 'mark', 'ravi', 'hemant', 'madhur', 'rishi', 'daniel', 'guy', 'prabhat']
+    const hints = ttsGender === 'female' ? femaleHints : maleHints
+
+    return candidates.find((v) => hints.some((h) => v.name.toLowerCase().includes(h))) ?? candidates[0]
+  } catch {
+    return null
+  }
+}
+
+function speak(text: string, language: string, queue = false) {
   try {
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.lang = language === 'hi' ? 'hi-IN' : 'en-IN'
-    window.speechSynthesis.cancel()
+    const voice = pickVoice(language)
+    if (voice) utterance.voice = voice
+    if (!queue) window.speechSynthesis.cancel()
     window.speechSynthesis.speak(utterance)
   } catch {
     // TTS unavailable — silent fallback.
@@ -154,6 +177,14 @@ export default function VoiceAssistant() {
   const [wakeWord, setWakeWord] = useState(() => localStorage.getItem('mypa-voice-wakeword') || 'NV')
   const wakeRef = useRef<SpeechRecognitionLike | null>(null)
 
+  // Assistant voice + the conversational loop.
+  const [voiceGender, setVoiceGender] = useState<'male' | 'female'>(
+    () => (localStorage.getItem('mypa-voice-gender') as 'male' | 'female') || 'male',
+  )
+  const confirmRef = useRef<SpeechRecognitionLike | null>(null)
+  /** Set when an action was confirmed by voice: stay open and ask for more. */
+  const continueAfterRef = useRef(false)
+
   const supported = getRecognizer() !== null
 
   useEffect(() => {
@@ -162,6 +193,10 @@ export default function VoiceAssistant() {
   useEffect(() => {
     localStorage.setItem('mypa-voice-wakeword', wakeWord)
   }, [wakeWord])
+  useEffect(() => {
+    localStorage.setItem('mypa-voice-gender', voiceGender)
+    ttsGender = voiceGender
+  }, [voiceGender])
 
   useEffect(() => {
     localStorage.setItem('mypa-voice-lang', language)
@@ -243,6 +278,12 @@ export default function VoiceAssistant() {
   // Auto-interpret once recognition finishes with a final transcript.
   useEffect(() => {
     if (!listening && transcript.trim() && !result && !busy && open) {
+      // "No / nothing / bas" as the whole reply ends the conversation.
+      if (/^\s*(no|nope|nothing|nothing else|cancel|stop|bas|nahi|नहीं|बस|कुछ नहीं|रहने दो)[\s.,!]*$/i.test(transcript)) {
+        speak(language === 'hi' ? 'ठीक है।' : 'Okay.', language)
+        close()
+        return
+      }
       interpret(transcript)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -493,7 +534,22 @@ export default function VoiceAssistant() {
 
 
   const close = () => {
+    // When an action was confirmed by voice, the conversation continues:
+    // clear the card, ask for the next command, and keep listening.
+    if (continueAfterRef.current) {
+      continueAfterRef.current = false
+      setResult(null)
+      setTranscript('')
+      setError(null)
+      setPicked({})
+      speak(language === 'hi' ? 'और कुछ?' : 'Anything else?', language, true)
+      setTimeout(() => startListening(), 1500)
+      return
+    }
+
     recognitionRef.current?.abort()
+    confirmRef.current?.abort()
+    confirmRef.current = null
     setOpen(false)
     setListening(false)
     setTranscript('')
@@ -505,6 +561,129 @@ export default function VoiceAssistant() {
   const updateTask = (patch: Partial<NonNullable<Interpretation['data']['task']>>) => {
     setResult((r) => (r ? { ...r, data: { ...r.data, task: { ...r.data.task, ...patch } } } : r))
   }
+
+  // --- Conversational confirmation ------------------------------------------
+  // While a card is showing, the mic listens for "yes/send/call…", "no/cancel"
+  // or "try again", so the whole flow works without touching the screen.
+
+  /** The same action the card's primary button would run. */
+  const runPrimaryAction = () => {
+    if (!result) return
+    switch (result.intent) {
+      case 'create_task': executeCreate(); break
+      case 'complete_task': if (result.data.task?.uuid) executeComplete(); break
+      case 'query_tasks': executeQuery(); break
+      case 'call_person':
+      case 'message_person': {
+        const candidates = result.data.candidates ?? []
+        const chosen = candidates.find((c) => c.uuid === (picked.person ?? candidates[0]?.uuid))
+        if (chosen) (result.intent === 'call_person' ? executeCall : executeMessage)(chosen)
+        break
+      }
+      case 'start_meeting':
+      case 'share_screen': {
+        const invitees = (result.data.people ?? [])
+          .map((p, i) => p.candidates.find((c) => c.uuid === (picked[`p${i}`] ?? p.candidates[0]?.uuid)))
+          .filter((c): c is Candidate => !!c)
+        executeGathering(result.intent, invitees)
+        break
+      }
+      case 'create_habit': executeLife('create_habit'); break
+      case 'log_habit': if (result.data.habit?.uuid) executeLife('log_habit'); break
+      case 'create_goal': executeLife('create_goal'); break
+      case 'create_bill': executeLife('create_bill'); break
+      case 'pay_bill': if (result.data.bill?.uuid) executeLife('pay_bill'); break
+    }
+  }
+
+  const handleVoiceReply = (said: string) => {
+    const t = ` ${said.toLowerCase().trim()} `
+    const isRetry = /(try again|retry|दोबारा|फिर से)/.test(t)
+    const isNo = /\s(no|nope|cancel|stop|don'?t|nahi|नहीं|मत|रहने दो|कैंसिल)[\s.,!]/.test(t)
+    const isYes = /\s(yes|yeah|yep|ok|okay|confirm|sure|send|call|do it|go ahead|start|pay|save|done|haan|ha|हाँ|हां|ठीक है|ठीक|भेजो|भेज दो|कर दो|करो|हो जाए)[\s.,!]/.test(t)
+
+    if (isRetry) {
+      setResult(null)
+      setTimeout(() => startListening(), 300)
+      return
+    }
+    if (isNo) {
+      continueAfterRef.current = false
+      setResult(null)
+      speak(language === 'hi' ? 'ठीक है, रहने दिया।' : 'Okay, cancelled.', language)
+      return
+    }
+    if (isYes) {
+      // Calls, meetings, screen shares and navigation move the user elsewhere;
+      // only the "quiet" actions continue the conversation afterwards.
+      continueAfterRef.current = !['call_person', 'start_meeting', 'share_screen', 'query_tasks'].includes(result?.intent ?? '')
+      runPrimaryAction()
+    }
+    // Anything else is ignored — the card stays for buttons or another try.
+  }
+
+  useEffect(() => {
+    const confirmable = open && !!result && !busy && supported
+      && result.intent !== 'unknown' && result.intent !== 'navigate'
+    if (!confirmable) {
+      confirmRef.current?.abort()
+      confirmRef.current = null
+      return
+    }
+
+    let cancelled = false
+    let attempts = 0
+    const listen = () => {
+      if (cancelled || attempts >= 3) return
+      attempts += 1
+      const Ctor = getRecognizer()
+      if (!Ctor) return
+      const rec = new Ctor()
+      confirmRef.current = rec
+      rec.lang = language === 'hi' ? 'hi-IN' : 'en-IN'
+      rec.continuous = false
+      rec.interimResults = false
+      rec.onresult = (event) => {
+        const said = Array.from({ length: event.results.length })
+          .map((_, i) => event.results[i][0].transcript)
+          .join(' ')
+        handleVoiceReply(said)
+      }
+      rec.onerror = () => undefined
+      rec.onend = () => {
+        if (confirmRef.current === rec) {
+          confirmRef.current = null
+          if (!cancelled) setTimeout(listen, 400)
+        }
+      }
+      try {
+        rec.start()
+      } catch {
+        // Mic still busy — the retry via onend covers it.
+      }
+    }
+
+    // Let the spoken question finish first, so the mic doesn't hear us.
+    const startedAt = Date.now()
+    const poll = setInterval(() => {
+      if (cancelled) {
+        clearInterval(poll)
+        return
+      }
+      if (!window.speechSynthesis.speaking || Date.now() - startedAt > 6000) {
+        clearInterval(poll)
+        listen()
+      }
+    }, 250)
+
+    return () => {
+      cancelled = true
+      clearInterval(poll)
+      confirmRef.current?.abort()
+      confirmRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, result, busy, language])
 
   return (
     <>
@@ -613,6 +792,32 @@ export default function VoiceAssistant() {
                     : `While a Netvork tab is open, the mic listens for "${wakeWord}". You can also say the command in one go: "${wakeWord}, call Rahul".`}
                 </p>
               )}
+
+              {/* Assistant voice */}
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs text-slate-500">{language === 'hi' ? 'आवाज़' : 'Voice'}</span>
+                <div className="flex rounded-lg border border-slate-200 p-0.5 text-xs dark:border-slate-700">
+                  {(['male', 'female'] as const).map((g) => (
+                    <button
+                      key={g}
+                      className={clsx(
+                        'rounded-md px-2 py-0.5',
+                        voiceGender === g ? 'bg-brand-600 text-white' : 'text-slate-500',
+                      )}
+                      onClick={() => {
+                        setVoiceGender(g)
+                        ttsGender = g
+                        speak(
+                          language === 'hi' ? 'नमस्ते, मैं आपकी सहायक हूँ।' : 'Hi, this is how I sound.',
+                          language,
+                        )
+                      }}
+                    >
+                      {g === 'male' ? (language === 'hi' ? 'पुरुष' : 'Male') : (language === 'hi' ? 'महिला' : 'Female')}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 
