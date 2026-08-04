@@ -8,6 +8,7 @@ import {
   bills as billsApi, chat, goals as goalsApi, habits as habitsApi,
   meetings as meetingsApi, tasks as tasksApi,
 } from '../api/endpoints'
+import { playChime } from '../lib/alerts'
 import { useCalls } from './CallManager'
 import { Button, Input, Label, Select } from './ui'
 import { TASK_PRIORITIES } from '../types'
@@ -92,6 +93,34 @@ const PAGE_ROUTES: Record<string, string> = {
   reports: '/reports',
 }
 
+/**
+ * Spoken forms that should count as the wake word. Speech engines rarely
+ * transcribe "NV" literally, so its common mis-hearings are included; custom
+ * words match on themselves (with an optional "hey" prefix).
+ */
+function wakeVariants(word: string): string[] {
+  const w = word.trim().toLowerCase()
+  if (!w) return []
+  const variants = new Set([w, w.replace(/\s+/g, '')])
+  if (variants.has('nv')) {
+    ['envy', 'en v', 'n v', 'en vee', 'envee', 'and v', 'anwe'].forEach((v) => variants.add(v))
+  }
+  return [...variants]
+}
+
+/** Index just after the wake word in the transcript, or -1. */
+function findWakeWord(text: string, word: string): number {
+  const t = ` ${text.toLowerCase()} `
+  let best = -1
+  for (const variant of wakeVariants(word)) {
+    for (const probe of [` hey ${variant} `, ` ${variant} `, ` ${variant},`]) {
+      const i = t.lastIndexOf(probe)
+      if (i !== -1) best = Math.max(best, i + probe.length - 1)
+    }
+  }
+  return best === -1 ? -1 : best
+}
+
 function speak(text: string, language: string) {
   try {
     const utterance = new SpeechSynthesisUtterance(text)
@@ -120,7 +149,19 @@ export default function VoiceAssistant() {
   const [error, setError] = useState<string | null>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
 
+  // Hands-free wake word ("NV" by default, user-changeable, per device).
+  const [wakeEnabled, setWakeEnabled] = useState(() => localStorage.getItem('mypa-voice-wake') === '1')
+  const [wakeWord, setWakeWord] = useState(() => localStorage.getItem('mypa-voice-wakeword') || 'NV')
+  const wakeRef = useRef<SpeechRecognitionLike | null>(null)
+
   const supported = getRecognizer() !== null
+
+  useEffect(() => {
+    localStorage.setItem('mypa-voice-wake', wakeEnabled ? '1' : '0')
+  }, [wakeEnabled])
+  useEffect(() => {
+    localStorage.setItem('mypa-voice-wakeword', wakeWord)
+  }, [wakeWord])
 
   useEffect(() => {
     localStorage.setItem('mypa-voice-lang', language)
@@ -206,6 +247,77 @@ export default function VoiceAssistant() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listening])
+
+  // --- Hands-free wake word --------------------------------------------------
+  // Runs a continuous background recognizer whenever the panel is closed.
+  // Saying the wake word chimes and opens the assistant; saying the wake word
+  // followed by a command ("NV call rahul") interprets the command directly.
+  const wakeActive = wakeEnabled && supported && !open && !listening && !busy && wakeWord.trim() !== ''
+  useEffect(() => {
+    if (!wakeActive) {
+      wakeRef.current?.abort()
+      wakeRef.current = null
+      return
+    }
+
+    let stopped = false
+    const start = () => {
+      if (stopped) return
+      const Ctor = getRecognizer()
+      if (!Ctor) return
+      const rec = new Ctor()
+      wakeRef.current = rec
+      rec.lang = language === 'hi' ? 'hi-IN' : 'en-IN'
+      rec.continuous = true
+      rec.interimResults = true
+      rec.onresult = (event) => {
+        const text = Array.from({ length: event.results.length })
+          .map((_, i) => event.results[i][0].transcript)
+          .join(' ')
+        const after = findWakeWord(text, wakeWord)
+        if (after === -1) return
+
+        const command = text.slice(after).trim()
+        stopped = true
+        rec.abort()
+        wakeRef.current = null
+        playChime()
+        setOpen(true)
+        if (command.length > 2) {
+          setTranscript(command)
+          interpret(command)
+        } else {
+          // Give the mic a moment to free up, then capture the command.
+          setTimeout(() => startListening(), 350)
+        }
+      }
+      rec.onerror = (event) => {
+        // Without mic permission a restart loop would spin forever.
+        if (event.error === 'not-allowed') {
+          stopped = true
+          setWakeEnabled(false)
+          setError('Microphone permission is needed for the wake word.')
+        }
+      }
+      // Browsers end continuous sessions after a while — quietly restart.
+      rec.onend = () => {
+        if (!stopped) setTimeout(start, 700)
+      }
+      try {
+        rec.start()
+      } catch {
+        // Another session is still winding down; onend will retry.
+      }
+    }
+    start()
+
+    return () => {
+      stopped = true
+      wakeRef.current?.abort()
+      wakeRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wakeActive, wakeWord, language])
 
   const executeCreate = async () => {
     const task = result?.data.task
@@ -404,9 +516,12 @@ export default function VoiceAssistant() {
           'fixed bottom-20 right-4 z-40 flex size-13 items-center justify-center rounded-full p-4 shadow-lg transition-colors lg:bottom-5 lg:right-5',
           open ? 'bg-slate-700 text-white' : 'bg-brand-600 text-white hover:bg-brand-700',
         )}
-        title="Voice assistant"
+        title={wakeActive ? `Voice assistant — listening for "${wakeWord}"` : 'Voice assistant'}
       >
         {open ? <X className="size-5" /> : <Mic className="size-5" />}
+        {wakeActive && (
+          <span className="absolute -right-0.5 -top-0.5 size-3 animate-pulse rounded-full bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
+        )}
       </button>
 
       {open && (
@@ -470,6 +585,34 @@ export default function VoiceAssistant() {
                   : 'Try: "Call Rahul" · "Message Priya saying I\'m running late" · "Start a meeting with Rahul" · "Open messages" · "Remind me to call the bank tomorrow at 3 PM"'}
               </p>
               {error && <p className="text-xs text-red-500">{error}</p>}
+
+              {/* Hands-free wake word */}
+              <div className="flex items-center justify-between gap-2 border-t border-slate-100 pt-2 dark:border-slate-800">
+                <label className={clsx('flex items-center gap-2 text-xs', supported ? 'text-slate-500' : 'text-slate-300')}>
+                  <input
+                    type="checkbox"
+                    checked={wakeEnabled}
+                    disabled={!supported}
+                    onChange={(e) => setWakeEnabled(e.target.checked)}
+                  />
+                  {language === 'hi' ? 'बोलकर जगाएँ:' : 'Hands-free — wake on:'}
+                </label>
+                <Input
+                  className="w-24 text-center text-xs"
+                  value={wakeWord}
+                  maxLength={20}
+                  disabled={!supported}
+                  onChange={(e) => setWakeWord(e.target.value)}
+                  onBlur={() => !wakeWord.trim() && setWakeWord('NV')}
+                />
+              </div>
+              {wakeEnabled && (
+                <p className="text-[10px] leading-relaxed text-slate-400">
+                  {language === 'hi'
+                    ? `टैब खुली रहने पर माइक "${wakeWord}" सुनता रहेगा। "${wakeWord} Rahul को कॉल करो" एक साथ भी बोल सकते हैं।`
+                    : `While a Netvork tab is open, the mic listens for "${wakeWord}". You can also say the command in one go: "${wakeWord}, call Rahul".`}
+                </p>
+              )}
             </div>
           )}
 
