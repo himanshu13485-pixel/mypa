@@ -23,7 +23,7 @@ class LifeCommandService
     public function match(User $user, string $text, string $language, string $timezone): ?array
     {
         return $this->matchLogHabit($user, $text, $language)
-            ?? $this->matchPayBill($user, $text, $language)
+            ?? $this->matchPayBill($user, $text, $language, $timezone)
             ?? $this->matchCreateHabit($text, $language)
             ?? $this->matchCreateGoal($text, $language, $timezone)
             ?? $this->matchCreateBill($text, $language, $timezone);
@@ -31,7 +31,7 @@ class LifeCommandService
 
     // --- Pay a bill ----------------------------------------------------------
 
-    protected function matchPayBill(User $user, string $text, string $language): ?array
+    protected function matchPayBill(User $user, string $text, string $language, string $timezone): ?array
     {
         // "remind me to pay the electricity bill tomorrow" is a reminder, not
         // a payment record — leave anything phrased as a request to the task
@@ -58,7 +58,20 @@ class LifeCommandService
             }
 
             $spoken = $this->tidy($m[1]);
-            if ($spoken === '') {
+
+            // Qualifiers narrow the match when several bills share a name:
+            // "pay the 2000 mobile bill", "pay the mobile bill due tomorrow".
+            $amountWanted = null;
+            if (preg_match('/(?:₹|rs\.?|rupees\s*)?(\d[\d,]{0,10}(?:\.\d{1,2})?)/u', $spoken, $qm)) {
+                $amountWanted = (float) str_replace(',', '', $qm[1]);
+                $spoken = $this->tidy(str_replace($qm[0], ' ', $spoken));
+            }
+            $parsedQualifier = $this->dates->parse($spoken !== '' ? $spoken : $text, $timezone);
+            $dueWanted = $parsedQualifier['matched'] ? $parsedQualifier['due']?->toDateString() : null;
+            $spoken = $this->tidy($parsedQualifier['remaining']);
+            $spoken = $this->tidy(preg_replace('/\b(due|the|my)\b/u', ' ', $spoken));
+
+            if ($spoken === '' && $amountWanted === null && $dueWanted === null) {
                 return null;
             }
 
@@ -66,8 +79,11 @@ class LifeCommandService
                 ->where('status', '!=', 'paid')
                 ->orderBy('due_on')
                 ->get()
-                ->first(fn (Bill $b) => str_contains(mb_strtolower($b->name), $spoken)
-                    || str_contains($spoken, mb_strtolower($b->name)));
+                ->first(fn (Bill $b) => ($spoken === ''
+                        || str_contains(mb_strtolower($b->name), $spoken)
+                        || str_contains($spoken, mb_strtolower($b->name)))
+                    && ($amountWanted === null || (float) $b->amount === $amountWanted)
+                    && ($dueWanted === null || $b->due_on?->toDateString() === $dueWanted));
 
             return [
                 'intent' => 'pay_bill',
@@ -275,13 +291,16 @@ class LifeCommandService
                 }
             }
 
+            // "add car bill 1000 paid" records the bill as already settled.
+            $alreadyPaid = (bool) preg_match('/(?<!un)\b(paid|भर\s*दिया|चुका\s*दिया)\b/u', $whole);
+
             // The name is the first capture minus money/frequency noise.
             $name = $this->tidy(preg_replace(
                 [
                     '/(?:of|for|amount|₹|rs\.?|rupees|रुपये|रु\.?)\s*\d[\d,]{0,10}(?:\.\d{1,2})?/u',
                     '/\d[\d,]{0,10}(?:\.\d{1,2})?\s*(?:₹|rs\.?|rupees|रुपये|रु\.?|का)/u',
                     '/\b(monthly|weekly|quarterly|yearly|annually|every\s+(?:month|week|quarter|year)|हर\s*(?:महीने|हफ़्ते|साल)|मासिक|साप्ताहिक|सालाना|वार्षिक)\b/u',
-                    '/\b(due|bill|बिल)\b/u',
+                    '/\b(due|bill|बिल|unpaid|paid)\b/u',
                 ],
                 ' ',
                 $this->dates->parse($namePart, $timezone)['remaining'],
@@ -301,6 +320,7 @@ class LifeCommandService
                         'due_on' => ($parsed['due'] ?? now($timezone))->toDateString(),
                         'repeat_frequency' => $repeat,
                         'remind_days_before' => 1,
+                        'mark_paid' => $alreadyPaid ?: null,
                     ], fn ($v) => $v !== null),
                 ],
                 'speech' => $language === 'hi'

@@ -62,7 +62,7 @@ interface Interpretation {
     // Life intents
     habit?: { uuid?: string; name: string; frequency?: string; reminder_time?: string } | null
     goal?: { title: string; target_date?: string }
-    bill?: { uuid?: string; name: string; amount?: number | null; due_on: string; repeat_frequency?: string; remind_days_before?: number }
+    bill?: { uuid?: string; name: string; amount?: number | null; due_on: string; repeat_frequency?: string; remind_days_before?: number; mark_paid?: boolean }
     heard_name?: string
     // Task intents
     task?: {
@@ -276,9 +276,16 @@ export default function VoiceAssistant() {
         queryClient.invalidateQueries({ queryKey: ['goals'] })
         speak(language === 'hi' ? 'लक्ष्य बन गया।' : 'Goal created.', language)
       } else if (kind === 'create_bill' && result?.data.bill) {
-        await billsApi.create(result.data.bill as Record<string, unknown>)
+        const { mark_paid, ...payload } = result.data.bill
+        const created = await billsApi.create(payload as Record<string, unknown>)
+        if (mark_paid && created.uuid) await billsApi.pay(created.uuid)
         queryClient.invalidateQueries({ queryKey: ['bills'] })
-        speak(language === 'hi' ? 'बिल जुड़ गया।' : 'Bill added.', language)
+        speak(
+          mark_paid
+            ? (language === 'hi' ? 'बिल जोड़कर पेड मार्क कर दिया।' : 'Bill added and marked paid.')
+            : (language === 'hi' ? 'बिल जुड़ गया।' : 'Bill added.'),
+          language,
+        )
       } else if (kind === 'pay_bill' && result?.data.bill?.uuid) {
         await billsApi.pay(result.data.bill.uuid)
         queryClient.invalidateQueries({ queryKey: ['bills'] })
@@ -887,6 +894,14 @@ export default function VoiceAssistant() {
                       </Select>
                     </div>
                   </div>
+                  <label className="flex items-center gap-2 text-xs text-slate-500">
+                    <input
+                      type="checkbox"
+                      checked={result.data.bill.mark_paid ?? false}
+                      onChange={(e) => updateLife('bill', { mark_paid: e.target.checked || undefined })}
+                    />
+                    {language === 'hi' ? 'पहले से पेड है (रिकॉर्ड के लिए)' : 'Already paid (record only)'}
+                  </label>
                   <div className="flex justify-end gap-2">
                     <Button variant="secondary" size="sm" onClick={() => setResult(null)}>Try again</Button>
                     <Button size="sm" disabled={busy} onClick={() => executeLife('create_bill')}>

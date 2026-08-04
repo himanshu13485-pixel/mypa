@@ -119,6 +119,35 @@ class VoiceLifeTest extends TestCase
         $this->assertEquals('water', $result['data']['heard_name']);
     }
 
+    public function test_pay_bill_amount_qualifier_picks_the_right_one(): void
+    {
+        \App\Models\Bill::create(['user_id' => $this->user->id, 'name' => 'Mobile', 'amount' => 5000, 'due_on' => now()->addDay(), 'status' => 'unpaid']);
+        $wanted = \App\Models\Bill::create(['user_id' => $this->user->id, 'name' => 'Mobile', 'amount' => 2000, 'due_on' => now()->addDays(2), 'status' => 'unpaid']);
+
+        $result = $this->interpret('Pay the 2000 mobile bill');
+
+        $this->assertEquals('pay_bill', $result['intent']);
+        $this->assertEquals($wanted->uuid, $result['data']['bill']['uuid']);
+    }
+
+    public function test_create_bill_already_paid(): void
+    {
+        $result = $this->interpret('Add car bill of 1000 paid');
+
+        $this->assertEquals('create_bill', $result['intent']);
+        $this->assertEquals('Car', $result['data']['bill']['name']);
+        $this->assertTrue($result['data']['bill']['mark_paid'] ?? false);
+    }
+
+    public function test_create_bill_unpaid_word_does_not_mark_paid(): void
+    {
+        $result = $this->interpret('Add car bill rs. 1000 for sunday unpaid');
+
+        $this->assertEquals('create_bill', $result['intent']);
+        $this->assertEquals('Car', $result['data']['bill']['name']);
+        $this->assertArrayNotHasKey('mark_paid', $result['data']['bill']);
+    }
+
     public function test_hindi_habit_command(): void
     {
         $result = $this->interpret('रोज़ पानी पीने की आदत बनाओ', 'hi');
