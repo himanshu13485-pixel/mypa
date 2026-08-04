@@ -4,11 +4,13 @@ import { Check, Flag, Search, UserPlus, X } from 'lucide-react'
 import { badges as badgesApi, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
 import { REPORT_REASONS } from '../types'
 import { errorMessage } from '../api/client'
+import { useToast } from '../components/Toast'
 import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import { Badge, Button, Card, EmptyState, ErrorNote, Spinner } from '../components/ui'
 
 export default function ConnectionsPage() {
+  const { toastError } = useToast()
   const queryClient = useQueryClient()
   const user = useAuthStore((s) => s.user)
   const [query, setQuery] = useState('')
@@ -45,7 +47,7 @@ export default function ConnectionsPage() {
     const details = prompt('Details (optional):') ?? undefined
     reportsApi.fileUser(identifier, reason, details)
       .then((res) => alert((res as { message?: string }).message ?? 'Reported.'))
-      .catch((err) => alert(errorMessage(err)))
+      .catch((err) => toastError(errorMessage(err)))
   }
 
   const search = async () => {

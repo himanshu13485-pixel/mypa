@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { badges as badgesApi, files as filesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import { useToast } from '../components/Toast'
 import { PickUserModal } from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card, EmptyState, Spinner } from '../components/ui'
@@ -34,6 +35,7 @@ async function authedDownload(uuid: string, name: string) {
 }
 
 export default function FilesPage() {
+  const { toastError } = useToast()
   const queryClient = useQueryClient()
 
   // Attending this section clears its share notifications.
@@ -79,7 +81,7 @@ export default function FilesPage() {
   const uploadMutation = useMutation({
     mutationFn: (fileList: File[]) => filesApi.upload(fileList, folder),
     onSuccess: invalidate,
-    onError: (err) => alert(errorMessage(err)),
+    onError: (err) => toastError(errorMessage(err)),
   })
 
   const usage = data?.usage
@@ -370,7 +372,7 @@ export default function FilesPage() {
                               alert(res.message)
                               queryClient.invalidateQueries({ queryKey: ['files-shared-by-me'] })
                             })
-                            .catch((err) => alert(errorMessage(err)))
+                            .catch((err) => toastError(errorMessage(err)))
                         }}
                       >
                         ×
@@ -396,7 +398,7 @@ export default function FilesPage() {
                 : filesApi.share(shareTarget.uuid, identifier)
             call
               .then((res) => alert((res as { data?: { message?: string } }).data?.message ?? 'Shared.'))
-              .catch((err) => alert(errorMessage(err)))
+              .catch((err) => toastError(errorMessage(err)))
           }}
         />
       )}

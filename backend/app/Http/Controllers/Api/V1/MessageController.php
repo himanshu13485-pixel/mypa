@@ -39,8 +39,12 @@ class MessageController extends Controller
             }
         }
 
+        // Read state is one value for the whole conversation rather than a
+        // lookup per message: how far the others have read to.
+        $othersReadAt = $conversation->othersReadAt($me);
+
         $messages = $query->limit(30)->get()->reverse()->values()
-            ->map(fn ($m) => $m->serializeFor($me));
+            ->map(fn ($m) => $m->serializeFor($me, $othersReadAt));
 
         return response()->json(['data' => $messages]);
     }
@@ -49,6 +53,15 @@ class MessageController extends Controller
     {
         $me = $request->user();
         abort_unless($conversation->hasMember($me), 403);
+
+        // A block has to hold for the life of the conversation, not just at
+        // the moment it was opened. Someone who blocked you is not told that
+        // their own block is the reason — that is their business, not yours.
+        if ($block = $conversation->blockBetween($me)) {
+            abort(403, $block === 'mine'
+                ? 'You have blocked this person. Unblock them to send messages.'
+                : 'This message could not be delivered.');
+        }
 
         $maxKb = (int) config('mypa.files.max_upload_kb');
 
@@ -66,8 +79,19 @@ class MessageController extends Controller
             $replyTo = $conversation->messages()->where('uuid', $data['reply_to'])->first();
         }
 
+        $incoming = 0;
         foreach ($request->file('attachments', []) as $upload) {
             \App\Support\UploadGuard::assertSafe($upload);
+            $incoming += (int) $upload->getSize();
+        }
+
+        // Attachments land on the same disk as the user's Drive and now count
+        // against the same quota; without this, chat was an unmetered way to
+        // fill the server.
+        if ($incoming > 0 && ! app(\App\Services\SubscriptionEntitlementService::class)->canUploadBytes($me, $incoming)) {
+            return response()->json([
+                'message' => 'This attachment would take you over your storage limit. Free up space or upgrade your plan.',
+            ], 422);
         }
 
         $message = $conversation->messages()->create([

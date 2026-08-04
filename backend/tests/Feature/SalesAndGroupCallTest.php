@@ -42,6 +42,21 @@ class SalesAndGroupCallTest extends TestCase
         $this->admin->roles()->attach(Role::where('slug', 'admin')->first()->id);
     }
 
+    /**
+     * Direct calls honour "who can call me", whose default is 'connections' —
+     * so a one-to-one call test has to establish that the two people actually
+     * know each other. Group calls are exempt: joining the group is consent.
+     */
+    private function connect(User $a, User $b): void
+    {
+        \App\Models\Connection::create([
+            'requester_id' => $a->id,
+            'addressee_id' => $b->id,
+            'status' => 'accepted',
+            'responded_at' => now(),
+        ]);
+    }
+
     private function makeSalesperson(): User
     {
         $sales = User::factory()->create(['name' => 'Seller']);
@@ -218,6 +233,7 @@ class SalesAndGroupCallTest extends TestCase
     public function test_direct_calls_still_work_one_to_one(): void
     {
         Event::fake([CallSignal::class]);
+        $this->connect($this->alice, $this->bob);
         $conversation = \App\Models\Conversation::directBetween($this->alice, $this->bob);
 
         $uuid = $this->actingAs($this->alice)
@@ -245,6 +261,8 @@ class SalesAndGroupCallTest extends TestCase
     {
         Event::fake([CallSignal::class]);
         $this->carol->forceFill(['username' => 'carol1'])->save();
+        $this->connect($this->alice, $this->bob);
+        $this->connect($this->alice, $this->carol);
         $conversation = \App\Models\Conversation::directBetween($this->alice, $this->bob);
 
         $uuid = $this->actingAs($this->alice)

@@ -5,9 +5,10 @@ import { Calendar, Copy, LogIn, Video } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import { useToast } from '../components/Toast'
 import type { MeetingItem } from '../types'
 import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner,
+  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, Spinner,
 } from '../components/ui'
 
 export function meetingLink(code: string): string {
@@ -15,12 +16,13 @@ export function meetingLink(code: string): string {
 }
 
 export default function MeetingsPage() {
+  const { toastError } = useToast()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [joinCode, setJoinCode] = useState('')
   const [showSchedule, setShowSchedule] = useState(false)
 
-  const { data: meetings, isLoading } = useQuery({
+  const { data: meetings, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ['meetings'],
     queryFn: meetingsApi.list,
     refetchInterval: 30_000,
@@ -32,7 +34,7 @@ export default function MeetingsPage() {
       queryClient.invalidateQueries({ queryKey: ['meetings'] })
       navigate(`/meetings/room/${m.code}`)
     },
-    onError: (err) => alert(errorMessage(err)),
+    onError: (err) => toastError(errorMessage(err)),
   })
 
   const join = () => {
@@ -98,6 +100,10 @@ export default function MeetingsPage() {
       {/* My meetings */}
       {isLoading ? (
         <Spinner />
+      ) : isError ? (
+        <Card>
+          <LoadError what="your meetings" message={errorMessage(loadError)} onRetry={() => refetch()} />
+        </Card>
       ) : !meetings?.length ? (
         <Card>
           <EmptyState title="No meetings yet" hint="Start an instant meeting or schedule one and share its link." />
@@ -154,7 +160,7 @@ export default function MeetingsPage() {
 }
 
 function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true })
+  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '' })
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<MeetingItem | null>(null)
 
@@ -165,6 +171,7 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         type: form.type,
         scheduled_at: form.scheduled_at || null,
         requires_approval: form.requires_approval,
+        passcode: form.passcode.trim() || null,
       }),
     onSuccess: (m) => {
       setCreated(m)
@@ -191,6 +198,12 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               <Copy className="size-3.5" />
             </Button>
           </div>
+          {created.has_passcode && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+              Passcode <span className="font-mono font-semibold">{created.passcode}</span> — send this
+              separately from the link, or it defeats the point.
+            </p>
+          )}
           <div className="flex justify-end">
             <Button onClick={onClose}>Done</Button>
           </div>
@@ -221,6 +234,19 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               <Label>When (optional)</Label>
               <Input type="datetime-local" value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
             </div>
+          </div>
+          <div>
+            <Label>Passcode (optional)</Label>
+            <Input
+              value={form.passcode}
+              onChange={(e) => setForm({ ...form, passcode: e.target.value.replace(/[^a-zA-Z0-9]/g, '') })}
+              placeholder="4–12 letters or digits"
+              maxLength={12}
+              autoComplete="off"
+            />
+            <p className="mt-1 text-[11px] text-slate-400">
+              Anyone joining has to type this as well as the link. Share it separately.
+            </p>
           </div>
           <label className="flex items-center gap-2 text-sm">
             <input

@@ -337,6 +337,7 @@ export const chat = {
   react: (uuid: string, messageUuid: string, emoji: string) =>
     api.post<{ data: ChatMessage }>(`/conversations/${uuid}/messages/${messageUuid}/react`, { emoji }).then((r) => r.data.data),
   markRead: (uuid: string) => api.post(`/conversations/${uuid}/read`),
+  typing: (uuid: string) => api.post(`/conversations/${uuid}/typing`),
   toggleMute: (uuid: string) => api.post(`/conversations/${uuid}/mute`),
   attachmentUrl: (uuid: string, attachmentId: number) => `/api/v1/conversations/${uuid}/attachments/${attachmentId}`,
 }
@@ -400,11 +401,23 @@ export const meetings = {
     api.post<{ data: import('../types').MeetingItem }>('/meetings', payload).then((r) => r.data.data),
   show: (code: string) =>
     api.get<{ data: import('../types').MeetingItem }>(`/meetings/${code}`).then((r) => r.data.data),
-  join: (code: string) =>
-    api.post<{ data: (import('../types').MeetingItem & { joined_peers?: { uuid: string; name: string }[] }) | { waiting: true } }>(
-      `/meetings/${code}/join`,
-    ).then((r) => r.data.data),
+  join: (code: string, opts: { display_name?: string; passcode?: string; mic_on?: boolean; cam_on?: boolean } = {}) =>
+    api.post<{
+      data:
+        | (import('../types').MeetingItem & {
+            joined_peers?: import('../types').MeetingParticipant[]
+            heartbeat_seconds?: number
+          })
+        | { waiting: true }
+    }>(`/meetings/${code}/join`, opts).then((r) => r.data.data),
   leave: (code: string) => api.post(`/meetings/${code}/leave`),
+  heartbeat: (code: string) =>
+    api.post<{ data: import('../types').MeetingHeartbeat }>(`/meetings/${code}/heartbeat`).then((r) => r.data.data),
+  hostAction: (code: string, action: import('../types').MeetingHostAction, userUuid?: string) =>
+    api.post<{ message: string }>(`/meetings/${code}/host-action`, {
+      action,
+      ...(userUuid ? { user_uuid: userUuid } : {}),
+    }).then((r) => r.data),
   react: (code: string, emoji: string) => api.post(`/meetings/${code}/react`, { emoji }),
   admit: (code: string, userUuid: string, allow: boolean) =>
     api.post(`/meetings/${code}/admit`, { user_uuid: userUuid, allow }),

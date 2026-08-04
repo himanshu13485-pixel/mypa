@@ -89,7 +89,32 @@ class ConversationController extends Controller
 
         $conversation->members()->updateExistingPivot($request->user()->id, ['last_read_at' => now()]);
 
+        // Tell the senders. Without this the timestamp was recorded and never
+        // went anywhere, so their ticks never changed — which is why every
+        // message looked read the instant it was sent.
+        broadcast(new \App\Events\MessageUpdated($conversation, '', 'read'))->toOthers();
+
         return response()->json(['message' => 'Conversation marked read.']);
+    }
+
+    /**
+     * Someone is typing. Deliberately ephemeral — nothing is stored, the
+     * signal just goes out to the other members and expires on their side.
+     */
+    public function typing(Request $request, Conversation $conversation): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        // A block should stop the "typing…" line too, or it leaks presence to
+        // someone who has been shut out.
+        if ($conversation->blockBetween($me)) {
+            return response()->json(['message' => 'ok']);
+        }
+
+        broadcast(new \App\Events\UserTyping($conversation, $me))->toOthers();
+
+        return response()->json(['message' => 'ok']);
     }
 
     public function toggleMute(Request $request, Conversation $conversation): JsonResponse
@@ -148,8 +173,25 @@ class ConversationController extends Controller
             ->when($lastRead, fn ($q) => $q->where('created_at', '>', $lastRead))
             ->count();
 
-        $onlineVisible = ! $other
-            || ($other->settings?->privacyValue('online_status_visibility') ?? 'connections') !== 'nobody';
+        // "Last seen" has its own setting. It used to be answered with the
+        // online-status one, so the Settings toggle for it did nothing at all.
+        // Both also honour 'connections', which was previously ignored — only
+        // 'nobody' had any effect.
+        $visibleTo = function (string $key, string $fallback) use ($other, $me): bool {
+            if (! $other) {
+                return true;
+            }
+            $pref = $other->settings?->privacyValue($key) ?? $fallback;
+
+            return match ($pref) {
+                'nobody' => false,
+                'connections' => app(AppIdService::class)->areConnected($me, $other),
+                default => true,
+            };
+        };
+
+        $onlineVisible = $visibleTo('online_status_visibility', 'connections');
+        $lastSeenVisible = $visibleTo('last_seen_visibility', 'connections');
 
         return [
             'uuid' => $conversation->uuid,
@@ -163,7 +205,8 @@ class ConversationController extends Controller
                 'username' => $other->username,
                 'app_id' => $other->appId?->app_id,
                 'photo_path' => $other->profile?->photo_path,
-                'last_seen_visible' => $onlineVisible,
+                'last_seen_visible' => $lastSeenVisible,
+                'online_visible' => $onlineVisible,
             ] : null,
             'members_count' => $conversation->members_count ?? $conversation->members->count(),
             'unread_count' => $unread,

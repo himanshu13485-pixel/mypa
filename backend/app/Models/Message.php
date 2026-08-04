@@ -63,11 +63,21 @@ class Message extends Model
         return $this->hasMany(MessageDeletion::class);
     }
 
-    public function serializeFor(User $viewer): array
+    /**
+     * @param  \Illuminate\Support\Carbon|null  $othersReadAt  How far the OTHER
+     *   members have read to — the earliest of their last_read_at, so in a
+     *   group a message counts as read only once everyone has seen it. Null
+     *   means at least one of them has never opened the conversation.
+     */
+    public function serializeFor(User $viewer, $othersReadAt = null): array
     {
         $deletedForEveryone = $this->trashed();
 
         return [
+            // Drives the tick on your own messages. It used to be hardcoded to
+            // a double tick, which meant every message you ever sent looked
+            // like it had been read.
+            'read_by_others' => $othersReadAt !== null && $this->created_at <= $othersReadAt,
             'uuid' => $this->uuid,
             'type' => $deletedForEveryone ? 'text' : $this->type,
             'body' => $deletedForEveryone ? null : $this->body,

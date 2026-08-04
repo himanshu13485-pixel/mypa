@@ -5,10 +5,12 @@ import { format } from 'date-fns'
 import { clsx } from 'clsx'
 import { bills as billsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import { useToast } from '../components/Toast'
 import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner } from '../components/ui'
 import { BILL_FREQUENCIES } from '../types'
 
 export default function BillsPage() {
+  const { toastError } = useToast()
   const queryClient = useQueryClient()
   const [filter, setFilter] = useState<'unpaid' | 'paid' | ''>('unpaid')
   const { data, isLoading } = useQuery({
@@ -50,7 +52,7 @@ export default function BillsPage() {
         alert(res.message)
       }
     },
-    onError: (err) => alert(errorMessage(err)),
+    onError: (err) => toastError(errorMessage(err)),
   })
 
   return (

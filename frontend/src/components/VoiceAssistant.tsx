@@ -225,7 +225,8 @@ export default function VoiceAssistant() {
       <button
         onClick={() => (open ? close() : setOpen(true))}
         className={clsx(
-          'fixed bottom-5 right-5 z-40 flex size-13 items-center justify-center rounded-full p-4 shadow-lg transition-colors',
+          // Lifted clear of the mobile bottom bar; back to the corner on desktop.
+          'fixed bottom-20 right-4 z-40 flex size-13 items-center justify-center rounded-full p-4 shadow-lg transition-colors lg:bottom-5 lg:right-5',
           open ? 'bg-slate-700 text-white' : 'bg-brand-600 text-white hover:bg-brand-700',
         )}
         title="Voice assistant"
@@ -234,7 +235,7 @@ export default function VoiceAssistant() {
       </button>
 
       {open && (
-        <div className="fixed bottom-24 right-5 z-40 w-96 max-w-[calc(100vw-2.5rem)] rounded-xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="fixed bottom-36 right-4 z-40 w-96 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-900 lg:bottom-24 lg:right-5">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold">Voice assistant</h2>
             <div className="flex rounded-lg border border-slate-200 p-0.5 text-xs dark:border-slate-700">

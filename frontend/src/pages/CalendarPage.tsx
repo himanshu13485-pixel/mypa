@@ -11,6 +11,7 @@ import { events as eventsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
+import { useIsPhone } from '../lib/useMediaQuery'
 import { EVENT_TYPES, type CalendarEvent, type CalendarFeedTask } from '../types'
 
 interface EventFormState {
@@ -39,6 +40,7 @@ const emptyEvent = (date?: Date): EventFormState => ({
 
 export default function CalendarPage() {
   const queryClient = useQueryClient()
+  const isPhone = useIsPhone()
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CalendarEvent | null>(null)
@@ -174,6 +176,68 @@ export default function CalendarPage() {
 
       {isLoading ? (
         <Spinner />
+      ) : isPhone ? (
+        /* A 7-column month needs 640px, so on a phone it becomes a sideways
+           pan through 21px chips. An agenda reads the way a phone calendar
+           should: this month's days that actually have something on them. */
+        <Card className="p-0">
+          {days.filter((day) => isSameMonth(day, month) && itemsByDay.has(format(day, 'yyyy-MM-dd'))).length === 0 ? (
+            <p className="px-4 py-10 text-center text-sm text-slate-400">
+              Nothing scheduled in {format(month, 'MMMM')}.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+              {days
+                .filter((day) => isSameMonth(day, month) && itemsByDay.has(format(day, 'yyyy-MM-dd')))
+                .map((day) => {
+                  const key = format(day, 'yyyy-MM-dd')
+                  const items = itemsByDay.get(key)!
+                  return (
+                    <li key={key} className="flex gap-3 px-3 py-2.5">
+                      <div className="w-11 shrink-0 text-center">
+                        <p className="text-[10px] uppercase text-slate-400">{format(day, 'EEE')}</p>
+                        <p className={clsx(
+                          'mx-auto flex size-8 items-center justify-center rounded-full text-sm font-semibold',
+                          isToday(day) && 'bg-brand-600 text-white',
+                        )}>
+                          {format(day, 'd')}
+                        </p>
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        {items.events.map((event) => (
+                          <button
+                            key={event.uuid}
+                            className="tap flex w-full items-center gap-2 rounded-lg bg-violet-50 px-2.5 py-2 text-left text-sm text-violet-800 dark:bg-violet-950 dark:text-violet-200"
+                            style={event.color ? { backgroundColor: event.color + '22', color: event.color } : undefined}
+                            onClick={() => openEdit(event)}
+                          >
+                            <span className="shrink-0 text-xs tabular-nums opacity-70">
+                              {event.all_day ? 'All day' : format(new Date(event.starts_at), 'HH:mm')}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">{event.title}</span>
+                          </button>
+                        ))}
+                        {items.tasks.map((task) => (
+                          <Link
+                            key={task.uuid}
+                            to={`/tasks?open=${task.uuid}`}
+                            className={clsx(
+                              'tap flex items-center rounded-lg px-2.5 py-2 text-sm',
+                              task.status === 'completed'
+                                ? 'bg-slate-100 text-slate-400 line-through dark:bg-slate-800'
+                                : 'bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300',
+                            )}
+                          >
+                            <span className="truncate">{task.title}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </li>
+                  )
+                })}
+            </ul>
+          )}
+        </Card>
       ) : (
         <Card className="overflow-x-auto p-0">
           <div className="grid min-w-[640px] grid-cols-7 border-b border-slate-200 text-center text-xs font-medium text-slate-500 dark:border-slate-800">

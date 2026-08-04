@@ -4,6 +4,121 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Added — 2026-08-04 (Chat presence, and failures that explain themselves)
+- Read receipts actually move. `last_read_at` was recorded and never sent
+  anywhere, and the tick was hardcoded to a double check — so every message
+  you ever sent looked like it had been read. Opening a conversation now tells
+  the senders, one tick means sent, two means read, and in a group a message
+  counts as read only once everyone has seen it.
+- Typing indicators, broadcast immediately and stored nowhere. Each signal
+  keeps the name alive for a few seconds and then lapses, so a sender who
+  closes their tab mid-word does not leave it stuck on. Sent at most once
+  every two seconds rather than per keystroke, and suppressed by a block.
+- Toast notifications replace `window.alert()` on the error paths — a native
+  dialog steals focus, cannot be styled, and on a phone dropped a system modal
+  over whatever you were doing, including a live video call.
+- An ErrorBoundary at the root. A render error used to unmount the tree and
+  leave a blank page, which to the person looking at it was indistinguishable
+  from their data having vanished.
+- A shared load-error state with a retry, on the busiest pages. Lists used to
+  fall through to their empty state on failure, so "the server is down" and
+  "you have nothing here" looked identical — and the reassuring one was wrong.
+
+### Security — 2026-08-04 (Unverified accounts could use the app)
+- Signing up with an address you do not own no longer gets you in. Registration
+  has to return a token (confirming the address is itself an authenticated
+  call), but that token opened every endpoint in the app: no route carried a
+  verification check, `EnsureActiveUser` only blocked suspended accounts, and
+  the SPA's route guard only looked for a token. Ignoring the OTP screen and
+  following any deep link — a meeting invite, for instance — landed you in a
+  fully working account, complete with an App ID other people could find and
+  add to groups.
+- The token issued at registration is now a limited one. A new
+  `EnsureVerifiedEmail` middleware covers the authenticated route group; only
+  reading your own account, resending or entering the code, and logging out
+  opt out of it. Refusals carry `code: email_unverified` so the client can
+  route to the verification screen instead of showing a bare error.
+- Unverified sessions land on a new `/verify-email` screen. `RequireAuth` gates
+  on a server-provided `email_verification_required` flag, so the client and
+  the API apply the same rule.
+- Seeded, admin-created and already-verified accounts are unaffected — both
+  paths set `email_verified_at` on creation.
+
+### Fixed — 2026-08-04 (Privacy, blocks and storage)
+- Logging out now closes the WebSocket. `disconnectEcho()` existed but was
+  never called, so the socket stayed subscribed to the previous user's
+  private channel — on a shared browser the next person to sign in inherited
+  their call and meeting signals.
+- Blocking someone now stops them messaging and calling you. Blocks were only
+  checked when a conversation was first opened, so once one existed the block
+  did nothing. Group chats are unaffected: joining a group is consent. The
+  blocked party is not told a block is the reason; the blocker is.
+- "Who can call me: connections" is enforced. Only `nobody` had any effect
+  before, so the setting worked as an on/off switch. Applied to inviting
+  someone into a live call as well, which was the same hole via another door.
+- "Who can see my last seen" now controls last seen. It was answered with the
+  online-status setting, so the toggle did nothing. Both settings also honour
+  `connections`, which was previously ignored.
+- Chat attachments and meeting chat files count against the storage quota.
+  Neither was checked on upload nor included in the usage figure, so chat was
+  an unmetered way to fill the disk and the Files page under-reported.
+
+### Fixed — 2026-08-04 (Adding people to Family & Teams)
+- The member typeahead searched only your accepted connections, so anyone
+  without connections got an empty dropdown and no explanation — the field
+  looked broken even though typing an exact username always worked. It now
+  searches everyone you are allowed to reach (name, username, email or App
+  ID), listing your connections first and labelling the rest "not connected".
+  Discovery still honours `who_can_find_me`, blocks in either direction and
+  account status, and a stranger's email address is never returned.
+- The suggestion list is rendered through a portal at fixed coordinates and
+  flips above the field when the keyboard leaves no room below. It was
+  clipped to nothing inside the scrolling modal sheet on phones.
+- An empty result now says so, instead of silently showing nothing.
+
+### Changed — 2026-08-04 (Phone-friendly pass)
+- Form fields are 16px on phones. Below that iOS zooms the whole page on
+  focus and never zooms back, which was the single worst thing about using
+  the site on an iPhone.
+- App shell uses `h-dvh` instead of `h-screen`, so the layout no longer
+  mis-measures itself when a mobile browser's URL bar shows or hides.
+  Messages dropped its `calc(100vh - 8rem)` for a plain flex fill.
+- Bottom tab bar on phones (Home / Tasks / Chats / Meet / More) with unread
+  badges, so the common screens are one tap instead of two via a hamburger.
+  Hidden inside a live meeting or screen share, which want the whole screen.
+- Safe-area insets honoured for the notch, rounded corners and home
+  indicator (`viewport-fit=cover` was already set but nothing respected it).
+- Every icon-only button gets a 44px touch area on phones without changing
+  how it looks, and the shared Button / Input / Select hit a 44px floor.
+  Header and drawer controls were 20–32px before.
+- Modals become bottom sheets on phones, scrolling internally instead of
+  pushing the page around.
+- Calendar shows an agenda list on phones; the 7-column month grid needed
+  640px and turned into a sideways pan through 21px chips.
+- Meeting controls: the essentials stay on the bar, the rest move into an
+  overflow sheet — eighteen buttons wrapped into four rows at 375px and
+  covered the video. Screen share is hidden on mobile browsers, which do
+  not implement getDisplayMedia.
+
+### Added — 2026-08-04 (Meetings: Zoom-style controls)
+- Presence heartbeat + `mypa:reap-meetings` scheduler: a closed tab, crashed
+  browser or dropped connection now empties the room and ends the meeting, the
+  same as a clean leave. Leaving on tab close is sent with `keepalive`.
+- Host controls: mute one / mute all / ask to unmute, stop someone's video,
+  remove a participant (who cannot walk back in), lock the meeting, spotlight,
+  co-hosts, and handing the host seat over. A host who leaves mid-meeting hands
+  the controls to a co-host, or to whoever has been there longest.
+- Optional meeting passcode on top of the join code; visible only to moderators.
+- Pre-join lobby: camera preview, live mic meter, device pickers, and
+  join-muted / camera-off before anyone can see you.
+- Camera reverse (front/back on phones, next webcam on desktop) plus live
+  camera / microphone / speaker switching mid-meeting.
+- Picture-in-picture: the meeting floats over other apps (Document PiP where
+  available, single-video PiP elsewhere) and a screen wake lock.
+- Gallery / speaker / sidebar layouts, pin-for-me, hide-my-own-tile, per-peer
+  connection quality from `getStats()`, and automatic ICE restart when a peer
+  connection drops.
+
 ### Changed — 2026-07-30 (Identity overhaul)
 - Registration is mobile-first: ISD country code + mobile + username; email optional.
 - Mobile verification via app-to-app OTP (in-app notification, no SMS network);
