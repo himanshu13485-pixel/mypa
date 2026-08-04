@@ -54,6 +54,13 @@ return [
         'subject' => env('VAPID_SUBJECT', 'mailto:admin@mypa.local'),
     ],
 
+    // Voice assistant AI fallback: interprets phrasings the pattern rules
+    // miss. Fully optional — with no key the assistant runs on rules alone.
+    'voice' => [
+        'ai_key' => env('VOICE_AI_KEY'),
+        'ai_model' => env('VOICE_AI_MODEL', 'claude-opus-5'),
+    ],
+
     'webrtc' => [
         'stun_url' => env('STUN_SERVER_URL'),
         'turn_url' => env('TURN_SERVER_URL'),

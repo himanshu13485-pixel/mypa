@@ -14,8 +14,12 @@ use Illuminate\Support\Carbon;
  */
 class VoiceCommandService
 {
-    public function __construct(protected VoiceDateParser $dates)
-    {
+    public function __construct(
+        protected VoiceDateParser $dates,
+        protected CommunicationCommandService $communication,
+        protected AiIntentResolver $ai,
+        protected ContactResolver $contacts,
+    ) {
     }
 
     public function interpret(User $user, string $transcript, string $language = 'en'): array
@@ -25,6 +29,12 @@ class VoiceCommandService
 
         if ($text === '') {
             return $this->unknown($language);
+        }
+
+        // Communication commands (calls, messages, meetings, screen, navigate)
+        // are checked first: "show my calls" must never become a task query.
+        if ($comm = $this->communication->match($user, $text, $language)) {
+            return $comm;
         }
 
         if ($this->matchesQuery($text)) {
@@ -56,8 +66,126 @@ class VoiceCommandService
             }
         }
 
+        // Nothing matched a rule. Before assuming "new task" (the historic
+        // default), let the AI interpreter have a look — it catches phrasings
+        // the patterns miss ("get rahul on the line for me"). When it is not
+        // configured, or agrees this is a task, behavior is unchanged.
+        if (! $explicitCreate && ($aiResult = $this->interpretWithAi($user, $transcript, $text, $language))) {
+            return $aiResult;
+        }
+
         // Default: create a task / reminder.
         return $this->interpretCreate($user, $text, $language, $tz);
+    }
+
+    // --- AI fallback ---------------------------------------------------------
+
+    /**
+     * Map the model's classification onto the exact same intent payloads the
+     * rules produce, so the frontend cannot tell the difference. Task intents
+     * are handed back to the rule parsers (their date handling is better).
+     *
+     * @return array<string, mixed>|null null = fall through to rule default
+     */
+    protected function interpretWithAi(User $user, string $transcript, string $text, string $language): ?array
+    {
+        $result = $this->ai->resolve($user, $transcript, $language);
+
+        if ($result === null) {
+            return null;
+        }
+
+        switch ($result['intent']) {
+            case 'call_person':
+            case 'message_person':
+                $spoken = trim($result['person'] ?? '');
+                if ($spoken === '') {
+                    return null;
+                }
+                $extra = $result['intent'] === 'call_person'
+                    ? ['call_type' => ($result['call_type'] ?? 'audio') === 'video' ? 'video' : 'audio']
+                    : ['text' => trim($result['text'] ?? '')];
+
+                return $this->personIntentFromAi($user, $result['intent'], $spoken, $language, $extra);
+
+            case 'start_meeting':
+            case 'share_screen':
+                $people = collect($result['people'] ?? [])
+                    ->map(fn ($n) => trim((string) $n))
+                    ->filter()
+                    ->map(fn (string $name) => [
+                        'spoken' => $name,
+                        'candidates' => $this->contacts->resolve($user, $name)->map(fn (User $u) => [
+                            'uuid' => $u->uuid,
+                            'name' => $u->name,
+                            'username' => $u->username,
+                            'app_id' => optional($u->appId)->app_id,
+                        ])->all(),
+                    ]);
+
+                return [
+                    'intent' => $result['intent'],
+                    'language' => $language,
+                    'data' => ['people' => $people->values()->all()],
+                    'speech' => $result['speech'] ?? ($language === 'hi' ? 'ठीक है।' : 'Okay.'),
+                ];
+
+            case 'navigate':
+                $page = trim($result['page'] ?? '');
+
+                return $page === '' ? null : [
+                    'intent' => 'navigate',
+                    'language' => $language,
+                    'data' => ['page' => $page],
+                    'speech' => $result['speech'] ?? ($language === 'hi' ? 'ठीक है, खोल रही हूँ।' : "Okay, opening {$page}."),
+                ];
+
+            case 'complete_task':
+                return $this->interpretComplete($user, $text, $language);
+
+            case 'query_tasks':
+                return $this->interpretQuery($text, $language);
+
+            default:
+                // create_task or anything else: the rule-based creator handles it.
+                return null;
+        }
+    }
+
+    protected function personIntentFromAi(User $user, string $intent, string $spoken, string $language, array $extra): array
+    {
+        $candidates = $this->contacts->resolve($user, $spoken);
+
+        $verb = $intent === 'call_person'
+            ? ($language === 'hi' ? 'कॉल' : 'call')
+            : ($language === 'hi' ? 'मैसेज' : 'message');
+
+        $speech = match (true) {
+            $candidates->isEmpty() => $language === 'hi'
+                ? "माफ़ कीजिए, आपके कनेक्शन में \"{$spoken}\" नहीं मिला।"
+                : "Sorry, I couldn't find \"{$spoken}\" in your connections.",
+            $candidates->count() > 1 => $language === 'hi'
+                ? "\"{$spoken}\" नाम के कई लोग मिले — कृपया चुनें।"
+                : "I found more than one match for \"{$spoken}\" — please pick one.",
+            default => $language === 'hi'
+                ? "{$candidates->first()->name} को {$verb} करें?"
+                : "Ready to {$verb} {$candidates->first()->name}?",
+        };
+
+        return [
+            'intent' => $intent,
+            'language' => $language,
+            'data' => $extra + [
+                'person_spoken' => $spoken,
+                'candidates' => $candidates->map(fn (User $u) => [
+                    'uuid' => $u->uuid,
+                    'name' => $u->name,
+                    'username' => $u->username,
+                    'app_id' => optional($u->appId)->app_id,
+                ])->all(),
+            ],
+            'speech' => $speech,
+        ];
     }
 
     // --- Intent: query -------------------------------------------------------

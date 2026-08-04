@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
-import { Check, Loader2, Mic, X } from 'lucide-react'
+import { Check, Loader2, Mic, MonitorUp, Phone, Users, Video, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { api, errorMessage } from '../api/client'
-import { tasks as tasksApi } from '../api/endpoints'
+import { chat, meetings as meetingsApi, tasks as tasksApi } from '../api/endpoints'
+import { useCalls } from './CallManager'
 import { Button, Input, Label, Select } from './ui'
 import { TASK_PRIORITIES } from '../types'
 
@@ -31,12 +32,30 @@ function getRecognizer(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
 }
 
+/** A connection the assistant matched against a spoken name. */
+interface Candidate {
+  uuid: string
+  name: string
+  username: string | null
+  app_id: string | null
+}
+
 interface Interpretation {
-  intent: 'create_task' | 'complete_task' | 'query_tasks' | 'unknown'
+  intent:
+    | 'create_task' | 'complete_task' | 'query_tasks' | 'unknown'
+    | 'call_person' | 'message_person' | 'start_meeting' | 'share_screen' | 'navigate'
   language: string
   transcript: string
   speech: string
   data: {
+    // Communication intents
+    candidates?: Candidate[]
+    person_spoken?: string
+    call_type?: 'audio' | 'video'
+    text?: string
+    people?: { spoken: string; candidates: Candidate[] }[]
+    page?: string
+    // Task intents
     task?: {
       uuid?: string
       title?: string
@@ -55,6 +74,15 @@ interface Interpretation {
   }
 }
 
+/** Where "open <page>" commands land. */
+const PAGE_ROUTES: Record<string, string> = {
+  dashboard: '/dashboard', connections: '/connections', messages: '/messages',
+  calls: '/calls', meetings: '/meetings', screen: '/screen', tasks: '/tasks',
+  projects: '/projects', notes: '/notes', files: '/files', calendar: '/calendar',
+  settings: '/settings', habits: '/habits', goals: '/goals', bills: '/bills',
+  reports: '/reports',
+}
+
 function speak(text: string, language: string) {
   try {
     const utterance = new SpeechSynthesisUtterance(text)
@@ -69,7 +97,10 @@ function speak(text: string, language: string) {
 export default function VoiceAssistant() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { startCall } = useCalls()
   const [open, setOpen] = useState(false)
+  /** Which candidate is picked when a spoken name matched several people. */
+  const [picked, setPicked] = useState<Record<string, string>>({})
   const [language, setLanguage] = useState<'en' | 'hi'>(
     () => (localStorage.getItem('mypa-voice-lang') as 'en' | 'hi') ?? 'en',
   )
@@ -95,8 +126,19 @@ export default function VoiceAssistant() {
         transcript: text.trim(),
         language,
       })
-      setResult(res.data.data)
-      speak(res.data.data.speech, language)
+      const interpretation = res.data.data
+      speak(interpretation.speech, language)
+
+      // Navigation is harmless and reversible — act on it immediately instead
+      // of asking for confirmation.
+      const route = interpretation.intent === 'navigate' ? PAGE_ROUTES[interpretation.data.page ?? ''] : undefined
+      if (route) {
+        close()
+        navigate(route)
+        return
+      }
+
+      setResult(interpretation)
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -206,6 +248,79 @@ export default function VoiceAssistant() {
     navigate(`/tasks?${params.toString()}`)
   }
 
+  // --- Communication intents ------------------------------------------------
+
+  /** Start the call the user confirmed (opens the in-app call UI). */
+  const executeCall = async (person: Candidate) => {
+    if (!person.app_id) return
+    setBusy(true)
+    try {
+      const conversation = await chat.start(person.app_id)
+      close()
+      await startCall(conversation.uuid, result?.data.call_type ?? 'audio', person.name)
+    } catch (err) {
+      setError(errorMessage(err))
+      setBusy(false)
+    }
+  }
+
+  /** Send the dictated message (or just open the conversation). */
+  const executeMessage = async (person: Candidate) => {
+    if (!person.app_id) return
+    setBusy(true)
+    try {
+      const text = result?.data.text?.trim()
+      if (text) {
+        const conversation = await chat.start(person.app_id)
+        await chat.send(conversation.uuid, { body: text })
+        queryClient.invalidateQueries({ queryKey: ['conversations'] })
+        speak(language === 'hi' ? 'मैसेज भेज दिया।' : 'Message sent.', language)
+      }
+      close()
+      navigate(`/messages?start=${encodeURIComponent(person.app_id)}`)
+    } catch (err) {
+      setError(errorMessage(err))
+      setBusy(false)
+    }
+  }
+
+  /**
+   * Create a meeting or screen session, message the invite link to everyone
+   * the user named, and enter the room.
+   */
+  const executeGathering = async (kind: 'start_meeting' | 'share_screen', invitees: Candidate[]) => {
+    setBusy(true)
+    try {
+      const isScreen = kind === 'share_screen'
+      const meeting = await meetingsApi.create(
+        isScreen
+          ? { is_screen: true, type: 'video', title: 'Screen share' }
+          : { type: 'video', title: 'Meeting' },
+      )
+      const path = isScreen ? `/screen/session/${meeting.code}` : `/meetings/room/${meeting.code}`
+      const link = `${window.location.origin}${path}`
+      const inviteText = isScreen
+        ? `I'm sharing my screen on Netvork — join here: ${link}`
+        : `Join my Netvork meeting: ${link}`
+
+      await Promise.all(
+        invitees
+          .filter((p) => p.app_id)
+          .map(async (p) => {
+            const conversation = await chat.start(p.app_id!)
+            await chat.send(conversation.uuid, { body: inviteText })
+          }),
+      )
+
+      close()
+      navigate(path)
+    } catch (err) {
+      setError(errorMessage(err))
+      setBusy(false)
+    }
+  }
+
+
   const close = () => {
     recognitionRef.current?.abort()
     setOpen(false)
@@ -213,6 +328,7 @@ export default function VoiceAssistant() {
     setTranscript('')
     setResult(null)
     setError(null)
+    setPicked({})
   }
 
   const updateTask = (patch: Partial<NonNullable<Interpretation['data']['task']>>) => {
@@ -291,8 +407,8 @@ export default function VoiceAssistant() {
               />
               <p className="text-[11px] leading-relaxed text-slate-400">
                 {language === 'hi'
-                  ? 'उदाहरण: “मुझे कल शाम 5 बजे दवाई लेना याद दिलाओ” · “मेरे बाकी टास्क दिखाओ”'
-                  : 'Try: "Remind me to call Rahul tomorrow at 3 PM" · "Show my pending important tasks" · "Mark the doctor appointment task as completed"'}
+                  ? 'उदाहरण: “Rahul को कॉल करो” · “मुझे कल शाम 5 बजे दवाई लेना याद दिलाओ” · “मेरे बाकी टास्क दिखाओ”'
+                  : 'Try: "Call Rahul" · "Message Priya saying I\'m running late" · "Start a meeting with Rahul" · "Open messages" · "Remind me to call the bank tomorrow at 3 PM"'}
               </p>
               {error && <p className="text-xs text-red-500">{error}</p>}
             </div>
@@ -420,7 +536,167 @@ export default function VoiceAssistant() {
                 </div>
               )}
 
-              {result.intent === 'unknown' && (
+              {(result.intent === 'call_person' || result.intent === 'message_person') && (() => {
+                const candidates = result.data.candidates ?? []
+                const chosenUuid = picked.person ?? candidates[0]?.uuid
+                const chosen = candidates.find((c) => c.uuid === chosenUuid)
+                const isCall = result.intent === 'call_person'
+                const isVideo = result.data.call_type === 'video'
+
+                if (candidates.length === 0) {
+                  return (
+                    <>
+                      <p className="text-sm text-slate-500">
+                        {language === 'hi'
+                          ? `"${result.data.person_spoken}" आपके कनेक्शन में नहीं मिला।`
+                          : `"${result.data.person_spoken}" isn't in your connections.`}
+                      </p>
+                      <div className="flex justify-end">
+                        <Button variant="secondary" size="sm" onClick={() => setResult(null)}>
+                          Try again
+                        </Button>
+                      </div>
+                    </>
+                  )
+                }
+
+                return (
+                  <>
+                    {candidates.length > 1 && (
+                      <div className="space-y-1">
+                        <Label>{language === 'hi' ? 'किसे?' : 'Who did you mean?'}</Label>
+                        {candidates.map((c) => (
+                          <label
+                            key={c.uuid}
+                            className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-3 py-1.5 text-sm dark:border-slate-700"
+                          >
+                            <input
+                              type="radio"
+                              name="voice-person"
+                              checked={chosenUuid === c.uuid}
+                              onChange={() => setPicked((p) => ({ ...p, person: c.uuid }))}
+                            />
+                            <span className="font-medium">{c.name}</span>
+                            <span className="text-xs text-slate-400">{c.app_id}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-sm">
+                      {isCall ? (
+                        <>
+                          {language === 'hi'
+                            ? `${isVideo ? 'वीडियो ' : ''}कॉल करें: `
+                            : `Start ${isVideo ? 'a video' : 'an audio'} call with `}
+                          <span className="font-semibold">{chosen?.name}</span>?
+                        </>
+                      ) : result.data.text ? (
+                        <>
+                          {language === 'hi' ? 'भेजें: ' : 'Send '}
+                          <span className="italic">“{result.data.text}”</span>
+                          {language === 'hi' ? ` (${chosen?.name} को)?` : (
+                            <> to <span className="font-semibold">{chosen?.name}</span>?</>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {language === 'hi' ? 'चैट खोलें: ' : 'Open the chat with '}
+                          <span className="font-semibold">{chosen?.name}</span>?
+                        </>
+                      )}
+                    </p>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => setResult(null)}>
+                        {language === 'hi' ? 'नहीं' : 'Cancel'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={busy || !chosen}
+                        onClick={() => chosen && (isCall ? executeCall(chosen) : executeMessage(chosen))}
+                      >
+                        {isCall
+                          ? (isVideo ? <Video className="size-3.5" /> : <Phone className="size-3.5" />)
+                          : <Check className="size-3.5" />}
+                        {isCall
+                          ? language === 'hi' ? 'कॉल करें' : 'Call'
+                          : result.data.text
+                            ? language === 'hi' ? 'भेजें' : 'Send'
+                            : language === 'hi' ? 'खोलें' : 'Open chat'}
+                      </Button>
+                    </div>
+                  </>
+                )
+              })()}
+
+              {(result.intent === 'start_meeting' || result.intent === 'share_screen') && (() => {
+                const people = result.data.people ?? []
+                const isScreen = result.intent === 'share_screen'
+                const rows = people.map((p, i) => ({
+                  ...p,
+                  index: i,
+                  chosen: p.candidates.find(
+                    (c) => c.uuid === (picked[`p${i}`] ?? p.candidates[0]?.uuid),
+                  ),
+                }))
+                const invitees = rows.map((r) => r.chosen).filter((c): c is Candidate => !!c)
+
+                return (
+                  <>
+                    <p className="text-sm">
+                      {isScreen
+                        ? language === 'hi' ? 'स्क्रीन शेयरिंग शुरू करें?' : 'Start sharing your screen?'
+                        : language === 'hi' ? 'मीटिंग शुरू करें?' : 'Start a meeting now?'}
+                      {invitees.length > 0 && (
+                        <span className="text-slate-500">
+                          {' '}{language === 'hi' ? 'इन्हें लिंक भेजा जाएगा:' : 'The invite link will be messaged to:'}
+                        </span>
+                      )}
+                    </p>
+                    {rows.map((row) =>
+                      row.candidates.length === 0 ? (
+                        <p key={row.index} className="text-xs text-amber-600 dark:text-amber-400">
+                          {language === 'hi'
+                            ? `"${row.spoken}" कनेक्शन में नहीं मिला — इन्हें निमंत्रण नहीं जाएगा।`
+                            : `"${row.spoken}" isn't in your connections — they won't be invited.`}
+                        </p>
+                      ) : row.candidates.length > 1 ? (
+                        <div key={row.index}>
+                          <Label>“{row.spoken}”</Label>
+                          <Select
+                            value={row.chosen?.uuid ?? ''}
+                            onChange={(e) => setPicked((p) => ({ ...p, [`p${row.index}`]: e.target.value }))}
+                          >
+                            {row.candidates.map((c) => (
+                              <option key={c.uuid} value={c.uuid}>{c.name} ({c.app_id})</option>
+                            ))}
+                          </Select>
+                        </div>
+                      ) : (
+                        <p key={row.index} className="flex items-center gap-1.5 text-xs text-slate-500">
+                          <Users className="size-3.5" /> {row.chosen?.name}
+                        </p>
+                      ),
+                    )}
+                    <div className="flex justify-end gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => setResult(null)}>
+                        {language === 'hi' ? 'नहीं' : 'Cancel'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => executeGathering(result.intent as 'start_meeting' | 'share_screen', invitees)}
+                      >
+                        {isScreen ? <MonitorUp className="size-3.5" /> : <Video className="size-3.5" />}
+                        {isScreen
+                          ? language === 'hi' ? 'शेयर करें' : 'Start sharing'
+                          : language === 'hi' ? 'शुरू करें' : 'Start meeting'}
+                      </Button>
+                    </div>
+                  </>
+                )
+              })()}
+
+              {(result.intent === 'unknown' || result.intent === 'navigate') && (
                 <div className="flex justify-end">
                   <Button variant="secondary" size="sm" onClick={() => setResult(null)}>
                     Try again
