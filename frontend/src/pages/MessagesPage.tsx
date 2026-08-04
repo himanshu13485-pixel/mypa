@@ -239,8 +239,18 @@ export default function MessagesPage() {
     const conversationChanged = lastConvRef.current !== selected?.uuid
     lastConvRef.current = selected?.uuid ?? null
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
-    if (conversationChanged || nearBottom) {
-      el.scrollTo({ top: el.scrollHeight, behavior: conversationChanged ? 'auto' : 'smooth' })
+    if (!conversationChanged && !nearBottom) return
+
+    const toBottom = (smooth: boolean) => el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
+    toBottom(!conversationChanged)
+    // Attachments, call chips and fonts finish laying out after first paint
+    // and grow the list — follow up until the height settles, or opening a
+    // chat lands somewhere in the middle instead of on the latest message.
+    const t1 = setTimeout(() => toBottom(false), 150)
+    const t2 = setTimeout(() => toBottom(false), 450)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages?.length, selected?.uuid])

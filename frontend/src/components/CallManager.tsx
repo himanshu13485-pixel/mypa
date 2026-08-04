@@ -45,12 +45,15 @@ interface CallContextValue {
   startCall: (conversationUuid: string, type: 'audio' | 'video', peerName: string) => Promise<void>
   /** Walk into a call that is already running (from the Calls list). */
   joinCall: (uuid: string, type: 'audio' | 'video', label: string) => Promise<void>
+  /** Hang up / cancel the current call (used by the voice assistant too). */
+  endCall: () => Promise<void>
   activeCall: ActiveCall | null
 }
 
 const CallContext = createContext<CallContextValue>({
   startCall: async () => {},
   joinCall: async () => {},
+  endCall: async () => {},
   activeCall: null,
 })
 
@@ -778,7 +781,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const wide = activeCall?.isGroup && tiles > 1
 
   return (
-    <CallContext.Provider value={{ startCall, joinCall, activeCall }}>
+    <CallContext.Provider value={{ startCall, joinCall, endCall: hangUp, activeCall }}>
       {children}
 
       {/* Incoming call banner */}

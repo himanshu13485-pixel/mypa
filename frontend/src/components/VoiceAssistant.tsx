@@ -47,7 +47,7 @@ interface Candidate {
 interface Interpretation {
   intent:
     | 'create_task' | 'complete_task' | 'query_tasks' | 'unknown'
-    | 'call_person' | 'message_person' | 'start_meeting' | 'share_screen' | 'navigate'
+    | 'call_person' | 'message_person' | 'start_meeting' | 'share_screen' | 'navigate' | 'end_call'
     | 'create_habit' | 'log_habit' | 'create_goal' | 'create_bill' | 'pay_bill'
   language: string
   transcript: string
@@ -158,7 +158,7 @@ function speak(text: string, language: string, queue = false) {
 export default function VoiceAssistant() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const { startCall } = useCalls()
+  const { startCall, endCall, activeCall } = useCalls()
   const [open, setOpen] = useState(false)
   /** Which candidate is picked when a spoken name matched several people. */
   const [picked, setPicked] = useState<Record<string, string>>({})
@@ -214,6 +214,17 @@ export default function VoiceAssistant() {
       const interpretation = res.data.data
       speak(interpretation.speech, language)
 
+      // Hanging up is urgent — do it immediately, no confirmation card.
+      if (interpretation.intent === 'end_call') {
+        if (activeCall) {
+          endCall()
+        } else {
+          speak(language === 'hi' ? 'कोई कॉल चालू नहीं है।' : "There's no call running.", language)
+        }
+        close()
+        return
+      }
+
       // Navigation is harmless and reversible — act on it immediately instead
       // of asking for confirmation.
       const route = interpretation.intent === 'navigate' ? PAGE_ROUTES[interpretation.data.page ?? ''] : undefined
@@ -229,7 +240,8 @@ export default function VoiceAssistant() {
     } finally {
       setBusy(false)
     }
-  }, [language])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language, activeCall, endCall])
 
   const startListening = () => {
     const Ctor = getRecognizer()

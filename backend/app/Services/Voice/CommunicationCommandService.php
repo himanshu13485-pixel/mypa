@@ -43,11 +43,39 @@ class CommunicationCommandService
     /** @return array<string, mixed>|null */
     public function match(User $user, string $text, string $language): ?array
     {
-        return $this->matchNavigate($text, $language)
+        return $this->matchEndCall($text, $language)
+            ?? $this->matchNavigate($text, $language)
             ?? $this->matchCall($user, $text, $language)
             ?? $this->matchMessage($user, $text, $language)
             ?? $this->matchMeeting($user, $text, $language)
             ?? $this->matchScreen($user, $text, $language);
+    }
+
+    // --- Hang up -------------------------------------------------------------
+
+    protected function matchEndCall(string $text, string $language): ?array
+    {
+        $patterns = [
+            // "hang up", "disconnect (the call)"
+            '/\b(?:hang\s*up|disconnect)\b(?:\s+(?:the\s+|this\s+)?(?:call|phone))?/u',
+            // "end/cut/drop/finish the call"
+            '/\b(?:end|cut|drop|finish|stop)\s+(?:the\s+|this\s+)?call\b/u',
+            // "कॉल काटो / बंद करो / खत्म करो", "फोन रखो"
+            '/(?:कॉल|फ़ोन|फोन)\s*(?:काटो|काट\s*दो|बंद\s*करो|खत्म\s*करो|समाप्त\s*करो|रखो|रख\s*दो)/u',
+        ];
+
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $text)) {
+                return [
+                    'intent' => 'end_call',
+                    'language' => $language,
+                    'data' => [],
+                    'speech' => $language === 'hi' ? 'ठीक है, कॉल खत्म कर रही हूँ।' : 'Okay, ending the call.',
+                ];
+            }
+        }
+
+        return null;
     }
 
     // --- Calls ---------------------------------------------------------------
