@@ -17,6 +17,7 @@ class VoiceCommandService
     public function __construct(
         protected VoiceDateParser $dates,
         protected CommunicationCommandService $communication,
+        protected LifeCommandService $life,
         protected AiIntentResolver $ai,
         protected ContactResolver $contacts,
     ) {
@@ -35,6 +36,12 @@ class VoiceCommandService
         // are checked first: "show my calls" must never become a task query.
         if ($comm = $this->communication->match($user, $text, $language)) {
             return $comm;
+        }
+
+        // Life modules next: "add a habit ..." must not fall into the task
+        // creator just because it starts with "add".
+        if ($life = $this->life->match($user, $text, $language, $tz)) {
+            return $life;
         }
 
         if ($this->matchesQuery($text)) {

@@ -4,7 +4,10 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Check, Loader2, Mic, MonitorUp, Phone, Users, Video, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { api, errorMessage } from '../api/client'
-import { chat, meetings as meetingsApi, tasks as tasksApi } from '../api/endpoints'
+import {
+  bills as billsApi, chat, goals as goalsApi, habits as habitsApi,
+  meetings as meetingsApi, tasks as tasksApi,
+} from '../api/endpoints'
 import { useCalls } from './CallManager'
 import { Button, Input, Label, Select } from './ui'
 import { TASK_PRIORITIES } from '../types'
@@ -44,6 +47,7 @@ interface Interpretation {
   intent:
     | 'create_task' | 'complete_task' | 'query_tasks' | 'unknown'
     | 'call_person' | 'message_person' | 'start_meeting' | 'share_screen' | 'navigate'
+    | 'create_habit' | 'log_habit' | 'create_goal' | 'create_bill'
   language: string
   transcript: string
   speech: string
@@ -55,6 +59,11 @@ interface Interpretation {
     text?: string
     people?: { spoken: string; candidates: Candidate[] }[]
     page?: string
+    // Life intents
+    habit?: { uuid?: string; name: string; frequency?: string; reminder_time?: string } | null
+    goal?: { title: string; target_date?: string }
+    bill?: { name: string; amount?: number; due_on: string; repeat_frequency?: string; remind_days_before?: number }
+    heard_name?: string
     // Task intents
     task?: {
       uuid?: string
@@ -246,6 +255,45 @@ export default function VoiceAssistant() {
     Object.entries(filters).forEach(([key, value]) => params.set(key, String(value)))
     close()
     navigate(`/tasks?${params.toString()}`)
+  }
+
+  // --- Life intents (habits, goals, bills) -----------------------------------
+
+  /** Create the reviewed habit/goal/bill, invalidate its list, close. */
+  const executeLife = async (kind: 'create_habit' | 'create_goal' | 'create_bill' | 'log_habit') => {
+    setBusy(true)
+    try {
+      if (kind === 'create_habit' && result?.data.habit) {
+        await habitsApi.create(result.data.habit as Record<string, unknown>)
+        queryClient.invalidateQueries({ queryKey: ['habits'] })
+        speak(language === 'hi' ? 'आदत बन गई।' : 'Habit created.', language)
+      } else if (kind === 'log_habit' && result?.data.habit?.uuid) {
+        await habitsApi.log(result.data.habit.uuid)
+        queryClient.invalidateQueries({ queryKey: ['habits'] })
+        speak(language === 'hi' ? 'आज के लिए पूरी मार्क कर दी।' : 'Marked done for today.', language)
+      } else if (kind === 'create_goal' && result?.data.goal) {
+        await goalsApi.create(result.data.goal as Record<string, unknown>)
+        queryClient.invalidateQueries({ queryKey: ['goals'] })
+        speak(language === 'hi' ? 'लक्ष्य बन गया।' : 'Goal created.', language)
+      } else if (kind === 'create_bill' && result?.data.bill) {
+        await billsApi.create(result.data.bill as Record<string, unknown>)
+        queryClient.invalidateQueries({ queryKey: ['bills'] })
+        speak(language === 'hi' ? 'बिल जुड़ गया।' : 'Bill added.', language)
+      }
+      close()
+    } catch (err) {
+      setError(errorMessage(err))
+      setBusy(false)
+    }
+  }
+
+  const updateLife = (
+    field: 'habit' | 'goal' | 'bill',
+    patch: Record<string, unknown>,
+  ) => {
+    setResult((r) =>
+      r ? { ...r, data: { ...r.data, [field]: { ...(r.data[field] as object), ...patch } } } : r,
+    )
   }
 
   // --- Communication intents ------------------------------------------------
@@ -695,6 +743,154 @@ export default function VoiceAssistant() {
                   </>
                 )
               })()}
+
+              {result.intent === 'create_habit' && result.data.habit && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label>Habit</Label>
+                      <Input
+                        value={result.data.habit.name}
+                        onChange={(e) => updateLife('habit', { name: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Frequency</Label>
+                      <Select
+                        value={result.data.habit.frequency ?? 'daily'}
+                        onChange={(e) => updateLife('habit', { frequency: e.target.value })}
+                      >
+                        <option value="daily">daily</option>
+                        <option value="weekly">weekly</option>
+                        <option value="monthly">monthly</option>
+                      </Select>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Reminder time (optional)</Label>
+                    <Input
+                      type="time"
+                      value={result.data.habit.reminder_time ?? ''}
+                      onChange={(e) => updateLife('habit', { reminder_time: e.target.value || undefined })}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => setResult(null)}>Try again</Button>
+                    <Button size="sm" disabled={busy} onClick={() => executeLife('create_habit')}>
+                      <Check className="size-3.5" /> {language === 'hi' ? 'आदत बनाएं' : 'Create habit'}
+                    </Button>
+                  </div>
+                </>
+              )}
+
+              {result.intent === 'log_habit' && (
+                result.data.habit ? (
+                  <>
+                    <p className="text-sm">
+                      {language === 'hi' ? 'आज के लिए पूरी मार्क करें: ' : 'Mark as done for today: '}
+                      <span className="font-semibold">{result.data.habit.name}</span>?
+                    </p>
+                    <div className="flex justify-end gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => setResult(null)}>
+                        {language === 'hi' ? 'नहीं' : 'No'}
+                      </Button>
+                      <Button size="sm" disabled={busy} onClick={() => executeLife('log_habit')}>
+                        <Check className="size-3.5" /> {language === 'hi' ? 'हाँ' : 'Yes, done'}
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm text-slate-500">
+                      {language === 'hi'
+                        ? `"${result.data.heard_name}" नाम की कोई आदत नहीं मिली।`
+                        : `No habit matching "${result.data.heard_name}" was found.`}
+                    </p>
+                    <div className="flex justify-end">
+                      <Button variant="secondary" size="sm" onClick={() => setResult(null)}>Try again</Button>
+                    </div>
+                  </>
+                )
+              )}
+
+              {result.intent === 'create_goal' && result.data.goal && (
+                <>
+                  <div>
+                    <Label>Goal</Label>
+                    <Input
+                      value={result.data.goal.title}
+                      onChange={(e) => updateLife('goal', { title: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Target date (optional)</Label>
+                    <Input
+                      type="date"
+                      value={result.data.goal.target_date ?? ''}
+                      onChange={(e) => updateLife('goal', { target_date: e.target.value || undefined })}
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => setResult(null)}>Try again</Button>
+                    <Button size="sm" disabled={busy} onClick={() => executeLife('create_goal')}>
+                      <Check className="size-3.5" /> {language === 'hi' ? 'लक्ष्य बनाएं' : 'Create goal'}
+                    </Button>
+                  </div>
+                </>
+              )}
+
+              {result.intent === 'create_bill' && result.data.bill && (
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label>Bill</Label>
+                      <Input
+                        value={result.data.bill.name}
+                        onChange={(e) => updateLife('bill', { name: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Amount</Label>
+                      <Input
+                        type="number"
+                        min={0}
+                        value={result.data.bill.amount ?? ''}
+                        onChange={(e) => updateLife('bill', { amount: e.target.value ? Number(e.target.value) : undefined })}
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label>Due on</Label>
+                      <Input
+                        type="date"
+                        value={result.data.bill.due_on}
+                        onChange={(e) => updateLife('bill', { due_on: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <Label>Repeats</Label>
+                      <Select
+                        value={result.data.bill.repeat_frequency ?? ''}
+                        onChange={(e) => updateLife('bill', { repeat_frequency: e.target.value || undefined })}
+                      >
+                        <option value="">one-time</option>
+                        <option value="weekly">weekly</option>
+                        <option value="monthly">monthly</option>
+                        <option value="quarterly">quarterly</option>
+                        <option value="half_yearly">half-yearly</option>
+                        <option value="yearly">yearly</option>
+                      </Select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="secondary" size="sm" onClick={() => setResult(null)}>Try again</Button>
+                    <Button size="sm" disabled={busy} onClick={() => executeLife('create_bill')}>
+                      <Check className="size-3.5" /> {language === 'hi' ? 'बिल जोड़ें' : 'Add bill'}
+                    </Button>
+                  </div>
+                </>
+              )}
 
               {(result.intent === 'unknown' || result.intent === 'navigate') && (
                 <div className="flex justify-end">
