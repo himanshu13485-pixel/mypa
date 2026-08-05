@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  Circle, Expand, Maximize2, Mic, MicOff, Minimize2, MonitorUp, Phone, PhoneOff, Square, UserPlus, Users,
-  Video, VideoOff,
+  Circle, Expand, Maximize2, Mic, MicOff, Minimize2, MonitorUp, Phone, PhoneOff, Pin, PinOff, Square, UserPlus,
+  Users, Video, VideoOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls } from '../api/endpoints'
@@ -18,7 +18,7 @@ import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder
 import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
 import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
 import { normalizeSdp } from '../lib/sdp'
-import { VIDEO_FIT, galleryColumns, galleryRows, useSelfView } from '../lib/videoLayout'
+import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
 
 interface ActiveCall {
   uuid: string
@@ -61,7 +61,14 @@ const CallContext = createContext<CallContextValue>({
 export const useCalls = () => useContext(CallContext)
 
 /** Attaches a MediaStream to a video/audio element via ref callback. */
-function RemoteTile({ peer, video, active }: { peer: RemotePeer; video: boolean; active?: boolean }) {
+function RemoteTile({ peer, video, active, className, style, onContextMenu }: {
+  peer: RemotePeer
+  video: boolean
+  active?: boolean
+  className?: string
+  style?: React.CSSProperties
+  onContextMenu?: (e: React.MouseEvent) => void
+}) {
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
       el.srcObject = peer.stream
@@ -78,7 +85,11 @@ function RemoteTile({ peer, video, active }: { peer: RemotePeer; video: boolean;
     )
   }
   return (
-    <div className={'relative overflow-hidden rounded-lg bg-slate-900' + (active ? ' ring-2 ring-emerald-400' : '')}>
+    <div
+      onContextMenu={onContextMenu}
+      style={style}
+      className={clsx('relative min-h-0 overflow-hidden rounded-lg bg-slate-900', active && 'ring-2 ring-emerald-400', className)}
+    >
       {/* Fit, never crop — a tile is rarely the camera's own shape. */}
       <video ref={attach} autoPlay playsInline className={VIDEO_FIT} />
       {peer.conn && !['connected', 'completed'].includes(peer.conn) && (
@@ -128,6 +139,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [recRequest, setRecRequest] = useState<{ uuid: string; name: string } | null>(null)
   const startRecRef = useRef<() => void>(() => undefined)
   const [sharing, setSharing] = useState(false)
+  /** Right-click pin. Local to this browser — nobody else's view changes. */
+  const [pinned, setPinned] = useState<string | null>(null)
+  const [tileMenu, setTileMenu] = useState<{ uuid: string; name: string; x: number; y: number } | null>(null)
   const displayTrackRef = useRef<MediaStreamTrack | null>(null)
   /** Canvas compositor drawing the camera onto the shared screen. */
   const sharePipeRef = useRef<BlurPipeline | null>(null)
@@ -141,6 +155,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const blurRef = useRef<BlurPipeline | null>(null)
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null)
   const callBodyRef = useRef<HTMLDivElement>(null)
+  const tilesBoxRef = useRef<HTMLDivElement>(null)
 
   /** The whole panel — video AND controls. Fullscreen used to target only the
    *  video, which is why the controls disappeared the moment you expanded. */
@@ -790,12 +805,30 @@ export function CallProvider({ children }: { children: ReactNode }) {
     broadcastMedia(!muted, !next)
   }
 
+  useEffect(() => {
+    if (!tileMenu) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setTileMenu(null)
+    const dismiss = () => setTileMenu(null)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('resize', dismiss)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', dismiss)
+    }
+  }, [tileMenu])
+
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
   const isVideo = activeCall?.type === 'video'
   const tiles = remotePeers.length
-  const gridCols = galleryColumns(tiles)
-  const gridRows = galleryRows(tiles)
+  /* A share, or a pin, takes the stage and the rest drop to a filmstrip —
+     the same rule meetings use. Presenting is unreadable in a grid cell. */
+  const sharer = remotePeers.find((p) => p.sharing)?.uuid ?? (sharing ? 'me' : null)
+  const stageUuid = (pinned && remotePeers.some((p) => p.uuid === pinned) ? pinned : null) ?? sharer
+  const staged = isVideo && stageUuid !== null && tiles > 0
+  const galleryPeers = staged ? remotePeers.filter((p) => p.uuid !== stageUuid) : remotePeers
+  const gallery = useGalleryLayout(tilesBoxRef, staged ? 0 : tiles)
+  const tileStyle = gallery.width ? { width: gallery.width, height: gallery.height } : undefined
   const wide = activeCall?.isGroup && tiles > 1
 
   return (
@@ -845,11 +878,44 @@ export function CallProvider({ children }: { children: ReactNode }) {
           >
             {isVideo ? (
               <>
-                <div className={clsx('grid gap-1', gridCols, gridRows, isFs || expanded ? 'h-full' : 'h-56')}>
+                <div className={clsx('flex flex-col gap-1', isFs || expanded ? 'h-full' : 'h-56')}>
                   {remotePeers.length === 0 ? (
-                    <div className="flex items-center justify-center text-xs text-slate-500">Waiting for others…</div>
+                    <div className="flex flex-1 items-center justify-center text-xs text-slate-500">Waiting for others…</div>
+                  ) : staged ? (
+                    <>
+                      {/* Filmstrip above the stage, as every meeting app does. */}
+                      {galleryPeers.length > 0 && (
+                        <div className="flex h-16 shrink-0 justify-center gap-1 overflow-x-auto sm:h-20">
+                          {galleryPeers.map((p) => (
+                            <RemoteTile
+                              key={p.uuid} peer={p} video active={activeSpeaker === p.uuid}
+                              className="aspect-video h-full shrink-0"
+                              onContextMenu={(e) => { e.preventDefault(); setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY }) }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <div className="min-h-0 flex-1">
+                        {remotePeers.filter((p) => p.uuid === stageUuid).map((p) => (
+                          <RemoteTile
+                            key={p.uuid} peer={p} video active={activeSpeaker === p.uuid} className="h-full min-h-0"
+                            onContextMenu={(e) => { e.preventDefault(); setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY }) }}
+                          />
+                        ))}
+                      </div>
+                    </>
                   ) : (
-                    remotePeers.map((p) => <RemoteTile key={p.uuid} peer={p} video active={activeSpeaker === p.uuid} />)
+                    // Centred wrapping row, sized from the measurement above, so
+                    // a short last row sits in the middle rather than the left.
+                    <div ref={tilesBoxRef} className="flex min-h-0 flex-1 flex-wrap content-center items-center justify-center gap-1">
+                      {galleryPeers.map((p) => (
+                        <RemoteTile
+                          key={p.uuid} peer={p} video active={activeSpeaker === p.uuid}
+                          className="shrink-0" style={tileStyle}
+                          onContextMenu={(e) => { e.preventDefault(); setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY }) }}
+                        />
+                      ))}
+                    </div>
                   )}
                 </div>
                 <video
@@ -990,6 +1056,30 @@ export function CallProvider({ children }: { children: ReactNode }) {
               .catch((err) => toastError(errorMessage(err)))
           }}
         />
+      )}
+
+      {tileMenu && (
+        <>
+          <div className="fixed inset-0 z-[75]" onMouseDown={() => setTileMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTileMenu(null) }} />
+          <div
+            className="fixed z-[76] min-w-44 rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900"
+            style={{
+              // Kept inside the window; a right-click near an edge would
+              // otherwise open the menu off-screen.
+              left: Math.min(tileMenu.x, window.innerWidth - 190),
+              top: Math.min(tileMenu.y, window.innerHeight - 90),
+            }}
+          >
+            <p className="truncate px-2 py-1 text-[11px] uppercase tracking-wide text-slate-400">{tileMenu.name}</p>
+            <button
+              className="tap flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+              onClick={() => { setPinned(pinned === tileMenu.uuid ? null : tileMenu.uuid); setTileMenu(null) }}
+            >
+              {pinned === tileMenu.uuid ? <><PinOff className="size-4" /> Unpin</> : <><Pin className="size-4" /> Pin for me</>}
+            </button>
+            <p className="px-2 pb-1 pt-0.5 text-[11px] text-slate-400">Only changes your view.</p>
+          </div>
+        </>
       )}
     </CallContext.Provider>
   )

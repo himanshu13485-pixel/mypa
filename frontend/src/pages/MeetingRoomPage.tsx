@@ -12,7 +12,7 @@ import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
 import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
-import { VIDEO_FIT, galleryColumns, galleryRows as galleryRows_, useSelfView } from '../lib/videoLayout'
+import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
 import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
@@ -51,7 +51,7 @@ interface Peer {
 }
 
 function PeerTile({
-  peer, video, burst, hand, role, active, spotlight, pinned, quality, className, onContextMenu,
+  peer, video, burst, hand, role, active, spotlight, pinned, quality, className, style, onContextMenu,
 }: {
   peer: Peer
   video: boolean
@@ -63,6 +63,7 @@ function PeerTile({
   pinned?: boolean
   quality?: import('../lib/netQuality').PeerStats
   className?: string
+  style?: React.CSSProperties
   onContextMenu?: (e: React.MouseEvent) => void
 }) {
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
@@ -90,6 +91,7 @@ function PeerTile({
   return (
     <div
       onContextMenu={onContextMenu}
+      style={style}
       className={clsx(
         'relative min-h-0 overflow-hidden rounded-lg bg-slate-900 transition-shadow',
         active && 'ring-2 ring-emerald-400',
@@ -1205,10 +1207,13 @@ export default function MeetingRoomPage() {
     ? (showSelfTile ? 'me' : null)
     : peers.some((p) => p.uuid === stageCandidate) ? stageCandidate : null
 
-  // Column and row sizing live in lib/videoLayout so calls and meetings
-  // cannot drift apart again.
-  const galleryCols = galleryColumns(tileCount)
-  const galleryRows = galleryRows_(tileCount)
+  // Measured in lib/videoLayout, so the arrangement follows the space that
+  // exists rather than the width of the window.
+  const gallery = useGalleryLayout(tilesRef, tileCount)
+  /** Explicit size for a gallery tile; empty until the box is measured. */
+  const galleryTileStyle = gallery.width
+    ? { width: gallery.width, height: gallery.height }
+    : undefined
 
   /*
    * Pinning someone means "make this person big", so it has to work from the
@@ -1237,9 +1242,12 @@ export default function MeetingRoomPage() {
         activeSpeaker === 'me' && 'ring-2 ring-emerald-400',
         // In the filmstrip the width is fixed, so 16:9 is what sets the
         // height. Everywhere else the tile fills the space the grid or the
-        // stage gives it — see galleryRows.
-        stagedLayout && stageUuid !== 'me' ? 'aspect-video w-40 shrink-0 sm:w-48' : 'h-full min-h-0',
+        // stage gives it — see useGalleryLayout.
+        stagedLayout
+          ? stageUuid === 'me' ? 'h-full min-h-0' : 'aspect-video h-full shrink-0'
+          : 'min-h-0 shrink-0',
       )}
+      style={stagedLayout ? undefined : galleryTileStyle}
     >
       <video
         ref={attachSelf}
@@ -1398,8 +1406,11 @@ export default function MeetingRoomPage() {
         setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY })
       }}
       className={clsx(
-        isVideo && (stagedLayout && !onStage ? 'aspect-video w-40 shrink-0 sm:w-48' : 'h-full min-h-0'),
+        isVideo && (stagedLayout
+          ? onStage ? 'h-full min-h-0' : 'aspect-video h-full shrink-0'
+          : 'min-h-0 shrink-0'),
       )}
+      style={isVideo && !stagedLayout ? galleryTileStyle : undefined}
     />
   )
 
@@ -1598,25 +1609,33 @@ export default function MeetingRoomPage() {
             isFs && 'bg-slate-950 p-3',
             stagedLayout
               ? stripSide ? 'flex gap-2' : 'flex flex-col gap-2'
-              // content-start is gone on purpose: it packed the rows against
-              // the top at their natural height, which is what let them run
-              // past the bottom of the grid.
               : isVideo
-                ? clsx('grid gap-2', galleryCols, galleryRows)
-                : clsx('grid content-start gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'),
+                // Centred wrapping row, sized from the measurement above, so a
+                // short last row sits in the middle instead of hanging off the
+                // left edge. CSS grid packs it left and cannot be talked out
+                // of it.
+                ? 'flex flex-wrap content-center items-center justify-center gap-2'
+                : 'grid content-start gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
           )}
         >
           {stagedLayout ? (
             <>
-              {/* Stage */}
-              <div className={clsx('min-h-0 min-w-0 flex-1', stripSide ? 'order-first' : '')}>
-                {stageUuid === 'me' && selfTile}
-                {peers.filter((p) => p.uuid === stageUuid).map((p) => peerTile(p, true))}
-              </div>
-              {/* Filmstrip */}
-              <div className={clsx('flex gap-2', stripSide ? 'w-40 flex-col overflow-y-auto sm:w-48' : 'overflow-x-auto pb-1')}>
+              {/* Filmstrip. Above the stage in the stacked layout — that is
+                  where every other meeting app puts it — and beside it in the
+                  sidebar layout, which is the point of that mode. */}
+              <div
+                className={clsx(
+                  'flex shrink-0 gap-2',
+                  stripSide ? 'order-last w-40 flex-col overflow-y-auto sm:w-48' : 'h-24 justify-center overflow-x-auto sm:h-28',
+                )}
+              >
                 {stageUuid !== 'me' && selfTile}
                 {peers.filter((p) => p.uuid !== stageUuid).map((p) => peerTile(p, false))}
+              </div>
+              {/* Stage */}
+              <div className="min-h-0 min-w-0 flex-1">
+                {stageUuid === 'me' && selfTile}
+                {peers.filter((p) => p.uuid === stageUuid).map((p) => peerTile(p, true))}
               </div>
             </>
           ) : (

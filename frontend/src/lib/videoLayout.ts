@@ -7,34 +7,75 @@
  * place left the other two broken; keeping the rules here is what stops that
  * happening again.
  */
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-/**
- * Columns for a gallery of n tiles, kept square-ish so nobody gets a sliver.
- */
-export function galleryColumns(n: number): string {
-  if (n <= 1) return 'grid-cols-1'
-  if (n <= 2) return 'grid-cols-1 sm:grid-cols-2'
-  if (n <= 4) return 'grid-cols-2'
-  if (n <= 9) return 'grid-cols-2 lg:grid-cols-3'
-  return 'grid-cols-3 lg:grid-cols-4'
+/** The shape camera tiles are laid out to. */
+const TILE_ASPECT = 16 / 9
+
+export interface GalleryLayout {
+  /** Columns that fit best; 0 until the container has been measured. */
+  cols: number
+  rows: number
+  /** Pixel size of one tile. Zero until measured. */
+  width: number
+  height: number
 }
 
 /**
- * Row sizing, which is what keeps a gallery on screen.
+ * Works out the tile grid that fills a box best, the way Zoom and Meet do.
  *
- * Tiles used to be fixed 16:9 boxes, so a tile's height came only from its
- * width and nothing knew how much vertical space existed. On a wide window a
- * single tile came out taller than the area holding it — you had to scroll to
- * see your own face — and several rows ran past the bottom and into each
- * other.
+ * Tailwind column classes cannot do this. They pick columns from the width of
+ * the *window*, so they know nothing about the height available, and CSS grid
+ * packs a short final row to the left — three people came out as two across
+ * the top and one hanging off the left edge underneath, rather than centred.
  *
- * Equal fractional rows divide the height that actually exists, so the gallery
- * always fits. Past nine people equal shares would leave faces unrecognisable,
- * so rows take a floor and the grid scrolls instead, as Meet does.
+ * Measuring instead: for every possible column count, work out how large a
+ * 16:9 tile could be and whether that many rows still fit the height. The
+ * arrangement giving the biggest tiles wins. Laying those out in a centred
+ * wrapping row then centres a short last row for free.
  */
-export function galleryRows(n: number): string {
-  return n <= 9 ? 'auto-rows-fr' : 'auto-rows-[minmax(9rem,1fr)]'
+export function useGalleryLayout(
+  ref: React.RefObject<HTMLElement | null>,
+  count: number,
+  gap = 8,
+): GalleryLayout {
+  const [box, setBox] = useState({ w: 0, h: 0 })
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight })
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
+
+  return bestGalleryFit(box.w, box.h, count, gap)
+}
+
+/**
+ * The arrangement of `count` 16:9 tiles that fills a w x h box best.
+ *
+ * Separated from the hook so it can be checked directly: for each possible
+ * column count, work out how large a tile could be and whether that many rows
+ * still fit the height, then keep whichever gives the biggest tiles.
+ */
+export function bestGalleryFit(w: number, h: number, count: number, gap = 8): GalleryLayout {
+  if (!count || w < 1 || h < 1) return { cols: 0, rows: 0, width: 0, height: 0 }
+
+  let best: GalleryLayout = { cols: 1, rows: count, width: 0, height: 0 }
+  for (let cols = 1; cols <= count; cols++) {
+    const rows = Math.ceil(count / cols)
+    // Widest a tile can be in this many columns, and the tallest it may be
+    // before that many rows stop fitting.
+    const byWidth = (w - gap * (cols - 1)) / cols
+    const byHeight = ((h - gap * (rows - 1)) / rows) * TILE_ASPECT
+    const width = Math.floor(Math.min(byWidth, byHeight))
+    if (width > best.width) best = { cols, rows, width, height: Math.floor(width / TILE_ASPECT) }
+  }
+
+  return best
 }
 
 /**
