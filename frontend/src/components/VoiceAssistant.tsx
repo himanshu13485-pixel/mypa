@@ -85,6 +85,14 @@ interface Interpretation {
   }
 }
 
+/**
+ * Intents that put you in front of another person. A spoken "yes" is not
+ * enough for these — see handleVoiceReply. Everything else (tasks, habits,
+ * goals, bills) only touches the speaker's own data and is undoable, so it
+ * stays hands-free.
+ */
+const REACHES_SOMEONE_ELSE = ['call_person', 'message_person', 'start_meeting', 'share_screen']
+
 /** Where "open <page>" commands land — every sidebar destination. */
 const PAGE_ROUTES: Record<string, string> = {
   dashboard: '/dashboard', connections: '/connections', groups: '/groups',
@@ -631,6 +639,21 @@ export default function VoiceAssistant() {
       return
     }
     if (isYes) {
+      // Anything that reaches another person is not confirmed by voice. The
+      // microphone is open and listening for "yes" — a television, a passing
+      // remark or a mis-transcription is enough, and the cost is a call placed
+      // or a message sent to a real contact, which cannot be taken back. Those
+      // wait for a deliberate tap on the card.
+      if (REACHES_SOMEONE_ELSE.includes(result?.intent ?? '')) {
+        speak(
+          language === 'hi'
+            ? 'पुष्टि के लिए बटन दबाइए।'
+            : 'Tap confirm to go ahead.',
+          language,
+        )
+        return
+      }
+
       // Calls, meetings, screen shares and navigation move the user elsewhere;
       // only the "quiet" actions continue the conversation afterwards.
       continueAfterRef.current = !['call_person', 'start_meeting', 'share_screen', 'query_tasks'].includes(result?.intent ?? '')

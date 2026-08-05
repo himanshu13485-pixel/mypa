@@ -153,10 +153,63 @@ class VoiceCommandService
             case 'query_tasks':
                 return $this->interpretQuery($text, $language);
 
+            case 'create_habit':
+            case 'log_habit':
+            case 'create_goal':
+            case 'create_bill':
+            case 'pay_bill':
+                return $this->lifeIntentFromAi($user, $result, $language, $user->profile?->timezone ?? config('app.timezone'));
+
             default:
                 // create_task or anything else: the rule-based creator handles it.
                 return null;
         }
+    }
+
+    /**
+     * Habits, goals and bills the model recognised but the patterns did not.
+     *
+     * Rather than duplicate the life parsers, the model's fields are written
+     * back into the plainest phrasing those parsers accept and re-run through
+     * them — so date handling, amount parsing, and resolving which existing
+     * habit or bill is meant all stay in one place, already tested.
+     *
+     * @param  array<string, mixed>  $result
+     * @return array<string, mixed>|null
+     */
+    protected function lifeIntentFromAi(User $user, array $result, string $language, string $timezone): ?array
+    {
+        $name = trim((string) ($result['name'] ?? $result['title'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $canonical = match ($result['intent']) {
+            'create_habit' => sprintf(
+                'add a habit to %s%s',
+                $name,
+                ($result['frequency'] ?? '') === 'weekly' ? ' weekly' : '',
+            ),
+            'log_habit' => "mark the {$name} habit as done",
+            'create_goal' => 'set a goal to ' . $name
+                . (! empty($result['due_on']) ? ' by ' . $result['due_on'] : ''),
+            'create_bill' => sprintf(
+                'add %s bill%s%s',
+                $name,
+                isset($result['amount']) ? ' of ' . $result['amount'] : '',
+                ! empty($result['due_on']) ? ' due ' . $result['due_on'] : '',
+            ),
+            'pay_bill' => "mark the {$name} bill as paid",
+            default => null,
+        };
+
+        if ($canonical === null) {
+            return null;
+        }
+
+        // If the rebuilt phrasing still does not parse, fall through rather
+        // than invent a payload the frontend cannot execute.
+        return $this->life->match($user, mb_strtolower($canonical), $language, $timezone);
     }
 
     protected function personIntentFromAi(User $user, string $intent, string $spoken, string $language, array $extra): array

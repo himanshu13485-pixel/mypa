@@ -157,6 +157,49 @@ class VoiceLifeTest extends TestCase
         $this->assertStringContainsString('पानी', $result['data']['habit']['name']);
     }
 
+    /**
+     * The AI fallback has to be able to reach the life intents.
+     *
+     * They were added to the pattern rules after AiIntentResolver was written
+     * and never listed in its allowed intents, nor handled when mapping the
+     * model's answer back — so a phrasing the patterns missed fell through to
+     * "create a task" even with the model switched on.
+     */
+    public function test_ai_fallback_can_reach_habits_goals_and_bills(): void
+    {
+        $cases = [
+            [['intent' => 'create_habit', 'name' => 'read at night', 'frequency' => 'weekly'],
+                'create_habit', fn ($d) => $this->assertEquals('weekly', $d['habit']['frequency'])],
+            [['intent' => 'create_goal', 'title' => 'run a marathon'],
+                'create_goal', fn ($d) => $this->assertEquals('run a marathon', $d['goal']['title'])],
+            // The bill parser title-cases names, as it does for typed ones.
+            [['intent' => 'create_bill', 'name' => 'electricity', 'amount' => 2000],
+                'create_bill', fn ($d) => $this->assertEqualsIgnoringCase('electricity', $d['bill']['name'])],
+        ];
+
+        foreach ($cases as [$aiAnswer, $expectedIntent, $assert]) {
+            $this->mock(\App\Services\Voice\AiIntentResolver::class, function ($mock) use ($aiAnswer) {
+                $mock->shouldReceive('resolve')->andReturn($aiAnswer);
+            });
+
+            // Deliberately phrased so no pattern rule matches it.
+            $result = $this->interpret('would you kindly sort that out for me');
+
+            $this->assertEquals($expectedIntent, $result['intent'], "AI answer {$aiAnswer['intent']} did not come through");
+            $assert($result['data']);
+        }
+    }
+
+    public function test_ai_fallback_still_defaults_to_a_task_when_it_cannot_help(): void
+    {
+        $this->mock(\App\Services\Voice\AiIntentResolver::class, function ($mock) {
+            $mock->shouldReceive('resolve')->andReturn(null);
+        });
+
+        $result = $this->interpret('buy milk on the way home');
+        $this->assertEquals('create_task', $result['intent']);
+    }
+
     public function test_plain_task_creation_is_untouched(): void
     {
         $result = $this->interpret('Add a task to buy groceries tomorrow');
