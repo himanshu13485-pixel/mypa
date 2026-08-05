@@ -368,6 +368,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/users/{user}/salesperson', [AdminUserController::class, 'assignSalesperson']);
             Route::get('/users/{user}/locked-projects', [AdminUserController::class, 'lockedProjects']);
             Route::post('/projects/{uuid}/send-password-reset', [AdminUserController::class, 'sendProjectPasswordReset']);
+            // Live meetings: what is running right now, and stopping it.
+            Route::get('/live-meetings', [\App\Http\Controllers\Api\V1\Admin\LiveMeetingController::class, 'index']);
+            Route::delete('/live-meetings/{meeting}', [\App\Http\Controllers\Api\V1\Admin\LiveMeetingController::class, 'destroy']);
             Route::get('/settings', [AdminUserController::class, 'settings']);
             Route::put('/settings', [AdminUserController::class, 'updateSettings']);
             Route::get('/plans', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'index']);
