@@ -20,6 +20,7 @@ class VoiceCommandService
         protected LifeCommandService $life,
         protected AiIntentResolver $ai,
         protected ContactResolver $contacts,
+        protected TranscriptNormalizer $normalizer,
     ) {
     }
 
@@ -27,6 +28,15 @@ class VoiceCommandService
     {
         $tz = $user->profile?->timezone ?? config('app.timezone');
         $text = trim(preg_replace('/\s+/', ' ', mb_strtolower($transcript)));
+
+        if ($text === '') {
+            return $this->unknown($language);
+        }
+
+        // Strip politeness and repair mis-heard words once, so every rule
+        // below benefits rather than each having to allow for "can you
+        // please ..." and for speech recognition hearing "meating".
+        $text = $this->normalizer->normalize($text);
 
         if ($text === '') {
             return $this->unknown($language);
