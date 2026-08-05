@@ -3,8 +3,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   Circle, Copy, Expand, FlipHorizontal, Grid3x3, Hand, LayoutGrid, Lock, LockOpen, MessageSquare, Mic, MicOff,
-  MonitorUp, MoreHorizontal, Paperclip, PhoneOff, PictureInPicture2, Rows3, Settings2, SmilePlus, Square,
-  SwitchCamera, User, Users, Video, VideoOff,
+  MonitorUp, MoreHorizontal, Paperclip, PhoneOff, PictureInPicture2, Pin, PinOff, Rows3, Settings2, SmilePlus,
+  Square, SwitchCamera, User, Users, Video, VideoOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
@@ -50,7 +50,7 @@ interface Peer {
 }
 
 function PeerTile({
-  peer, video, burst, hand, role, active, spotlight, pinned, quality, className,
+  peer, video, burst, hand, role, active, spotlight, pinned, quality, className, onContextMenu,
 }: {
   peer: Peer
   video: boolean
@@ -62,19 +62,14 @@ function PeerTile({
   pinned?: boolean
   quality?: import('../lib/netQuality').PeerStats
   className?: string
+  onContextMenu?: (e: React.MouseEvent) => void
 }) {
-  const [portrait, setPortrait] = useState(false)
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
       el.srcObject = peer.stream
       el.play().catch(() => undefined)
-      if (el instanceof HTMLVideoElement) {
-        el.onloadedmetadata = () => setPortrait(el.videoHeight > el.videoWidth)
-      }
     }
   }
-  // Shared windows/screens must FIT (letterboxed), never crop like a camera.
-  const fit = peer.sharing || portrait
   const isHost = role === 'host'
 
   if (!video) {
@@ -93,6 +88,7 @@ function PeerTile({
   }
   return (
     <div
+      onContextMenu={onContextMenu}
       className={clsx(
         'relative min-h-0 overflow-hidden rounded-lg bg-slate-900 transition-shadow',
         active && 'ring-2 ring-emerald-400',
@@ -100,7 +96,12 @@ function PeerTile({
         className,
       )}
     >
-      <video ref={attach} autoPlay playsInline className={fit ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
+      {/*
+        Always fit, never crop. Shares and portrait phones always needed this;
+        landscape cameras were cropped to fill the cell, which lopped the top
+        and bottom off people whenever the cell was not the camera's shape.
+      */}
+      <video ref={attach} autoPlay playsInline className="h-full w-full bg-black object-contain" />
       {peer.camOff && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-900 text-slate-300">
           <span className="flex size-12 items-center justify-center rounded-full bg-brand-700 text-lg font-semibold text-white">
@@ -193,6 +194,25 @@ export default function MeetingRoomPage() {
   // Presentation.
   const [layout, setLayout] = useState<Layout>('gallery')
   const [pinned, setPinned] = useState<string | null>(null)
+  /**
+   * Right-click menu on a tile. Pinning was only reachable from the
+   * participants panel, which is a long way to go to enlarge someone.
+   * It stays local to this browser — nobody else's view changes.
+   */
+  const [tileMenu, setTileMenu] = useState<{ uuid: string; name: string; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (!tileMenu) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setTileMenu(null)
+    // Scrolling or resizing leaves the menu stranded away from its tile.
+    const dismiss = () => setTileMenu(null)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('resize', dismiss)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', dismiss)
+    }
+  }, [tileMenu])
   const [hideSelf, setHideSelf] = useState(false)
   const [showPeople, setShowPeople] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -1208,8 +1228,10 @@ export default function MeetingRoomPage() {
         playsInline
         muted
         className={clsx(
-          'h-full w-full',
-          sharing ? 'bg-black object-contain' : 'object-cover',
+          // Fit, never crop. A gallery cell is rarely the camera's own shape,
+          // and cropping to fill it cut heads off — worst with one person,
+          // where the cell is the whole width of the room.
+          'h-full w-full bg-black object-contain',
           !sharing && mirrorSelf && '-scale-x-100',
         )}
       />
@@ -1355,6 +1377,10 @@ export default function MeetingRoomPage() {
       spotlight={spotlight === p.uuid}
       pinned={pinned === p.uuid}
       quality={quality[p.uuid]}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY })
+      }}
       className={clsx(
         isVideo && (stagedLayout && !onStage ? 'aspect-video w-40 shrink-0 sm:w-48' : 'h-full min-h-0'),
       )}
@@ -1552,7 +1578,7 @@ export default function MeetingRoomPage() {
             // Tiles are 16:9, so two rows of them can be taller than the space
             // left over — without a scroll container they spilled out of the
             // flex child and painted straight over the control bar.
-            'scroll-pane min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-950/0',
+            'scroll-pane relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-950/0',
             isFs && 'bg-slate-950 p-3',
             stagedLayout
               ? stripSide ? 'flex gap-2' : 'flex flex-col gap-2'
@@ -1580,12 +1606,18 @@ export default function MeetingRoomPage() {
           ) : (
             <>
               {selfTile}
-              {!peers.length && phase === 'in' && (
-                <Card className="flex items-center justify-center text-sm text-slate-400">
-                  Waiting for others — share the invite link.
-                </Card>
-              )}
               {peers.map((p) => peerTile(p, false))}
+              {/*
+                Floated over the grid rather than placed in it. As a grid child
+                this took a row of its own, so the only person in the room got
+                half the height — cropped to a letterbox slot with the other
+                half sitting empty.
+              */}
+              {!peers.length && phase === 'in' && (
+                <p className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-sm text-slate-400 drop-shadow">
+                  Waiting for others — share the invite link.
+                </p>
+              )}
               {!isVideo && (
                 <button
                   className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700"
@@ -1618,6 +1650,36 @@ export default function MeetingRoomPage() {
           />
         )}
       </div>
+
+      {tileMenu && (
+        <>
+          {/* Click anywhere (or press Escape, below) to dismiss. */}
+          <div className="fixed inset-0 z-40" onMouseDown={() => setTileMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTileMenu(null) }} />
+          <div
+            className="fixed z-50 min-w-44 rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900"
+            style={{
+              // Kept inside the window — a right-click near the right or
+              // bottom edge would otherwise open the menu off-screen.
+              left: Math.min(tileMenu.x, window.innerWidth - 190),
+              top: Math.min(tileMenu.y, window.innerHeight - 90),
+            }}
+          >
+            <p className="truncate px-2 py-1 text-[11px] uppercase tracking-wide text-slate-400">{tileMenu.name}</p>
+            <button
+              className="tap flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+              onClick={() => {
+                setPinned(pinned === tileMenu.uuid ? null : tileMenu.uuid)
+                setTileMenu(null)
+              }}
+            >
+              {pinned === tileMenu.uuid
+                ? <><PinOff className="size-4" /> Unpin</>
+                : <><Pin className="size-4" /> Pin for me</>}
+            </button>
+            <p className="px-2 pb-1 pt-0.5 text-[11px] text-slate-400">Only changes your view.</p>
+          </div>
+        </>
+      )}
 
       {chatOpen && (
         <div className="flex max-h-64 flex-col rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
