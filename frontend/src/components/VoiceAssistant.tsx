@@ -47,7 +47,7 @@ interface Candidate {
 interface Interpretation {
   intent:
     | 'create_task' | 'complete_task' | 'query_tasks' | 'unknown'
-    | 'call_person' | 'message_person' | 'start_meeting' | 'share_screen' | 'navigate' | 'end_call' | 'help'
+    | 'call_person' | 'message_person' | 'start_meeting' | 'share_screen' | 'navigate' | 'end_call' | 'help' | 'smalltalk'
     | 'create_habit' | 'log_habit' | 'create_goal' | 'create_bill' | 'pay_bill'
   language: string
   transcript: string
@@ -216,6 +216,14 @@ export default function VoiceAssistant() {
       })
       const interpretation = res.data.data
       speak(interpretation.speech, language)
+
+      // Small talk keeps the conversation going: reply, then listen again.
+      if (interpretation.intent === 'smalltalk') {
+        setTranscript('')
+        setResult(null)
+        setTimeout(() => startListening(), 1600)
+        return
+      }
 
       // Hanging up is urgent — do it immediately, no confirmation card.
       if (interpretation.intent === 'end_call') {

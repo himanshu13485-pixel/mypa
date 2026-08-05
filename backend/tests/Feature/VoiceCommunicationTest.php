@@ -218,4 +218,75 @@ class VoiceCommunicationTest extends TestCase
 
         $this->assertNotEquals('message_person', $result['intent']);
     }
+
+    public function test_many_ways_to_ask_for_a_call(): void
+    {
+        foreach ([
+            'Call Rahul',
+            'Call to Rahul',
+            'Please call Rahul',
+            'Can you please call Rahul',
+            'Connect Rahul',
+            'Connect me to Rahul',
+            'Rahul ko call karo',
+            'Rahul ko call laga do',
+            'Rahul se baat karao',
+            'Ring Rahul yaar',
+        ] as $phrase) {
+            $result = $this->interpret($phrase);
+            $this->assertEquals('call_person', $result['intent'], "for: {$phrase}");
+            $this->assertEquals('Rahul Sharma', $result['data']['candidates'][0]['name'] ?? null, "for: {$phrase}");
+        }
+    }
+
+    public function test_many_ways_to_send_a_message(): void
+    {
+        foreach ([
+            'Message Rahul saying running late' => 'running late',
+            'Rahul ko message bhejo ki main late hoon' => 'main late hoon',
+            'Rahul ko bolo main aa raha hoon' => 'main aa raha hoon',
+            'Rahul ko bata do meeting cancel hai' => 'meeting cancel hai',
+        ] as $phrase => $text) {
+            $result = $this->interpret($phrase);
+            $this->assertEquals('message_person', $result['intent'], "for: {$phrase}");
+            $this->assertEquals('Rahul Sharma', $result['data']['candidates'][0]['name'] ?? null, "for: {$phrase}");
+            $this->assertEquals($text, $result['data']['text'], "for: {$phrase}");
+        }
+    }
+
+    public function test_many_ways_to_start_a_meeting(): void
+    {
+        foreach ([
+            'Start a meeting with Rahul and Priya',
+            'Meeting with Rahul and Priya',
+            'Rahul, Priya ke sath meeting karo',
+            'Rahul aur Priya ke sath meeting shuru karo',
+        ] as $phrase) {
+            $result = $this->interpret($phrase);
+            $this->assertEquals('start_meeting', $result['intent'], "for: {$phrase}");
+            $this->assertCount(2, $result['data']['people'], "for: {$phrase}");
+        }
+    }
+
+    public function test_romanised_screen_share(): void
+    {
+        $result = $this->interpret('Rahul ke sath screen share karo');
+
+        $this->assertEquals('share_screen', $result['intent']);
+        $this->assertEquals('Rahul Sharma', $result['data']['people'][0]['candidates'][0]['name']);
+    }
+
+    public function test_smalltalk_replies_like_a_person(): void
+    {
+        $this->assertEquals('smalltalk', $this->interpret('Hello')['intent']);
+        $this->assertEquals('smalltalk', $this->interpret('Thank you')['intent']);
+        $this->assertEquals('smalltalk', $this->interpret('Who are you?')['intent']);
+        $this->assertEquals('smalltalk', $this->interpret('कैसे हो', 'hi')['intent']);
+    }
+
+    public function test_fillers_are_stripped_everywhere(): void
+    {
+        $this->assertEquals('navigate', $this->interpret('Please open bills yaar')['intent']);
+        $this->assertEquals('create_task', $this->interpret('Kindly remind me to call the bank tomorrow at 3 PM')['intent']);
+    }
 }

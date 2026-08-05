@@ -74,13 +74,59 @@ class CommunicationCommandService
     /** @return array<string, mixed>|null */
     public function match(User $user, string $text, string $language): ?array
     {
-        return $this->matchHelp($text, $language)
+        return $this->matchSmalltalk($text, $language)
+            ?? $this->matchHelp($text, $language)
             ?? $this->matchEndCall($text, $language)
             ?? $this->matchNavigate($text, $language)
             ?? $this->matchCall($user, $text, $language)
             ?? $this->matchMessage($user, $text, $language)
             ?? $this->matchMeeting($user, $text, $language)
             ?? $this->matchScreen($user, $text, $language);
+    }
+
+    // --- Small talk ----------------------------------------------------------
+
+    /**
+     * Greetings and courtesies get a human reply and keep the conversation
+     * going — an assistant that answers "hello" with "I didn't catch that"
+     * never feels like one.
+     */
+    protected function matchSmalltalk(string $text, string $language): ?array
+    {
+        $reply = null;
+
+        if (preg_match('/^(?:hi|hii+|hello|hey there|namaste|namaskar|नमस्ते|नमस्कार|हेलो|हाय)$/u', $text)) {
+            $reply = $language === 'hi'
+                ? 'नमस्ते! बताइए, क्या करूँ?'
+                : 'Hi! What can I do for you?';
+        } elseif (preg_match('/^good\s*(?:morning|afternoon|evening|night)$/u', $text)) {
+            $reply = $language === 'hi' ? 'नमस्ते! बताइए?' : 'Good day! How can I help?';
+        } elseif (preg_match('/^(?:thank(?:s| you)(?:.*)?|thanku|shukriya|dhanyavad|dhanyawad|धन्यवाद|शुक्रिया|थैंक यू)$/u', $text)) {
+            $reply = $language === 'hi'
+                ? 'कोई बात नहीं! और कुछ चाहिए तो बताइए।'
+                : "You're welcome! Anything else, just say it.";
+        } elseif (preg_match('/^(?:who are you|what(?:\'s| is) your name|tum kaun ho|tumhara naam kya hai|तुम कौन हो|तुम्हारा नाम क्या है|आप कौन हो)$/u', $text)) {
+            $reply = $language === 'hi'
+                ? 'मैं NV हूँ — आपकी Netvork असिस्टेंट। कॉल, मैसेज, मीटिंग, टास्क — बस बोलिए।'
+                : "I'm NV, your Netvork assistant. Calls, messages, meetings, tasks — just say the word.";
+        } elseif (preg_match('/^(?:how are you|kaise ho|kya haal hai|कैसे हो|क्या हाल है|कैसी हो)$/u', $text)) {
+            $reply = $language === 'hi'
+                ? 'एकदम बढ़िया! बताइए, आपके लिए क्या करूँ?'
+                : "Doing great! What can I do for you?";
+        } elseif (preg_match('/^(?:good job|well done|nice|great|badhiya|बढ़िया|शाबाश)$/u', $text)) {
+            $reply = $language === 'hi' ? 'धन्यवाद!' : 'Thank you!';
+        }
+
+        if ($reply === null) {
+            return null;
+        }
+
+        return [
+            'intent' => 'smalltalk',
+            'language' => $language,
+            'data' => [],
+            'speech' => $reply,
+        ];
     }
 
     // --- Help ----------------------------------------------------------------
@@ -155,6 +201,13 @@ class CommunicationCommandService
             '/(.+?)\s*को\s*(?:वीडियो\s*)?(?:कॉल|फ़ोन|फोन)\s*(?:करो|करें|कीजिए|लगाओ|मिलाओ)/u',
             // "कॉल करो rahul को" word order
             '/(?:वीडियो\s*)?(?:कॉल|फ़ोन|फोन)\s*(?:करो|करें|कीजिए|लगाओ|मिलाओ)\s+(.+?)(?:\s*को)?$/u',
+            // Romanised Hindi: "rahul ko (video) call karo / laga do / milao"
+            '/(.+?)\s+ko\s+(?:video\s+)?(?:call|phone|fone)\s*(?:karo|karen|kar\s*do|karna|lagao|laga\s*do|milao|mila\s*do|kijiye)?$/u',
+            // "rahul se baat karao" — get me talking to rahul
+            '/(.+?)\s+se\s+baat\s+(?:karao|karwao|karvao|karni\s*hai|karna\s*hai|karo)/u',
+            '/(.+?)\s*से\s*बात\s*(?:कराओ|करवाओ|करनी\s*है|करना\s*है|करो)/u',
+            // "connect rahul", "connect me to rahul"
+            '/^connect\s+(?:me\s+)?(?:to\s+|with\s+)?(.+)$/u',
         ];
 
         foreach ($patterns as $pattern) {
@@ -179,6 +232,11 @@ class CommunicationCommandService
             '/^tell\s+(.+?)\s+(?:that\s+)?(.+)$/u',
             // "rahul को मैसेज भेजो (कि ...)"
             '/(.+?)\s*को\s*(?:मैसेज|संदेश)\s*(?:भेजो|भेजें|करो|करें|कीजिए)(?:\s*(?:कि|की)\s*(.+))?/u',
+            // Romanised: "rahul ko message bhejo (ki ...)", "rahul ko msg karo"
+            '/(.+?)\s+ko\s+(?:message|msg|sandesh)\s*(?:bhejo|bhej\s*do|karo|kar\s*do|kijiye)?(?:\s+(?:ki|that)\s+(.+))?$/u',
+            // "rahul ko bolo/batao/keh do (ki) main late hoon" — tell = message
+            '/(.+?)\s+ko\s+(?:bolo|bol\s*do|batao|bata\s*do|keh\s*do|kehdo|kaho)\s+(?:ki\s+)?(.+)$/u',
+            '/(.+?)\s*को\s*(?:बोलो|बोल\s*दो|बताओ|बता\s*दो|कह\s*दो|कहो)\s*(?:कि\s*)?(.+)$/u',
         ];
 
         foreach ($patterns as $pattern) {
@@ -207,6 +265,13 @@ class CommunicationCommandService
             '/(?:start|create|new|set ?up|begin|host)\s+(?:an?\s+|the\s+)?(?:instant\s+|quick\s+)?meeting(?:\s+(?:with|for)\s+(.+))?/u',
             // "meeting शुरू करो (rahul के साथ)"
             '/(?:(.+?)\s*के\s*साथ\s*)?(?:मीटिंग|बैठक)\s*(?:शुरू|स्टार्ट|चालू)\s*(?:करो|करें|कीजिए)/u',
+            // "priya, rahul के साथ मीटिंग करो/रखो"
+            '/(.+?)\s*के\s*साथ\s*(?:मीटिंग|बैठक)\s*(?:करो|करें|रखो|कीजिए|करनी\s*है)/u',
+            // Romanised: "priya, rahul ke sath meeting karo / shuru karo / rakho"
+            '/(.+?)\s+ke\s+saa?th\s+meeting\s*(?:karo|karen|kar\s*do|rakho|shuru\s*karo|start\s*karo|set\s*karo|karni\s*hai|karna\s*hai)?$/u',
+            '/meeting\s+(?:karo|shuru\s*karo|start\s*karo|rakho)\s+(.+?)\s+ke\s+saa?th$/u',
+            // Bare "meeting with rahul and priya" (no start verb spoken)
+            '/^meeting\s+with\s+(.+)$/u',
         ];
 
         foreach ($patterns as $pattern) {
@@ -228,6 +293,8 @@ class CommunicationCommandService
             '/start\s+screen\s*shar(?:e|ing)(?:\s+(?:with|to)\s+(.+))?/u',
             // "स्क्रीन शेयर करो (rahul के साथ)"
             '/(?:(.+?)\s*के\s*साथ\s*)?स्क्रीन\s*(?:शेयर|साझा)\s*(?:करो|करें|कीजिए)/u',
+            // Romanised: "(rahul ke sath) screen share karo"
+            '/(?:(.+?)\s+ke\s+saa?th\s+)?screen\s*(?:share|sharing)\s*(?:karo|kar\s*do|shuru\s*karo|start\s*karo)$/u',
         ];
 
         foreach ($patterns as $pattern) {
@@ -308,7 +375,7 @@ class CommunicationCommandService
     /** An intent that may involve several people (meeting, screen share). */
     protected function groupIntent(User $user, string $intent, string $spokenNames, string $language): array
     {
-        $names = collect(preg_split('/\s*(?:,|and|और|तथा)\s*/u', trim($spokenNames)))
+        $names = collect(preg_split('/\s*(?:,|\band\b|\baur\b|&|और|तथा)\s*/u', trim($spokenNames)))
             ->map(fn ($n) => trim($n))
             ->filter()
             ->values();
