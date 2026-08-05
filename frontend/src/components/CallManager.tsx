@@ -15,9 +15,10 @@ import type { CallSignalPayload } from '../types'
 import { startRingtone } from '../lib/alerts'
 import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
-import { createEffectTrack, type BlurPipeline } from '../lib/videoFx'
+import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
 import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
 import { normalizeSdp } from '../lib/sdp'
+import { VIDEO_FIT, galleryColumns, galleryRows, useSelfView } from '../lib/videoLayout'
 
 interface ActiveCall {
   uuid: string
@@ -78,7 +79,8 @@ function RemoteTile({ peer, video, active }: { peer: RemotePeer; video: boolean;
   }
   return (
     <div className={'relative overflow-hidden rounded-lg bg-slate-900' + (active ? ' ring-2 ring-emerald-400' : '')}>
-      <video ref={attach} autoPlay playsInline className={peer.sharing ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
+      {/* Fit, never crop — a tile is rarely the camera's own shape. */}
+      <video ref={attach} autoPlay playsInline className={VIDEO_FIT} />
       {peer.conn && !['connected', 'completed'].includes(peer.conn) && (
         <span
           className={
@@ -127,6 +129,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const startRecRef = useRef<() => void>(() => undefined)
   const [sharing, setSharing] = useState(false)
   const displayTrackRef = useRef<MediaStreamTrack | null>(null)
+  /** Canvas compositor drawing the camera onto the shared screen. */
+  const sharePipeRef = useRef<BlurPipeline | null>(null)
   const [isFs, setIsFs] = useState(false)
   /** Compact corner panel, or a big centred window. Remembered between calls. */
   const [expanded, setExpanded] = useState(() => localStorage.getItem('mypa-call-expanded') === '1')
@@ -150,7 +154,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
-  const localVideoRef = useRef<HTMLVideoElement>(null)
+  /* Shared with meetings: survives the re-mounts that used to blank the
+     self-view — swapping between the video and audio-only bodies replaces
+     the <video>, and a plain ref never re-attached the stream. */
+  const { show: showSelf, attach: attachSelf } = useSelfView()
   const callRef = useRef<ActiveCall | null>(null)
   callRef.current = activeCall
 
@@ -193,6 +200,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
     blurRef.current?.stop()
     blurRef.current = null
     setBgLabel('none')
+    sharePipeRef.current?.stop()
+    sharePipeRef.current = null
     displayTrackRef.current?.stop()
     displayTrackRef.current = null
     setSharing(false)
@@ -234,9 +243,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     localStreamRef.current = stream
     cameraTrackRef.current = stream.getVideoTracks()[0] ?? null
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream
+    showSelf(stream)
     return stream
-  }, [])
+  }, [showSelf])
 
   /**
    * Rebuild a broken media path without rebuilding the call.
@@ -481,7 +490,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         if (camera) sender?.replaceTrack(camera).catch(() => undefined)
       })
-      if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+      showSelf(localStreamRef.current)
       blurRef.current?.stop()
       blurRef.current = null
     }
@@ -501,7 +510,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         sender?.replaceTrack(pipeline.track).catch(() => undefined)
       })
-      if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
+      showSelf(new MediaStream([pipeline.track]))
       setBgLabel(choice.label)
     } catch (err) {
       alert('Background effect could not start (it needs internet for the model on first use).')
@@ -700,9 +709,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
       const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
       if (camera) sender?.replaceTrack(camera).catch(() => undefined)
     })
+    sharePipeRef.current?.stop() // before its inputs go
+    sharePipeRef.current = null
     displayTrackRef.current?.stop()
     displayTrackRef.current = null
-    if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+    showSelf(localStreamRef.current)
     setSharing(false)
     const uuid = callRef.current?.uuid
     if (uuid) peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'share', { on: false }, peerUuid).catch(() => undefined))
@@ -715,14 +726,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
     try {
       const display = await navigator.mediaDevices.getDisplayMedia({ video: true })
-      const track = display.getVideoTracks()[0]
-      displayTrackRef.current = track
-      track.onended = stopShare
+      const raw = display.getVideoTracks()[0]
+      displayTrackRef.current = raw
+      raw.onended = stopShare
+      // One composited track keeps the sharer's face on the call without a
+      // second transceiver or a renegotiation. Same pipeline as meetings.
+      const camera = cameraOff ? null : (blurRef.current?.track ?? cameraTrackRef.current ?? null)
+      const composite = createSharePipeline(raw, camera)
+      sharePipeRef.current = composite
+      const track = composite.track
       peersRef.current.forEach((pc) => {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         sender?.replaceTrack(track).catch(() => undefined)
       })
-      if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([track])
+      showSelf(new MediaStream([track]))
       setSharing(true)
       const uuid = callRef.current?.uuid
       if (uuid) peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'share', { on: true }, peerUuid).catch(() => undefined))
@@ -777,7 +794,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
   const isVideo = activeCall?.type === 'video'
   const tiles = remotePeers.length
-  const gridCols = tiles <= 1 ? 'grid-cols-1' : tiles <= 4 ? 'grid-cols-2' : 'grid-cols-3'
+  const gridCols = galleryColumns(tiles)
+  const gridRows = galleryRows(tiles)
   const wide = activeCall?.isGroup && tiles > 1
 
   return (
@@ -827,7 +845,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
           >
             {isVideo ? (
               <>
-                <div className={clsx('grid gap-1', gridCols, isFs || expanded ? 'h-full' : 'h-56')}>
+                <div className={clsx('grid gap-1', gridCols, gridRows, isFs || expanded ? 'h-full' : 'h-56')}>
                   {remotePeers.length === 0 ? (
                     <div className="flex items-center justify-center text-xs text-slate-500">Waiting for others…</div>
                   ) : (
@@ -835,7 +853,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   )}
                 </div>
                 <video
-                  ref={localVideoRef}
+                  ref={attachSelf}
                   autoPlay
                   playsInline
                   muted
@@ -850,7 +868,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 {remotePeers.map((p) => (
                   <RemoteTile key={p.uuid} peer={p} video={false} />
                 ))}
-                <video ref={localVideoRef} className="hidden" muted />
+                <video ref={attachSelf} className="hidden" muted />
                 {activeCall.isGroup ? (
                   <Users className="size-8 text-slate-500" />
                 ) : (

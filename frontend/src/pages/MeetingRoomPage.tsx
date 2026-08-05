@@ -12,6 +12,7 @@ import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
 import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
+import { VIDEO_FIT, galleryColumns, galleryRows as galleryRows_, useSelfView } from '../lib/videoLayout'
 import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
@@ -96,12 +97,7 @@ function PeerTile({
         className,
       )}
     >
-      {/*
-        Always fit, never crop. Shares and portrait phones always needed this;
-        landscape cameras were cropped to fill the cell, which lopped the top
-        and bottom off people whenever the cell was not the camera's shape.
-      */}
-      <video ref={attach} autoPlay playsInline className="h-full w-full bg-black object-contain" />
+      <video ref={attach} autoPlay playsInline className={VIDEO_FIT} />
       {peer.camOff && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-900 text-slate-300">
           <span className="flex size-12 items-center justify-center rounded-full bg-brand-700 text-lg font-semibold text-white">
@@ -245,38 +241,9 @@ export default function MeetingRoomPage() {
   const displayTrackRef = useRef<MediaStreamTrack | null>(null)
   /** Canvas compositor drawing the camera onto the shared screen. */
   const sharePipeRef = useRef<BlurPipeline | null>(null)
-  const localVideoRef = useRef<HTMLVideoElement>(null)
-  /**
-   * The stream the self-view should be showing.
-   *
-   * It was only ever assigned straight onto the element, at each of the eight
-   * moments the stream changes. That works until the element is replaced —
-   * switching layout moves the self tile between the grid, the stage and the
-   * filmstrip, so React mounts a fresh <video> with no srcObject and nothing
-   * puts it back. The tile went black while the track carried on being sent,
-   * which is why everyone else could still see you.
-   */
-  const selfStreamRef = useRef<MediaStream | null>(null)
-
-  /** Show a stream in the self-view, and remember it for the next mount. */
-  const showSelf = useCallback((stream: MediaStream | null) => {
-    selfStreamRef.current = stream
-    const el = localVideoRef.current
-    if (el && stream && el.srcObject !== stream) {
-      el.srcObject = stream
-      el.play().catch(() => undefined)
-    }
-  }, [])
-
-  /** Callback ref, so every mount re-attaches — a plain ref never could. */
-  const attachSelf = useCallback((el: HTMLVideoElement | null) => {
-    localVideoRef.current = el
-    const stream = selfStreamRef.current
-    if (el && stream && el.srcObject !== stream) {
-      el.srcObject = stream
-      el.play().catch(() => undefined)
-    }
-  }, [])
+  /* Shared with calls and screen sessions. Keeps the self-view attached
+     across the re-mounts that switching layout causes — see useSelfView. */
+  const { show: showSelf, attach: attachSelf } = useSelfView()
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const joinedRef = useRef(false)
   const lobbyRef = useRef<LobbyResult | null>(null)
@@ -1238,26 +1205,10 @@ export default function MeetingRoomPage() {
     ? (showSelfTile ? 'me' : null)
     : peers.some((p) => p.uuid === stageCandidate) ? stageCandidate : null
 
-  /** Gallery column count, kept square-ish so nobody gets a sliver. */
-  const galleryCols = tileCount <= 1 ? 'grid-cols-1'
-    : tileCount <= 2 ? 'grid-cols-1 sm:grid-cols-2'
-      : tileCount <= 4 ? 'grid-cols-2'
-        : tileCount <= 9 ? 'grid-cols-2 lg:grid-cols-3'
-          : 'grid-cols-3 lg:grid-cols-4'
-
-  /**
-   * Row sizing is what keeps the gallery on screen.
-   *
-   * Tiles used to be fixed 16:9 boxes, so their height came only from their
-   * width — on a wide window a single tile was taller than the space left for
-   * it and you had to scroll to see your own face, and several rows of them
-   * ran past the bottom of the grid and into each other.
-   *
-   * Equal fractional rows divide the height that actually exists, so the
-   * gallery always fits. Past nine people that would shrink faces to nothing,
-   * so rows take a floor instead and the grid scrolls, as Meet does.
-   */
-  const galleryRows = tileCount <= 9 ? 'auto-rows-fr' : 'auto-rows-[minmax(9rem,1fr)]'
+  // Column and row sizing live in lib/videoLayout so calls and meetings
+  // cannot drift apart again.
+  const galleryCols = galleryColumns(tileCount)
+  const galleryRows = galleryRows_(tileCount)
 
   /*
    * Pinning someone means "make this person big", so it has to work from the
@@ -1296,10 +1247,7 @@ export default function MeetingRoomPage() {
         playsInline
         muted
         className={clsx(
-          // Fit, never crop. A gallery cell is rarely the camera's own shape,
-          // and cropping to fill it cut heads off — worst with one person,
-          // where the cell is the whole width of the room.
-          'h-full w-full bg-black object-contain',
+          VIDEO_FIT,
           !sharing && mirrorSelf && '-scale-x-100',
         )}
       />

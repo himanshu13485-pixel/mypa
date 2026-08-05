@@ -9,6 +9,7 @@ import { Button, Card, Spinner } from '../components/ui'
 import { screenLink } from './ScreenPage'
 import type { MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
+import { useSelfView } from '../lib/videoLayout'
 
 /**
  * A screen session: the HOST captures their screen and answers offers from
@@ -41,7 +42,10 @@ export default function ScreenSessionPage() {
   const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
   const displayStreamRef = useRef<MediaStream | null>(null)
-  const videoRef = useRef<HTMLVideoElement>(null)
+  /* Remembered stream + callback ref, shared with meetings and calls: a
+   re-mounted <video> used to come back blank because the stream was only
+   ever assigned onto the element that existed at the time. */
+  const { show: showVideo, attach: attachVideo, videoRef } = useSelfView()
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const joinedRef = useRef(false)
 
@@ -110,12 +114,7 @@ export default function ScreenSessionPage() {
             const pc = await newPeer(hostUuid)
             pc.addTransceiver('video', { direction: 'recvonly' })
             pc.addTransceiver('audio', { direction: 'recvonly' })
-            pc.ontrack = (e) => {
-              if (videoRef.current && videoRef.current.srcObject !== e.streams[0]) {
-                videoRef.current.srcObject = e.streams[0]
-                videoRef.current.play().catch((err) => console.warn('[screen] playback blocked', err))
-              }
-            }
+            pc.ontrack = (e) => showVideo(e.streams[0])
             pc.onconnectionstatechange = () => console.info('[screen] host connection:', pc.connectionState)
             const offer = await pc.createOffer()
             await pc.setLocalDescription(offer)
@@ -161,12 +160,7 @@ export default function ScreenSessionPage() {
               const pc = await newPeer(signal.from_uuid)
               pc.addTransceiver('video', { direction: 'recvonly' })
               pc.addTransceiver('audio', { direction: 'recvonly' })
-              pc.ontrack = (e) => {
-                if (videoRef.current && videoRef.current.srcObject !== e.streams[0]) {
-                  videoRef.current.srcObject = e.streams[0]
-                  videoRef.current.play().catch((err) => console.warn('[screen] playback blocked', err))
-                }
-              }
+              pc.ontrack = (e) => showVideo(e.streams[0])
               pc.onconnectionstatechange = () => console.info('[screen] host connection:', pc.connectionState)
               const offer = await pc.createOffer()
               await pc.setLocalDescription(offer)
@@ -259,7 +253,7 @@ export default function ScreenSessionPage() {
     return () => {
       channel.stopListening('.meeting.signal')
     }
-  }, [user?.uuid, session, code, newPeer, teardown, flushPendingIce, startSession])
+  }, [user?.uuid, session, code, newPeer, teardown, flushPendingIce, startSession, showVideo])
 
   useEffect(() => {
     if (phase !== 'live') return
@@ -298,10 +292,7 @@ export default function ScreenSessionPage() {
   const togglePreview = () => {
     const next = !showPreview
     setShowPreview(next)
-    if (videoRef.current) {
-      videoRef.current.srcObject = next ? displayStreamRef.current : null
-      if (next) videoRef.current.play().catch(() => undefined)
-    }
+    showVideo(next ? displayStreamRef.current : null)
   }
 
   const togglePause = () => {
@@ -432,7 +423,7 @@ export default function ScreenSessionPage() {
             <Spinner />
           </div>
         )}
-        <video ref={videoRef} autoPlay playsInline muted={isHost || viewerMuted} className="h-full w-full object-contain" />
+        <video ref={attachVideo} autoPlay playsInline muted={isHost || viewerMuted} className="h-full w-full object-contain" />
         {isHost && !showPreview && phase === 'live' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-sm text-white">
             <MonitorUp className="size-8 text-emerald-400" />
