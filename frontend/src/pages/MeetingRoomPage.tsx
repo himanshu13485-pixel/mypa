@@ -246,6 +246,37 @@ export default function MeetingRoomPage() {
   /** Canvas compositor drawing the camera onto the shared screen. */
   const sharePipeRef = useRef<BlurPipeline | null>(null)
   const localVideoRef = useRef<HTMLVideoElement>(null)
+  /**
+   * The stream the self-view should be showing.
+   *
+   * It was only ever assigned straight onto the element, at each of the eight
+   * moments the stream changes. That works until the element is replaced —
+   * switching layout moves the self tile between the grid, the stage and the
+   * filmstrip, so React mounts a fresh <video> with no srcObject and nothing
+   * puts it back. The tile went black while the track carried on being sent,
+   * which is why everyone else could still see you.
+   */
+  const selfStreamRef = useRef<MediaStream | null>(null)
+
+  /** Show a stream in the self-view, and remember it for the next mount. */
+  const showSelf = useCallback((stream: MediaStream | null) => {
+    selfStreamRef.current = stream
+    const el = localVideoRef.current
+    if (el && stream && el.srcObject !== stream) {
+      el.srcObject = stream
+      el.play().catch(() => undefined)
+    }
+  }, [])
+
+  /** Callback ref, so every mount re-attaches — a plain ref never could. */
+  const attachSelf = useCallback((el: HTMLVideoElement | null) => {
+    localVideoRef.current = el
+    const stream = selfStreamRef.current
+    if (el && stream && el.srcObject !== stream) {
+      el.srcObject = stream
+      el.play().catch(() => undefined)
+    }
+  }, [])
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const joinedRef = useRef(false)
   const lobbyRef = useRef<LobbyResult | null>(null)
@@ -324,9 +355,9 @@ export default function MeetingRoomPage() {
 
     localStreamRef.current = stream
     cameraTrackRef.current = stream.getVideoTracks()[0] ?? null
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream
+    showSelf(stream)
     return stream
-  }, [meeting?.type])
+  }, [meeting?.type, showSelf])
 
   const flushPendingIce = useCallback((peerUuid: string) => {
     const pc = pcsRef.current.get(peerUuid)
@@ -891,9 +922,9 @@ export default function MeetingRoomPage() {
           const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
           sender?.replaceTrack(pipeline.track).catch(() => undefined)
         })
-        if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
-      } else if (localVideoRef.current && localStreamRef.current) {
-        localVideoRef.current.srcObject = localStreamRef.current
+        showSelf(new MediaStream([pipeline.track]))
+      } else {
+        showSelf(localStreamRef.current)
       }
 
       setDeviceChoice(saveDeviceChoice(target))
@@ -922,7 +953,7 @@ export default function MeetingRoomPage() {
       const track = await openCamera({ deviceId })
       cameraTrackRef.current = track
       swapTrack(pcsRef.current.values(), localStreamRef.current, track)
-      if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+      showSelf(localStreamRef.current)
       setDeviceChoice(saveDeviceChoice({ cameraId: deviceId }))
     } catch (err) {
       toastError('Could not switch that device — it may be in use by another app.')
@@ -959,7 +990,7 @@ export default function MeetingRoomPage() {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         sender?.replaceTrack(track).catch(() => undefined)
       })
-      if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([track])
+      showSelf(new MediaStream([track]))
       setSharing(true)
     } catch {
       /* user cancelled the picker */
@@ -979,7 +1010,7 @@ export default function MeetingRoomPage() {
     pcsRef.current.forEach((_, uuid) => {
       meetingsApi.signal(code, 'share', { on: false }, uuid).catch(() => undefined)
     })
-    if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+    showSelf(localStreamRef.current)
     setSharing(false)
   }
 
@@ -1082,7 +1113,7 @@ export default function MeetingRoomPage() {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         if (camera) sender?.replaceTrack(camera).catch(() => undefined)
       })
-      if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+      showSelf(localStreamRef.current)
       blurRef.current?.stop()
       blurRef.current = null
     }
@@ -1104,7 +1135,7 @@ export default function MeetingRoomPage() {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         sender?.replaceTrack(pipeline.track).catch(() => undefined)
       })
-      if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
+      showSelf(new MediaStream([pipeline.track]))
       bgChoiceRef.current = choice
       // Blur has nothing to read, so it can stay mirrored; a picture cannot.
       setBgHasImage(choice.effect.type === 'image')
@@ -1224,7 +1255,17 @@ export default function MeetingRoomPage() {
    */
   const galleryRows = tileCount <= 9 ? 'auto-rows-fr' : 'auto-rows-[minmax(9rem,1fr)]'
 
-  const stagedLayout = layout !== 'gallery' && stageUuid !== null && isVideo
+  /*
+   * Pinning someone means "make this person big", so it has to work from the
+   * gallery — which is where everyone is when they reach for it. Requiring a
+   * non-gallery layout as well meant pinning from the default view silently
+   * did nothing at all.
+   *
+   * An explicit pin therefore stages on its own. Spotlight and the automatic
+   * candidates still only stage when a staged layout is chosen, so the host
+   * cannot yank someone out of the gallery view you picked.
+   */
+  const stagedLayout = isVideo && stageUuid !== null && (layout !== 'gallery' || pinned !== null)
   const stripSide = layout === 'sidebar'
 
   const selfTile = showSelfTile ? (
@@ -1240,7 +1281,7 @@ export default function MeetingRoomPage() {
       )}
     >
       <video
-        ref={localVideoRef}
+        ref={attachSelf}
         autoPlay
         playsInline
         muted
