@@ -182,6 +182,19 @@ export default function VoiceAssistant() {
   const [result, setResult] = useState<Interpretation | null>(null)
   const [error, setError] = useState<string | null>(null)
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  /**
+   * Fires once the speaker has actually gone quiet, rather than at the first
+   * gap between words — see startListening.
+   */
+  const silenceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /** Guards the auto-restart below from looping when the mic is unusable. */
+  const restartsRef = useRef(0)
+  /**
+   * The live transcript. The recognizer's handlers are created once per
+   * session and would otherwise close over the transcript as it was when
+   * listening started, so onend could not tell silence from speech.
+   */
+  const transcriptRef = useRef('')
 
   // Hands-free wake word ("NV" by default, user-changeable, per device).
   const [wakeEnabled, setWakeEnabled] = useState(() => localStorage.getItem('mypa-voice-wake') === '1')
@@ -256,17 +269,36 @@ export default function VoiceAssistant() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [language, activeCall, endCall])
 
+  /** How long the speaker may pause mid-command before we treat it as the end. */
+  const SILENCE_MS = 1600
+  /** Consecutive silent restarts before we stop reopening the microphone. */
+  const MAX_RESTARTS = 3
+
+  const clearSilence = () => {
+    if (silenceRef.current) {
+      clearTimeout(silenceRef.current)
+      silenceRef.current = null
+    }
+  }
+
   const startListening = () => {
     const Ctor = getRecognizer()
     if (!Ctor) return
     setResult(null)
     setError(null)
     setTranscript('')
+    transcriptRef.current = ''
+    clearSilence()
+    restartsRef.current = 0
 
     const recognition = new Ctor()
     recognitionRef.current = recognition
     recognition.lang = language === 'hi' ? 'hi-IN' : 'en-IN'
-    recognition.continuous = false
+    // Continuous, so a pause mid-sentence does not end the command. Without
+    // this the browser decided the speaker was finished at the first gap
+    // between words — "call... umm... Rahul" was cut off at the "umm" and
+    // interpreted as whatever had been heard so far.
+    recognition.continuous = true
     recognition.interimResults = true
 
     recognition.onresult = (event) => {
@@ -274,18 +306,57 @@ export default function VoiceAssistant() {
         .map((_, i) => event.results[i][0].transcript)
         .join(' ')
       setTranscript(text)
-    }
-    recognition.onerror = (event) => {
-      setListening(false)
-      if (event.error === 'not-allowed') {
-        setError('Microphone permission was denied.')
-      } else if (event.error !== 'aborted') {
-        setError(`Speech recognition error: ${event.error}`)
+      transcriptRef.current = text
+
+      // Every word heard pushes the deadline back; the command ends when the
+      // speaker is genuinely quiet, not when they draw breath.
+      clearSilence()
+      if (text.trim()) {
+        silenceRef.current = setTimeout(() => {
+          silenceRef.current = null
+          recognitionRef.current?.stop()
+        }, SILENCE_MS)
       }
     }
-    recognition.onend = () => {
+
+    recognition.onerror = (event) => {
+      // Hearing nothing yet is the normal state of a microphone that has just
+      // opened, not a failure worth showing anyone. onend restarts it.
+      if (event.error === 'no-speech' || event.error === 'aborted') return
+
+      clearSilence()
       setListening(false)
+      restartsRef.current = MAX_RESTARTS // don't fight a real fault
+      setError(
+        event.error === 'not-allowed'
+          ? 'Microphone permission was denied.'
+          : event.error === 'network'
+            ? 'Speech recognition needs an internet connection.'
+            : `Speech recognition error: ${event.error}`,
+      )
+    }
+
+    recognition.onend = () => {
       recognitionRef.current = null
+
+      // Browsers also close the microphone on their own — after a stretch of
+      // silence, and again on a hard session limit. If nothing was captured,
+      // reopen it so the assistant is still listening when the user does
+      // speak, instead of appearing to have given up.
+      const heardNothing = !transcriptRef.current.trim()
+      if (heardNothing && !silenceRef.current && restartsRef.current < MAX_RESTARTS) {
+        restartsRef.current += 1
+        try {
+          recognition.start()
+          recognitionRef.current = recognition
+          return
+        } catch {
+          // Already winding down — fall through and settle.
+        }
+      }
+
+      clearSilence()
+      setListening(false)
     }
 
     recognition.start()
@@ -293,6 +364,8 @@ export default function VoiceAssistant() {
   }
 
   const stopListening = (thenInterpret: boolean) => {
+    clearSilence()
+    restartsRef.current = MAX_RESTARTS // a deliberate stop must not reopen
     recognitionRef.current?.stop()
     setListening(false)
     if (thenInterpret && transcript.trim()) {
@@ -384,6 +457,17 @@ export default function VoiceAssistant() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wakeActive, wakeWord, language])
+
+  // Leaving the page must release the microphone and cancel the pending
+  // end-of-command timer; the restart guard stops onend reopening it.
+  useEffect(() => () => {
+    restartsRef.current = MAX_RESTARTS
+    if (silenceRef.current) clearTimeout(silenceRef.current)
+    silenceRef.current = null
+    recognitionRef.current?.abort()
+    recognitionRef.current = null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const executeCreate = async () => {
     const task = result?.data.task
@@ -572,12 +656,15 @@ export default function VoiceAssistant() {
       return
     }
 
+    clearSilence()
+    restartsRef.current = MAX_RESTARTS // closing must not reopen the mic
     recognitionRef.current?.abort()
     confirmRef.current?.abort()
     confirmRef.current = null
     setOpen(false)
     setListening(false)
     setTranscript('')
+    transcriptRef.current = ''
     setResult(null)
     setError(null)
     setPicked({})
@@ -787,9 +874,16 @@ export default function VoiceAssistant() {
                   {busy ? <Loader2 className="size-6 animate-spin" /> : <Mic className="size-6" />}
                 </button>
               </div>
+              {/*
+                Three states, not two. Once words have been heard the mic stays
+                open through a pause, so saying so is what stops people cutting
+                themselves short — the old copy only ever said "listening".
+              */}
               <p className="text-center text-xs text-slate-400">
                 {listening
-                  ? language === 'hi' ? 'सुन रही हूँ… बोलिए' : 'Listening… speak now'
+                  ? transcript.trim()
+                    ? language === 'hi' ? 'सुन रही हूँ… रुककर बोल सकते हैं' : 'Still listening… take your time'
+                    : language === 'hi' ? 'सुन रही हूँ… बोलिए' : 'Listening… speak now'
                   : language === 'hi' ? 'माइक दबाकर बोलें' : 'Tap the mic and speak'}
               </p>
               <Input
