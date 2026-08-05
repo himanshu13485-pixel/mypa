@@ -9,6 +9,7 @@ use App\Models\Folder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class FileController extends Controller
@@ -276,6 +277,76 @@ class FileController extends Controller
         return Storage::disk('local')->download($file->path, $file->name, [
             'Content-Type' => $file->mime_type ?? 'application/octet-stream',
             'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * Mint (or replace) a public link for a file.
+     *
+     * Sharing by app id needs the other person to have an account. A link does
+     * not, which is the whole point — it is what you paste to a client.
+     *
+     * The token is the capability: anyone holding it can download the file, so
+     * it is random, long, and returned only here. Re-issuing rotates it, which
+     * is also how you revoke a link you have already sent and regret.
+     */
+    public function shareLink(Request $request, File $file): JsonResponse
+    {
+        abort_unless($file->user_id === $request->user()->id, 403, 'Only the owner can share this file.');
+
+        $data = $request->validate([
+            // Days, not a date, so the caller cannot backdate it. Null is a
+            // link that does not lapse.
+            'expires_in_days' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:365'],
+        ]);
+
+        $file->update([
+            'share_token' => Str::random(48),
+            'share_expires_at' => isset($data['expires_in_days'])
+                ? now()->addDays((int) $data['expires_in_days'])
+                : null,
+            'shared_at' => now(),
+        ]);
+
+        return response()->json(['data' => [
+            'url' => url("/api/v1/f/{$file->share_token}"),
+            'expires_at' => $file->share_expires_at,
+            'downloads' => $file->share_downloads,
+        ]]);
+    }
+
+    /** Withdraw a public link. Anyone already holding it gets a 404. */
+    public function revokeShareLink(Request $request, File $file): JsonResponse
+    {
+        abort_unless($file->user_id === $request->user()->id, 403, 'Only the owner can revoke this link.');
+
+        $file->update(['share_token' => null, 'share_expires_at' => null, 'shared_at' => null]);
+
+        return response()->json(['message' => 'Link revoked.']);
+    }
+
+    /**
+     * Download by link. No account, no session — the token is the whole check.
+     *
+     * Deliberately indistinguishable between "no such token", "revoked" and
+     * "expired": all 404. Telling a stranger which one it is only helps them
+     * guess.
+     */
+    public function downloadByLink(Request $request, string $token): StreamedResponse
+    {
+        $file = File::where('share_token', $token)->first();
+
+        abort_if($file === null || ! $file->linkIsLive(), 404, 'That link is no longer available.');
+        abort_unless(Storage::disk('local')->exists($file->path), 404, 'File data missing.');
+
+        $file->increment('share_downloads');
+
+        return Storage::disk('local')->download($file->path, $file->name, [
+            'Content-Type' => $file->mime_type ?? 'application/octet-stream',
+            // The file is attacker-supplied as far as a stranger's browser is
+            // concerned; never let it be sniffed into something executable.
+            'X-Content-Type-Options' => 'nosniff',
+            'Content-Security-Policy' => "default-src 'none'; sandbox",
         ]);
     }
 

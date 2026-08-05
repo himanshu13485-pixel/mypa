@@ -33,6 +33,12 @@ Route::prefix('v1')->group(function () {
     Route::get('/plans', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'plans'])
         ->middleware('throttle:30,1');
 
+    // Public file share link. The token is the whole check, so this is
+    // throttled to make guessing one impractical.
+    Route::get('/f/{token}', [FileController::class, 'downloadByLink'])
+        ->middleware('throttle:60,1')
+        ->where('token', '[A-Za-z0-9]{32,64}');
+
     // --- Public auth (strictly throttled) --------------------------------
     Route::middleware('throttle:10,1')->group(function () {
         Route::post('/auth/register', [AuthController::class, 'register']);
@@ -207,6 +213,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/files/trash', [FileController::class, 'trash']);
         Route::post('/files/upload', [FileController::class, 'upload']);
         Route::get('/files/{file}/download', [FileController::class, 'download']);
+        Route::post('/files/{file}/share-link', [FileController::class, 'shareLink']);
+        Route::delete('/files/{file}/share-link', [FileController::class, 'revokeShareLink']);
         Route::put('/files/{file}', [FileController::class, 'update']);
         Route::delete('/files/{file}', [FileController::class, 'destroy']);
         Route::post('/files/{uuid}/restore', [FileController::class, 'restore']);
