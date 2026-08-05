@@ -11,7 +11,7 @@ import { calls, meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
-import { createEffectTrack, type BlurPipeline } from '../lib/videoFx'
+import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
 import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
@@ -243,6 +243,8 @@ export default function MeetingRoomPage() {
   const localStreamRef = useRef<MediaStream | null>(null)
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null)
   const displayTrackRef = useRef<MediaStreamTrack | null>(null)
+  /** Canvas compositor drawing the camera onto the shared screen. */
+  const sharePipeRef = useRef<BlurPipeline | null>(null)
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const joinedRef = useRef(false)
@@ -460,6 +462,8 @@ export default function MeetingRoomPage() {
     restartTimersRef.current.clear()
     localStreamRef.current?.getTracks().forEach((t) => t.stop())
     localStreamRef.current = null
+    sharePipeRef.current?.stop()
+    sharePipeRef.current = null
     displayTrackRef.current?.stop() // otherwise the browser keeps sharing the screen
     displayTrackRef.current = null
     setSharing(false)
@@ -934,9 +938,20 @@ export default function MeetingRoomPage() {
     }
     try {
       const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-      const track = display.getVideoTracks()[0]
-      displayTrackRef.current = track
-      track.onended = stopShare
+      const raw = display.getVideoTracks()[0]
+      displayTrackRef.current = raw
+      raw.onended = stopShare
+
+      // Draw the camera into a corner of the shared screen and send the
+      // composite, so the sharer's face stays on the call. Sending screen and
+      // camera as two tracks would need a second transceiver and a
+      // renegotiation with every peer; one composited track keeps the
+      // connection exactly as it already is.
+      const camera = cameraOff ? null : (blurRef.current?.track ?? cameraTrackRef.current ?? null)
+      const composite = createSharePipeline(raw, camera)
+      sharePipeRef.current = composite
+      const track = composite.track
+
       pcsRef.current.forEach((_, uuid) => {
         meetingsApi.signal(code, 'share', { on: true }, uuid).catch(() => undefined)
       })
@@ -957,6 +972,8 @@ export default function MeetingRoomPage() {
       const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
       if (camera) sender?.replaceTrack(camera).catch(() => undefined)
     })
+    sharePipeRef.current?.stop() // stop the compositor before its inputs go
+    sharePipeRef.current = null
     displayTrackRef.current?.stop() // release the browser's "sharing your screen" bar
     displayTrackRef.current = null
     pcsRef.current.forEach((_, uuid) => {
