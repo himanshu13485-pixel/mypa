@@ -1173,6 +1173,20 @@ export default function MeetingRoomPage() {
         : tileCount <= 9 ? 'grid-cols-2 lg:grid-cols-3'
           : 'grid-cols-3 lg:grid-cols-4'
 
+  /**
+   * Row sizing is what keeps the gallery on screen.
+   *
+   * Tiles used to be fixed 16:9 boxes, so their height came only from their
+   * width — on a wide window a single tile was taller than the space left for
+   * it and you had to scroll to see your own face, and several rows of them
+   * ran past the bottom of the grid and into each other.
+   *
+   * Equal fractional rows divide the height that actually exists, so the
+   * gallery always fits. Past nine people that would shrink faces to nothing,
+   * so rows take a floor instead and the grid scrolls, as Meet does.
+   */
+  const galleryRows = tileCount <= 9 ? 'auto-rows-fr' : 'auto-rows-[minmax(9rem,1fr)]'
+
   const stagedLayout = layout !== 'gallery' && stageUuid !== null && isVideo
   const stripSide = layout === 'sidebar'
 
@@ -1182,7 +1196,10 @@ export default function MeetingRoomPage() {
       className={clsx(
         'relative overflow-hidden rounded-lg bg-slate-900 transition-all',
         activeSpeaker === 'me' && 'ring-2 ring-emerald-400',
-        stagedLayout && stageUuid !== 'me' ? 'aspect-video w-40 shrink-0 sm:w-48' : 'aspect-video min-h-0',
+        // In the filmstrip the width is fixed, so 16:9 is what sets the
+        // height. Everywhere else the tile fills the space the grid or the
+        // stage gives it — see galleryRows.
+        stagedLayout && stageUuid !== 'me' ? 'aspect-video w-40 shrink-0 sm:w-48' : 'h-full min-h-0',
       )}
     >
       <video
@@ -1339,7 +1356,7 @@ export default function MeetingRoomPage() {
       pinned={pinned === p.uuid}
       quality={quality[p.uuid]}
       className={clsx(
-        isVideo && (stagedLayout && !onStage ? 'aspect-video w-40 shrink-0 sm:w-48' : 'aspect-video min-h-0'),
+        isVideo && (stagedLayout && !onStage ? 'aspect-video w-40 shrink-0 sm:w-48' : 'h-full min-h-0'),
       )}
     />
   )
@@ -1539,7 +1556,12 @@ export default function MeetingRoomPage() {
             isFs && 'bg-slate-950 p-3',
             stagedLayout
               ? stripSide ? 'flex gap-2' : 'flex flex-col gap-2'
-              : clsx('grid content-start gap-2', isVideo ? galleryCols : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'),
+              // content-start is gone on purpose: it packed the rows against
+              // the top at their natural height, which is what let them run
+              // past the bottom of the grid.
+              : isVideo
+                ? clsx('grid gap-2', galleryCols, galleryRows)
+                : clsx('grid content-start gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'),
           )}
         >
           {stagedLayout ? (
