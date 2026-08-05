@@ -1222,12 +1222,16 @@ export default function MeetingRoomPage() {
   const showSelfTile = isVideo && !hideSelf
   const tileCount = peers.length + (showSelfTile ? 1 : 0)
 
+  /** Anyone presenting right now — yourself included. */
+  const someoneSharing = sharing || peers.some((p) => p.sharing)
+
   /** Who gets the big tile: your pin wins, then the host's spotlight, then
    *  whoever is sharing a screen, then whoever is talking. Anyone who has
    *  since left (a spotlight on a departed peer) falls through to nobody. */
   const stageCandidate = pinned
     ?? spotlight
     ?? peers.find((p) => p.sharing)?.uuid
+    ?? (sharing ? 'me' : null)
     ?? activeSpeaker
     ?? null
   const stageUuid = stageCandidate === 'me'
@@ -1261,11 +1265,17 @@ export default function MeetingRoomPage() {
    * non-gallery layout as well meant pinning from the default view silently
    * did nothing at all.
    *
-   * An explicit pin therefore stages on its own. Spotlight and the automatic
-   * candidates still only stage when a staged layout is chosen, so the host
-   * cannot yank someone out of the gallery view you picked.
+   * An explicit pin therefore stages on its own, and so does a screen share:
+   * the point of presenting is that people read what is on the screen, and a
+   * share reduced to one cell of a gallery is unreadable. Both are what every
+   * other meeting app does.
+   *
+   * Spotlight and the automatic pick of whoever is talking still only stage
+   * when a staged layout is chosen, so nobody can pull you out of the gallery
+   * view you picked just by speaking.
    */
-  const stagedLayout = isVideo && stageUuid !== null && (layout !== 'gallery' || pinned !== null)
+  const stagedLayout = isVideo && stageUuid !== null
+    && (layout !== 'gallery' || pinned !== null || someoneSharing)
   const stripSide = layout === 'sidebar'
 
   const selfTile = showSelfTile ? (
