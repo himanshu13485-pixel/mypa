@@ -178,28 +178,46 @@ export default function MeetingsPage() {
 
             {guestFor.guest_access ? (
               <>
-                <div>
-                  <Label>Link to send them</Label>
-                  <div className="flex gap-2">
-                    <input
-                      readOnly
-                      value={guestUrl ?? `${window.location.origin}/join/${guestFor.code}`}
-                      onFocus={(e) => e.currentTarget.select()}
-                      className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-800"
-                    />
-                    <Button
-                      size="sm"
-                      onClick={() => navigator.clipboard
-                        .writeText(guestUrl ?? `${window.location.origin}/join/${guestFor.code}`)
-                        .catch(() => undefined)}
-                    >
-                      <Copy className="size-3.5" />
-                    </Button>
-                  </div>
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    They need the passcode too — send it separately, or the link alone lets anyone in.
-                  </p>
+                {/* The code first, and large. It is what gets read out on a
+                    phone or written down; the link is a convenience on top. */}
+                <div className="rounded-lg bg-slate-100 p-3 text-center dark:bg-slate-800">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-400">Tell them to go to</p>
+                  <p className="font-medium">{window.location.host}/join</p>
+                  <p className="mt-2 text-[11px] uppercase tracking-wide text-slate-400">and enter</p>
+                  <p className="select-all font-mono text-xl font-semibold tracking-wide">{guestFor.code}</p>
+                  <p className="mt-2 text-[11px] uppercase tracking-wide text-slate-400">passcode</p>
+                  <p className="select-all font-mono text-lg font-semibold">{guestFor.passcode ?? '—'}</p>
                 </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="flex-1"
+                    onClick={() => navigator.clipboard
+                      .writeText(`Join my Netvork meeting
+${window.location.origin}/join
+Code: ${guestFor.code}
+Passcode: ${guestFor.passcode ?? ''}`)
+                      .catch(() => undefined)}
+                  >
+                    <Copy className="size-3.5" /> Copy instructions
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="flex-1"
+                    title="A link that fills the code in for them"
+                    onClick={() => navigator.clipboard
+                      .writeText(guestUrl ?? `${window.location.origin}/join/${guestFor.code}`)
+                      .catch(() => undefined)}
+                  >
+                    <Copy className="size-3.5" /> Copy link
+                  </Button>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  Send the passcode separately from the code, or the two together let anyone in.
+                </p>
                 <Button
                   size="sm"
                   variant="danger"
@@ -245,7 +263,9 @@ export default function MeetingsPage() {
                       setGuestUrl(res.data.join_url)
                       toast(res.message, 'success')
                       queryClient.invalidateQueries({ queryKey: ['meetings'] })
-                      setGuestFor({ ...guestFor, guest_access: true })
+                      // Carry the passcode back so the panel can show it —
+                      // a meeting made by the instant button had none before.
+                      setGuestFor({ ...guestFor, guest_access: true, passcode: res.data.passcode ?? undefined })
                     } catch (err) {
                       toastError(errorMessage(err))
                     } finally {

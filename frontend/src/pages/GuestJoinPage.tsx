@@ -18,9 +18,13 @@ import { Button, Card, ErrorNote, Input, Label } from '../components/ui'
  * outlive either.
  */
 export default function GuestJoinPage() {
-  const { code = '' } = useParams()
+  // The code may arrive in the URL from an invite link, or be typed here.
+  // Typing it is the main way in: "go to netvork.app/join and enter this"
+  // survives being read out or written down, which a link does not.
+  const { code: codeFromUrl } = useParams()
   const navigate = useNavigate()
 
+  const [codeInput, setCodeInput] = useState(codeFromUrl ?? '')
   const [name, setName] = useState('')
   const [passcode, setPasscode] = useState('')
   const [busy, setBusy] = useState(false)
@@ -31,8 +35,13 @@ export default function GuestJoinPage() {
       : null,
   )
 
+  /** Accept a bare code or a whole pasted invite link. */
+  const cleanCode = (raw: string) =>
+    raw.trim().toLowerCase().match(/[a-z]{3}-[a-z]{4}-[a-z]{3}/)?.[0] ?? raw.trim().toLowerCase()
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const code = cleanCode(codeInput)
     setError(null)
     setBusy(true)
     try {
@@ -71,6 +80,24 @@ export default function GuestJoinPage() {
 
         <form onSubmit={submit} className="space-y-3">
           <ErrorNote message={error} />
+          {!codeFromUrl && (
+            <div>
+              <Label>Meeting code</Label>
+              <Input
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value)}
+                placeholder="abc-defg-hij"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                required
+                autoFocus
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                From whoever invited you. Pasting the whole link works too.
+              </p>
+            </div>
+          )}
           <div>
             <Label>Your name</Label>
             <Input
@@ -79,7 +106,7 @@ export default function GuestJoinPage() {
               placeholder="What should people call you?"
               maxLength={50}
               required
-              autoFocus
+              autoFocus={!!codeFromUrl}
             />
           </div>
           <div>
@@ -92,14 +119,18 @@ export default function GuestJoinPage() {
               required
             />
           </div>
-          <Button type="submit" className="w-full" disabled={busy || !name.trim() || !passcode.trim()}>
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={busy || !codeInput.trim() || !name.trim() || !passcode.trim()}
+          >
             {busy ? <><Loader2 className="size-4 animate-spin" /> Joining…</> : 'Join'}
           </Button>
         </form>
 
         <p className="text-center text-xs text-slate-400">
           Have an account?{' '}
-          <button className="text-brand-600 hover:underline" onClick={() => navigate(`/login?next=/meetings/room/${code}`)}>
+          <button className="text-brand-600 hover:underline" onClick={() => navigate('/login')}>
             Sign in instead
           </button>{' '}
           — there is no time limit then.
