@@ -155,7 +155,6 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const blurRef = useRef<BlurPipeline | null>(null)
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null)
   const callBodyRef = useRef<HTMLDivElement>(null)
-  const tilesBoxRef = useRef<HTMLDivElement>(null)
 
   /** The whole panel — video AND controls. Fullscreen used to target only the
    *  video, which is why the controls disappeared the moment you expanded. */
@@ -827,7 +826,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const stageUuid = (pinned && remotePeers.some((p) => p.uuid === pinned) ? pinned : null) ?? sharer
   const staged = isVideo && stageUuid !== null && tiles > 0
   const galleryPeers = staged ? remotePeers.filter((p) => p.uuid !== stageUuid) : remotePeers
-  const gallery = useGalleryLayout(tilesBoxRef, staged ? 0 : tiles)
+  const gallery = useGalleryLayout(staged ? 0 : tiles)
   const tileStyle = gallery.width ? { width: gallery.width, height: gallery.height } : undefined
   const wide = activeCall?.isGroup && tiles > 1
 
@@ -907,7 +906,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   ) : (
                     // Centred wrapping row, sized from the measurement above, so
                     // a short last row sits in the middle rather than the left.
-                    <div ref={tilesBoxRef} className="flex min-h-0 flex-1 flex-wrap content-center items-center justify-center gap-1">
+                    <div ref={gallery.attach} className="flex min-h-0 flex-1 flex-wrap content-center items-center justify-center gap-1">
                       {galleryPeers.map((p) => (
                         <RemoteTile
                           key={p.uuid} peer={p} video active={activeSpeaker === p.uuid}

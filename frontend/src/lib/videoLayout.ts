@@ -7,7 +7,7 @@
  * place left the other two broken; keeping the rules here is what stops that
  * happening again.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 /** The shape camera tiles are laid out to. */
 const TILE_ASPECT = 16 / 9
@@ -34,24 +34,44 @@ export interface GalleryLayout {
  * arrangement giving the biggest tiles wins. Laying those out in a centred
  * wrapping row then centres a short last row for free.
  */
-export function useGalleryLayout(
-  ref: React.RefObject<HTMLElement | null>,
-  count: number,
-  gap = 8,
-): GalleryLayout {
+export function useGalleryLayout(count: number, gap = 8): GalleryLayout & {
+  /** Put this on the container that holds the tiles. */
+  attach: (el: HTMLElement | null) => void
+} {
   const [box, setBox] = useState({ w: 0, h: 0 })
+  const observer = useRef<ResizeObserver | null>(null)
 
-  useEffect(() => {
-    const el = ref.current
+  /*
+   * A callback ref, not a ref object watched by an effect.
+   *
+   * The room shows a lobby before the tiles exist, so an effect that read
+   * ref.current on mount found nothing, returned, and never observed anything
+   * afterwards. The box stayed zero for the whole meeting, tiles were given no
+   * size, and the browser laid them out at whatever size the video happened to
+   * be — one enormous, one tiny, and a scrollbar. A callback ref runs when the
+   * element actually appears, which is the only moment there is anything to
+   * measure.
+   */
+  const attach = useCallback((el: HTMLElement | null) => {
+    observer.current?.disconnect()
+    observer.current = null
     if (!el) return
-    const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight })
+
+    const measure = () => {
+      const w = el.clientWidth
+      const h = el.clientHeight
+      // Same size means the same object, or every measurement would re-render
+      // and re-attach for ever.
+      setBox((prev) => (prev.w === w && prev.h === h ? prev : { w, h }))
+    }
+
     measure()
     const ro = new ResizeObserver(measure)
     ro.observe(el)
-    return () => ro.disconnect()
-  }, [ref])
+    observer.current = ro
+  }, [])
 
-  return bestGalleryFit(box.w, box.h, count, gap)
+  return { ...bestGalleryFit(box.w, box.h, count, gap), attach }
 }
 
 /**

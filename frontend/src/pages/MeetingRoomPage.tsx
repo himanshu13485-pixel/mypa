@@ -1224,7 +1224,15 @@ export default function MeetingRoomPage() {
 
   // Measured in lib/videoLayout, so the arrangement follows the space that
   // exists rather than the width of the window.
-  const gallery = useGalleryLayout(tilesRef, tileCount)
+  const gallery = useGalleryLayout(tileCount)
+  /* One ref feeding two things: picture-in-picture reads the tiles out of it,
+     and the layout measures it. Stable, so it is not detached every render. */
+  const attachGallery = gallery.attach
+  const setTilesEl = useCallback((el: HTMLDivElement | null) => {
+    tilesRef.current = el
+    attachGallery(el)
+  }, [attachGallery])
+
   /** Explicit size for a gallery tile; empty until the box is measured. */
   const galleryTileStyle = gallery.width
     ? { width: gallery.width, height: gallery.height }
@@ -1618,7 +1626,7 @@ export default function MeetingRoomPage() {
       <div className="flex min-h-0 flex-1 flex-col gap-2 sm:flex-row">
         {/* Tiles */}
         <div
-          ref={tilesRef}
+          ref={setTilesEl}
           className={clsx(
             // Tiles are 16:9, so two rows of them can be taller than the space
             // left over — without a scroll container they spilled out of the
