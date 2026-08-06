@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Loader2, Video } from 'lucide-react'
 import { guestMeetings } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import { saveGuestPass } from '../lib/guestPass'
 import { Button, Card, ErrorNote, Input, Label } from '../components/ui'
 
 /**
@@ -23,7 +24,12 @@ export default function GuestJoinPage() {
   const [name, setName] = useState('')
   const [passcode, setPasscode] = useState('')
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(
+    // Sent here by the API client when a pass ran out mid-meeting.
+    new URLSearchParams(window.location.search).has('expired')
+      ? 'Your 30 minutes are up. Enter the passcode again for another half hour, or sign in for no limit.'
+      : null,
+  )
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -31,11 +37,18 @@ export default function GuestJoinPage() {
     setBusy(true)
     try {
       const pass = await guestMeetings.join(code, name.trim(), passcode.trim())
-      sessionStorage.setItem(
-        'mypa-guest-pass',
-        JSON.stringify({ code, token: pass.token, expiresAt: pass.expires_at, name: pass.guest.name }),
-      )
-      navigate(`/meetings/room/${code}?guest=1`, { replace: true })
+      // The uuid matters as much as the token: the room identifies itself by
+      // it, and the WebRTC tie-break decides who offers by comparing it.
+      saveGuestPass({
+        code,
+        token: pass.token,
+        uuid: pass.guest.uuid,
+        name: pass.guest.name,
+        expiresAt: pass.expires_at,
+      })
+      // The room without the app shell — a guest has no account to be
+      // guarded by, and nothing in the sidebar means anything to them.
+      navigate(`/guest/room/${code}`, { replace: true })
     } catch (err) {
       setError(errorMessage(err))
     } finally {

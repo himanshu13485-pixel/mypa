@@ -57,6 +57,10 @@ export default function App() {
         <Routes>
           {/* Public: joining a meeting with a passcode and no account. */}
           <Route path="/join/:code" element={<GuestJoinPage />} />
+          {/* The room again, without the app shell or the auth guard — a guest
+              has no account to be guarded by. Same component, so the two never
+              drift apart. */}
+          <Route path="/guest/room/:code" element={<MeetingRoomPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />

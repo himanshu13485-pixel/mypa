@@ -15,7 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
     // Channel auth for the token-based SPA: POST /api/broadcasting/auth with a Bearer token.
     ->withBroadcasting(
         __DIR__.'/../routes/channels.php',
-        ['prefix' => 'api', 'middleware' => ['api', 'auth:sanctum']],
+        // A meeting guest has no Sanctum token, so they are resolved first and
+        // Sanctum then finds somebody already signed in. The channel rules do
+        // the scoping — a guest is only ever let onto their own channel.
+        ['prefix' => 'api', 'middleware' => ['api', \App\Http\Middleware\ResolveMeetingGuest::class, 'auth:sanctum']],
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class);

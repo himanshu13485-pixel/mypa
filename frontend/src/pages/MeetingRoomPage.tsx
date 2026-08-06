@@ -25,6 +25,7 @@ import BackgroundPicker, { type BackgroundChoice } from '../components/Backgroun
 import MeetingLobby, { type LobbyResult } from '../components/MeetingLobby'
 import ParticipantsPanel, { QualityDot } from '../components/ParticipantsPanel'
 import { useAuthStore } from '../stores/auth'
+import { readGuestPass } from '../lib/guestPass'
 import { useToast } from '../components/Toast'
 import { Button, Card } from '../components/ui'
 import { meetingLink } from './MeetingsPage'
@@ -147,7 +148,21 @@ function PeerTile({
 export default function MeetingRoomPage() {
   const { code = '' } = useParams()
   const navigate = useNavigate()
-  const user = useAuthStore((s) => s.user)
+  const account = useAuthStore((s) => s.user)
+  /*
+   * Who this browser is in the room.
+   *
+   * A guest has no account, but the room needs a uuid and a name for exactly
+   * the same things a member does — the self tile, the roster, and the
+   * tie-break that decides which side sends the WebRTC offer. Reading the
+   * pass here means none of that code has to know the difference.
+   */
+  const guestPass = useMemo(() => readGuestPass(), [])
+  const isGuest = !account && guestPass?.code === code
+  const user = useMemo(
+    () => account ?? (isGuest ? { uuid: guestPass!.uuid, name: guestPass!.name } : null),
+    [account, isGuest, guestPass],
+  )
   const { toast, toastError } = useToast()
 
   const [peers, setPeers] = useState<Peer[]>([])
