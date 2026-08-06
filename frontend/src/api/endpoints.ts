@@ -284,6 +284,13 @@ export const files = {
   restore: (uuid: string) => api.post(`/files/${uuid}/restore`),
   forceDelete: (uuid: string) => api.delete(`/files/${uuid}/force`),
   share: (uuid: string, app_id: string) => api.post(`/files/${uuid}/share`, { app_id }),
+  /* Public link: works for anyone, with no Netvork account. */
+  shareLink: (uuid: string, expires_in_days?: number | null) =>
+    api.post<{ data: { url: string; expires_at: string | null; downloads: number } }>(
+      `/files/${uuid}/share-link`,
+      expires_in_days ? { expires_in_days } : {},
+    ).then((r) => r.data.data),
+  revokeShareLink: (uuid: string) => api.delete(`/files/${uuid}/share-link`),
   sharedWithMe: () => api.get<Paginated<FileItem>>('/files/shared-with-me').then((r) => r.data),
   sharedByMe: () =>
     api.get<{ data: import('../types').SharedByMeItem[] }>('/files/shared-by-me').then((r) => r.data.data),
@@ -405,6 +412,12 @@ export const meetings = {
     api.post<{ data: import('../types').MeetingItem }>('/meetings', payload).then((r) => r.data.data),
   show: (code: string) =>
     api.get<{ data: import('../types').MeetingItem }>(`/meetings/${code}`).then((r) => r.data.data),
+  /** Turn guest access on or off on a meeting that already exists. */
+  setGuestAccess: (code: string, guest_access: boolean, passcode?: string) =>
+    api.put<{ message: string; data: { guest_access: boolean; passcode: string | null; join_url: string | null } }>(
+      `/meetings/${code}/guest-access`,
+      passcode ? { guest_access, passcode } : { guest_access },
+    ).then((r) => r.data),
   join: (code: string, opts: { display_name?: string; passcode?: string; mic_on?: boolean; cam_on?: boolean } = {}) =>
     api.post<{
       data:
@@ -530,4 +543,36 @@ export const admin = {
   activate: (uuid: string) => api.post(`/admin/users/${uuid}/activate`),
   syncRoles: (uuid: string, roles: string[]) => api.post(`/admin/users/${uuid}/roles`, { roles }),
   regenerateAppId: (uuid: string) => api.post(`/admin/users/${uuid}/app-id/regenerate`),
+  liveMeetings: () =>
+    api.get<{ data: LiveMeeting[]; meta: { live_meetings: number; people_in_meetings: number } }>(
+      '/admin/live-meetings',
+    ).then((r) => r.data),
+  endMeeting: (code: string, reason?: string) =>
+    api.delete<{ message: string }>(`/admin/live-meetings/${code}`, { data: reason ? { reason } : {} })
+      .then((r) => r.data),
+}
+
+export interface LiveMeeting {
+  uuid: string
+  code: string
+  title: string | null
+  type: 'audio' | 'video'
+  host: { uuid: string; name: string; username: string } | null
+  started_at: string | null
+  running_minutes: number
+  participants: number
+  participant_names: string[]
+  is_locked: boolean
+}
+
+/** Joining a meeting with a passcode and no account. */
+export const guestMeetings = {
+  join: (code: string, name: string, passcode: string) =>
+    api.post<{ data: {
+      token: string
+      expires_at: string
+      minutes: number
+      guest: { uuid: string; name: string }
+      meeting: { code: string; title: string | null; type: 'audio' | 'video'; requires_approval: boolean }
+    } }>(`/meetings/${code}/guest`, { name, passcode }).then((r) => r.data.data),
 }

@@ -18,10 +18,18 @@ use Throwable;
  */
 class AiIntentResolver
 {
-    /** The intents the model may return; anything else is discarded. */
+    /**
+     * The intents the model may return; anything else is discarded.
+     *
+     * Must stay in step with what the frontend can actually execute. The life
+     * intents were added to the pattern rules later and not listed here, so an
+     * unrecognised "add a bill for electricity" fell through to "unknown" even
+     * with the model enabled — the fallback could never reach them.
+     */
     protected const INTENTS = [
         'call_person', 'message_person', 'start_meeting', 'share_screen',
         'navigate', 'create_task', 'complete_task', 'query_tasks',
+        'create_habit', 'log_habit', 'create_goal', 'create_bill', 'pay_bill',
     ];
 
     /**
@@ -115,6 +123,15 @@ class AiIntentResolver
           projects, notes, files, calendar, settings.
         - create_task / complete_task / query_tasks: anything about their own
           tasks and reminders.
+        - create_habit: a routine they want to keep up ("read every night").
+          name = the habit. frequency = daily or weekly when stated.
+        - log_habit: they did today's instance of an existing habit
+          ("I went for my run"). name = which habit.
+        - create_goal: something to reach by a date. title = the goal.
+        - create_bill: a payment they owe. name = what it is for. amount when
+          stated. due_on when stated.
+        - pay_bill: an existing bill is now settled ("paid the electricity").
+          name = which bill.
 
         Rules:
         - person/people are names exactly as spoken; never invent one.
@@ -139,7 +156,11 @@ class AiIntentResolver
                 'call_type' => ['type' => 'string', 'enum' => ['audio', 'video']],
                 'text' => ['type' => 'string', 'description' => 'Message body, when dictating one.'],
                 'page' => ['type' => 'string'],
-                'title' => ['type' => 'string', 'description' => 'Task title, for task intents.'],
+                'title' => ['type' => 'string', 'description' => 'Task or goal title.'],
+                'name' => ['type' => 'string', 'description' => 'Habit or bill name, for the life intents.'],
+                'frequency' => ['type' => 'string', 'enum' => ['daily', 'weekly']],
+                'amount' => ['type' => 'number', 'description' => 'Bill amount, when stated.'],
+                'due_on' => ['type' => 'string', 'description' => 'Bill due date as YYYY-MM-DD, when stated.'],
                 'speech' => ['type' => 'string', 'description' => 'One short sentence to read back to the speaker.'],
             ],
         ];

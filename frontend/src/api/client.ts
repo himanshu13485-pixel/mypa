@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
 import { disconnectEcho } from '../lib/echo'
+import { clearGuestPass, readGuestPass } from '../lib/guestPass'
 
 export const api = axios.create({
   baseURL: '/api/v1',
@@ -11,13 +12,44 @@ api.interceptors.request.use((config) => {
   const token = useAuthStore.getState().token
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+    return config
   }
+
+  /*
+   * No account, but a pass for one meeting.
+   *
+   * The room calls the ordinary meeting endpoints, so rather than teach every
+   * one of those call sites about guests, the pass is swapped in here and the
+   * path is pointed at the narrower guest routes. Only that meeting's paths
+   * are rewritten — a guest pass must not be attached to anything else.
+   */
+  const pass = readGuestPass()
+  if (pass && config.url?.startsWith(`/meetings/${pass.code}`)) {
+    config.headers.Authorization = `Bearer ${pass.token}`
+    config.url = `/guest${config.url}`
+  }
+
   return config
 })
 
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    const body = error.response?.data as { code?: string } | undefined
+
+    // A guest's half hour is up. Say so where they are, rather than letting it
+    // fall through to the session handling below and look like a failure —
+    // they have done nothing wrong and may simply want another 30 minutes.
+    if (error.response?.status === 401 && body?.code === 'guest_pass_expired') {
+      const pass = readGuestPass()
+      disconnectEcho()
+      clearGuestPass()
+      if (pass && !window.location.pathname.startsWith('/join/')) {
+        window.location.assign(`/join/${pass.code}?expired=1`)
+      }
+      return Promise.reject(error)
+    }
+
     if (error.response?.status === 401) {
       // Drop the socket with the session: it is subscribed to this user's
       // private channel, and leaving it open would deliver their call and
@@ -29,8 +61,7 @@ api.interceptors.response.use(
     // The account exists but its address was never confirmed. Send it to the
     // verification screen rather than surfacing a bare "forbidden" on whatever
     // page happened to make the call.
-    const data = error.response?.data as { code?: string } | undefined
-    if (error.response?.status === 403 && data?.code === 'email_unverified') {
+    if (error.response?.status === 403 && body?.code === 'email_unverified') {
       if (window.location.pathname !== '/verify-email') {
         window.location.assign('/verify-email')
       }

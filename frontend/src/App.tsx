@@ -6,6 +6,7 @@ import { RequireAdmin, RequireAuth } from './components/Protected'
 import { ToastProvider } from './components/Toast'
 import { Spinner } from './components/ui'
 import Login from './pages/auth/Login'
+import GuestJoinPage from './pages/GuestJoinPage'
 import Register from './pages/auth/Register'
 
 // Route-level code splitting keeps the initial bundle small; auth pages stay
@@ -54,6 +55,15 @@ export default function App() {
     <BrowserRouter>
       <Suspense fallback={<Spinner className="h-screen" />}>
         <Routes>
+          {/* Public: joining a meeting with a passcode and no account. */}
+          <Route path="/join" element={<GuestJoinPage />} />
+          {/* Same page with the code already filled in, so invite links that
+              are already out there keep working. */}
+          <Route path="/join/:code" element={<GuestJoinPage />} />
+          {/* The room again, without the app shell or the auth guard — a guest
+              has no account to be guarded by. Same component, so the two never
+              drift apart. */}
+          <Route path="/guest/room/:code" element={<MeetingRoomPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />

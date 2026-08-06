@@ -20,13 +20,23 @@ class VoiceCommandService
         protected LifeCommandService $life,
         protected AiIntentResolver $ai,
         protected ContactResolver $contacts,
+        protected TranscriptNormalizer $normalizer,
     ) {
     }
 
     public function interpret(User $user, string $transcript, string $language = 'en'): array
     {
         $tz = $user->profile?->timezone ?? config('app.timezone');
-        $text = $this->normalize($transcript);
+        $text = trim(preg_replace('/\s+/', ' ', mb_strtolower($transcript)));
+
+        if ($text === '') {
+            return $this->unknown($language);
+        }
+
+        // Strip politeness and repair mis-heard words once, so every rule
+        // below benefits rather than each having to allow for "can you
+        // please ..." and for speech recognition hearing "meating".
+        $text = $this->normalizer->normalize($text);
 
         if ($text === '') {
             return $this->unknown($language);
@@ -83,34 +93,6 @@ class VoiceCommandService
 
         // Default: create a task / reminder.
         return $this->interpretCreate($user, $text, $language, $tz);
-    }
-
-    // --- Normalisation -------------------------------------------------------
-
-    /**
-     * People wrap commands in politeness and filler — "can you please call
-     * Rahul yaar" means "call rahul". Stripping the wrapping up front means
-     * every phrasing rule matches all of its casual variants for free.
-     */
-    protected function normalize(string $transcript): string
-    {
-        $text = trim(preg_replace('/\s+/u', ' ', mb_strtolower($transcript)));
-
-        $leading = '/^(?:please|pls|plz|hey|hi|ok(?:ay)?|so|just|kindly|listen|'
-            . 'can you|could you|would you|will you|do me a favou?r and|'
-            . 'i want to|i want you to|i need to|i need you to|i would like to|'
-            . 'कृपया|प्लीज़|प्लीज|ज़रा|जरा|यार|सुनो|अच्छा)\s+/u';
-        while (preg_match($leading, $text)) {
-            $text = preg_replace($leading, '', $text);
-        }
-
-        $trailing = '/\s+(?:please|pls|plz|yaar|yar|na|ok(?:ay)?|'
-            . 'कृपया|प्लीज़|प्लीज|यार|ना)[\s.!?]*$/u';
-        while (preg_match($trailing, $text)) {
-            $text = preg_replace($trailing, '', $text);
-        }
-
-        return trim($text, " \t.!?");
     }
 
     // --- AI fallback ---------------------------------------------------------
@@ -181,10 +163,63 @@ class VoiceCommandService
             case 'query_tasks':
                 return $this->interpretQuery($text, $language);
 
+            case 'create_habit':
+            case 'log_habit':
+            case 'create_goal':
+            case 'create_bill':
+            case 'pay_bill':
+                return $this->lifeIntentFromAi($user, $result, $language, $user->profile?->timezone ?? config('app.timezone'));
+
             default:
                 // create_task or anything else: the rule-based creator handles it.
                 return null;
         }
+    }
+
+    /**
+     * Habits, goals and bills the model recognised but the patterns did not.
+     *
+     * Rather than duplicate the life parsers, the model's fields are written
+     * back into the plainest phrasing those parsers accept and re-run through
+     * them — so date handling, amount parsing, and resolving which existing
+     * habit or bill is meant all stay in one place, already tested.
+     *
+     * @param  array<string, mixed>  $result
+     * @return array<string, mixed>|null
+     */
+    protected function lifeIntentFromAi(User $user, array $result, string $language, string $timezone): ?array
+    {
+        $name = trim((string) ($result['name'] ?? $result['title'] ?? ''));
+        if ($name === '') {
+            return null;
+        }
+
+        $canonical = match ($result['intent']) {
+            'create_habit' => sprintf(
+                'add a habit to %s%s',
+                $name,
+                ($result['frequency'] ?? '') === 'weekly' ? ' weekly' : '',
+            ),
+            'log_habit' => "mark the {$name} habit as done",
+            'create_goal' => 'set a goal to ' . $name
+                . (! empty($result['due_on']) ? ' by ' . $result['due_on'] : ''),
+            'create_bill' => sprintf(
+                'add %s bill%s%s',
+                $name,
+                isset($result['amount']) ? ' of ' . $result['amount'] : '',
+                ! empty($result['due_on']) ? ' due ' . $result['due_on'] : '',
+            ),
+            'pay_bill' => "mark the {$name} bill as paid",
+            default => null,
+        };
+
+        if ($canonical === null) {
+            return null;
+        }
+
+        // If the rebuilt phrasing still does not parse, fall through rather
+        // than invent a payload the frontend cannot execute.
+        return $this->life->match($user, mb_strtolower($canonical), $language, $timezone);
     }
 
     protected function personIntentFromAi(User $user, string $intent, string $spoken, string $language, array $extra): array

@@ -33,6 +33,38 @@ Route::prefix('v1')->group(function () {
     Route::get('/plans', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'plans'])
         ->middleware('throttle:30,1');
 
+    // Public file share link. The token is the whole check, so this is
+    // throttled to make guessing one impractical.
+    Route::get('/f/{token}', [FileController::class, 'downloadByLink'])
+        ->middleware('throttle:60,1')
+        ->where('token', '[A-Za-z0-9]{32,64}');
+
+    // Join a meeting with a passcode and no account. Throttled hard: this is
+    // the one door into the app that no session guards.
+    Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'join'])
+        ->middleware('throttle:10,1');
+
+    /*
+     * What a guest may do, and nothing else.
+     *
+     * Everything a participant needs to be in a room — join, leave, keep
+     * presence, signal, rename themselves, react, read the room — and none of
+     * what a host needs. Ending the meeting, admitting people, host actions,
+     * approval settings and the file endpoints are all absent on purpose, so a
+     * guest cannot reach them even if they know the URL.
+     */
+    Route::middleware('guest.meeting')->group(function () {
+        Route::get('/guest/meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'show']);
+        Route::post('/guest/meetings/{meeting}/join', [\App\Http\Controllers\Api\V1\MeetingController::class, 'join']);
+        Route::post('/guest/meetings/{meeting}/leave', [\App\Http\Controllers\Api\V1\MeetingController::class, 'leave']);
+        Route::post('/guest/meetings/{meeting}/heartbeat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'heartbeat']);
+        Route::post('/guest/meetings/{meeting}/signal', [\App\Http\Controllers\Api\V1\MeetingController::class, 'signal'])
+            ->middleware('throttle:240,1');
+        Route::post('/guest/meetings/{meeting}/name', [\App\Http\Controllers\Api\V1\MeetingController::class, 'rename']);
+        Route::post('/guest/meetings/{meeting}/react', [\App\Http\Controllers\Api\V1\MeetingController::class, 'react']);
+        Route::get('/guest/meetings/{meeting}/participants', [\App\Http\Controllers\Api\V1\MeetingController::class, 'participants']);
+    });
+
     // --- Public auth (strictly throttled) --------------------------------
     Route::middleware('throttle:10,1')->group(function () {
         Route::post('/auth/register', [AuthController::class, 'register']);
@@ -180,6 +212,7 @@ Route::prefix('v1')->group(function () {
         Route::post('/meetings/{meeting}/react', [\App\Http\Controllers\Api\V1\MeetingController::class, 'react']);
         Route::post('/meetings/{meeting}/admit', [\App\Http\Controllers\Api\V1\MeetingController::class, 'admit']);
         Route::put('/meetings/{meeting}/approval', [\App\Http\Controllers\Api\V1\MeetingController::class, 'setApproval']);
+        Route::put('/meetings/{meeting}/guest-access', [\App\Http\Controllers\Api\V1\MeetingController::class, 'setGuestAccess']);
         Route::post('/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chat']);
         Route::post('/meetings/{meeting}/chat-file', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chatFile']);
         Route::get('/meetings/{meeting}/chat-file/{file}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chatFileDownload']);
@@ -207,6 +240,8 @@ Route::prefix('v1')->group(function () {
         Route::get('/files/trash', [FileController::class, 'trash']);
         Route::post('/files/upload', [FileController::class, 'upload']);
         Route::get('/files/{file}/download', [FileController::class, 'download']);
+        Route::post('/files/{file}/share-link', [FileController::class, 'shareLink']);
+        Route::delete('/files/{file}/share-link', [FileController::class, 'revokeShareLink']);
         Route::put('/files/{file}', [FileController::class, 'update']);
         Route::delete('/files/{file}', [FileController::class, 'destroy']);
         Route::post('/files/{uuid}/restore', [FileController::class, 'restore']);
@@ -368,6 +403,9 @@ Route::prefix('v1')->group(function () {
             Route::post('/users/{user}/salesperson', [AdminUserController::class, 'assignSalesperson']);
             Route::get('/users/{user}/locked-projects', [AdminUserController::class, 'lockedProjects']);
             Route::post('/projects/{uuid}/send-password-reset', [AdminUserController::class, 'sendProjectPasswordReset']);
+            // Live meetings: what is running right now, and stopping it.
+            Route::get('/live-meetings', [\App\Http\Controllers\Api\V1\Admin\LiveMeetingController::class, 'index']);
+            Route::delete('/live-meetings/{meeting}', [\App\Http\Controllers\Api\V1\Admin\LiveMeetingController::class, 'destroy']);
             Route::get('/settings', [AdminUserController::class, 'settings']);
             Route::put('/settings', [AdminUserController::class, 'updateSettings']);
             Route::get('/plans', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'index']);

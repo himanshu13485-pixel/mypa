@@ -19,7 +19,7 @@ return [
 
     'files' => [
         // Per-file upload cap in kilobytes (admin-configurable via env).
-        'max_upload_kb' => (int) env('MYPA_MAX_UPLOAD_KB', 25 * 1024),
+        'max_upload_kb' => (int) env('MYPA_MAX_UPLOAD_KB', 50 * 1024),
         // Per-user storage cap in bytes (plan-driven in Phase 6+).
         'storage_limit_bytes' => (int) env('MYPA_STORAGE_LIMIT_BYTES', 1024 * 1024 * 1024),
         'blocked_extensions' => ['exe', 'bat', 'cmd', 'sh', 'php', 'js', 'msi', 'dll', 'com', 'scr', 'vbs'],

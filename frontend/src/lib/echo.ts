@@ -2,6 +2,7 @@ import Echo from 'laravel-echo'
 import Pusher from 'pusher-js'
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
+import { readGuestPass } from './guestPass'
 
 declare global {
   interface Window {
@@ -13,9 +14,20 @@ window.Pusher = Pusher
 
 let instance: Echo<'reverb'> | null = null
 
+/**
+ * Whatever this browser can authenticate a channel with.
+ *
+ * A meeting guest has no Sanctum session, only a pass — and signalling runs
+ * over a private channel, so without this a guest connects to nothing and no
+ * offer or answer ever reaches them.
+ */
+function realtimeToken(): string | null {
+  return useAuthStore.getState().token ?? readGuestPass()?.token ?? null
+}
+
 /** Lazily connect to the Reverb WebSocket server with the current token. */
 export function getEcho(): Echo<'reverb'> | null {
-  const token = useAuthStore.getState().token
+  const token = realtimeToken()
   if (!token) return null
 
   if (!instance) {
@@ -46,7 +58,7 @@ export function getEcho(): Echo<'reverb'> | null {
               { socket_id: socketId, channel_name: channel.name },
               {
                 headers: {
-                  Authorization: `Bearer ${useAuthStore.getState().token}`,
+                  Authorization: `Bearer ${realtimeToken() ?? ''}`,
                   Accept: 'application/json',
                 },
               },

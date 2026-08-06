@@ -3,15 +3,16 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   Circle, Copy, Expand, FlipHorizontal, Grid3x3, Hand, LayoutGrid, Lock, LockOpen, MessageSquare, Mic, MicOff,
-  MonitorUp, MoreHorizontal, Paperclip, PhoneOff, PictureInPicture2, Rows3, Settings2, SmilePlus, Square,
-  SwitchCamera, User, Users, Video, VideoOff,
+  MonitorUp, MoreHorizontal, Paperclip, PhoneOff, PictureInPicture2, Pin, PinOff, Rows3, Settings2, SmilePlus,
+  Square, SwitchCamera, User, Users, Video, VideoOff,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
-import { createEffectTrack, type BlurPipeline } from '../lib/videoFx'
+import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
+import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
 import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
@@ -24,6 +25,7 @@ import BackgroundPicker, { type BackgroundChoice } from '../components/Backgroun
 import MeetingLobby, { type LobbyResult } from '../components/MeetingLobby'
 import ParticipantsPanel, { QualityDot } from '../components/ParticipantsPanel'
 import { useAuthStore } from '../stores/auth'
+import { readGuestPass } from '../lib/guestPass'
 import { useToast } from '../components/Toast'
 import { Button, Card } from '../components/ui'
 import { meetingLink } from './MeetingsPage'
@@ -50,7 +52,7 @@ interface Peer {
 }
 
 function PeerTile({
-  peer, video, burst, hand, role, active, spotlight, pinned, quality, className,
+  peer, video, burst, hand, role, active, spotlight, pinned, quality, className, style, onContextMenu,
 }: {
   peer: Peer
   video: boolean
@@ -62,19 +64,15 @@ function PeerTile({
   pinned?: boolean
   quality?: import('../lib/netQuality').PeerStats
   className?: string
+  style?: React.CSSProperties
+  onContextMenu?: (e: React.MouseEvent) => void
 }) {
-  const [portrait, setPortrait] = useState(false)
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
       el.srcObject = peer.stream
       el.play().catch(() => undefined)
-      if (el instanceof HTMLVideoElement) {
-        el.onloadedmetadata = () => setPortrait(el.videoHeight > el.videoWidth)
-      }
     }
   }
-  // Shared windows/screens must FIT (letterboxed), never crop like a camera.
-  const fit = peer.sharing || portrait
   const isHost = role === 'host'
 
   if (!video) {
@@ -93,6 +91,8 @@ function PeerTile({
   }
   return (
     <div
+      onContextMenu={onContextMenu}
+      style={style}
       className={clsx(
         'relative min-h-0 overflow-hidden rounded-lg bg-slate-900 transition-shadow',
         active && 'ring-2 ring-emerald-400',
@@ -100,7 +100,7 @@ function PeerTile({
         className,
       )}
     >
-      <video ref={attach} autoPlay playsInline className={fit ? 'h-full w-full bg-black object-contain' : 'h-full w-full object-cover'} />
+      <video ref={attach} autoPlay playsInline className={VIDEO_FIT} />
       {peer.camOff && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-900 text-slate-300">
           <span className="flex size-12 items-center justify-center rounded-full bg-brand-700 text-lg font-semibold text-white">
@@ -148,7 +148,21 @@ function PeerTile({
 export default function MeetingRoomPage() {
   const { code = '' } = useParams()
   const navigate = useNavigate()
-  const user = useAuthStore((s) => s.user)
+  const account = useAuthStore((s) => s.user)
+  /*
+   * Who this browser is in the room.
+   *
+   * A guest has no account, but the room needs a uuid and a name for exactly
+   * the same things a member does — the self tile, the roster, and the
+   * tie-break that decides which side sends the WebRTC offer. Reading the
+   * pass here means none of that code has to know the difference.
+   */
+  const guestPass = useMemo(() => readGuestPass(), [])
+  const isGuest = !account && guestPass?.code === code
+  const user = useMemo(
+    () => account ?? (isGuest ? { uuid: guestPass!.uuid, name: guestPass!.name } : null),
+    [account, isGuest, guestPass],
+  )
   const { toast, toastError } = useToast()
 
   const [peers, setPeers] = useState<Peer[]>([])
@@ -193,6 +207,25 @@ export default function MeetingRoomPage() {
   // Presentation.
   const [layout, setLayout] = useState<Layout>('gallery')
   const [pinned, setPinned] = useState<string | null>(null)
+  /**
+   * Right-click menu on a tile. Pinning was only reachable from the
+   * participants panel, which is a long way to go to enlarge someone.
+   * It stays local to this browser — nobody else's view changes.
+   */
+  const [tileMenu, setTileMenu] = useState<{ uuid: string; name: string; x: number; y: number } | null>(null)
+
+  useEffect(() => {
+    if (!tileMenu) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setTileMenu(null)
+    // Scrolling or resizing leaves the menu stranded away from its tile.
+    const dismiss = () => setTileMenu(null)
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('resize', dismiss)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('resize', dismiss)
+    }
+  }, [tileMenu])
   const [hideSelf, setHideSelf] = useState(false)
   const [showPeople, setShowPeople] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -223,7 +256,11 @@ export default function MeetingRoomPage() {
   const localStreamRef = useRef<MediaStream | null>(null)
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null)
   const displayTrackRef = useRef<MediaStreamTrack | null>(null)
-  const localVideoRef = useRef<HTMLVideoElement>(null)
+  /** Canvas compositor drawing the camera onto the shared screen. */
+  const sharePipeRef = useRef<BlurPipeline | null>(null)
+  /* Shared with calls and screen sessions. Keeps the self-view attached
+     across the re-mounts that switching layout causes — see useSelfView. */
+  const { show: showSelf, attach: attachSelf } = useSelfView()
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const joinedRef = useRef(false)
   const lobbyRef = useRef<LobbyResult | null>(null)
@@ -302,9 +339,9 @@ export default function MeetingRoomPage() {
 
     localStreamRef.current = stream
     cameraTrackRef.current = stream.getVideoTracks()[0] ?? null
-    if (localVideoRef.current) localVideoRef.current.srcObject = stream
+    showSelf(stream)
     return stream
-  }, [meeting?.type])
+  }, [meeting?.type, showSelf])
 
   const flushPendingIce = useCallback((peerUuid: string) => {
     const pc = pcsRef.current.get(peerUuid)
@@ -440,6 +477,8 @@ export default function MeetingRoomPage() {
     restartTimersRef.current.clear()
     localStreamRef.current?.getTracks().forEach((t) => t.stop())
     localStreamRef.current = null
+    sharePipeRef.current?.stop()
+    sharePipeRef.current = null
     displayTrackRef.current?.stop() // otherwise the browser keeps sharing the screen
     displayTrackRef.current = null
     setSharing(false)
@@ -867,9 +906,9 @@ export default function MeetingRoomPage() {
           const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
           sender?.replaceTrack(pipeline.track).catch(() => undefined)
         })
-        if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
-      } else if (localVideoRef.current && localStreamRef.current) {
-        localVideoRef.current.srcObject = localStreamRef.current
+        showSelf(new MediaStream([pipeline.track]))
+      } else {
+        showSelf(localStreamRef.current)
       }
 
       setDeviceChoice(saveDeviceChoice(target))
@@ -898,7 +937,7 @@ export default function MeetingRoomPage() {
       const track = await openCamera({ deviceId })
       cameraTrackRef.current = track
       swapTrack(pcsRef.current.values(), localStreamRef.current, track)
-      if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+      showSelf(localStreamRef.current)
       setDeviceChoice(saveDeviceChoice({ cameraId: deviceId }))
     } catch (err) {
       toastError('Could not switch that device — it may be in use by another app.')
@@ -914,9 +953,20 @@ export default function MeetingRoomPage() {
     }
     try {
       const display = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-      const track = display.getVideoTracks()[0]
-      displayTrackRef.current = track
-      track.onended = stopShare
+      const raw = display.getVideoTracks()[0]
+      displayTrackRef.current = raw
+      raw.onended = stopShare
+
+      // Draw the camera into a corner of the shared screen and send the
+      // composite, so the sharer's face stays on the call. Sending screen and
+      // camera as two tracks would need a second transceiver and a
+      // renegotiation with every peer; one composited track keeps the
+      // connection exactly as it already is.
+      const camera = cameraOff ? null : (blurRef.current?.track ?? cameraTrackRef.current ?? null)
+      const composite = createSharePipeline(raw, camera)
+      sharePipeRef.current = composite
+      const track = composite.track
+
       pcsRef.current.forEach((_, uuid) => {
         meetingsApi.signal(code, 'share', { on: true }, uuid).catch(() => undefined)
       })
@@ -924,7 +974,7 @@ export default function MeetingRoomPage() {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         sender?.replaceTrack(track).catch(() => undefined)
       })
-      if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([track])
+      showSelf(new MediaStream([track]))
       setSharing(true)
     } catch {
       /* user cancelled the picker */
@@ -937,12 +987,14 @@ export default function MeetingRoomPage() {
       const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
       if (camera) sender?.replaceTrack(camera).catch(() => undefined)
     })
+    sharePipeRef.current?.stop() // stop the compositor before its inputs go
+    sharePipeRef.current = null
     displayTrackRef.current?.stop() // release the browser's "sharing your screen" bar
     displayTrackRef.current = null
     pcsRef.current.forEach((_, uuid) => {
       meetingsApi.signal(code, 'share', { on: false }, uuid).catch(() => undefined)
     })
-    if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+    showSelf(localStreamRef.current)
     setSharing(false)
   }
 
@@ -1045,7 +1097,7 @@ export default function MeetingRoomPage() {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         if (camera) sender?.replaceTrack(camera).catch(() => undefined)
       })
-      if (localVideoRef.current && localStreamRef.current) localVideoRef.current.srcObject = localStreamRef.current
+      showSelf(localStreamRef.current)
       blurRef.current?.stop()
       blurRef.current = null
     }
@@ -1067,7 +1119,7 @@ export default function MeetingRoomPage() {
         const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
         sender?.replaceTrack(pipeline.track).catch(() => undefined)
       })
-      if (localVideoRef.current) localVideoRef.current.srcObject = new MediaStream([pipeline.track])
+      showSelf(new MediaStream([pipeline.track]))
       bgChoiceRef.current = choice
       // Blur has nothing to read, so it can stay mirrored; a picture cannot.
       setBgHasImage(choice.effect.type === 'image')
@@ -1154,26 +1206,47 @@ export default function MeetingRoomPage() {
   const showSelfTile = isVideo && !hideSelf
   const tileCount = peers.length + (showSelfTile ? 1 : 0)
 
+  /** Anyone presenting right now — yourself included. */
+  const someoneSharing = sharing || peers.some((p) => p.sharing)
+
   /** Who gets the big tile: your pin wins, then the host's spotlight, then
    *  whoever is sharing a screen, then whoever is talking. Anyone who has
    *  since left (a spotlight on a departed peer) falls through to nobody. */
   const stageCandidate = pinned
     ?? spotlight
     ?? peers.find((p) => p.sharing)?.uuid
+    ?? (sharing ? 'me' : null)
     ?? activeSpeaker
     ?? null
   const stageUuid = stageCandidate === 'me'
     ? (showSelfTile ? 'me' : null)
     : peers.some((p) => p.uuid === stageCandidate) ? stageCandidate : null
 
-  /** Gallery column count, kept square-ish so nobody gets a sliver. */
-  const galleryCols = tileCount <= 1 ? 'grid-cols-1'
-    : tileCount <= 2 ? 'grid-cols-1 sm:grid-cols-2'
-      : tileCount <= 4 ? 'grid-cols-2'
-        : tileCount <= 9 ? 'grid-cols-2 lg:grid-cols-3'
-          : 'grid-cols-3 lg:grid-cols-4'
+  // Measured in lib/videoLayout, so the arrangement follows the space that
+  // exists rather than the width of the window.
+  const gallery = useGalleryLayout(tilesRef, tileCount)
+  /** Explicit size for a gallery tile; empty until the box is measured. */
+  const galleryTileStyle = gallery.width
+    ? { width: gallery.width, height: gallery.height }
+    : undefined
 
-  const stagedLayout = layout !== 'gallery' && stageUuid !== null && isVideo
+  /*
+   * Pinning someone means "make this person big", so it has to work from the
+   * gallery — which is where everyone is when they reach for it. Requiring a
+   * non-gallery layout as well meant pinning from the default view silently
+   * did nothing at all.
+   *
+   * An explicit pin therefore stages on its own, and so does a screen share:
+   * the point of presenting is that people read what is on the screen, and a
+   * share reduced to one cell of a gallery is unreadable. Both are what every
+   * other meeting app does.
+   *
+   * Spotlight and the automatic pick of whoever is talking still only stage
+   * when a staged layout is chosen, so nobody can pull you out of the gallery
+   * view you picked just by speaking.
+   */
+  const stagedLayout = isVideo && stageUuid !== null
+    && (layout !== 'gallery' || pinned !== null || someoneSharing)
   const stripSide = layout === 'sidebar'
 
   const selfTile = showSelfTile ? (
@@ -1182,17 +1255,22 @@ export default function MeetingRoomPage() {
       className={clsx(
         'relative overflow-hidden rounded-lg bg-slate-900 transition-all',
         activeSpeaker === 'me' && 'ring-2 ring-emerald-400',
-        stagedLayout && stageUuid !== 'me' ? 'aspect-video w-40 shrink-0 sm:w-48' : 'aspect-video min-h-0',
+        // In the filmstrip the width is fixed, so 16:9 is what sets the
+        // height. Everywhere else the tile fills the space the grid or the
+        // stage gives it — see useGalleryLayout.
+        stagedLayout
+          ? stageUuid === 'me' ? 'h-full min-h-0' : 'aspect-video h-full shrink-0'
+          : 'min-h-0 shrink-0',
       )}
+      style={stagedLayout ? undefined : galleryTileStyle}
     >
       <video
-        ref={localVideoRef}
+        ref={attachSelf}
         autoPlay
         playsInline
         muted
         className={clsx(
-          'h-full w-full',
-          sharing ? 'bg-black object-contain' : 'object-cover',
+          VIDEO_FIT,
           !sharing && mirrorSelf && '-scale-x-100',
         )}
       />
@@ -1338,9 +1416,16 @@ export default function MeetingRoomPage() {
       spotlight={spotlight === p.uuid}
       pinned={pinned === p.uuid}
       quality={quality[p.uuid]}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY })
+      }}
       className={clsx(
-        isVideo && (stagedLayout && !onStage ? 'aspect-video w-40 shrink-0 sm:w-48' : 'aspect-video min-h-0'),
+        isVideo && (stagedLayout
+          ? onStage ? 'h-full min-h-0' : 'aspect-video h-full shrink-0'
+          : 'min-h-0 shrink-0'),
       )}
+      style={isVideo && !stagedLayout ? galleryTileStyle : undefined}
     />
   )
 
@@ -1350,12 +1435,15 @@ export default function MeetingRoomPage() {
     return <Card className="mx-auto mt-10 max-w-md text-center text-sm text-slate-400">Opening the meeting…</Card>
   }
 
+  // A guest typed the passcode to be given a pass at all, and the server no
+  // longer asks them for it — so the lobby must not either, or one join takes
+  // two entries of the same code.
   if (phase === 'lobby') {
     return (
       <MeetingLobby
         title={meeting?.title ?? 'Meeting'}
         hostName={meeting?.is_host ? undefined : meeting?.host.name}
-        needsPasscode={!!meeting?.has_passcode && !meeting?.can_moderate}
+        needsPasscode={!!meeting?.has_passcode && !meeting?.can_moderate && !isGuest}
         defaultName={user?.name ?? 'Guest'}
         audioOnly={!isVideo}
         error={lobbyError}
@@ -1535,35 +1623,54 @@ export default function MeetingRoomPage() {
             // Tiles are 16:9, so two rows of them can be taller than the space
             // left over — without a scroll container they spilled out of the
             // flex child and painted straight over the control bar.
-            'scroll-pane min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-950/0',
+            'scroll-pane relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-slate-950/0',
             isFs && 'bg-slate-950 p-3',
             stagedLayout
               ? stripSide ? 'flex gap-2' : 'flex flex-col gap-2'
-              : clsx('grid content-start gap-2', isVideo ? galleryCols : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'),
+              : isVideo
+                // Centred wrapping row, sized from the measurement above, so a
+                // short last row sits in the middle instead of hanging off the
+                // left edge. CSS grid packs it left and cannot be talked out
+                // of it.
+                ? 'flex flex-wrap content-center items-center justify-center gap-2'
+                : 'grid content-start gap-2 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
           )}
         >
           {stagedLayout ? (
             <>
-              {/* Stage */}
-              <div className={clsx('min-h-0 min-w-0 flex-1', stripSide ? 'order-first' : '')}>
-                {stageUuid === 'me' && selfTile}
-                {peers.filter((p) => p.uuid === stageUuid).map((p) => peerTile(p, true))}
-              </div>
-              {/* Filmstrip */}
-              <div className={clsx('flex gap-2', stripSide ? 'w-40 flex-col overflow-y-auto sm:w-48' : 'overflow-x-auto pb-1')}>
+              {/* Filmstrip. Above the stage in the stacked layout — that is
+                  where every other meeting app puts it — and beside it in the
+                  sidebar layout, which is the point of that mode. */}
+              <div
+                className={clsx(
+                  'flex shrink-0 gap-2',
+                  stripSide ? 'order-last w-40 flex-col overflow-y-auto sm:w-48' : 'h-24 justify-center overflow-x-auto sm:h-28',
+                )}
+              >
                 {stageUuid !== 'me' && selfTile}
                 {peers.filter((p) => p.uuid !== stageUuid).map((p) => peerTile(p, false))}
+              </div>
+              {/* Stage */}
+              <div className="min-h-0 min-w-0 flex-1">
+                {stageUuid === 'me' && selfTile}
+                {peers.filter((p) => p.uuid === stageUuid).map((p) => peerTile(p, true))}
               </div>
             </>
           ) : (
             <>
               {selfTile}
-              {!peers.length && phase === 'in' && (
-                <Card className="flex items-center justify-center text-sm text-slate-400">
-                  Waiting for others — share the invite link.
-                </Card>
-              )}
               {peers.map((p) => peerTile(p, false))}
+              {/*
+                Floated over the grid rather than placed in it. As a grid child
+                this took a row of its own, so the only person in the room got
+                half the height — cropped to a letterbox slot with the other
+                half sitting empty.
+              */}
+              {!peers.length && phase === 'in' && (
+                <p className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-sm text-slate-400 drop-shadow">
+                  Waiting for others — share the invite link.
+                </p>
+              )}
               {!isVideo && (
                 <button
                   className="flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white hover:bg-slate-700"
@@ -1596,6 +1703,36 @@ export default function MeetingRoomPage() {
           />
         )}
       </div>
+
+      {tileMenu && (
+        <>
+          {/* Click anywhere (or press Escape, below) to dismiss. */}
+          <div className="fixed inset-0 z-40" onMouseDown={() => setTileMenu(null)} onContextMenu={(e) => { e.preventDefault(); setTileMenu(null) }} />
+          <div
+            className="fixed z-50 min-w-44 rounded-xl border border-slate-200 bg-white p-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-900"
+            style={{
+              // Kept inside the window — a right-click near the right or
+              // bottom edge would otherwise open the menu off-screen.
+              left: Math.min(tileMenu.x, window.innerWidth - 190),
+              top: Math.min(tileMenu.y, window.innerHeight - 90),
+            }}
+          >
+            <p className="truncate px-2 py-1 text-[11px] uppercase tracking-wide text-slate-400">{tileMenu.name}</p>
+            <button
+              className="tap flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+              onClick={() => {
+                setPinned(pinned === tileMenu.uuid ? null : tileMenu.uuid)
+                setTileMenu(null)
+              }}
+            >
+              {pinned === tileMenu.uuid
+                ? <><PinOff className="size-4" /> Unpin</>
+                : <><Pin className="size-4" /> Pin for me</>}
+            </button>
+            <p className="px-2 pb-1 pt-0.5 text-[11px] text-slate-400">Only changes your view.</p>
+          </div>
+        </>
+      )}
 
       {chatOpen && (
         <div className="flex max-h-64 flex-col rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">

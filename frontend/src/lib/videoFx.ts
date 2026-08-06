@@ -179,3 +179,123 @@ export async function createEffectTrack(cameraTrack: MediaStreamTrack, effect: B
 export function createBlurredTrack(cameraTrack: MediaStreamTrack): Promise<BlurPipeline> {
   return createEffectTrack(cameraTrack, { type: 'blur' })
 }
+
+/**
+ * Screen share with the sharer's camera inset in a corner.
+ *
+ * Sharing sends one video track, so swapping the camera for the screen took
+ * the sharer's face off the call entirely — not hidden, not transmitted.
+ * Sending both as separate tracks would mean a second transceiver and a
+ * renegotiation with every peer in the mesh.
+ *
+ * Compositing avoids all of that: screen and camera are drawn onto one canvas
+ * and captured as a single track, so the connection still carries exactly one
+ * video track and nothing about the call setup changes. Everyone sees the
+ * screen with the speaker's face on it.
+ *
+ * The camera is optional — with it off, or unavailable, this is a plain
+ * passthrough of the screen and the result is what sharing produced before.
+ */
+export function createSharePipeline(
+  displayTrack: MediaStreamTrack,
+  cameraTrack: MediaStreamTrack | null,
+): BlurPipeline {
+  const screen = document.createElement('video')
+  screen.muted = true
+  screen.playsInline = true
+  screen.srcObject = new MediaStream([displayTrack])
+  void screen.play().catch(() => undefined)
+
+  const cam = cameraTrack ? document.createElement('video') : null
+  if (cam && cameraTrack) {
+    cam.muted = true
+    cam.playsInline = true
+    cam.srcObject = new MediaStream([cameraTrack])
+    void cam.play().catch(() => undefined)
+  }
+
+  const settings = displayTrack.getSettings()
+  const canvas = document.createElement('canvas')
+  canvas.width = settings.width ?? 1280
+  canvas.height = settings.height ?? 720
+  const ctx = canvas.getContext('2d')!
+
+  let running = true
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  /*
+   * A timer, deliberately — not requestAnimationFrame and not
+   * requestVideoFrameCallback. Sharing your screen is the one time you are
+   * certain to switch away from the meeting tab, and measuring in a hidden
+   * tab showed neither of those fires there at all: the share would freeze
+   * for everyone the moment the sharer started presenting. Timers keep
+   * running while hidden, which is why the blur pipeline above uses one too.
+   *
+   * Hidden tabs do throttle timers hard — around 1 fps when a page is
+   * otherwise idle. A meeting is not idle: it is playing audio throughout,
+   * and browsers exempt audible pages from that throttling. Worst case the
+   * shared picture slows down; it does not stop.
+   */
+  const draw = () => {
+    if (!running) return
+    timer = setTimeout(draw, 66) // ~15 fps
+
+    // A shared window can resize mid-share; follow it so text stays sharp.
+    const s = displayTrack.getSettings()
+    if (s.width && s.height && (canvas.width !== s.width || canvas.height !== s.height)) {
+      canvas.width = s.width
+      canvas.height = s.height
+    }
+
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // The screen is the point of the share — fit it whole, never crop.
+    if (screen.videoWidth) {
+      const scale = Math.min(canvas.width / screen.videoWidth, canvas.height / screen.videoHeight)
+      const w = screen.videoWidth * scale
+      const h = screen.videoHeight * scale
+      ctx.drawImage(screen, (canvas.width - w) / 2, (canvas.height - h) / 2, w, h)
+    }
+
+    // Camera inset: a quarter of the width, bottom-right, with a margin.
+    if (cam?.videoWidth) {
+      const iw = Math.round(canvas.width * 0.22)
+      const ih = Math.round((iw * cam.videoHeight) / cam.videoWidth)
+      const pad = Math.round(canvas.width * 0.015)
+      const x = canvas.width - iw - pad
+      const y = canvas.height - ih - pad
+
+      ctx.save()
+      ctx.shadowColor = 'rgba(0,0,0,0.5)'
+      ctx.shadowBlur = Math.round(canvas.width * 0.008)
+      ctx.fillStyle = '#0f172a'
+      ctx.fillRect(x, y, iw, ih)
+      ctx.restore()
+
+      ctx.drawImage(cam, x, y, iw, ih)
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)'
+      ctx.lineWidth = Math.max(1, Math.round(canvas.width * 0.0015))
+      ctx.strokeRect(x, y, iw, ih)
+    }
+  }
+  // Starts the repeating draw. The first pass runs before the video has
+  // metadata and paints only black; the loop is what corrects that, so this
+  // must repeat rather than fire once.
+  draw()
+
+  // Screens are mostly static, so a lower rate keeps text legible without
+  // spending the bitrate a camera needs.
+  const track = canvas.captureStream(15).getVideoTracks()[0]
+
+  return {
+    track,
+    stop: () => {
+      running = false
+      if (timer) clearTimeout(timer)
+      track.stop()
+      screen.srcObject = null
+      if (cam) cam.srcObject = null
+    },
+  }
+}

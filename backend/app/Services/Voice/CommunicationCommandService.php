@@ -188,15 +188,27 @@ class CommunicationCommandService
             return null;
         }
 
+        // "call a meeting", "call a huddle" — the object is the gathering, not
+        // a person. Calls are matched before meetings, so without this the
+        // meeting would be read as a contact named "a meeting with rahul".
+        if (preg_match('/^call\s+(?:an?\s+|the\s+)?(?:meeting|meet|huddle|stand ?up|sync|catch ?up|conference)\b/u', $text)) {
+            return null;
+        }
+
         $patterns = [
             // "call rahul", "video call rahul", "please call rahul now"
             '/^(?:please\s+)?(?:video\s+)?call\s+(?:to\s+|with\s+)?(.+?)(?:\s+(?:now|please))?$/u',
             // "make/start/place/connect a (video) call to/with rahul"
-            '/(?:make|start|place|connect|begin)\s+(?:a\s+|the\s+)?(?:video\s+)?call\s+(?:to|with)\s+(.+)/u',
-            // "connect me with rahul on a call", "get rahul on a call"
-            '/(?:connect me with|get)\s+(.+?)\s+on\s+(?:a\s+)?(?:video\s+)?call/u',
-            // "ring rahul", "dial rahul", "phone rahul"
-            '/^(?:ring|dial|phone)\s+(.+)$/u',
+            '/(?:make|start|place|connect|begin|put through|give)\s+(?:a\s+|the\s+)?(?:video\s+)?call\s+(?:to|with)\s+(.+)/u',
+            // "connect me with rahul on a call", "get rahul on a call",
+            // "get rahul on the line/phone"
+            '/(?:connect me (?:with|to)|get|put me through to)\s+(.+?)\s+on\s+(?:a\s+|the\s+)?(?:video\s+)?(?:call|line|phone)/u',
+            // "ring rahul", "dial rahul", "phone rahul", "buzz rahul"
+            '/^(?:ring|dial|phone|buzz|facetime)\s+(?:up\s+)?(.+)$/u',
+            // "give rahul a call/ring", "give priya a video call"
+            '/^give\s+(.+?)\s+a\s+(?:video\s+)?(?:call|ring|buzz)$/u',
+            // "talk to rahul", "speak to/with priya"
+            '/^(?:talk|speak)\s+(?:to|with)\s+(.+)$/u',
             // "rahul को कॉल/फोन करो|लगाओ|मिलाओ"
             '/(.+?)\s*को\s*(?:वीडियो\s*)?(?:कॉल|फ़ोन|फोन)\s*(?:करो|करें|कीजिए|लगाओ|मिलाओ)/u',
             // "कॉल करो rahul को" word order
@@ -226,10 +238,17 @@ class CommunicationCommandService
     protected function matchMessage(User $user, string $text, string $language): ?array
     {
         $patterns = [
-            // "message rahul (saying/that) i'll be late", "send a message to rahul"
-            '/^(?:please\s+)?(?:send\s+)?(?:a\s+)?(?:message|msg|text)\s+(?:to\s+)?(.+?)(?:\s+(?:saying|that|:)\s+(.+))?$/u',
+            // "message rahul (saying/that) i'll be late", "send a message to rahul",
+            // "drop priya a message", "ping rahul"
+            '/^(?:please\s+)?(?:send|shoot|drop|write)?\s*(?:a\s+)?(?:message|msg|text|note|ping)\s+(?:to\s+)?(.+?)(?:\s+(?:saying|that|about|:)\s+(.+))?$/u',
+            // "ping rahul", "text priya", used as a bare verb
+            '/^(?:ping|text|msg|dm|write to)\s+(.+?)(?:\s+(?:saying|that|about|:)\s+(.+))?$/u',
+            // "drop rahul a line/message about the invoice"
+            '/^(?:drop|send|shoot)\s+(.+?)\s+a\s+(?:message|line|note|text)(?:\s+(?:saying|that|about|:)\s+(.+))?$/u',
             // "tell rahul that i'll be late", "tell rahul i am coming"
             '/^tell\s+(.+?)\s+(?:that\s+)?(.+)$/u',
+            // "let rahul know that the meeting moved"
+            '/^let\s+(.+?)\s+know\s+(?:that\s+)?(.+)$/u',
             // "rahul को मैसेज भेजो (कि ...)"
             '/(.+?)\s*को\s*(?:मैसेज|संदेश)\s*(?:भेजो|भेजें|करो|करें|कीजिए)(?:\s*(?:कि|की)\s*(.+))?/u',
             // Romanised: "rahul ko message bhejo (ki ...)", "rahul ko msg karo"
@@ -260,18 +279,39 @@ class CommunicationCommandService
 
     protected function matchMeeting(User $user, string $text, string $language): ?array
     {
+        // Meetings here are instant — you start one and people join now. A
+        // command that names a future time is therefore a reminder, not a
+        // meeting, and belongs to the task interpreter ("schedule a meeting
+        // with Amit next Monday at 11").
+        //
+        // This also fixes a quieter bug: without it, "start a meeting with
+        // rahul tomorrow" captured "rahul tomorrow" as the contact name and
+        // then found nobody.
+        if (preg_match(
+            '/(?:(?<![\p{L}\d])(?:today|tonight|tomorrow|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday'
+            .'|next\s+(?:week|month|year)|this\s+(?:week|weekend)|o.?clock'
+            .'|आज|कल|परसों|सोमवार|मंगलवार|बुधवार|गुरुवार|शुक्रवार|शनिवार|रविवार|अगले|बजे)(?![\p{L}\d]))'
+            .'|(?:\d{1,2}\s*(?:am|pm|:\d{2}))'
+            .'|(?:(?<![\p{L}\d])(?:at|on|in)\s+\d)/u',
+            $text,
+        )) {
+            return null;
+        }
+
         $patterns = [
-            // "start/create/set up a meeting (with rahul and priya)"
-            '/(?:start|create|new|set ?up|begin|host)\s+(?:an?\s+|the\s+)?(?:instant\s+|quick\s+)?meeting(?:\s+(?:with|for)\s+(.+))?/u',
-            // "meeting शुरू करो (rahul के साथ)"
-            '/(?:(.+?)\s*के\s*साथ\s*)?(?:मीटिंग|बैठक)\s*(?:शुरू|स्टार्ट|चालू)\s*(?:करो|करें|कीजिए)/u',
-            // "priya, rahul के साथ मीटिंग करो/रखो"
-            '/(.+?)\s*के\s*साथ\s*(?:मीटिंग|बैठक)\s*(?:करो|करें|रखो|कीजिए|करनी\s*है)/u',
-            // Romanised: "priya, rahul ke sath meeting karo / shuru karo / rakho"
-            '/(.+?)\s+ke\s+saa?th\s+meeting\s*(?:karo|karen|kar\s*do|rakho|shuru\s*karo|start\s*karo|set\s*karo|karni\s*hai|karna\s*hai)?$/u',
-            '/meeting\s+(?:karo|shuru\s*karo|start\s*karo|rakho)\s+(.+?)\s+ke\s+saa?th$/u',
-            // Bare "meeting with rahul and priya" (no start verb spoken)
-            '/^meeting\s+with\s+(.+)$/u',
+            // "start/book/schedule/set up a meeting (with rahul and priya)".
+            // "book" and "schedule" were missing, so those two phrasings fell
+            // through and became a task named after the meeting.
+            '/(?:start|create|new|set ?up|setup|begin|host|book|schedule|arrange|organi[sz]e|call|hold|fix|put together)\s+(?:an?\s+|the\s+)?(?:instant\s+|quick\s+|short\s+)?(?:meeting|meet|huddle|stand ?up|sync|catch ?up|conference)(?:\s+(?:with|for|and)\s+(.+))?/u',
+            // Noun-first: "meeting with rahul and priya", "huddle with the team"
+            '/^(?:an?\s+|the\s+)?(?:meeting|huddle|stand ?up|sync|catch ?up)\s+(?:with|for)\s+(.+)$/u',
+            // "meeting शुरू करो (rahul के साथ)", also रखो / बुलाओ / सेट करो
+            '/(?:(.+?)\s*के\s*साथ\s*)?(?:मीटिंग|बैठक)\s*(?:शुरू|स्टार्ट|चालू|सेट|फिक्स)?\s*(?:करो|करें|कीजिए|रखो|रख\s*दो|बुलाओ|लगाओ)/u',
+            // Romanised: "priya, rahul ke sath meeting karo / shuru karo / rakho".
+            // No English verb precedes the noun here, so the patterns above
+            // cannot see these.
+            '/(.+?)\s+ke\s+saa?th\s+(?:meeting|meet)\s*(?:karo|karen|kar\s*do|rakho|rakh\s*do|shuru\s*karo|start\s*karo|set\s*karo|karni\s*hai|karna\s*hai)?$/u',
+            '/(?:meeting|meet)\s+(?:karo|shuru\s*karo|start\s*karo|rakho)\s+(.+?)\s+ke\s+saa?th$/u',
         ];
 
         foreach ($patterns as $pattern) {

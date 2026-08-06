@@ -15,9 +15,28 @@ class File extends Model
 
     protected $fillable = [
         'user_id', 'folder_id', 'group_id', 'name', 'path', 'mime_type', 'size',
+        'share_token', 'share_expires_at', 'shared_at',
     ];
 
-    protected $hidden = ['path'];
+    /* share_token is hidden for the same reason path is: it is a capability.
+       Anyone holding it can download the file, so it is returned only from the
+       endpoint that mints it, never incidentally in a listing. */
+    protected $hidden = ['path', 'share_token'];
+
+    protected function casts(): array
+    {
+        return [
+            'share_expires_at' => 'datetime',
+            'shared_at' => 'datetime',
+        ];
+    }
+
+    /** A link exists and has not lapsed. */
+    public function linkIsLive(): bool
+    {
+        return $this->share_token !== null
+            && ($this->share_expires_at === null || $this->share_expires_at->isFuture());
+    }
 
     public function uniqueIds(): array
     {
