@@ -675,6 +675,7 @@ class MeetingController extends Controller
             'requires_approval' => $meeting->requires_approval,
             'is_locked' => $meeting->is_locked,
             'has_passcode' => (bool) $meeting->passcode,
+            'guest_access' => (bool) $meeting->guest_access,
             // Only a moderator sees the actual passcode — they are the one
             // who has to pass it on to invitees.
             'passcode' => $canModerate ? $meeting->passcode : null,

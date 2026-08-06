@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Calendar, Copy, LogIn, Video } from 'lucide-react'
+import { clsx } from 'clsx'
 import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
@@ -160,7 +161,7 @@ export default function MeetingsPage() {
 }
 
 function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '' })
+  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '', guest_access: false })
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<MeetingItem | null>(null)
 
@@ -172,6 +173,8 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         scheduled_at: form.scheduled_at || null,
         requires_approval: form.requires_approval,
         passcode: form.passcode.trim() || null,
+        // Only meaningful with a passcode — the backend enforces the same.
+        guest_access: form.guest_access && form.passcode.trim().length >= 4,
       }),
     onSuccess: (m) => {
       setCreated(m)
@@ -203,6 +206,29 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               Passcode <span className="font-mono font-semibold">{created.passcode}</span> — send this
               separately from the link, or it defeats the point.
             </p>
+          )}
+          {created.guest_access && (
+            <div className="space-y-1 rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800">
+              <p className="text-xs font-medium">Link for people without an account</p>
+              <div className="flex gap-2">
+                <input
+                  readOnly
+                  value={`${window.location.origin}/join/${created.code}`}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[11px] dark:border-slate-600 dark:bg-slate-900"
+                />
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => navigator.clipboard
+                    .writeText(`${window.location.origin}/join/${created.code}`)
+                    .catch(() => undefined)}
+                >
+                  <Copy className="size-3.5" />
+                </Button>
+              </div>
+              <p className="text-[11px] text-slate-400">They will need the passcode too, and get 30 minutes.</p>
+            </div>
           )}
           <div className="flex justify-end">
             <Button onClick={onClose}>Done</Button>
@@ -255,6 +281,27 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               onChange={(e) => setForm({ ...form, requires_approval: e.target.checked })}
             />
             Require my approval before anyone joins (waiting room)
+          </label>
+
+          {/* Guest access is only worth anything alongside a passcode, so the
+              control is disabled until there is one rather than silently
+              doing nothing. */}
+          <label className={clsx('flex items-start gap-2 text-sm', form.passcode.trim().length < 4 && 'opacity-50')}>
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              disabled={form.passcode.trim().length < 4}
+              checked={form.guest_access}
+              onChange={(e) => setForm({ ...form, guest_access: e.target.checked })}
+            />
+            <span>
+              Let people join without a Netvork account
+              <span className="block text-[11px] text-slate-400">
+                {form.passcode.trim().length < 4
+                  ? 'Set a passcode first — without one the link alone would let anyone in.'
+                  : 'They get 30 minutes, and still need the passcode.'}
+              </span>
+            </span>
           </label>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
