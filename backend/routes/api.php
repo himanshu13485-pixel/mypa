@@ -39,6 +39,32 @@ Route::prefix('v1')->group(function () {
         ->middleware('throttle:60,1')
         ->where('token', '[A-Za-z0-9]{32,64}');
 
+    // Join a meeting with a passcode and no account. Throttled hard: this is
+    // the one door into the app that no session guards.
+    Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'join'])
+        ->middleware('throttle:10,1');
+
+    /*
+     * What a guest may do, and nothing else.
+     *
+     * Everything a participant needs to be in a room — join, leave, keep
+     * presence, signal, rename themselves, react, read the room — and none of
+     * what a host needs. Ending the meeting, admitting people, host actions,
+     * approval settings and the file endpoints are all absent on purpose, so a
+     * guest cannot reach them even if they know the URL.
+     */
+    Route::middleware('guest.meeting')->group(function () {
+        Route::get('/guest/meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'show']);
+        Route::post('/guest/meetings/{meeting}/join', [\App\Http\Controllers\Api\V1\MeetingController::class, 'join']);
+        Route::post('/guest/meetings/{meeting}/leave', [\App\Http\Controllers\Api\V1\MeetingController::class, 'leave']);
+        Route::post('/guest/meetings/{meeting}/heartbeat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'heartbeat']);
+        Route::post('/guest/meetings/{meeting}/signal', [\App\Http\Controllers\Api\V1\MeetingController::class, 'signal'])
+            ->middleware('throttle:240,1');
+        Route::post('/guest/meetings/{meeting}/name', [\App\Http\Controllers\Api\V1\MeetingController::class, 'rename']);
+        Route::post('/guest/meetings/{meeting}/react', [\App\Http\Controllers\Api\V1\MeetingController::class, 'react']);
+        Route::get('/guest/meetings/{meeting}/participants', [\App\Http\Controllers\Api\V1\MeetingController::class, 'participants']);
+    });
+
     // --- Public auth (strictly throttled) --------------------------------
     Route::middleware('throttle:10,1')->group(function () {
         Route::post('/auth/register', [AuthController::class, 'register']);

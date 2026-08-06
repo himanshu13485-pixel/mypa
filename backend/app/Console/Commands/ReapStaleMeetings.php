@@ -6,6 +6,7 @@ use App\Events\CallSignal;
 use App\Events\MeetingSignal;
 use App\Models\Call;
 use App\Models\Meeting;
+use App\Models\User;
 use App\Support\Realtime;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -47,11 +48,29 @@ class ReapStaleMeetings extends Command
         });
 
         [$callsDropped, $callsEnded] = $this->reapCalls();
+        $guests = $this->reapGuests();
 
         $this->info("Dropped {$dropped} stale participant(s); ended {$ended} empty meeting(s).");
         $this->info("Calls: dropped {$callsDropped}; ended {$callsEnded}.");
+        $this->info("Guests: removed {$guests} expired pass(es).");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Delete guest accounts whose half hour ran out a while ago.
+     *
+     * The pass stops working the moment it expires; this is only tidying, so a
+     * spent guest row does not sit in the users table for ever. The hour of
+     * grace means a guest refreshing just as their time runs out still gets
+     * the "your 30 minutes are up" answer rather than a bare 401.
+     */
+    protected function reapGuests(): int
+    {
+        return User::withoutGlobalScope('withoutMeetingGuests')
+            ->whereNotNull('guest_meeting_id')
+            ->where('guest_expires_at', '<', now()->subHour())
+            ->delete();
     }
 
     /**

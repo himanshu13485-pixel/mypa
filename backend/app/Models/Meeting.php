@@ -16,6 +16,7 @@ class Meeting extends Model
 
     protected $fillable = [
         'host_id', 'code', 'title', 'type', 'is_screen', 'requires_approval', 'passcode', 'is_locked',
+        'guest_access',
         'spotlight_uuid', 'status', 'scheduled_at', 'started_at', 'ended_at',
     ];
 
@@ -66,7 +67,11 @@ class Meeting extends Model
 
     public function participants(): BelongsToMany
     {
+        // Guests are hidden from ordinary user queries by a global scope on
+        // User. The room is the one place they must be visible, so it asks
+        // for them back explicitly.
         return $this->belongsToMany(User::class, 'meeting_participants')
+            ->withoutGlobalScope('withoutMeetingGuests')
             ->withPivot([
                 'status', 'display_name', 'role', 'mic_on', 'cam_on', 'hand_raised',
                 'joined_at', 'left_at', 'last_seen_at',

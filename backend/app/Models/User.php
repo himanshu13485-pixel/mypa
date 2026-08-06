@@ -31,7 +31,43 @@ class User extends Authenticatable implements MustVerifyEmail
         'last_login_at',
         'username_changed_at',
         'mobile_verified_at',
+        'guest_meeting_id',
+        'guest_expires_at',
+        'guest_token',
     ];
+
+    /**
+     * Guests are hidden from every ordinary query.
+     *
+     * A meeting guest is a real user row so that the participant pivot,
+     * presence and signalling all keep working — but they must never surface
+     * anywhere a person is looked up: not in connection suggestions, not in
+     * group member search, not in an admin list. Doing that here rather than
+     * in each query means a query written later cannot forget.
+     *
+     * The one place that needs them is authentication of the guest itself,
+     * which asks for them explicitly with withoutGlobalScope.
+     */
+    protected static function booted(): void
+    {
+        static::addGlobalScope('withoutMeetingGuests', function (\Illuminate\Database\Eloquent\Builder $q) {
+            $q->whereNull($q->getModel()->getTable().'.guest_meeting_id');
+        });
+    }
+
+    /** Someone who joined a single meeting by link, with no account. */
+    public function isGuest(): bool
+    {
+        return $this->guest_meeting_id !== null;
+    }
+
+    /** Their pass has run out — they cannot rejoin or keep signalling. */
+    public function guestPassExpired(): bool
+    {
+        return $this->isGuest()
+            && $this->guest_expires_at !== null
+            && $this->guest_expires_at->isPast();
+    }
 
     protected $hidden = [
         'password',
@@ -47,6 +83,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'force_password_change' => 'boolean',
             'username_changed_at' => 'datetime',
             'password' => 'hashed',
+            'guest_expires_at' => 'datetime',
         ];
     }
 

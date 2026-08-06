@@ -27,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'role' => \App\Http\Middleware\EnsureRole::class,
             'active' => \App\Http\Middleware\EnsureActiveUser::class,
             'verified.email' => \App\Http\Middleware\EnsureVerifiedEmail::class,
+            'guest.meeting' => \App\Http\Middleware\AuthenticateMeetingGuest::class,
             'module' => \App\Http\Middleware\EnsureModule::class,
         ]);
     })
