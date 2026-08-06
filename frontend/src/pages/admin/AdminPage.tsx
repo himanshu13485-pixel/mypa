@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity, Ban, BarChart3, CheckCircle2, ClipboardCheck, CreditCard, Flag,
-  KeyRound, LogIn, MailCheck, MessagesSquare, Pencil, Plus, RefreshCw, Search, Send,
+  KeyRound, LogIn, MailCheck, MessagesSquare, Pencil, Plus, Radio, RefreshCw, Search, Send,
   Shield, SlidersHorizontal, UserCheck, Users, Wifi,
 } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
@@ -13,6 +13,7 @@ import type { AdminPlan } from '../../types'
 import { api, errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import UserSuggest from '../../components/UserSuggest'
+import { useToast } from '../../components/Toast'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner,
 } from '../../components/ui'
@@ -1655,10 +1656,96 @@ function SalesSummaryModal({ user, onClose }: { user: User; onClose: () => void 
 // Page shell with tabs
 // ---------------------------------------------------------------------------
 
+/**
+ * What is running right now, and the ability to stop it.
+ *
+ * "Live" is the presence heartbeat, not merely a meeting flagged active — a
+ * room everyone closed their browser on drops off by itself.
+ */
+function LiveMeetingsTab() {
+  const { toast, toastError } = useToast()
+  const qc = useQueryClient()
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['admin', 'live-meetings'],
+    queryFn: () => admin.liveMeetings(),
+    // Short, because the whole point of the page is that it is current.
+    refetchInterval: 10_000,
+  })
+
+  const end = useMutation({
+    mutationFn: ({ code, reason }: { code: string; reason?: string }) => admin.endMeeting(code, reason),
+    onSuccess: (res) => {
+      toast(res.message, 'success')
+      qc.invalidateQueries({ queryKey: ['admin', 'live-meetings'] })
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  if (isLoading) return <Spinner />
+  if (error) return <ErrorNote message={errorMessage(error)} />
+
+  const rows = data?.data ?? []
+
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-3">
+        <Card className="flex-1 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-400">Meetings live now</p>
+          <p className="text-2xl font-semibold">{data?.meta.live_meetings ?? 0}</p>
+        </Card>
+        <Card className="flex-1 p-4">
+          <p className="text-xs uppercase tracking-wide text-slate-400">People in meetings</p>
+          <p className="text-2xl font-semibold">{data?.meta.people_in_meetings ?? 0}</p>
+        </Card>
+      </div>
+
+      {rows.length === 0 ? (
+        <Card>
+          <EmptyState title="Nothing is running" hint="Meetings appear here while people are actually in them." />
+        </Card>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((m) => (
+            <Card key={m.uuid} className="flex flex-wrap items-center gap-3 p-3">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">
+                  {m.title || 'Untitled meeting'}
+                  <span className="ml-2 font-mono text-xs text-slate-400">{m.code}</span>
+                  {m.is_locked && <span className="ml-2 text-[11px] text-amber-500">locked</span>}
+                </p>
+                <p className="truncate text-xs text-slate-400">
+                  Host {m.host?.name ?? 'unknown'} · running {m.running_minutes} min ·{' '}
+                  {m.participants} in the room
+                </p>
+                <p className="truncate text-[11px] text-slate-400">{m.participant_names.join(', ')}</p>
+              </div>
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={end.isPending}
+                onClick={() => {
+                  // Ending somebody else's meeting throws everyone out, so it
+                  // asks first and records why.
+                  if (!confirm(`End “${m.title || m.code}” for all ${m.participants} people?`)) return
+                  const reason = prompt('Reason (recorded in the audit log):') ?? undefined
+                  end.mutate({ code: m.code, reason })
+                }}
+              >
+                End for all
+              </Button>
+            </Card>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 const TABS = [
   { key: 'overview', label: 'Overview', icon: Shield },
   { key: 'users', label: 'Users', icon: Users },
   { key: 'active', label: 'Active Members', icon: Wifi },
+  { key: 'live', label: 'Live Meetings', icon: Radio },
   { key: 'plans', label: 'Plans', icon: CreditCard },
   { key: 'approvals', label: 'Approvals', icon: ClipboardCheck },
   { key: 'activity', label: 'Activity', icon: Activity },
@@ -1672,7 +1759,7 @@ const TABS = [
 function visibleTabs(roles: string[]) {
   if (roles.includes('admin') || roles.includes('super_admin')) return TABS
   if (roles.includes('subadmin')) {
-    return TABS.filter((t) => !['overview', 'active', 'plans'].includes(t.key))
+    return TABS.filter((t) => !['overview', 'active', 'plans', 'live'].includes(t.key))
   }
   return TABS.filter((t) => ['sales', 'internal'].includes(t.key))
 }
@@ -1715,6 +1802,7 @@ export default function AdminPage() {
       {tab === 'overview' && <OverviewTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'active' && <ActiveMembersTab />}
+      {tab === 'live' && <LiveMeetingsTab />}
       {tab === 'plans' && <PlansTab />}
       {tab === 'approvals' && <ApprovalsTab />}
       {tab === 'activity' && <ActivityTab />}

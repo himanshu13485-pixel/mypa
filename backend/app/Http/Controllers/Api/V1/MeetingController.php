@@ -42,6 +42,7 @@ class MeetingController extends Controller
             'is_screen' => ['sometimes', 'boolean'],
             'requires_approval' => ['sometimes', 'boolean'],
             'passcode' => ['sometimes', 'nullable', 'string', 'min:4', 'max:12', 'alpha_num'],
+            'guest_access' => ['sometimes', 'boolean'],
             'scheduled_at' => ['sometimes', 'nullable', 'date'],
         ]);
 
@@ -53,6 +54,9 @@ class MeetingController extends Controller
             'is_screen' => (bool) ($data['is_screen'] ?? false),
             'requires_approval' => (bool) ($data['requires_approval'] ?? true),
             'passcode' => ($data['passcode'] ?? null) ?: null,
+            // Letting strangers in needs a passcode to be worth anything, so
+            // the two only travel together.
+            'guest_access' => (bool) ($data['guest_access'] ?? false) && ($data['passcode'] ?? null),
             'scheduled_at' => $data['scheduled_at'] ?? null,
         ]);
 

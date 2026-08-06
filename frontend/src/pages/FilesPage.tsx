@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ChevronRight, Download, File as FileIcon, Folder, FolderPlus, Home,
-  Pencil, RotateCcw, Share2, Trash2, Upload, Users,
+  Check, Copy, Link2, Pencil, RotateCcw, Share2, Trash2, Upload, Users,
 } from 'lucide-react'
 import { badges as badgesApi, files as filesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
 import { PickUserModal } from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
-import { Button, Card, EmptyState, Spinner } from '../components/ui'
+import { Button, Card, EmptyState, Modal, Spinner } from '../components/ui'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -35,7 +35,7 @@ async function authedDownload(uuid: string, name: string) {
 }
 
 export default function FilesPage() {
-  const { toastError } = useToast()
+  const { toast, toastError } = useToast()
   const queryClient = useQueryClient()
 
   // Attending this section clears its share notifications.
@@ -49,6 +49,22 @@ export default function FilesPage() {
   const [folder, setFolder] = useState<string | undefined>(undefined)
   const [view, setView] = useState<'mine' | 'shared' | 'byme' | 'trash'>('mine')
   const [shareTarget, setShareTarget] = useState<{ kind: 'file' | 'folder'; uuid: string; name: string } | null>(null)
+  /* Public link — works for anyone, with no Netvork account. */
+  const [linkFor, setLinkFor] = useState<{ uuid: string; name: string } | null>(null)
+  const [link, setLink] = useState<string | null>(null)
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const makeLink = async (uuid: string, days: number | null) => {
+    setLinkBusy(true)
+    try {
+      setLink((await filesApi.shareLink(uuid, days)).url)
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setLinkBusy(false)
+    }
+  }
   const inputRef = useRef<HTMLInputElement>(null)
 
   const { data, isLoading } = useQuery({
@@ -241,10 +257,22 @@ export default function FilesPage() {
                   </button>
                   <button
                     className="rounded p-1.5 text-slate-400 hover:text-brand-600"
-                    title="Share"
+                    title="Share with a Netvork user"
                     onClick={() => setShareTarget({ kind: 'file', uuid: f.uuid, name: f.name })}
                   >
                     <Share2 className="size-4" />
+                  </button>
+                  <button
+                    className="rounded p-1.5 text-slate-400 hover:text-brand-600"
+                    title="Get a link anyone can open"
+                    onClick={() => {
+                      setLink(null)
+                      setCopied(false)
+                      setLinkFor({ uuid: f.uuid, name: f.name })
+                      void makeLink(f.uuid, null)
+                    }}
+                  >
+                    <Link2 className="size-4" />
                   </button>
                   <button
                     className="rounded p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -384,6 +412,92 @@ export default function FilesPage() {
             ))
           )}
         </div>
+      )}
+
+      {linkFor && (
+        <Modal title={`Link to “${linkFor.name}”`} onClose={() => { setLinkFor(null); setLink(null) }}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">
+              Anyone with this link can download the file — they do not need a Netvork account.
+            </p>
+
+            <div className="flex gap-2">
+              <input
+                readOnly
+                value={link ?? (linkBusy ? 'Creating…' : '')}
+                onFocus={(e) => e.currentTarget.select()}
+                className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-800"
+              />
+              <Button
+                size="sm"
+                disabled={!link}
+                onClick={async () => {
+                  if (!link) return
+                  try {
+                    await navigator.clipboard.writeText(link)
+                  } catch {
+                    // Clipboard is blocked on insecure origins; the field is
+                    // selectable so the link is still gettable by hand.
+                    toastError('Could not copy — select the link and copy it.')
+                    return
+                  }
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 2000)
+                }}
+              >
+                {copied ? <><Check className="size-3.5" /> Copied</> : <><Copy className="size-3.5" /> Copy</>}
+              </Button>
+            </div>
+
+            <div>
+              <p className="mb-1 text-xs font-medium text-slate-500">Stops working after</p>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { label: 'Never', days: null },
+                  { label: '1 day', days: 1 },
+                  { label: '7 days', days: 7 },
+                  { label: '30 days', days: 30 },
+                ].map((o) => (
+                  <Button
+                    key={o.label}
+                    size="sm"
+                    variant="secondary"
+                    disabled={linkBusy}
+                    onClick={() => { setCopied(false); void makeLink(linkFor.uuid, o.days) }}
+                  >
+                    {o.label}
+                  </Button>
+                ))}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-400">
+                Choosing one makes a fresh link — any link you already sent stops working.
+              </p>
+            </div>
+
+            <div className="flex justify-between gap-2 border-t border-slate-200 pt-3 dark:border-slate-700">
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={linkBusy}
+                onClick={async () => {
+                  try {
+                    await filesApi.revokeShareLink(linkFor.uuid)
+                    toast('Link revoked — it no longer opens anything.', 'success')
+                    setLinkFor(null)
+                    setLink(null)
+                  } catch (err) {
+                    toastError(errorMessage(err))
+                  }
+                }}
+              >
+                Revoke link
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => { setLinkFor(null); setLink(null) }}>
+                Done
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {shareTarget && (
