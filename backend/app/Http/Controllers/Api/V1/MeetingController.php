@@ -102,7 +102,10 @@ class MeetingController extends Controller
 
         // Passcode gate, checked before the waiting room so a wrong code never
         // reaches the host as a knock.
-        if ($meeting->passcode && ! $moderator) {
+        // A guest already typed the passcode to be given a pass at all, and
+        // that pass is only valid for this meeting — asking again on the way
+        // into the room made them enter it twice for one join.
+        if ($meeting->passcode && ! $moderator && ! $me->isGuest()) {
             abort_unless(
                 hash_equals($meeting->passcode, (string) ($data['passcode'] ?? '')),
                 403,

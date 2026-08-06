@@ -64,18 +64,28 @@ export function useGalleryLayout(
 export function bestGalleryFit(w: number, h: number, count: number, gap = 8): GalleryLayout {
   if (!count || w < 1 || h < 1) return { cols: 0, rows: 0, width: 0, height: 0 }
 
-  let best: GalleryLayout = { cols: 1, rows: count, width: 0, height: 0 }
-  for (let cols = 1; cols <= count; cols++) {
-    const rows = Math.ceil(count / cols)
-    // Widest a tile can be in this many columns, and the tallest it may be
-    // before that many rows stop fitting.
-    const byWidth = (w - gap * (cols - 1)) / cols
-    const byHeight = ((h - gap * (rows - 1)) / rows) * TILE_ASPECT
-    const width = Math.floor(Math.min(byWidth, byHeight))
-    if (width > best.width) best = { cols, rows, width, height: Math.floor(width / TILE_ASPECT) }
-  }
+  /*
+   * Columns follow a stated rule rather than a search.
+   *
+   * An even number of people makes a plain grid; an odd number fills the top
+   * row one deeper than the bottom — five as three and two, seven as four and
+   * three. Picking whichever arrangement produced the largest tiles was
+   * cleverer and less predictable: the same meeting rearranged itself as the
+   * window changed, which reads as broken even when every tile fits.
+   *
+   * Past eight the two-row rule gives absurdly wide rows, so columns cap and
+   * rows grow instead.
+   */
+  const cols = count <= 2 ? count : Math.min(4, Math.ceil(count / 2))
+  const rows = Math.ceil(count / cols)
 
-  return best
+  // Size to whichever runs out first, width or height, so the grid always
+  // fits the box and nothing has to scroll or overlap.
+  const byWidth = (w - gap * (cols - 1)) / cols
+  const byHeight = ((h - gap * (rows - 1)) / rows) * TILE_ASPECT
+  const width = Math.max(0, Math.floor(Math.min(byWidth, byHeight)))
+
+  return { cols, rows, width, height: Math.floor(width / TILE_ASPECT) }
 }
 
 /**

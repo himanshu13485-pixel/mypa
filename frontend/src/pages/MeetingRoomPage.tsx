@@ -1435,12 +1435,15 @@ export default function MeetingRoomPage() {
     return <Card className="mx-auto mt-10 max-w-md text-center text-sm text-slate-400">Opening the meeting…</Card>
   }
 
+  // A guest typed the passcode to be given a pass at all, and the server no
+  // longer asks them for it — so the lobby must not either, or one join takes
+  // two entries of the same code.
   if (phase === 'lobby') {
     return (
       <MeetingLobby
         title={meeting?.title ?? 'Meeting'}
         hostName={meeting?.is_host ? undefined : meeting?.host.name}
-        needsPasscode={!!meeting?.has_passcode && !meeting?.can_moderate}
+        needsPasscode={!!meeting?.has_passcode && !meeting?.can_moderate && !isGuest}
         defaultName={user?.name ?? 'Guest'}
         audioOnly={!isVideo}
         error={lobbyError}

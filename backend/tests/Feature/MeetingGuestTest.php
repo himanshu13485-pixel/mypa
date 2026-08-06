@@ -92,6 +92,31 @@ class MeetingGuestTest extends TestCase
         $this->assertTrue($names->contains('Prashant'), 'the guest should be in the room');
     }
 
+    public function test_a_guest_is_not_asked_for_the_passcode_a_second_time(): void
+    {
+        // They typed it to be given a pass, and the pass is only good for this
+        // meeting. Asking again on the way into the room made one join take
+        // two entries of the same code.
+        [$token] = $this->joinAsGuest();
+
+        $this->withHeaders($this->asGuest($token))
+            ->postJson("/api/v1/guest/meetings/{$this->meeting->code}/join")
+            ->assertOk();
+    }
+
+    public function test_a_signed_in_member_is_still_asked_for_the_passcode(): void
+    {
+        $member = User::factory()->create();
+
+        $this->actingAs($member)
+            ->postJson("/api/v1/meetings/{$this->meeting->code}/join")
+            ->assertForbidden();
+
+        $this->actingAs($member)
+            ->postJson("/api/v1/meetings/{$this->meeting->code}/join", ['passcode' => 'open1234'])
+            ->assertOk();
+    }
+
     public function test_a_wrong_passcode_is_refused(): void
     {
         $this->postJson("/api/v1/meetings/{$this->meeting->code}/guest", [
