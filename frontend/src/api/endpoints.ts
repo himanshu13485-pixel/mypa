@@ -412,6 +412,12 @@ export const meetings = {
     api.post<{ data: import('../types').MeetingItem }>('/meetings', payload).then((r) => r.data.data),
   show: (code: string) =>
     api.get<{ data: import('../types').MeetingItem }>(`/meetings/${code}`).then((r) => r.data.data),
+  /** Turn guest access on or off on a meeting that already exists. */
+  setGuestAccess: (code: string, guest_access: boolean, passcode?: string) =>
+    api.put<{ message: string; data: { guest_access: boolean; passcode: string | null; join_url: string | null } }>(
+      `/meetings/${code}/guest-access`,
+      passcode ? { guest_access, passcode } : { guest_access },
+    ).then((r) => r.data),
   join: (code: string, opts: { display_name?: string; passcode?: string; mic_on?: boolean; cam_on?: boolean } = {}) =>
     api.post<{
       data:

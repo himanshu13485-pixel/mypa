@@ -303,6 +303,48 @@ class MeetingController extends Controller
     }
 
     /** Host toggles the waiting room on/off mid-meeting (the bypass). */
+    /**
+     * Turn guest access on or off on a meeting that already exists.
+     *
+     * Guest access was only settable at creation, which left the instant
+     * "New meeting" button - the one most people press - with no way to reach
+     * it at all. A passcode is set here too, since guest access without one
+     * would make the join link alone enough for anyone who saw it.
+     */
+    public function setGuestAccess(Request $request, Meeting $meeting): JsonResponse
+    {
+        abort_unless($meeting->canModerate($request->user()), 403, 'Only the host or a co-host can change this.');
+
+        $data = $request->validate([
+            'guest_access' => ['required', 'boolean'],
+            'passcode' => ['sometimes', 'nullable', 'string', 'min:4', 'max:12', 'alpha_num'],
+        ]);
+
+        $passcode = $data['passcode'] ?? $meeting->passcode;
+
+        if ($data['guest_access'] && ! $passcode) {
+            return response()->json([
+                'message' => 'Set a passcode first — without one the link alone would let anyone in.',
+            ], 422);
+        }
+
+        $meeting->update([
+            'guest_access' => $data['guest_access'],
+            'passcode' => $passcode,
+        ]);
+
+        return response()->json([
+            'message' => $data['guest_access']
+                ? 'People without an account can now join with the passcode, for 30 minutes.'
+                : 'Guest access is off — a Netvork account is needed again.',
+            'data' => [
+                'guest_access' => (bool) $meeting->guest_access,
+                'passcode' => $meeting->passcode,
+                'join_url' => $data['guest_access'] ? url("/join/{$meeting->code}") : null,
+            ],
+        ]);
+    }
+
     public function setApproval(Request $request, Meeting $meeting): JsonResponse
     {
         abort_unless($meeting->canModerate($request->user()), 403, 'Only the host or a co-host can change this.');

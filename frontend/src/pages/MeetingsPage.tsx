@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, Copy, LogIn, Video } from 'lucide-react'
+import { Calendar, Copy, LogIn, UserPlus, Video } from 'lucide-react'
 import { clsx } from 'clsx'
 import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
@@ -17,11 +17,17 @@ export function meetingLink(code: string): string {
 }
 
 export default function MeetingsPage() {
-  const { toastError } = useToast()
+  const { toast, toastError } = useToast()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [joinCode, setJoinCode] = useState('')
   const [showSchedule, setShowSchedule] = useState(false)
+  /* Guest access, reachable on any meeting you host — the instant "New
+     meeting" button has no form, so creation time cannot be the only way. */
+  const [guestFor, setGuestFor] = useState<MeetingItem | null>(null)
+  const [guestPasscode, setGuestPasscode] = useState('')
+  const [guestBusy, setGuestBusy] = useState(false)
+  const [guestUrl, setGuestUrl] = useState<string | null>(null)
 
   const { data: meetings, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ['meetings'],
@@ -139,6 +145,16 @@ export default function MeetingsPage() {
                 <Button size="sm" variant="secondary" title="Copy invite link" onClick={() => copyLink(m)}>
                   <Copy className="size-3.5" /> {copiedCode === m.code ? 'Copied ✓' : 'Link'}
                 </Button>
+                {m.status !== 'ended' && m.is_host && (
+                  <Button
+                    size="sm"
+                    variant={m.guest_access ? 'primary' : 'secondary'}
+                    title={m.guest_access ? 'People without an account can join' : 'Let people join without an account'}
+                    onClick={() => setGuestFor(m)}
+                  >
+                    <UserPlus className="size-3.5" /> Guests
+                  </Button>
+                )}
                 {m.status !== 'ended' && (
                   <Button size="sm" onClick={() => navigate(`/meetings/room/${m.code}`)}>
                     {m.status === 'active' ? 'Join' : 'Start'}
@@ -148,6 +164,101 @@ export default function MeetingsPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {guestFor && (
+        <Modal
+          title={`Guests — ${guestFor.title || guestFor.code}`}
+          onClose={() => { setGuestFor(null); setGuestPasscode(''); setGuestUrl(null) }}
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-slate-500">
+              People without a Netvork account can join with a passcode and stay 30 minutes.
+            </p>
+
+            {guestFor.guest_access ? (
+              <>
+                <div>
+                  <Label>Link to send them</Label>
+                  <div className="flex gap-2">
+                    <input
+                      readOnly
+                      value={guestUrl ?? `${window.location.origin}/join/${guestFor.code}`}
+                      onFocus={(e) => e.currentTarget.select()}
+                      className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 font-mono text-xs dark:border-slate-700 dark:bg-slate-800"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => navigator.clipboard
+                        .writeText(guestUrl ?? `${window.location.origin}/join/${guestFor.code}`)
+                        .catch(() => undefined)}
+                    >
+                      <Copy className="size-3.5" />
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    They need the passcode too — send it separately, or the link alone lets anyone in.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={guestBusy}
+                  onClick={async () => {
+                    setGuestBusy(true)
+                    try {
+                      await meetingsApi.setGuestAccess(guestFor.code, false)
+                      toast('Guest access is off.', 'success')
+                      queryClient.invalidateQueries({ queryKey: ['meetings'] })
+                      setGuestFor(null)
+                    } catch (err) {
+                      toastError(errorMessage(err))
+                    } finally {
+                      setGuestBusy(false)
+                    }
+                  }}
+                >
+                  Turn guest access off
+                </Button>
+              </>
+            ) : (
+              <>
+                <div>
+                  <Label>Passcode</Label>
+                  <Input
+                    value={guestPasscode}
+                    onChange={(e) => setGuestPasscode(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+                    placeholder="4–12 letters or digits"
+                    maxLength={12}
+                    autoComplete="off"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Required — without one the link alone would let anyone in.
+                  </p>
+                </div>
+                <Button
+                  disabled={guestBusy || guestPasscode.trim().length < 4}
+                  onClick={async () => {
+                    setGuestBusy(true)
+                    try {
+                      const res = await meetingsApi.setGuestAccess(guestFor.code, true, guestPasscode.trim())
+                      setGuestUrl(res.data.join_url)
+                      toast(res.message, 'success')
+                      queryClient.invalidateQueries({ queryKey: ['meetings'] })
+                      setGuestFor({ ...guestFor, guest_access: true })
+                    } catch (err) {
+                      toastError(errorMessage(err))
+                    } finally {
+                      setGuestBusy(false)
+                    }
+                  }}
+                >
+                  {guestBusy ? 'Saving…' : 'Turn guest access on'}
+                </Button>
+              </>
+            )}
+          </div>
+        </Modal>
       )}
 
       {showSchedule && (
