@@ -156,7 +156,7 @@ export default function CalendarPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Calendar</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Calendar</h1>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={downloadIcs} title="Export .ics">
             <Download className="size-4" /> Export

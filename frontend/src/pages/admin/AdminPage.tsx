@@ -1782,7 +1782,7 @@ export default function AdminPage() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Shield className="size-5 text-brand-600" />
-        <h1 className="text-lg font-semibold">Admin Panel</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Admin Panel</h1>
       </div>
 
       {/* Eleven tabs wrap onto four rows of a phone — a third of the screen

@@ -14,6 +14,18 @@
   --color-brand-800: #2231aa;
   --color-brand-900: #212e86;
   --color-brand-950: #191f52;
+
+  /*
+   * Depth comes from light, not from outlines.
+   *
+   * Every surface in the app used to be a white box with a 1px grey border —
+   * the house style of about 2013. These are the two shadows that replace it:
+   * a close, tight one for anything resting on the page, and a longer one for
+   * anything floating above it. Both are tinted towards the ink colour rather
+   * than pure black, which is what stops a stack of cards looking sooty.
+   */
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 1px 3px rgb(16 24 40 / 0.06);
+  --shadow-lift: 0 4px 6px -2px rgb(16 24 40 / 0.04), 0 12px 24px -6px rgb(16 24 40 / 0.12);
 }
 
 html,
@@ -23,9 +35,23 @@ body,
 }
 
 body {
-  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  @apply bg-slate-100 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
   /* Rubber-banding the whole page over a fixed app shell looks broken. */
   overscroll-behavior-y: none;
+  /* Lining figures of equal width, so a column of amounts, times and counts
+     lines up instead of shuffling as the digits change. */
+  font-feature-settings: 'tnum' 1, 'cv05' 1;
+}
+
+/* Headings read as headings: tighter than the body, never looser. */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.011em;
+}
+
+::selection {
+  @apply bg-brand-600/20;
 }
 
 /* --- Phones ---------------------------------------------------------------
@@ -112,12 +138,18 @@ body {
   }
 }
 
+/* A scrollbar should be a hint, not furniture. */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  @apply rounded bg-slate-300 dark:bg-slate-700;
+  @apply rounded-full bg-slate-300/70 dark:bg-slate-700/70;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400/80 dark:bg-slate-600/80;
 }
 ::-webkit-scrollbar-track {
   background: transparent;

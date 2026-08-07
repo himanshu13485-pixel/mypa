@@ -105,7 +105,7 @@ export default function FilesPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Files</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Files</h1>
         {/* One scrolling row on a phone, where these four otherwise take two
             rows and "Shared with me" wraps inside its own button. */}
         <div className="scroll-pane -mx-3 flex gap-2 overflow-x-auto px-3 sm:mx-0 sm:px-0 [&>button]:shrink-0 [&>button]:whitespace-nowrap">

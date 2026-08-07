@@ -1,19 +1,29 @@
+import { useId } from 'react'
+
 /**
  * The Netvork mark, taken 1:1 from the brand logo file
  * (public/icons/logo-full.svg): purple gradient app tile with the white
  * orbit, five network nodes, and the two-pillar N.
+ *
+ * The gradient gets a generated id rather than a fixed one. Two marks are on
+ * the page at once — the sidebar's and the header's — and a fixed id meant
+ * both said `fill="url(#nv-grad)"` while the browser resolved that to the
+ * *first* definition in the document. On a phone the first one belongs to the
+ * `display: none` desktop sidebar, which paints nothing, so the logo in the
+ * header came out as a pale ghost of itself on every phone screen.
  */
 export default function NetvorkMark({ className = 'size-8' }: { className?: string }) {
+  const grad = useId()
   return (
     <svg viewBox="0 0 340 340" className={className} aria-label="Netvork">
       <defs>
-        <linearGradient id="nv-grad" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={grad} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#171A8F" />
           <stop offset="55%" stopColor="#4022B7" />
           <stop offset="100%" stopColor="#8B35F0" />
         </linearGradient>
       </defs>
-      <rect x="0" y="0" width="340" height="340" rx="48" fill="url(#nv-grad)" />
+      <rect x="0" y="0" width="340" height="340" rx="48" fill={`url(#${grad})`} />
       {/* orbit */}
       <circle cx="170" cy="170" r="112" fill="none" stroke="#FFFFFF" strokeWidth="7" opacity="0.98" />
       {/* orbit nodes */}

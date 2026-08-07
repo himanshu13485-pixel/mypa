@@ -72,7 +72,7 @@ export default function GuestJoinPage() {
           <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-950">
             <Video className="size-6" />
           </span>
-          <h1 className="text-lg font-semibold">Join the meeting</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Join the meeting</h1>
           <p className="text-sm text-slate-500">
             No account needed. You can stay for 30 minutes.
           </p>

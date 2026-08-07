@@ -55,7 +55,7 @@ export default function CategoriesPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Categories</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Categories</h1>
         <Button onClick={() => open()}>
           <Plus className="size-4" /> New category
         </Button>

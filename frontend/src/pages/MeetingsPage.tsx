@@ -69,7 +69,7 @@ export default function MeetingsPage() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <Video className="size-5 text-brand-600" />
-        <h1 className="text-lg font-semibold">Meetings</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Meetings</h1>
       </div>
 
       {/* Actions row */}

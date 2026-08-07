@@ -311,7 +311,7 @@ export default function MessagesPage() {
       {/* Conversation list */}
       <div className={clsx('flex w-full min-h-0 shrink-0 flex-col md:w-72', selected && 'hidden md:flex')}>
         <div className="mb-3 flex shrink-0 items-center justify-between">
-          <h1 className="text-lg font-semibold">Messages</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Messages</h1>
           <Button size="sm" onClick={startNewChat}>
             <Plus className="size-3.5" /> New
           </Button>

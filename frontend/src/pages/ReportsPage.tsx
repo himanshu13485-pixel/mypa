@@ -67,7 +67,7 @@ export default function ReportsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Reports</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Reports</h1>
         <Button variant="secondary" size="sm" onClick={downloadCsv}>
           <Download className="size-4" /> Export CSV
         </Button>

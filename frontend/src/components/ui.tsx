@@ -1,6 +1,6 @@
 import { clsx } from 'clsx'
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
-import { AlertTriangle, RefreshCw, X } from 'lucide-react'
+import { AlertTriangle, Inbox, RefreshCw, X } from 'lucide-react'
 
 /**
  * These controls default to full width, but `w-full` and a caller's `w-32` are
@@ -15,6 +15,21 @@ function widthClass(className?: string): string | false {
   return !/(^|\s)(w-|min-w-|max-w-)\S/.test(className ?? '') && 'w-full'
 }
 
+/**
+ * One description of what a form field looks like, so a text box, a dropdown
+ * and a text area are visibly the same control with different contents. They
+ * had drifted into three slightly different borders and focus rings.
+ *
+ * The outline is a ring drawn inside the box rather than a border, so a field
+ * does not change size when it takes focus.
+ */
+const FIELD = [
+  'rounded-xl bg-white px-3 py-2 text-sm text-slate-900 shadow-sm',
+  'ring-1 ring-inset ring-slate-200 transition-shadow',
+  'focus:outline-none focus:ring-2 focus:ring-brand-500',
+  'dark:bg-slate-800 dark:text-slate-100 dark:shadow-none dark:ring-slate-700',
+].join(' ')
+
 export function Button({
   variant = 'primary',
   size = 'md',
@@ -27,17 +42,23 @@ export function Button({
   return (
     <button
       className={clsx(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-colors',
-        'disabled:cursor-not-allowed disabled:opacity-50',
+        'inline-flex items-center justify-center gap-1.5 rounded-xl font-medium',
+        // A press should feel like a press. 120ms is under the threshold where
+        // a transition starts to feel like lag.
+        'transition-[background-color,box-shadow,transform] duration-[120ms] active:scale-[0.98]',
+        'disabled:pointer-events-none disabled:opacity-50',
         // `tap` only bites on coarse pointers, so desktop keeps its compact
         // proportions while a thumb still gets 44px to aim at.
         'tap touch-manipulation',
         size === 'sm' ? 'px-3 py-1.5 text-xs sm:px-2.5' : 'px-4 py-2 text-sm',
-        variant === 'primary' && 'bg-brand-600 text-white hover:bg-brand-700',
+        // A hairline drawn *inside* the button, not a border that adds a pixel
+        // to its size — so a secondary button lines up with a primary one
+        // beside it instead of standing 2px taller.
+        variant === 'primary' && 'bg-brand-600 text-white shadow-sm hover:bg-brand-700',
         variant === 'secondary' &&
-          'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800',
-        variant === 'ghost' && 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
-        variant === 'danger' && 'bg-red-600 text-white hover:bg-red-700',
+          'bg-white text-slate-700 shadow-sm ring-1 ring-inset ring-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-200 dark:shadow-none dark:ring-slate-700 dark:hover:bg-slate-700',
+        variant === 'ghost' && 'text-slate-600 hover:bg-slate-900/5 dark:text-slate-300 dark:hover:bg-white/10',
+        variant === 'danger' && 'bg-red-600 text-white shadow-sm hover:bg-red-700',
         className,
       )}
       {...props}
@@ -49,10 +70,9 @@ export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElem
   return (
     <input
       className={clsx(
-        'tap rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        FIELD,
         widthClass(className),
-        'placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20',
-        'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+        'tap placeholder:text-slate-400',
         className,
       )}
       {...props}
@@ -64,10 +84,9 @@ export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTex
   return (
     <textarea
       className={clsx(
-        'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        FIELD,
         widthClass(className),
-        'placeholder:text-slate-400 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20',
-        'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+        'placeholder:text-slate-400',
         className,
       )}
       {...props}
@@ -79,10 +98,9 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
   return (
     <select
       className={clsx(
-        'tap rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900',
+        FIELD,
         widthClass(className),
-        'focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20',
-        'dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100',
+        'tap',
         className,
       )}
       {...props}
@@ -92,7 +110,7 @@ export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectE
 
 export function Label({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <label className={clsx('mb-1 block text-xs font-medium text-slate-600 dark:text-slate-400', className)}>
+    <label className={clsx('mb-1.5 block text-[13px] font-medium text-slate-700 dark:text-slate-300', className)}>
       {children}
     </label>
   )
@@ -102,7 +120,13 @@ export function Card({ children, className }: { children: ReactNode; className?:
   return (
     <div
       className={clsx(
-        'rounded-xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900',
+        // No border. A card is told apart from the page by being lighter than
+        // it and casting a shadow, which is how a piece of paper on a desk
+        // works; a grey outline around every white box is what made the app
+        // look like a form from 2013. The hairline ring is there only to hold
+        // the edge where the shadow is too faint to read.
+        'rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-900/5',
+        'dark:bg-slate-900 dark:shadow-none dark:ring-white/10',
         className,
       )}
     >
@@ -155,7 +179,7 @@ export function Badge({ value, className }: { value: string; className?: string 
 export function Spinner({ className }: { className?: string }) {
   return (
     <div className={clsx('flex items-center justify-center py-10', className)}>
-      <div className="size-6 animate-spin rounded-full border-2 border-slate-300 border-t-brand-600" />
+      <div className="size-6 animate-spin rounded-full border-2 border-slate-200 border-t-brand-600 dark:border-slate-700 dark:border-t-brand-400" />
     </div>
   )
 }
@@ -195,9 +219,15 @@ export function LoadError({
 
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center py-12 text-center">
-      <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{title}</p>
-      {hint && <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{hint}</p>}
+    // An empty list used to be two lines of grey text adrift in white space.
+    // The disc gives the eye something to land on, and says "nothing here yet"
+    // rather than "something failed to load".
+    <div className="flex flex-col items-center justify-center px-6 py-14 text-center">
+      <span className="mb-3 flex size-11 items-center justify-center rounded-full bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-500">
+        <Inbox className="size-5" />
+      </span>
+      <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{title}</p>
+      {hint && <p className="mt-1 max-w-xs text-xs leading-relaxed text-slate-400 dark:text-slate-500">{hint}</p>}
     </div>
   )
 }
@@ -230,18 +260,19 @@ export function Modal({
       // z-80, above the floating call window at z-60. A dialog you opened is
       // always the thing you are looking at; at z-50 an active call covered
       // the bottom half of it, including its buttons.
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-start sm:overflow-y-auto sm:p-8"
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-start sm:overflow-y-auto sm:p-8"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
         className={clsx(
-          'flex max-h-[92dvh] w-full flex-col rounded-t-2xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900',
-          'sm:max-h-none sm:rounded-xl',
+          'flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-white shadow-lift ring-1 ring-slate-900/5',
+          'dark:bg-slate-900 dark:ring-white/10',
+          'sm:max-h-none sm:rounded-2xl',
           wide ? 'sm:max-w-2xl' : 'sm:max-w-md',
         )}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:px-5">
-          <h2 className="text-sm font-semibold">{title}</h2>
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+          <h2 className="text-base font-semibold">{title}</h2>
           <button
             onClick={onClose}
             aria-label="Close"
@@ -250,7 +281,7 @@ export function Modal({
             <X className="size-5 sm:size-4" />
           </button>
         </div>
-        <div className="scroll-pane pb-safe min-h-0 flex-1 overflow-y-auto p-4 sm:overflow-visible sm:p-5">{children}</div>
+        <div className="scroll-pane pb-safe min-h-0 flex-1 overflow-y-auto p-5 sm:overflow-visible">{children}</div>
       </div>
     </div>
   )

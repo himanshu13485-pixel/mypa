@@ -55,7 +55,7 @@ export default function HabitsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Habits</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Habits</h1>
         <Button onClick={() => open()}>
           <Plus className="size-4" /> New habit
         </Button>

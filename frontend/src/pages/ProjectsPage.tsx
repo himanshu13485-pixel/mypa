@@ -50,7 +50,7 @@ export default function ProjectsPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="flex items-center gap-2 text-lg font-semibold">
+        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
           <Briefcase className="size-5 text-brand-600" /> Projects
         </h1>
         <Button size="sm" onClick={() => setShowProjectForm(true)}>

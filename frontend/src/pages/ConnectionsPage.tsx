@@ -81,7 +81,7 @@ export default function ConnectionsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-lg font-semibold">Connections</h1>
+      <h1 className="text-xl font-semibold tracking-tight">Connections</h1>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

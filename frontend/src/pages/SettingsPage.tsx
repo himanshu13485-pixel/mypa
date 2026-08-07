@@ -292,7 +292,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <h1 className="text-lg font-semibold">Settings</h1>
+      <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
 
       <IdentityCard />
 
@@ -314,7 +314,9 @@ export default function SettingsPage() {
               return (
                 <div key={key}>
                   <div className="mb-1 flex justify-between text-xs text-slate-500">
-                    <span className="capitalize">{key}</span>
+                    {/* The server sends these as keys — "storage_mb" printed
+                        straight onto the screen with its underscore. */}
+                    <span className="capitalize">{key.replaceAll('_', ' ')}</span>
                     <span>
                       {isStorage ? formatBytes(used) : used}
                       {' / '}

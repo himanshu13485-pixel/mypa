@@ -142,7 +142,7 @@ export default function NotesPage() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold">Notes</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Notes</h1>
         <div className="flex gap-2">
           <Input
             placeholder="Search notes…"

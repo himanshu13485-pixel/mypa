@@ -68,7 +68,7 @@ export default function VerifyEmail() {
   return (
     <div className="flex min-h-dvh items-center justify-center p-4">
       <Card className="w-full max-w-md">
-        <h1 className="text-lg font-semibold">Confirm your email</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Confirm your email</h1>
         <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
           We sent a 6-digit code to{' '}
           <span className="font-medium text-slate-700 dark:text-slate-200">{user?.email ?? 'your address'}</span>.

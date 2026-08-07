@@ -50,7 +50,7 @@ export default function CallsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-lg font-semibold">Calls</h1>
+      <h1 className="text-xl font-semibold tracking-tight">Calls</h1>
 
       {isLoading ? (
         <Spinner />

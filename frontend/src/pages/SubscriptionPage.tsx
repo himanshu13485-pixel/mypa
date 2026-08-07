@@ -34,7 +34,7 @@ export default function SubscriptionPage() {
 
   return (
     <div className="max-w-4xl space-y-4">
-      <h1 className="flex items-center gap-2 text-lg font-semibold">
+      <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
         <CreditCard className="size-5 text-brand-600" /> Subscription
       </h1>
 

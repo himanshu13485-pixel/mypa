@@ -62,7 +62,7 @@ export default function GroupsPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Family & Teams</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Family & Teams</h1>
         <Button onClick={() => { setError(null); setShowCreate(true) }}>
           <Plus className="size-4" /> New group
         </Button>

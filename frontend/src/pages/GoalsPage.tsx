@@ -124,7 +124,7 @@ export default function GoalsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="flex items-center gap-2 text-lg font-semibold">
+        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
           <Target className="size-5 text-brand-600" /> Goals
         </h1>
         <Button onClick={() => { setError(null); setShowForm(true) }}>
