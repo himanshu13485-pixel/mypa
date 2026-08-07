@@ -156,11 +156,16 @@ class SignalSenderNameTest extends TestCase
             'status' => 'accepted',
             'responded_at' => now(),
         ]);
+        // `app_id` lives on a related row, not on the users table — reading it
+        // off the model gives null, which the endpoint answers with a 404 that
+        // then surfaces two calls later as an unrelated-looking failure.
         $conversation = $this->actingAs($this->alice)
-            ->postJson('/api/v1/conversations', ['app_id' => $this->bob->app_id])
+            ->postJson('/api/v1/conversations', ['app_id' => $this->bob->appId->app_id])
+            ->assertCreated()
             ->json('data.uuid');
         $uuid = $this->actingAs($this->alice)
             ->postJson("/api/v1/conversations/{$conversation}/calls", ['type' => 'audio'])
+            ->assertCreated()
             ->json('data.uuid');
 
         Event::fake([CallSignal::class]);
