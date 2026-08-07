@@ -52,7 +52,7 @@ interface Peer {
 }
 
 function PeerTile({
-  peer, video, burst, hand, role, active, spotlight, pinned, quality, className, style, onContextMenu,
+  peer, video, burst, hand, role, active, spotlight, pinned, quality, className, style, onContextMenu, onDoubleClick,
 }: {
   peer: Peer
   video: boolean
@@ -66,6 +66,7 @@ function PeerTile({
   className?: string
   style?: React.CSSProperties
   onContextMenu?: (e: React.MouseEvent) => void
+  onDoubleClick?: (e: React.MouseEvent) => void
 }) {
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
@@ -92,6 +93,7 @@ function PeerTile({
   return (
     <div
       onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
       style={style}
       className={clsx(
         'relative min-h-0 overflow-hidden rounded-lg bg-slate-900 transition-shadow',
@@ -1428,6 +1430,9 @@ export default function MeetingRoomPage() {
         e.preventDefault()
         setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY })
       }}
+      // Right-click is not a gesture a phone has. Double-tap does the same
+      // thing the menu's Pin does, and only changes your own view.
+      onDoubleClick={() => setPinned(pinned === p.uuid ? null : p.uuid)}
       className={clsx(
         isVideo && (stagedLayout
           ? onStage ? 'h-full min-h-0' : 'aspect-video h-full shrink-0'

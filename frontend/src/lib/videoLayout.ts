@@ -7,7 +7,29 @@
  * place left the other two broken; keeping the rules here is what stops that
  * happening again.
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+
+/**
+ * True on a phone-sized screen, and kept true as the window changes.
+ *
+ * Video surfaces cannot answer this with a Tailwind breakpoint alone: a phone
+ * does not just want the same layout drawn smaller, it wants a different one —
+ * one picture filling the screen with the other in the corner, the way every
+ * phone calling app has worked since FaceTime.
+ */
+export function useIsPhone(): boolean {
+  const [phone, setPhone] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 639px)').matches,
+  )
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    const update = () => setPhone(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  return phone
+}
 
 /**
  * How wide or tall a tile is allowed to get.

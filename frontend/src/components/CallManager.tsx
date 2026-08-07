@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
-  Circle, Expand, Maximize2, Mic, MicOff, Minimize2, MonitorUp, Phone, PhoneOff, Pin, PinOff, Square, UserPlus,
-  Users, Video, VideoOff,
+  Circle, Expand, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MoreHorizontal, Phone, PhoneOff, Pin, PinOff,
+  Square, UserPlus, Users, Video, VideoOff, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls } from '../api/endpoints'
@@ -18,7 +18,7 @@ import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder
 import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
 import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
 import { normalizeSdp } from '../lib/sdp'
-import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
+import { VIDEO_FIT, useGalleryLayout, useIsPhone, useSelfView } from '../lib/videoLayout'
 
 interface ActiveCall {
   uuid: string
@@ -61,13 +61,25 @@ const CallContext = createContext<CallContextValue>({
 export const useCalls = () => useContext(CallContext)
 
 /** Attaches a MediaStream to a video/audio element via ref callback. */
-function RemoteTile({ peer, video, active, className, style, onContextMenu }: {
+function RemoteTile({ peer, video, active, className, style, cover, hideName, onContextMenu, onDoubleClick }: {
   peer: RemotePeer
   video: boolean
   active?: boolean
   className?: string
   style?: React.CSSProperties
+  /**
+   * Fill the tile and crop, rather than fit and letterbox.
+   *
+   * Only ever true when the tile *is* the screen — a phone call, where the
+   * choice is between cropping a little off the sides of the picture and
+   * showing thick black bars above and below a face. Every phone calling app
+   * crops. In a grid, where the tile is not the screen, cropping would cut
+   * people's heads off, so it stays off there.
+   */
+  cover?: boolean
+  hideName?: boolean
   onContextMenu?: (e: React.MouseEvent) => void
+  onDoubleClick?: (e: React.MouseEvent) => void
 }) {
   const attach = (el: HTMLVideoElement | HTMLAudioElement | null) => {
     if (el && el.srcObject !== peer.stream) {
@@ -87,11 +99,12 @@ function RemoteTile({ peer, video, active, className, style, onContextMenu }: {
   return (
     <div
       onContextMenu={onContextMenu}
+      onDoubleClick={onDoubleClick}
       style={style}
       className={clsx('relative min-h-0 overflow-hidden rounded-lg bg-slate-900', active && 'ring-2 ring-emerald-400', className)}
     >
       {/* Fit, never crop — a tile is rarely the camera's own shape. */}
-      <video ref={attach} autoPlay playsInline className={VIDEO_FIT} />
+      <video ref={attach} autoPlay playsInline className={cover ? 'h-full w-full bg-black object-cover' : VIDEO_FIT} />
       {peer.conn && !['connected', 'completed'].includes(peer.conn) && (
         <span
           className={
@@ -109,12 +122,43 @@ function RemoteTile({ peer, video, active, className, style, onContextMenu }: {
           </span>
         </div>
       )}
-      <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
-        {peer.name}
-        {peer.micOff && <MicOff className="size-3 text-red-500" />}
-        {peer.camOff && <VideoOff className="size-3 text-red-500" />}
-      </span>
+      {!hideName && (
+        <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+          {peer.name}
+          {peer.micOff && <MicOff className="size-3 text-red-500" />}
+          {peer.camOff && <VideoOff className="size-3 text-red-500" />}
+        </span>
+      )}
     </div>
+  )
+}
+
+/** A round control that floats over video, as phone calling apps draw them. */
+function CircleButton({ on, danger, label, onClick, children }: {
+  /** Lit — the effect is active. Off is the translucent resting state. */
+  on?: boolean
+  danger?: boolean
+  label: string
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      onClick={onClick}
+      className={clsx(
+        'flex size-12 shrink-0 items-center justify-center rounded-full backdrop-blur transition-colors',
+        danger
+          ? 'bg-red-600 text-white hover:bg-red-700'
+          : on
+            ? 'bg-white text-slate-900'
+            : 'bg-white/20 text-white hover:bg-white/30',
+      )}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -832,12 +876,52 @@ export function CallProvider({ children }: { children: ReactNode }) {
   /* A share, or a pin, takes the stage and the rest drop to a filmstrip —
      the same rule meetings use. Presenting is unreadable in a grid cell. */
   const sharer = remotePeers.find((p) => p.sharing)?.uuid ?? (sharing ? 'me' : null)
-  const stageUuid = (pinned && remotePeers.some((p) => p.uuid === pinned) ? pinned : null) ?? sharer
-  const staged = isVideo && stageUuid !== null && tiles > 0
+  const validPin = pinned === 'me' || remotePeers.some((p) => p.uuid === pinned) ? pinned : null
+  const stageUuid = validPin ?? sharer
+  const staged = isVideo && stageUuid !== null && stageUuid !== 'me' && tiles > 0
   const galleryPeers = staged ? remotePeers.filter((p) => p.uuid !== stageUuid) : remotePeers
   const gallery = useGalleryLayout(staged ? 0 : tiles)
   const tileStyle = gallery.width ? { width: gallery.width, height: gallery.height } : undefined
   const wide = activeCall?.isGroup && tiles > 1
+
+  /*
+   * A video call on a phone is not the desktop panel drawn smaller.
+   *
+   * It is the shape every phone calling app uses: the other person filling the
+   * screen, you in a corner, and the buttons floating on top of both. The
+   * windowed panel that works on a laptop turned into a 320px box covering the
+   * page it was floating over, with its own controls scrolling sideways.
+   */
+  const phone = useIsPhone()
+  // "Minimise" still drops it back to the floating corner panel, so the rest
+  // of the app is reachable mid-call.
+  const fullBleed = !!activeCall && isVideo && phone && expanded
+  /*
+   * Who is on the stage: whoever is pinned, else whoever is presenting, else
+   * simply the first other person — a phone always has somebody big, unlike
+   * the windowed panel where nothing on the stage means a plain grid.
+   */
+  const stageId = stageUuid ?? remotePeers[0]?.uuid ?? 'me'
+  /** Double-tapping your own picture puts you on the stage, and back again. */
+  const meOnStage = stageId === 'me'
+  const swapSelf = () => setPinned(meOnStage ? null : 'me')
+  const stagePeer = meOnStage ? null : remotePeers.find((p) => p.uuid === stageId) ?? null
+  /** Everyone who is not on the stage, as corner tiles. */
+  const cornerPeers = remotePeers.filter((p) => p.uuid !== stageId)
+  const [moreOpen, setMoreOpen] = useState(false)
+
+  /* One element, moved between the stage and the corner. Two would fight over
+     the same stream; useSelfView re-attaches it whenever React re-mounts it. */
+  const selfVideo = (
+    <video
+      ref={attachSelf}
+      autoPlay
+      playsInline
+      muted
+      onDoubleClick={swapSelf}
+      className="h-full w-full object-cover -scale-x-100"
+    />
+  )
 
   return (
     <CallContext.Provider value={{ startCall, joinCall, endCall: hangUp, activeCall }}>
@@ -861,8 +945,170 @@ export function CallProvider({ children }: { children: ReactNode }) {
         </div>
       )}
 
+      {/* A video call on a phone: full screen, controls floating over it. */}
+      {activeCall && fullBleed && (
+        <div ref={panelRef} className="fixed inset-0 z-[60] flex flex-col bg-black">
+          <div ref={callBodyRef} className="relative min-h-0 flex-1">
+            {/* The stage — whoever is not in a corner fills the screen. */}
+            {meOnStage ? (
+              <div className="absolute inset-0">{selfVideo}</div>
+            ) : stagePeer ? (
+              // The positioning goes on a wrapper: a tile is `relative` by
+              // nature, and `absolute` passed in beside it is a coin toss over
+              // which utility Tailwind emitted last.
+              <div className="absolute inset-0">
+                <RemoteTile
+                  key={stagePeer.uuid}
+                  peer={stagePeer}
+                  video
+                  cover
+                  hideName
+                  className="h-full w-full rounded-none"
+                  onDoubleClick={() => setPinned(pinned === stagePeer.uuid ? null : stagePeer.uuid)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setTileMenu({ uuid: stagePeer.uuid, name: stagePeer.name, x: e.clientX, y: e.clientY })
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-white/60">
+                {activeCall.status === 'ringing' ? 'Ringing…' : 'Waiting for them to join…'}
+              </div>
+            )}
+
+            {/* Everyone else, down the side. Double-tap one to swap it in. */}
+            {/* Capped and scrollable: a large group would otherwise run this
+                column straight down over the buttons. */}
+            <div className="scroll-pane pt-safe absolute right-3 top-3 z-10 flex max-h-[calc(100%-10rem)] flex-col gap-2 overflow-y-auto">
+              {!meOnStage && (
+                <div
+                  onDoubleClick={swapSelf}
+                  className="h-32 w-24 overflow-hidden rounded-xl bg-slate-900 shadow-lg ring-1 ring-white/25"
+                >
+                  {selfVideo}
+                </div>
+              )}
+              {cornerPeers.map((p) => (
+                <RemoteTile
+                  key={p.uuid}
+                  peer={p}
+                  video
+                  cover
+                  active={activeSpeaker === p.uuid}
+                  className="h-32 w-24 rounded-xl shadow-lg ring-1 ring-white/25"
+                  onDoubleClick={() => setPinned(pinned === p.uuid ? null : p.uuid)}
+                  onContextMenu={(e) => {
+                    e.preventDefault()
+                    setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY })
+                  }}
+                />
+              ))}
+            </div>
+
+            {/* Who you are talking to. Kept clear of the corner tiles. */}
+            <div className="pt-safe pointer-events-none absolute inset-x-0 top-0 z-0 bg-gradient-to-b from-black/70 to-transparent px-4 pb-10 pt-3">
+              <p className="truncate pr-28 text-base font-semibold text-white">{activeCall.peerName}</p>
+              <p className="text-xs text-white/70">
+                {activeCall.status === 'ringing' && 'Ringing…'}
+                {activeCall.status === 'connecting' && 'Connecting…'}
+                {activeCall.status === 'ongoing' && fmt(elapsed)}
+                {activeCall.isGroup && activeCall.status === 'ongoing' && ` · ${tiles + 1} in call`}
+                {(pinned || sharer) && ' · pinned'}
+              </p>
+              {(recording || peerRecording) && (
+                <p className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-red-600/90 px-2 py-0.5 text-[11px] font-medium text-white">
+                  <span className="size-1.5 rounded-full bg-white" />
+                  Recording{recording && ' — you'}{peerRecording && ` — ${peerRecording}`}
+                </p>
+              )}
+            </div>
+
+            {/* Controls float over the picture rather than taking a strip of
+                it, and the ones that do not fit live behind "More" rather
+                than scrolling sideways off the edge of the screen. */}
+            <div className="pb-safe absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-3 pb-4 pt-12">
+              {recRequest && activeCall.direction === 'outgoing' && (
+                <div className="mb-3 flex items-center justify-center gap-2 rounded-xl bg-white/95 px-3 py-2 text-xs text-slate-900">
+                  <span className="font-medium">{recRequest.name}</span> wants to record
+                  <Button size="sm" onClick={() => {
+                    const uuid = callRef.current?.uuid
+                    if (uuid) calls.signal(uuid, 'rec-allow', { ok: 1 }, recRequest.uuid).catch(() => undefined)
+                    setRecRequest(null)
+                  }}>
+                    Allow
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => {
+                    const uuid = callRef.current?.uuid
+                    if (uuid) calls.signal(uuid, 'rec-deny', { ok: 0 }, recRequest.uuid).catch(() => undefined)
+                    setRecRequest(null)
+                  }}>
+                    Deny
+                  </Button>
+                </div>
+              )}
+
+              {moreOpen && (
+                <div className="mb-3 rounded-2xl bg-slate-900/95 p-3 ring-1 ring-white/15">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-white/50">More</p>
+                    <button
+                      aria-label="Close"
+                      // Sized to the 44px hit area the stylesheet gives bare
+                      // icon buttons, so it does not spill out of this row.
+                      className="-mr-2 flex size-11 items-center justify-center text-white/60"
+                      onClick={() => setMoreOpen(false)}
+                    >
+                      <X className="size-4" />
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <CircleButton on={recording} danger={recording} label={recording ? 'Stop recording' : 'Record this call'} onClick={toggleRecord}>
+                      {recording ? <Square className="size-5" /> : <Circle className="size-5 text-red-500" />}
+                    </CircleButton>
+                    <div className="[&_button]:size-12 [&_button]:rounded-full [&_svg]:size-5">
+                      <BackgroundPicker active={bgLabel} busy={blurBusy} onPick={applyBackground} />
+                    </div>
+                    <CircleButton label="Add someone to this call" onClick={() => { setMoreOpen(false); setShowInvite(true) }}>
+                      <UserPlus className="size-5" />
+                    </CircleButton>
+                    <CircleButton label={isFs ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
+                      <Expand className="size-5" />
+                    </CircleButton>
+                    <CircleButton label="Minimise to the corner" onClick={() => { setMoreOpen(false); toggleExpanded() }}>
+                      <Minimize2 className="size-5" />
+                    </CircleButton>
+                  </div>
+                  <p className="mt-2 text-center text-[11px] text-white/40">
+                    Double-tap a picture to make it the big one.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-center gap-3">
+                <CircleButton on={muted} danger={muted} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>
+                  {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+                </CircleButton>
+                <CircleButton on={cameraOff} danger={cameraOff} label="Camera on or off" onClick={toggleCamera}>
+                  {cameraOff ? <VideoOff className="size-5" /> : <Video className="size-5" />}
+                </CircleButton>
+                <CircleButton on={sharing} label={sharing ? 'Stop sharing my screen' : 'Share my screen'} onClick={toggleShare}>
+                  <MonitorUp className="size-5" />
+                </CircleButton>
+                <CircleButton on={moreOpen} label="More options" onClick={() => setMoreOpen((o) => !o)}>
+                  <MoreHorizontal className="size-5" />
+                </CircleButton>
+                <CircleButton danger label={activeCall.isGroup ? 'Leave the call' : 'End the call'} onClick={hangUp}>
+                  <PhoneOff className="size-5" />
+                </CircleButton>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Active call window */}
-      {activeCall && (
+      {activeCall && !fullBleed && (
         <div
           ref={panelRef}
           className={clsx(
@@ -900,6 +1146,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                             <RemoteTile
                               key={p.uuid} peer={p} video active={activeSpeaker === p.uuid}
                               className="aspect-video h-full shrink-0"
+                              onDoubleClick={() => setPinned(pinned === p.uuid ? null : p.uuid)}
                               onContextMenu={(e) => { e.preventDefault(); setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY }) }}
                             />
                           ))}
@@ -956,7 +1203,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
               </div>
             )}
           </div>
-          <div className="shrink-0 overflow-y-auto p-3">
+          {/* overflow-visible, not auto: the background picker opens upward out
+              of this row, and an `overflow` of any kind on the row cut it off —
+              which is what "the settings hide behind the video" was. */}
+          <div className="shrink-0 overflow-visible p-3">
             {recRequest && activeCall.direction === 'outgoing' && (
               <div className="mb-1.5 flex items-center gap-1.5 rounded bg-red-50 px-2 py-1 text-[11px] dark:bg-red-950">
                 <span className="font-medium">{recRequest.name}</span> wants to record

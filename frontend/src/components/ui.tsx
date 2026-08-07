@@ -227,7 +227,10 @@ export function Modal({
     // scrolls inside the sheet instead of pushing the page around); a centred
     // dialog from sm up.
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-start sm:overflow-y-auto sm:p-8"
+      // z-80, above the floating call window at z-60. A dialog you opened is
+      // always the thing you are looking at; at z-50 an active call covered
+      // the bottom half of it, including its buttons.
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/40 backdrop-blur-sm sm:items-start sm:overflow-y-auto sm:p-8"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
