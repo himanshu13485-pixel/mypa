@@ -939,11 +939,14 @@ function UsersTab() {
     <Card>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-sm font-semibold">Users</h2>
-        <div className="flex gap-2">
-          <div className="flex gap-1">
+        <div className="flex flex-1 flex-wrap justify-end gap-2">
+          {/* A fixed 224px search box plus its button plus "New user" is wider
+              than a phone, and the button that fell off the end was the one
+              that does something. */}
+          <div className="flex min-w-0 flex-1 gap-1 sm:flex-none">
             <Input
               placeholder="Search name, email, App ID…"
-              className="w-56"
+              className="min-w-0 flex-1 sm:w-56"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && (setPage(1), setQuery(search))}
@@ -1782,13 +1785,16 @@ export default function AdminPage() {
         <h1 className="text-lg font-semibold">Admin Panel</h1>
       </div>
 
-      <div className="flex flex-wrap gap-1 border-b border-slate-200 pb-2 dark:border-slate-800">
+      {/* Eleven tabs wrap onto four rows of a phone — a third of the screen
+          gone before any panel is shown. One scrolling row instead, as every
+          app with more tabs than fit does. */}
+      <div className="scroll-pane -mx-3 flex gap-1 overflow-x-auto border-b border-slate-200 px-3 pb-2 dark:border-slate-800 sm:mx-0 sm:flex-wrap sm:px-0">
         {tabs.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
             className={clsx(
-              'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
+              'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm transition-colors',
               tab === key
                 ? 'bg-brand-600 text-white'
                 : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',

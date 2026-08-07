@@ -1503,8 +1503,10 @@ export default function MeetingRoomPage() {
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-base font-semibold">{meeting?.title ?? 'Meeting'}</h1>
+        {/* Shrinkable, so the invite button can sit beside it rather than
+            taking a third row of a phone screen away from the faces. */}
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-base font-semibold">{meeting?.title ?? 'Meeting'}</h1>
           <p className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
             <span className="font-mono">{code}</span>
             {phase === 'in' ? <span className="text-emerald-600">{fmt(elapsed)}</span> : 'Connecting…'}
@@ -1568,6 +1570,7 @@ export default function MeetingRoomPage() {
         <Button
           size="sm"
           variant="secondary"
+          title="Copy invite link"
           onClick={() =>
             navigator.clipboard.writeText(meetingLink(code)).then(
               () => {
@@ -1578,7 +1581,9 @@ export default function MeetingRoomPage() {
             )
           }
         >
-          <Copy className="size-3.5" /> {copied ? 'Copied ✓' : 'Copy invite link'}
+          <Copy className="size-3.5" />
+          <span className="hidden sm:inline">{copied ? 'Copied ✓' : 'Copy invite link'}</span>
+          <span className="sm:hidden">{copied ? '✓' : ''}</span>
         </Button>
       </div>
 
@@ -1675,8 +1680,13 @@ export default function MeetingRoomPage() {
                 half sitting empty.
               */}
               {!peers.length && phase === 'in' && (
-                <p className="pointer-events-none absolute inset-x-0 bottom-2 text-center text-sm text-slate-400 drop-shadow">
-                  Waiting for others — share the invite link.
+                <p className="pointer-events-none absolute inset-x-0 top-3 text-center text-sm text-slate-400 drop-shadow">
+                  {/* Along the top, not the bottom: a tile that fills the
+                      height puts its name label exactly where this used to sit,
+                      and the two printed over each other. */}
+                  <span className="rounded-full bg-black/45 px-3 py-1 text-white">
+                    Waiting for others — share the invite link.
+                  </span>
                 </p>
               )}
               {!isVideo && (

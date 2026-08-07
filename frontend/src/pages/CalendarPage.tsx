@@ -164,6 +164,10 @@ export default function CalendarPage() {
           <Button size="sm" onClick={() => openCreate(new Date())}>
             <Plus className="size-4" /> New event
           </Button>
+        </div>
+        {/* Month stepping is its own row on a phone. Kept beside the buttons it
+            needed 407px of a 390px screen, and the arrows fell off the edge. */}
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto">
           <Button variant="secondary" size="sm" onClick={() => setMonth(addMonths(month, -1))}>
             <ChevronLeft className="size-4" />
           </Button>

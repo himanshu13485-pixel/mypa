@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { CheckCircle2, Circle, Copy, Pin, Plus, Star, Trash2 } from 'lucide-react'
+import { CheckCircle2, Circle, Copy, Pin, Plus, SlidersHorizontal, Star, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import { clsx } from 'clsx'
 import { badges as badgesApi, categories as categoriesApi, groups as groupsApi, tasks as tasksApi } from '../api/endpoints'
@@ -197,6 +197,13 @@ export default function TasksPage() {
 
   const taskList = data?.data ?? []
 
+  const [showFilters, setShowFilters] = useState(false)
+  /** Everything narrowing the list except the search box, which is always up. */
+  const activeFilters = [
+    'status', 'priority', 'category', 'important', 'overdue',
+    'date_from', 'date_to', 'created_from', 'created_to',
+  ].filter((k) => params.get(k)).length
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -206,14 +213,32 @@ export default function TasksPage() {
         </Button>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2">
+      {/*
+        Filters
+        ────────
+        Seven controls in a wrapping row is one line on a laptop and eight on a
+        phone — 500px of dropdowns and date pickers before the first task. The
+        search box earns its place; the rest fold away behind a button that
+        says how many are on, so a filter can never be left set invisibly.
+      */}
+      <div className="flex gap-2">
         <Input
           placeholder="Search tasks…"
-          className="max-w-52"
+          className="min-w-0 flex-1 sm:max-w-52"
           defaultValue={params.get('q') ?? ''}
           onKeyDown={(e) => e.key === 'Enter' && setFilter('q', (e.target as HTMLInputElement).value)}
         />
+        <Button
+          variant={activeFilters ? 'primary' : 'secondary'}
+          className="shrink-0 sm:hidden"
+          onClick={() => setShowFilters((v) => !v)}
+        >
+          <SlidersHorizontal className="size-4" />
+          {activeFilters > 0 && activeFilters}
+        </Button>
+      </div>
+
+      <div className={clsx('flex-wrap gap-2', showFilters ? 'flex' : 'hidden sm:flex')}>
         <Select className="max-w-40" value={params.get('status') ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
           <option value="">All statuses</option>
           {TASK_STATUSES.map((s) => (

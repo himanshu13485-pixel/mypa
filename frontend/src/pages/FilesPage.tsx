@@ -106,7 +106,9 @@ export default function FilesPage() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-lg font-semibold">Files</h1>
-        <div className="flex gap-2">
+        {/* One scrolling row on a phone, where these four otherwise take two
+            rows and "Shared with me" wraps inside its own button. */}
+        <div className="scroll-pane -mx-3 flex gap-2 overflow-x-auto px-3 sm:mx-0 sm:px-0 [&>button]:shrink-0 [&>button]:whitespace-nowrap">
           <Button
             variant={view === 'mine' ? 'primary' : 'secondary'}
             size="sm"
@@ -246,7 +248,10 @@ export default function FilesPage() {
                   <FileIcon className="size-5 shrink-0 text-slate-400" />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{f.name}</p>
-                    <p className="text-xs text-slate-400">{formatBytes(f.size)} · {f.mime_type ?? 'unknown'}</p>
+                    {/* "application/vnd.openxmlformats-officedocument…" is three
+                        wrapped lines on a phone, and it is the least useful
+                        thing in the row. */}
+                    <p className="truncate text-xs text-slate-400">{formatBytes(f.size)} · {f.mime_type ?? 'unknown'}</p>
                   </div>
                   <button
                     className="rounded p-1.5 text-slate-400 hover:text-brand-600"

@@ -93,8 +93,16 @@ export default function Dashboard() {
         <StatCard label="Completion" value={`${counts.completion_rate}%`} icon={TrendingUp} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
+      {/*
+        `grid-cols-1` is not decoration. Without an explicit track the column is
+        sized from its content, and the content is a `truncate` title — which is
+        `white-space: nowrap`, so its minimum width is the whole sentence. Each
+        of these cards measured 476px on a 390px phone and the status badge sat
+        off the screen. An explicit `minmax(0, 1fr)` track, and `min-w-0` on the
+        cards so they honour it, is what lets the titles actually truncate.
+      */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card className="min-w-0">
           <h2 className="mb-2 text-sm font-semibold">Today's tasks</h2>
           {data.today_tasks.length === 0 ? (
             <EmptyState title="Nothing due today" hint="Enjoy the calm or plan ahead." />
@@ -102,7 +110,7 @@ export default function Dashboard() {
             <div className="space-y-0.5">{data.today_tasks.map((t) => <TaskRow key={t.uuid} task={t} />)}</div>
           )}
         </Card>
-        <Card>
+        <Card className="min-w-0">
           <h2 className="mb-2 text-sm font-semibold">Overdue</h2>
           {data.overdue_tasks.length === 0 ? (
             <EmptyState title="No overdue tasks" hint="You're all caught up." />
@@ -110,7 +118,7 @@ export default function Dashboard() {
             <div className="space-y-0.5">{data.overdue_tasks.map((t) => <TaskRow key={t.uuid} task={t} />)}</div>
           )}
         </Card>
-        <Card>
+        <Card className="min-w-0">
           <h2 className="mb-2 text-sm font-semibold">Recently added</h2>
           {data.recent_tasks.length === 0 ? (
             <EmptyState title="No tasks yet" hint="Create your first task from My Tasks." />

@@ -175,7 +175,10 @@ export default function Layout() {
     {/* h-dvh, not h-screen: 100vh on a phone is the height with the URL bar
         hidden, so a plain h-screen shell hides its own footer until you
         scroll, then jumps when the bar retracts. */}
-    <div className="flex h-dvh overflow-hidden">
+    {/* The side insets belong here, on the one element with no padding of its
+        own to be overwritten. They are 0 on a phone held upright and only
+        appear in landscape, where the notch eats into the side of the screen. */}
+    <div className="px-safe flex h-dvh overflow-hidden">
       {/* Desktop sidebar */}
       <aside className="hidden w-60 shrink-0 flex-col border-r border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:flex">
         <div className="flex items-center gap-2 px-5 py-4">
@@ -221,7 +224,13 @@ export default function Layout() {
 
       {/* Main */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="pt-safe px-safe flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900 sm:px-4 sm:py-3">
+        <header className={clsx(
+          'pt-safe shrink-0 items-center justify-between border-b border-slate-200 bg-white px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900 sm:px-4 sm:py-3',
+          // A meeting has its own title bar and its own way out. On a phone
+          // this one was costing 50px of faces to show a hamburger and a
+          // logout button nobody wants mid-call.
+          immersive ? 'hidden lg:flex' : 'flex',
+        )}>
           <button
             className="tap flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 lg:hidden"
             aria-label="Open menu"
@@ -264,7 +273,7 @@ export default function Layout() {
             to secure your account.
           </div>
         )}
-        <main className="scroll-pane px-safe min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
+        <main className="scroll-pane min-h-0 flex-1 overflow-y-auto p-3 sm:p-4 lg:p-6">
           <Outlet />
         </main>
 
@@ -309,7 +318,9 @@ export default function Layout() {
           </button>
         </nav>
       </div>
-      <VoiceAssistant />
+      {/* Its button floats over the bottom-right corner, which in a meeting is
+          exactly where the leave button is. Nobody dictates a task mid-call. */}
+      {!immersive && <VoiceAssistant />}
     </div>
     </CallProvider>
   )

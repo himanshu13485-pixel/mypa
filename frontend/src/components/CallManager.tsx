@@ -146,8 +146,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
   /** Canvas compositor drawing the camera onto the shared screen. */
   const sharePipeRef = useRef<BlurPipeline | null>(null)
   const [isFs, setIsFs] = useState(false)
-  /** Compact corner panel, or a big centred window. Remembered between calls. */
-  const [expanded, setExpanded] = useState(() => localStorage.getItem('mypa-call-expanded') === '1')
+  /**
+   * Compact corner panel, or a big centred window. Remembered between calls.
+   *
+   * A phone starts expanded whatever it remembers: the corner panel is a 320px
+   * box, which on a 390px screen is not a corner at all — it covers most of the
+   * page it is meant to be floating over, and sits on top of the bottom tab bar
+   * while doing it. There is nothing to keep an eye on behind it either way.
+   */
+  const [expanded, setExpanded] = useState(
+    () => localStorage.getItem('mypa-call-expanded') === '1' || window.matchMedia('(max-width: 639px)').matches,
+  )
   const [bgLabel, setBgLabel] = useState('none')
   const [blurBusy, setBlurBusy] = useState(false)
   const myMediaRef = useRef({ mic: true, cam: true })
@@ -866,8 +875,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 // no way to make the other person any larger.
                 ? 'fixed inset-4 rounded-xl sm:inset-8 lg:inset-x-[12%] lg:inset-y-10'
                 : clsx(
-                    'fixed bottom-4 right-4 rounded-xl',
-                    wide ? 'w-[34rem] max-w-[calc(100vw-2rem)]' : 'w-80',
+                    // Above the bottom tab bar on a phone, which the panel
+                    // otherwise covers along with its call and chat buttons.
+                    'fixed bottom-20 right-4 rounded-xl sm:bottom-4',
+                    wide ? 'w-[34rem] max-w-[calc(100vw-2rem)]' : 'w-80 max-w-[calc(100vw-2rem)]',
                   ),
           )}
         >

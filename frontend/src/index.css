@@ -49,6 +49,11 @@ body {
 .pb-safe {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
+/* Side insets go on the app shell, never on an element that also carries a
+   padding utility of its own. These declarations are emitted after Tailwind's,
+   so `px-safe` beside `p-3` replaced the 12px with the inset — which is 0px on
+   every phone in portrait. Every page in the app was drawing its text flush
+   against both edges of the screen. */
 .px-safe {
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
@@ -64,6 +69,14 @@ body {
   }
 }
 
+/* An icon is a fixed-size thing. As a flex child it is shrinkable by default,
+   so on a narrow screen the label beside it wins the argument and the icon
+   comes out squashed into an unreadable sliver. Nothing in the app wants a
+   squashed icon. */
+.lucide {
+  flex-shrink: 0;
+}
+
 /* Momentum scrolling inside panes, without the page bouncing behind them. */
 .scroll-pane {
   overscroll-behavior: contain;
@@ -77,8 +90,13 @@ body {
    `:only-child` deliberately skips buttons that also carry a text label,
    which are already big enough. */
 @media (pointer: coarse), (max-width: 639px) {
-  button:has(> svg:only-child),
-  a:has(> svg:only-child) {
+  /* Only give position to a button that has none. `button:has(…)` outranks a
+     single utility class, so this rule was overriding `fixed`, `absolute` and
+     `sticky` wherever an icon button used them — the voice-assistant button
+     is `fixed`, and being turned static made it an ordinary flex item in the
+     app shell, stealing 52px from the right of every single page. */
+  button:has(> svg:only-child):not(.fixed):not(.absolute):not(.sticky),
+  a:has(> svg:only-child):not(.fixed):not(.absolute):not(.sticky) {
     position: relative;
   }
 

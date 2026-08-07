@@ -121,7 +121,7 @@ export default function MeetingsPage() {
             <Card key={m.uuid} className="flex flex-wrap items-center gap-3 p-3">
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 text-sm font-medium">
-                  {m.title ?? 'Meeting'}
+                  <span className="truncate">{m.title ?? 'Meeting'}</span>
                   <Badge value={m.status} />
                   {m.status === 'active' && !!m.joined_count && (
                     <span className="text-xs font-normal text-emerald-600">{m.joined_count} inside</span>
@@ -141,7 +141,9 @@ export default function MeetingsPage() {
                   </p>
                 )}
               </div>
-              <div className="flex gap-1.5">
+              {/* Their own row on a phone. Beside the title the three of them
+                  squeezed it to three wrapped words down the left. */}
+              <div className="flex w-full justify-end gap-1.5 sm:w-auto">
                 <Button size="sm" variant="secondary" title="Copy invite link" onClick={() => copyLink(m)}>
                   <Copy className="size-3.5" /> {copiedCode === m.code ? 'Copied ✓' : 'Link'}
                 </Button>

@@ -9,8 +9,18 @@
  */
 import { useCallback, useRef, useState } from 'react'
 
-/** The shape camera tiles are laid out to. */
-const TILE_ASPECT = 16 / 9
+/**
+ * How wide or tall a tile is allowed to get.
+ *
+ * A tile is a window onto a video that is drawn `object-contain`, so its shape
+ * costs nothing in distortion — only in wasted screen. Pinning every tile to
+ * 16:9 wasted a great deal of it on a phone held upright: one person in a
+ * 366x500 space got a 366x206 letterbox with 294px of empty room underneath,
+ * and their portrait camera then letterboxed again inside that. Letting the
+ * tile take the height it is offered, up to portrait, fills the screen.
+ */
+const WIDEST = 16 / 9
+const TALLEST = 9 / 16
 
 export interface GalleryLayout {
   /** Columns that fit best; 0 until the container has been measured. */
@@ -75,11 +85,10 @@ export function useGalleryLayout(count: number, gap = 8): GalleryLayout & {
 }
 
 /**
- * The arrangement of `count` 16:9 tiles that fills a w x h box best.
+ * The arrangement of `count` tiles that fills a w x h box best.
  *
- * Separated from the hook so it can be checked directly: for each possible
- * column count, work out how large a tile could be and whether that many rows
- * still fit the height, then keep whichever gives the biggest tiles.
+ * Separated from the hook so it can be checked directly against numbers rather
+ * than against a running browser.
  */
 export function bestGalleryFit(w: number, h: number, count: number, gap = 8): GalleryLayout {
   if (!count || w < 1 || h < 1) return { cols: 0, rows: 0, width: 0, height: 0 }
@@ -96,16 +105,46 @@ export function bestGalleryFit(w: number, h: number, count: number, gap = 8): Ga
    * Past eight the two-row rule gives absurdly wide rows, so columns cap and
    * rows grow instead.
    */
-  const cols = count <= 2 ? count : Math.min(4, Math.ceil(count / 2))
-  const rows = Math.ceil(count / cols)
+  let cols = count <= 2 ? count : Math.min(4, Math.ceil(count / 2))
+  let rows = Math.ceil(count / cols)
 
-  // Size to whichever runs out first, width or height, so the grid always
-  // fits the box and nothing has to scroll or overlap.
-  const byWidth = (w - gap * (cols - 1)) / cols
-  const byHeight = ((h - gap * (rows - 1)) / rows) * TILE_ASPECT
-  const width = Math.max(0, Math.floor(Math.min(byWidth, byHeight)))
+  /*
+   * A phone held upright wants that grid stood on its end.
+   *
+   * The rule above is written for a window that is wider than it is tall. Used
+   * as-is on a 366x648 phone, two people came out side by side — two narrow
+   * strips using a third of the screen, with the rest blank. Swapping the two
+   * numbers keeps exactly the same arrangement, and the same short last row,
+   * turned through ninety degrees: two people stack, five go 2-2-1.
+   */
+  const upright = h > w
+  if (upright) [cols, rows] = [rows, cols]
 
-  return { cols, rows, width, height: Math.floor(width / TILE_ASPECT) }
+  const cellW = (w - gap * (cols - 1)) / cols
+  const cellH = (h - gap * (rows - 1)) / rows
+
+  // Width is whatever the cell allows, never so wide that a lone participant
+  // on a monitor gets a letterbox slot.
+  const width = Math.max(0, Math.floor(Math.min(cellW, cellH * WIDEST)))
+
+  /*
+   * Height is where the two shapes of screen part company.
+   *
+   * On anything wider than it is tall a tile stays 16:9 — the shape a webcam
+   * sends, so the picture reaches the edges of its tile and the grid looks
+   * tidy. That is the desktop and it is left exactly as it was.
+   *
+   * Upright, 16:9 is the wrong shape to be pinned to: it left two thirds of a
+   * phone blank while the one face on the call sat in a strip across the
+   * middle. There the tile takes the height it is offered, down to portrait,
+   * and the video letterboxes inside it — which for a phone camera, itself
+   * portrait, means no letterboxing at all.
+   */
+  const height = upright
+    ? Math.max(0, Math.floor(Math.min(cellH, cellW / TALLEST)))
+    : Math.floor(width / WIDEST)
+
+  return { cols, rows, width, height }
 }
 
 /**

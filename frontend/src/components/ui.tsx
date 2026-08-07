@@ -139,7 +139,10 @@ export function Badge({ value, className }: { value: string; className?: string 
   return (
     <span
       className={clsx(
-        'inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium capitalize',
+        // A badge sits at the end of a row and states one word. Letting it
+        // wrap ("Not / Started" on two lines) makes the row taller than the
+        // thing it is labelling; it should shrink the title instead.
+        'inline-flex shrink-0 items-center whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium capitalize',
         badgeColors[value] ?? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
         className,
       )}
