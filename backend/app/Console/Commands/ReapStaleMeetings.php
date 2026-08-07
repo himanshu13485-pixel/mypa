@@ -104,7 +104,7 @@ class ReapStaleMeetings extends Command
                     $loaded = $call->load(['conversation', 'caller']);
                     foreach ($stale as $ghost) {
                         foreach ($call->inCall() as $peer) {
-                            Realtime::send(new CallSignal($loaded, $ghost->uuid, $peer->uuid, 'peer-left', [
+                            Realtime::send(new CallSignal($loaded, $ghost->uuid, $ghost->name, $peer->uuid, 'peer-left', [
                                 'left_uuid' => $ghost->uuid,
                             ]));
                         }
@@ -117,7 +117,7 @@ class ReapStaleMeetings extends Command
                     $ended++;
                     $loaded = $call->load(['conversation', 'caller']);
                     foreach ($call->participants()->wherePivot('status', 'joined')->get() as $peer) {
-                        Realtime::send(new CallSignal($loaded, $peer->uuid, $peer->uuid, 'end'));
+                        Realtime::send(new CallSignal($loaded, $peer->uuid, $peer->name, $peer->uuid, 'end'));
                     }
                     DB::table('call_participants')
                         ->where('call_id', $call->id)->where('status', 'joined')

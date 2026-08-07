@@ -242,6 +242,8 @@ export default function MeetingRoomPage() {
   const blurRef = useRef<BlurPipeline | null>(null)
   const bgChoiceRef = useRef<BackgroundChoice | null>(null)
   const tilesRef = useRef<HTMLDivElement>(null)
+  /** The room including its controls — what fullscreen should cover. */
+  const roomRef = useRef<HTMLDivElement>(null)
   const [knocks, setKnocks] = useState<{ uuid: string; name: string }[]>([])
   const [approvalOn, setApprovalOn] = useState<boolean | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
@@ -752,7 +754,23 @@ export default function MeetingRoomPage() {
           setPhase('ended')
           return
         }
-        setRoster(hb.participants.filter((p) => p.uuid !== user?.uuid))
+        const others = hb.participants.filter((p) => p.uuid !== user?.uuid)
+        setRoster(others)
+        /*
+         * The roster is the authority on who is called what.
+         *
+         * A tile takes its name from whichever signal introduced that peer,
+         * which is a single message that can be wrong, late or missing — and
+         * when it was wrong, the name stayed wrong for the whole meeting. The
+         * heartbeat carries every name, straight from the participant rows, so
+         * anything that has drifted is put right within one beat.
+         */
+        setPeers((ps) => {
+          const names = new Map(others.map((p) => [p.uuid, p.name]))
+          return ps.some((x) => names.get(x.uuid) && names.get(x.uuid) !== x.name)
+            ? ps.map((x) => ({ ...x, name: names.get(x.uuid) ?? x.name }))
+            : ps
+        })
         setIsLocked(!!hb.is_locked)
         setSpotlight(hb.spotlight_uuid ?? null)
         setKnocks(hb.waiting ?? [])
@@ -826,7 +844,16 @@ export default function MeetingRoomPage() {
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => undefined)
     } else {
-      tilesRef.current?.requestFullscreen().catch(() => undefined)
+      /*
+       * The whole room, not just the tiles.
+       *
+       * Fullscreening the tiles container left every control outside the
+       * fullscreen element, so mute, camera, chat, participants and leave all
+       * disappeared the moment you pressed it — on a phone, where the button
+       * is easy to hit by accident, with no visible way back but Escape, which
+       * a phone does not have. Calls were fixed this way; meetings never were.
+       */
+      roomRef.current?.requestFullscreen().catch(() => undefined)
     }
   }
 
@@ -1506,7 +1533,7 @@ export default function MeetingRoomPage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div ref={roomRef} className="flex h-full flex-col gap-3 bg-slate-100 dark:bg-slate-950">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* Shrinkable, so the invite button can sit beside it rather than
             taking a third row of a phone screen away from the faces. */}

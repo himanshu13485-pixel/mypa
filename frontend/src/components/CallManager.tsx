@@ -726,6 +726,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
         const beat = await calls.heartbeat(uuid)
         if (stop) return
         if (beat.status !== 'ongoing' && beat.status !== 'ringing') cleanup()
+        /*
+         * The heartbeat is the authority on who is called what.
+         *
+         * A tile takes its name from whichever signal introduced that peer,
+         * and for a long time every signal in a call was labelled with the
+         * name of whoever started it, so a room of three wore one name. The
+         * server fills that field correctly now; this puts right anything that
+         * drifted anyway, within one beat, without a message having to arrive.
+         */
+        if (beat.participants?.length) {
+          const names = new Map(beat.participants.map((p) => [p.uuid, p.name]))
+          setRemotePeers((ps) =>
+            ps.some((x) => names.get(x.uuid) && names.get(x.uuid) !== x.name)
+              ? ps.map((x) => ({ ...x, name: names.get(x.uuid) ?? x.name }))
+              : ps,
+          )
+        }
       } catch {
         /* one missed beat is fine — the grace window is three of them */
       }

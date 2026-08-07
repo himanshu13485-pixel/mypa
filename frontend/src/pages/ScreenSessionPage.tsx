@@ -46,6 +46,8 @@ export default function ScreenSessionPage() {
    re-mounted <video> used to come back blank because the stream was only
    ever assigned onto the element that existed at the time. */
   const { show: showVideo, attach: attachVideo, videoRef } = useSelfView()
+  /** The whole session view — what fullscreen should cover. */
+  const pageRef = useRef<HTMLDivElement>(null)
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const joinedRef = useRef(false)
 
@@ -315,7 +317,16 @@ export default function ScreenSessionPage() {
     navigate('/screen')
   }
 
-  const fullscreen = () => videoRef.current?.requestFullscreen().catch(() => undefined)
+  const fullscreen = () => {
+    // The page, not the <video>: fullscreening the picture alone put the
+    // controls outside the fullscreen element, so stop-sharing and leave
+    // vanished until you found Escape. The same fault meetings had.
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => undefined)
+      return
+    }
+    pageRef.current?.requestFullscreen().catch(() => undefined)
+  }
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 
@@ -355,7 +366,7 @@ export default function ScreenSessionPage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3">
+    <div ref={pageRef} className="flex h-full flex-col gap-3 bg-slate-100 dark:bg-slate-950">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-base font-semibold">

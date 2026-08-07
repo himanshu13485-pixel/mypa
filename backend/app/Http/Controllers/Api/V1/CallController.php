@@ -99,7 +99,7 @@ class CallController extends Controller
 
         $loaded = $call->load(['conversation', 'caller']);
         foreach ($callees as $callee) {
-            \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $callee->uuid, 'ring'));
+            \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $me->name, $callee->uuid, 'ring'));
         }
 
         return response()->json([
@@ -141,7 +141,7 @@ class CallController extends Controller
 
             $loaded = $call->load(['conversation', 'caller']);
             foreach ($joined as $peer) {
-                \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $peer->uuid, 'accept', [
+                \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $me->name, $peer->uuid, 'accept', [
                     'joiner_uuid' => $me->uuid,
                     'joiner_name' => $me->name,
                 ]));
@@ -164,6 +164,7 @@ class CallController extends Controller
         \App\Support\Realtime::send(new CallSignal(
             $call->load(['conversation', 'caller']),
             $me->uuid,
+            $me->name,
             $call->caller->uuid,
             'decline',
             ['decliner_uuid' => $me->uuid, 'is_group' => $isGroup],
@@ -194,7 +195,7 @@ class CallController extends Controller
         // Any call survives while at least two people remain in it.
         if ($remaining->count() >= 2 && $call->status === 'ongoing') {
             foreach ($remaining as $peer) {
-                \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $peer->uuid, 'peer-left', [
+                \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $me->name, $peer->uuid, 'peer-left', [
                     'left_uuid' => $me->uuid,
                 ]));
             }
@@ -211,12 +212,12 @@ class CallController extends Controller
         }
 
         foreach ($remaining as $peer) {
-            \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $peer->uuid, 'end'));
+            \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $me->name, $peer->uuid, 'end'));
         }
         if ($remaining->isEmpty() && ! $isGroup) {
             $other = $call->participants()->where('users.id', '!=', $me->id)->first();
             if ($other) {
-                \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $other->uuid, 'end'));
+                \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $me->name, $other->uuid, 'end'));
             }
         }
 
@@ -266,7 +267,7 @@ class CallController extends Controller
             $call->participants()->attach([$target->id => ['status' => 'invited', 'joined_at' => null]]);
         }
 
-        \App\Support\Realtime::send(new CallSignal($call->load(['conversation', 'caller']), $me->uuid, $target->uuid, 'ring'));
+        \App\Support\Realtime::send(new CallSignal($call->load(['conversation', 'caller']), $me->uuid, $me->name, $target->uuid, 'ring'));
 
         return response()->json(['message' => "Ringing {$target->name}…"]);
     }
@@ -294,6 +295,7 @@ class CallController extends Controller
         \App\Support\Realtime::send(new CallSignal(
             $call->load(['conversation', 'caller']),
             $me->uuid,
+            $me->name,
             $target->uuid,
             $data['signal'],
             $data['payload'],
