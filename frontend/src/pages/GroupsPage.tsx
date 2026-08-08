@@ -8,6 +8,7 @@ import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, Spinner, Textarea } from '../components/ui'
 import { GROUP_TYPES, type GroupItem } from '../types'
+import { Avatar } from '../lib/avatars'
 
 export default function GroupsPage() {
   const queryClient = useQueryClient()
@@ -194,12 +195,15 @@ export default function GroupsPage() {
                     key={member.uuid}
                     className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700"
                   >
-                    <div>
-                      <p className="text-sm font-medium">
-                        {member.name}
-                        {member.uuid === me?.uuid && <span className="text-slate-400"> (you)</span>}
-                      </p>
-                      <p className="text-xs text-slate-400">{member.app_id}</p>
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar name={member.name} photoPath={member.photo_path} avatar={member.avatar} size={34} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {member.name}
+                          {member.uuid === me?.uuid && <span className="text-slate-400"> (you)</span>}
+                        </p>
+                        <p className="truncate text-xs text-slate-400">{member.app_id}</p>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       {canManage && member.role !== 'owner' ? (

@@ -96,7 +96,7 @@ export const categories = {
 
 export const connections = {
   search: (q: string) =>
-    api.get<{ data: { uuid: string; name: string; app_id: string; photo_path?: string | null; is_connected: boolean } }>(
+    api.get<{ data: { uuid: string; name: string; app_id: string; photo_path?: string | null; avatar?: string | null; is_connected: boolean } }>(
       '/app-id/search', { params: { q } },
     ).then((r) => r.data.data),
   list: (status?: string) =>

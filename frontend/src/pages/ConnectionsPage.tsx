@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast'
 import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import { Badge, Button, Card, EmptyState, ErrorNote, Spinner } from '../components/ui'
+import { Avatar } from '../lib/avatars'
 
 export default function ConnectionsPage() {
   const { toastError } = useToast()
@@ -117,10 +118,13 @@ export default function ConnectionsPage() {
           <div className="mt-3">
             <ErrorNote message={searchError} />
             {result && (
-              <div className="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                <div>
-                  <p className="text-sm font-medium">{result.name}</p>
-                  <p className="text-xs text-slate-400">@{(result as { username?: string }).username ?? result.app_id}</p>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar name={result.name} photoPath={result.photo_path} avatar={result.avatar} size={38} />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{result.name}</p>
+                    <p className="truncate text-xs text-slate-400">@{(result as { username?: string }).username ?? result.app_id}</p>
+                  </div>
                 </div>
                 {result.is_connected ? (
                   <Badge value="accepted" />
@@ -146,13 +150,16 @@ export default function ConnectionsPage() {
             ) : (
               <div className="space-y-2">
                 {pending.map((c) => (
-                  <div key={c.uuid} className="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                    <div>
-                      <p className="text-sm font-medium">{c.user?.name}</p>
-                      <p className="text-xs text-slate-400">
+                  <div key={c.uuid} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
+                      <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{c.user?.name}</p>
+                      <p className="truncate text-xs text-slate-400">
                         {c.user?.app_id} · {c.direction === 'sent' ? 'you sent this request' : 'sent you a request'}
                       </p>
                       {c.message && <p className="mt-0.5 text-xs italic text-slate-500">“{c.message}”</p>}
+                      </div>
                     </div>
                     {c.direction === 'received' ? (
                       <div className="flex gap-1">
@@ -179,10 +186,13 @@ export default function ConnectionsPage() {
             ) : (
               <div className="space-y-2">
                 {accepted.map((c) => (
-                  <div key={c.uuid} className="flex items-center justify-between rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                    <div>
-                      <p className="text-sm font-medium">{c.user?.name}</p>
-                      <p className="text-xs text-slate-400">{c.user?.app_id}</p>
+                  <div key={c.uuid} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{c.user?.name}</p>
+                        <p className="truncate text-xs text-slate-400">{c.user?.app_id}</p>
+                      </div>
                     </div>
                     {c.user?.app_id && (
                       <Button
