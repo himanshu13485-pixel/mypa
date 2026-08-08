@@ -46,6 +46,8 @@ sudo -u $APP_USER npm ci
 sudo -u $APP_USER npm run build
 
 echo
+# Not a separate command to remember: publish.sh rsyncs frontend/dist into the
+# docroot, rewrites the managed .htaccess block, and caches Laravel's config.
 echo "== publish (docroot, htaccess, caches) =="
 bash "$APP_DIR/deploy/cpanel/publish.sh"
 
@@ -62,4 +64,7 @@ ss -ltnp | grep -q ':8443' \
 
 echo
 echo "== done: now running $AFTER =="
-echo "Hard-refresh the browser (Ctrl+Shift+R) to pick up the new bundle."
+# No hard-refresh instruction any more. Open tabs pick the new build up on
+# their own: a page that fails to load because its chunk was renamed clears
+# the cached shell and reloads itself.
+echo "Open tabs will pick up the new build by themselves."
