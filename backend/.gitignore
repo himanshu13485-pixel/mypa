@@ -1,4 +1,6 @@
 *.log
+# PHP writes this one itself, and it has no .log suffix to be caught above.
+error_log
 .DS_Store
 .env
 .env.backup
