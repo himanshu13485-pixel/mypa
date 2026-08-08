@@ -46,6 +46,22 @@ RewriteRule ^(api|broadcasting)(/.*)?$ apibase/index.php [L]
 # bounced to /dashboard by the page itself)
 RewriteRule ^$ landing/index.html [L]
 
+# a missing build asset is a 404, never the SPA
+#
+# The rsync above runs with --delete, so a deploy removes the previous
+# build's hashed chunks. A browser still holding the old index.html then
+# asks for one of them, and without this rule it fell through to the SPA
+# fallback and got index.html back with a 200 and Content-Type: text/html.
+# Browsers refuse to run HTML as a module, so the page died with "error
+# loading dynamically imported module" - a message about the wrong thing.
+# A plain 404 is the truth, and the app's own recovery keys off it.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^assets/ - [R=404,L]
+
+# mark real build assets so the caching block below can find them
+# (FilesMatch cannot see the directory, only the filename)
+RewriteRule ^assets/ - [E=IMMUTABLE:1]
+
 # everything else -> the SPA (real files served as-is)
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
@@ -55,6 +71,23 @@ RewriteRule ^ index.html [L]
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # index.html is the list of which hashed chunks to load, so a cached copy
+    # of it is a cached copy of yesterday's app - and the deploy that fixes
+    # something reaches nobody until their browser decides to ask again.
+    <FilesMatch "\.html$">
+        Header always set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+
+    # A stale service worker keeps serving a stale app and is the hardest
+    # thing for someone to clear without being talked through it.
+    <FilesMatch "^sw\.js$">
+        Header always set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+
+    # Contents of /assets/ carry a content hash in the filename, so what lives
+    # at a given URL can never change. Safe to cache for a year.
+    Header always set Cache-Control "public, max-age=31536000, immutable" env=IMMUTABLE
 </IfModule>
 # === end Netvork routing ===
 HTEOF

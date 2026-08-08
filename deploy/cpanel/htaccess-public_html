@@ -2,6 +2,10 @@
 # Layout: frontend build files live here; "apibase" is a symlink to
 # ../mypa/backend/public. API + broadcasting requests are handed to
 # Laravel; everything else is the SPA (with index.html fallback).
+#
+# Kept in step with the managed block written by deploy/cpanel/publish.sh,
+# which is what actually runs on a deploy. This copy is for setting a docroot
+# up by hand.
 
 RewriteEngine On
 
@@ -12,6 +16,21 @@ RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
 # --- Laravel: API + broadcasting auth ------------------------------------
 RewriteRule ^(api|broadcasting)(/.*)?$ apibase/index.php [L]
 
+# --- Build assets: never fall through to the SPA -------------------------
+# Publishing rsyncs with --delete, so a deploy removes the previous build's
+# hashed chunks. A browser still holding the old index.html then asks for one
+# of them, and without this it landed on the SPA fallback and got index.html
+# back with a 200 and Content-Type: text/html. Browsers will not execute HTML
+# as a module, so the page died with "error loading dynamically imported
+# module" — a message about the wrong thing entirely. A plain 404 is the
+# truth, and the app's own recovery keys off it.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^assets/ - [R=404,L]
+
+# Mark real build assets, so the caching block below can tell them apart —
+# FilesMatch sees only the filename, never the directory.
+RewriteRule ^assets/ - [E=IMMUTABLE:1]
+
 # --- SPA -----------------------------------------------------------------
 # Real files (assets, /landing/index.html, icons) are served directly.
 RewriteCond %{REQUEST_FILENAME} -f [OR]
@@ -19,9 +38,25 @@ RewriteCond %{REQUEST_FILENAME} -d
 RewriteRule ^ - [L]
 RewriteRule ^ index.html [L]
 
-# --- Security headers ----------------------------------------------------
+# --- Caching + security headers ------------------------------------------
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "SAMEORIGIN"
     Header always set Referrer-Policy "strict-origin-when-cross-origin"
+
+    # index.html is the list of which hashed chunks to load, so a cached copy
+    # of it is a cached copy of yesterday's app.
+    <FilesMatch "\.html$">
+        Header always set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+
+    # A stale service worker keeps serving a stale app, and is the hardest
+    # thing for someone to clear without being talked through it.
+    <FilesMatch "^sw\.js$">
+        Header always set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+
+    # Contents of /assets/ carry a content hash in the filename, so what lives
+    # at a given URL can never change. Safe to cache for a year.
+    Header always set Cache-Control "public, max-age=31536000, immutable" env=IMMUTABLE
 </IfModule>

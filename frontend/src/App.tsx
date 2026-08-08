@@ -1,6 +1,7 @@
-import { lazy, Suspense } from 'react'
+import { Suspense } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import ErrorBoundary from './components/ErrorBoundary'
+import { lazyRoute } from './lib/lazyRoute'
 import Layout from './components/Layout'
 import { RequireAdmin, RequireAuth } from './components/Protected'
 import { ToastProvider } from './components/Toast'
@@ -12,42 +13,42 @@ import Register from './pages/auth/Register'
 
 // Route-level code splitting keeps the initial bundle small; auth pages stay
 // eager so first paint is instant.
-const ForgotPassword = lazy(() => import('./pages/auth/ForgotPassword'))
-const ResetPassword = lazy(() => import('./pages/auth/ResetPassword'))
-const VerifyEmail = lazy(() => import('./pages/auth/VerifyEmail'))
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const TasksPage = lazy(() => import('./pages/TasksPage'))
-const CalendarPage = lazy(() => import('./pages/CalendarPage'))
-const CategoriesPage = lazy(() => import('./pages/CategoriesPage'))
-const ConnectionsPage = lazy(() => import('./pages/ConnectionsPage'))
-const MessagesPage = lazy(() => import('./pages/MessagesPage'))
-const CallsPage = lazy(() => import('./pages/CallsPage'))
-const NotesPage = lazy(() => import('./pages/NotesPage'))
-const FilesPage = lazy(() => import('./pages/FilesPage'))
-const GroupsPage = lazy(() => import('./pages/GroupsPage'))
-const HabitsPage = lazy(() => import('./pages/HabitsPage'))
-const GoalsPage = lazy(() => import('./pages/GoalsPage'))
-const BillsPage = lazy(() => import('./pages/BillsPage'))
-const ProjectsPage = lazy(() => import('./pages/ProjectsPage'))
-const MeetingsPage = lazy(() => import('./pages/MeetingsPage'))
-const MeetingRoomPage = lazy(() => import('./pages/MeetingRoomPage'))
-const ScreenPage = lazy(() => import('./pages/ScreenPage'))
-const ScreenSessionPage = lazy(() => import('./pages/ScreenSessionPage'))
-const ReportsPage = lazy(() => import('./pages/ReportsPage'))
-const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const AdminPage = lazy(() => import('./pages/admin/AdminPage'))
-const PricingPage = lazy(() => import('./pages/PricingPage'))
+const ForgotPassword = lazyRoute('ForgotPassword', () => import('./pages/auth/ForgotPassword'))
+const ResetPassword = lazyRoute('ResetPassword', () => import('./pages/auth/ResetPassword'))
+const VerifyEmail = lazyRoute('VerifyEmail', () => import('./pages/auth/VerifyEmail'))
+const Dashboard = lazyRoute('Dashboard', () => import('./pages/Dashboard'))
+const TasksPage = lazyRoute('TasksPage', () => import('./pages/TasksPage'))
+const CalendarPage = lazyRoute('CalendarPage', () => import('./pages/CalendarPage'))
+const CategoriesPage = lazyRoute('CategoriesPage', () => import('./pages/CategoriesPage'))
+const ConnectionsPage = lazyRoute('ConnectionsPage', () => import('./pages/ConnectionsPage'))
+const MessagesPage = lazyRoute('MessagesPage', () => import('./pages/MessagesPage'))
+const CallsPage = lazyRoute('CallsPage', () => import('./pages/CallsPage'))
+const NotesPage = lazyRoute('NotesPage', () => import('./pages/NotesPage'))
+const FilesPage = lazyRoute('FilesPage', () => import('./pages/FilesPage'))
+const GroupsPage = lazyRoute('GroupsPage', () => import('./pages/GroupsPage'))
+const HabitsPage = lazyRoute('HabitsPage', () => import('./pages/HabitsPage'))
+const GoalsPage = lazyRoute('GoalsPage', () => import('./pages/GoalsPage'))
+const BillsPage = lazyRoute('BillsPage', () => import('./pages/BillsPage'))
+const ProjectsPage = lazyRoute('ProjectsPage', () => import('./pages/ProjectsPage'))
+const MeetingsPage = lazyRoute('MeetingsPage', () => import('./pages/MeetingsPage'))
+const MeetingRoomPage = lazyRoute('MeetingRoomPage', () => import('./pages/MeetingRoomPage'))
+const ScreenPage = lazyRoute('ScreenPage', () => import('./pages/ScreenPage'))
+const ScreenSessionPage = lazyRoute('ScreenSessionPage', () => import('./pages/ScreenSessionPage'))
+const ReportsPage = lazyRoute('ReportsPage', () => import('./pages/ReportsPage'))
+const SettingsPage = lazyRoute('SettingsPage', () => import('./pages/SettingsPage'))
+const AdminPage = lazyRoute('AdminPage', () => import('./pages/admin/AdminPage'))
+const PricingPage = lazyRoute('PricingPage', () => import('./pages/PricingPage'))
 function LandingRedirect() {
   // The brand landing is a self-contained static page (public/landing/).
   window.location.replace('/landing/index.html')
   return null
 }
-const AboutPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.AboutPage })))
-const ContactPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.ContactPage })))
-const TermsPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.TermsPage })))
-const PrivacyPage = lazy(() => import('./pages/site/InfoPages').then((m) => ({ default: m.PrivacyPage })))
-const SubscriptionPage = lazy(() => import('./pages/SubscriptionPage'))
-const PaymentStatusPage = lazy(() => import('./pages/PaymentStatusPage'))
+const AboutPage = lazyRoute('AboutPage', () => import('./pages/site/InfoPages').then((m) => ({ default: m.AboutPage })))
+const ContactPage = lazyRoute('ContactPage', () => import('./pages/site/InfoPages').then((m) => ({ default: m.ContactPage })))
+const TermsPage = lazyRoute('TermsPage', () => import('./pages/site/InfoPages').then((m) => ({ default: m.TermsPage })))
+const PrivacyPage = lazyRoute('PrivacyPage', () => import('./pages/site/InfoPages').then((m) => ({ default: m.PrivacyPage })))
+const SubscriptionPage = lazyRoute('SubscriptionPage', () => import('./pages/SubscriptionPage'))
+const PaymentStatusPage = lazyRoute('PaymentStatusPage', () => import('./pages/PaymentStatusPage'))
 
 export default function App() {
   return (

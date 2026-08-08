@@ -1,6 +1,14 @@
 /* My PA service worker: cache-first for built static assets, network-first for
-   everything else. API requests are never cached. */
-const CACHE = 'mypa-static-v2'
+   everything else. API requests are never cached.
+
+   Bumped to v3 to throw away what v2 collected. Until the server learned to
+   404 a missing build asset, a request for a deleted chunk came back as
+   index.html with a 200 — and this worker stored that HTML under the .js URL,
+   permanently, because hashed filenames are treated as immutable. Anyone who
+   hit that once kept hitting it, cached, with no way to clear it themselves.
+   Renaming the cache is what frees them: activate deletes every cache that is
+   not this one. */
+const CACHE = 'mypa-static-v3'
 
 self.addEventListener('install', (event) => {
   self.skipWaiting()
@@ -14,6 +22,24 @@ self.addEventListener('activate', (event) => {
     ).then(() => self.clients.claim()),
   )
 })
+
+/**
+ * Is this response worth keeping forever?
+ *
+ * Two ways it is not: it failed, or it is the wrong kind of thing. The second
+ * is the one that bit us — a request for a chunk that no longer exists used to
+ * return the SPA shell, and HTML cached under a .js URL breaks that page for
+ * good on that device.
+ */
+function storable(url, response) {
+  if (!response || !response.ok || response.type === 'opaque') return false
+
+  const type = response.headers.get('content-type') || ''
+  if (/\.js$/.test(url.pathname)) return /javascript|ecmascript/i.test(type)
+  if (/\.css$/.test(url.pathname)) return /text\/css/i.test(type)
+
+  return !/text\/html/i.test(type)
+}
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
@@ -30,8 +56,13 @@ self.addEventListener('fetch', (event) => {
         (cached) =>
           cached ??
           fetch(event.request).then((response) => {
-            const copy = response.clone()
-            caches.open(CACHE).then((cache) => cache.put(event.request, copy))
+            // Only ever store a real answer. Storing an error — or the SPA
+            // fallback page arriving where a script was asked for — under an
+            // immutable URL makes one bad moment permanent.
+            if (storable(url, response)) {
+              const copy = response.clone()
+              caches.open(CACHE).then((cache) => cache.put(event.request, copy))
+            }
             return response
           }),
       ),
@@ -43,7 +74,9 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        if (event.request.mode === 'navigate') {
+        // Only a working page is worth keeping as the offline shell — an
+        // error page cached here is what everyone would see next outage.
+        if (event.request.mode === 'navigate' && response.ok) {
           const copy = response.clone()
           caches.open(CACHE).then((cache) => cache.put('/', copy))
         }
