@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import './index.css'
 import App from './App.tsx'
+import { installErrorReporting } from './lib/report'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -13,6 +14,9 @@ const queryClient = new QueryClient({
     },
   },
 })
+
+// Before anything else, so a failure during startup is still reported.
+installErrorReporting()
 
 // Apply saved theme before first paint to avoid a flash.
 const savedTheme = localStorage.getItem('mypa-theme')

@@ -152,7 +152,26 @@ export const adminBilling = {
 
 // --- Admin ops ---------------------------------------------------------------
 
+export interface ClientErrorRow {
+  id: number
+  message: string
+  stack?: string | null
+  url?: string | null
+  release?: string | null
+  hits: number
+  last_user?: string | null
+  last_agent?: string | null
+  first_seen_at: string
+  last_seen_at: string
+  resolved_at?: string | null
+}
+
 export const adminOps = {
+  clientErrors: (resolved = false) =>
+    api.get<Paginated<ClientErrorRow>>('/admin/client-errors', { params: { resolved: resolved ? 1 : 0 } })
+      .then((r) => r.data),
+  resolveClientError: (id: number) =>
+    api.post<{ message: string }>(`/admin/client-errors/${id}/resolve`).then((r) => r.data),
   activeMembers: () =>
     api.get<{ data: import('../types').ActiveMember[] }>('/admin/active-members').then((r) => r.data.data),
   userSummary: (uuid: string) =>

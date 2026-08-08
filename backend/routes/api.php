@@ -41,7 +41,13 @@ Route::prefix('v1')->group(function () {
 
     // Join a meeting with a passcode and no account. Throttled hard: this is
     // the one door into the app that no session guards.
-    Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'join'])
+    // A browser reporting that it broke. Open on purpose: the errors most worth
+// knowing about are the ones that stop someone signing in, and those have no
+// token to offer. Throttled, and everything it stores is truncated.
+Route::post('/client-errors', [\App\Http\Controllers\Api\V1\ClientErrorController::class, 'store'])
+    ->middleware('throttle:20,1');
+
+Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'join'])
         ->middleware('throttle:10,1');
 
     /*
@@ -408,6 +414,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/users/{user}/locked-projects', [AdminUserController::class, 'lockedProjects']);
             Route::post('/projects/{uuid}/send-password-reset', [AdminUserController::class, 'sendProjectPasswordReset']);
             // Live meetings: what is running right now, and stopping it.
+            // What is breaking in people's browsers.
+            Route::get('/client-errors', [\App\Http\Controllers\Api\V1\ClientErrorController::class, 'index']);
+            Route::post('/client-errors/{clientError}/resolve', [\App\Http\Controllers\Api\V1\ClientErrorController::class, 'resolve']);
             Route::get('/live-meetings', [\App\Http\Controllers\Api\V1\Admin\LiveMeetingController::class, 'index']);
             Route::delete('/live-meetings/{meeting}', [\App\Http\Controllers\Api\V1\Admin\LiveMeetingController::class, 'destroy']);
             Route::get('/settings', [AdminUserController::class, 'settings']);

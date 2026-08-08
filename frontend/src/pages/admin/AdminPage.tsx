@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, Ban, BarChart3, CheckCircle2, ClipboardCheck, CreditCard, Flag,
+  Activity, Ban, BarChart3, Bug, CheckCircle2, ClipboardCheck, CreditCard, Flag,
   KeyRound, LogIn, MailCheck, MessagesSquare, Pencil, Plus, Radio, RefreshCw, Search, Send,
   Shield, SlidersHorizontal, UserCheck, Users, Wifi,
 } from 'lucide-react'
@@ -1744,6 +1744,75 @@ function LiveMeetingsTab() {
   )
 }
 
+/**
+ * What is breaking in people's browsers.
+ *
+ * There was no error tracking of any kind, so a white screen produced no
+ * signal at all. One row per fault rather than per occurrence — the same bug
+ * hitting two hundred people is one line with a count of two hundred.
+ */
+function ClientErrorsTab() {
+  const queryClient = useQueryClient()
+  const [resolved, setResolved] = useState(false)
+  const [open, setOpen] = useState<number | null>(null)
+  const { data, isLoading } = useQuery({
+    queryKey: ['client-errors', resolved],
+    queryFn: () => adminOps.clientErrors(resolved),
+    refetchInterval: 60_000,
+  })
+
+  const toggle = (id: number) =>
+    adminOps.resolveClientError(id).then(() => queryClient.invalidateQueries({ queryKey: ['client-errors'] }))
+
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-sm font-semibold">{resolved ? 'Fixed' : 'Open'} errors</h2>
+        <Button size="sm" variant="secondary" onClick={() => setResolved((r) => !r)}>
+          Show {resolved ? 'open' : 'fixed'}
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <Spinner />
+      ) : !data?.data.length ? (
+        <EmptyState
+          title={resolved ? 'Nothing marked fixed yet' : 'Nothing is broken'}
+          hint={resolved ? undefined : 'Errors in anyone’s browser show up here within a minute.'}
+        />
+      ) : (
+        <div className="space-y-2">
+          {data.data.map((e) => (
+            <div key={e.id} className="rounded-xl p-3 ring-1 ring-slate-900/5 dark:ring-white/10">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <button className="min-w-0 flex-1 text-left" onClick={() => setOpen(open === e.id ? null : e.id)}>
+                  <p className="break-words text-sm font-medium">{e.message}</p>
+                  <p className="mt-0.5 text-xs text-slate-400">
+                    {e.hits} time{e.hits === 1 ? '' : 's'} · last {new Date(e.last_seen_at).toLocaleString()}
+                    {e.url ? ` · ${e.url}` : ''}
+                    {e.last_user ? ` · ${e.last_user}` : ''}
+                  </p>
+                </button>
+                <Button size="sm" variant={e.resolved_at ? 'secondary' : 'primary'} onClick={() => toggle(e.id)}>
+                  {e.resolved_at ? 'Reopen' : 'Mark fixed'}
+                </Button>
+              </div>
+              {open === e.id && e.stack && (
+                <pre className="scroll-pane mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-[11px] leading-relaxed text-slate-200">
+                  {e.stack}
+                </pre>
+              )}
+              {open === e.id && e.last_agent && (
+                <p className="mt-1 break-words text-[11px] text-slate-400">{e.last_agent}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 const TABS = [
   { key: 'overview', label: 'Overview', icon: Shield },
   { key: 'users', label: 'Users', icon: Users },
@@ -1753,6 +1822,7 @@ const TABS = [
   { key: 'approvals', label: 'Approvals', icon: ClipboardCheck },
   { key: 'activity', label: 'Activity', icon: Activity },
   { key: 'logins', label: 'Logins', icon: LogIn },
+  { key: 'errors', label: 'Errors', icon: Bug },
   { key: 'moderation', label: 'Moderation', icon: Flag },
   { key: 'internal', label: 'Internal Work', icon: MessagesSquare },
   { key: 'sales', label: 'My Users', icon: UserCheck },
@@ -1762,7 +1832,7 @@ const TABS = [
 function visibleTabs(roles: string[]) {
   if (roles.includes('admin') || roles.includes('super_admin')) return TABS
   if (roles.includes('subadmin')) {
-    return TABS.filter((t) => !['overview', 'active', 'plans', 'live'].includes(t.key))
+    return TABS.filter((t) => !['overview', 'active', 'plans', 'live', 'errors'].includes(t.key))
   }
   return TABS.filter((t) => ['sales', 'internal'].includes(t.key))
 }
@@ -1813,6 +1883,7 @@ export default function AdminPage() {
       {tab === 'approvals' && <ApprovalsTab />}
       {tab === 'activity' && <ActivityTab />}
       {tab === 'logins' && <LoginsTab />}
+      {tab === 'errors' && <ClientErrorsTab />}
       {tab === 'moderation' && <ModerationTab />}
       {tab === 'internal' && <InternalTab />}
       {tab === 'sales' && <SalesTab />}

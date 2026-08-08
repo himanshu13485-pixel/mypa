@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Button, Card } from './ui'
+import { reportError } from '../lib/report'
 
 interface Props {
   children: ReactNode
@@ -23,9 +24,10 @@ export default class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    // Nothing collects these yet. When error tracking is wired up, this is the
-    // one place that needs to change.
     console.error('[ui] render failed', error, info.componentStack)
+    // The component stack is the useful half: a minified frame number says
+    // nothing, "in MeetingRoomPage" says where to look.
+    reportError(error, `render${info.componentStack ? ' in' + firstComponent(info.componentStack) : ''}`)
   }
 
   render() {
@@ -51,4 +53,11 @@ export default class ErrorBoundary extends Component<Props, State> {
       </div>
     )
   }
+}
+
+/** The topmost named component in a React stack, e.g. " MeetingRoomPage". */
+function firstComponent(stack: string): string {
+  const line = stack.split('\n').find((l) => l.trim().startsWith('at '))
+
+  return line ? ' ' + line.trim().replace(/^at\s+/, '').split(/[\s(]/)[0] : ''
 }
