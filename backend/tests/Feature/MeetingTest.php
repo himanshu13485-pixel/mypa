@@ -483,7 +483,7 @@ class MeetingTest extends TestCase
         $this->join($meeting, $this->alice);
     }
 
-    public function test_passcode_is_required_and_hidden_from_participants(): void
+    public function test_the_password_is_for_guests_and_is_hidden_from_participants(): void
     {
         $created = $this->actingAs($this->host)->postJson('/api/v1/meetings', [
             'requires_approval' => false, 'passcode' => 'let5in',
@@ -491,18 +491,19 @@ class MeetingTest extends TestCase
         $code = $created['code'];
 
         $this->assertTrue($created['has_passcode']);
+        $this->assertTrue($created['allows_guests'], 'a password is what opens the door to people without an account');
         $this->assertEquals('let5in', $created['passcode']);
 
-        // Wrong or missing passcode is turned away; the right one gets in.
-        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$code}/join")->assertForbidden();
-        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$code}/join", ['passcode' => 'nope'])->assertForbidden();
-        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$code}/join", ['passcode' => 'let5in'])->assertOk();
+        // A signed-in member is never asked for it. The password stands in for
+        // an account, and Alice has one — see MeetingGuestTest for the half
+        // this exists for, where somebody without an account types it instead.
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$code}/join")->assertOk();
 
-        // Participants never see the passcode itself.
+        // Participants never see the password itself — only the host, who is
+        // the one who has to pass it on.
         $this->assertNull($this->actingAs($this->alice)->getJson("/api/v1/meetings/{$code}")->json('data.passcode'));
         $this->assertTrue($this->actingAs($this->alice)->getJson("/api/v1/meetings/{$code}")->json('data.has_passcode'));
 
-        // The host never has to type it.
         $this->actingAs($this->host)->postJson("/api/v1/meetings/{$code}/join")->assertOk();
     }
 
