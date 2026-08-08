@@ -8,7 +8,7 @@ import {
 import { Button, Card, ErrorNote, Input, Label, Select } from './ui'
 import { Avatar } from '../lib/avatars'
 import { useAuthStore } from '../stores/auth'
-import { useIsPhone } from '../lib/videoLayout'
+import { useIsPhone } from '../lib/useMediaQuery'
 
 export interface LobbyResult {
   displayName: string

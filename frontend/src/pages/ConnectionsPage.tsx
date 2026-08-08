@@ -84,8 +84,8 @@ export default function ConnectionsPage() {
     <div className="space-y-6">
       <h1 className="text-xl font-semibold tracking-tight">Connections</h1>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card className="min-w-0">
           <h2 className="mb-2 text-sm font-semibold">My handle</h2>
           <p className="text-2xl font-bold tracking-wide text-brand-600">@{user?.username}</p>
           <p className="mt-1 text-xs text-slate-400">
@@ -100,7 +100,7 @@ export default function ConnectionsPage() {
           )}
         </Card>
 
-        <Card>
+        <Card className="min-w-0">
           <h2 className="mb-2 text-sm font-semibold">Find a user</h2>
           <div className="flex gap-2">
             <div className="flex-1">
@@ -142,8 +142,8 @@ export default function ConnectionsPage() {
       {isLoading ? (
         <Spinner />
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card className="min-w-0">
             <h2 className="mb-2 text-sm font-semibold">Pending requests</h2>
             {pending.length === 0 ? (
               <EmptyState title="No pending requests" />
@@ -179,14 +179,14 @@ export default function ConnectionsPage() {
             )}
           </Card>
 
-          <Card>
+          <Card className="min-w-0">
             <h2 className="mb-2 text-sm font-semibold">My connections</h2>
             {accepted.length === 0 ? (
               <EmptyState title="No connections yet" hint="Search an App ID to connect with someone." />
             ) : (
               <div className="space-y-2">
                 {accepted.map((c) => (
-                  <div key={c.uuid} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+                  <div key={c.uuid} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
                       <div className="min-w-0">

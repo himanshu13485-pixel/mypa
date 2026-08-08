@@ -16,6 +16,7 @@ import { CallProvider } from './CallManager'
 import VoiceAssistant from './VoiceAssistant'
 import MobileVerifyBanner from './MobileVerifyBanner'
 import { Avatar } from '../lib/avatars'
+import { useLandscapePhone } from '../lib/useMediaQuery'
 
 /** Sidebar rows that carry an unattended-items badge. */
 const BADGE_KEYS: Record<string, 'messages' | 'calls' | 'connections'> = {
@@ -83,6 +84,14 @@ export default function Layout() {
   // A live meeting or screen share wants the whole screen; a nav bar eating
   // 56px of a phone is the difference between seeing faces and seeing chrome.
   const immersive = /^\/(meetings\/room|screen\/session)\//.test(pathname)
+  /*
+   * Turned sideways, a phone is 390px tall. Every strip of app furniture is a
+   * third of the picture, so on an immersive route none of it is drawn at all —
+   * no header, no tab bar, no padding. In the installed app, where there is no
+   * address bar either, that is genuinely the whole screen.
+   */
+  const landscape = useLandscapePhone()
+  const bare = immersive && landscape
   const [dark, setDark] = useState(() =>
     localStorage.getItem('mypa-theme')
       ? localStorage.getItem('mypa-theme') === 'dark'
@@ -245,7 +254,7 @@ export default function Layout() {
           // A meeting has its own title bar and its own way out. On a phone
           // this one was costing 50px of faces to show a hamburger and a
           // logout button nobody wants mid-call.
-          immersive ? 'hidden lg:flex' : 'flex',
+          immersive || bare ? 'hidden lg:flex' : 'flex',
         )}>
           <button
             className="tap flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 lg:hidden"
@@ -297,7 +306,7 @@ export default function Layout() {
         <main className={clsx(
           'scroll-pane mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto',
           // A meeting wants the screen; every other page wants margins.
-          immersive ? 'p-2 sm:p-4' : 'p-4 sm:p-6',
+          bare ? 'p-0' : immersive ? 'p-2 sm:p-4' : 'p-4 sm:p-6',
         )}>
           <Outlet />
         </main>
@@ -307,7 +316,7 @@ export default function Layout() {
             taps deep behind a hamburger. */}
         <nav className={clsx(
           'pb-safe shrink-0 items-stretch border-t border-slate-200/70 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 lg:hidden',
-          immersive ? 'hidden' : 'flex',
+          immersive || bare ? 'hidden' : 'flex',
         )}>
           {bottomTabs.map(({ to, label, icon: Icon }) => {
             const badgeKey = BADGE_KEYS[to]

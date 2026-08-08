@@ -18,7 +18,8 @@ import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder
 import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
 import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
 import { normalizeSdp } from '../lib/sdp'
-import { VIDEO_FIT, useGalleryLayout, useIsPhone, useSelfView } from '../lib/videoLayout'
+import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
+import { isPhoneViewport, useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
 import { loadDeviceChoice, nextCamera, openCamera, saveDeviceChoice, swapTrack, useDevices } from '../lib/devices'
 import { Avatar } from '../lib/avatars'
 
@@ -201,7 +202,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
    * while doing it. There is nothing to keep an eye on behind it either way.
    */
   const [expanded, setExpanded] = useState(
-    () => localStorage.getItem('mypa-call-expanded') === '1' || window.matchMedia('(max-width: 639px)').matches,
+    () => localStorage.getItem('mypa-call-expanded') === '1' || isPhoneViewport(),
   )
   const [bgLabel, setBgLabel] = useState('none')
   /** The last background chosen, so a camera swap can rebuild it. */
@@ -972,6 +973,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
    */
   const { cameras } = useDevices(!!activeCall && isVideo)
   const phone = useIsPhone()
+  const landscape = useLandscapePhone()
   /*
    * Offer the switch when there is somewhere to switch to.
    *
@@ -1069,12 +1071,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
             {/* Everyone else, down the side. Double-tap one to swap it in. */}
             {/* Capped and scrollable: a large group would otherwise run this
-                column straight down over the buttons. */}
-            <div className="scroll-pane pt-safe absolute right-3 top-3 z-10 flex max-h-[calc(100%-10rem)] flex-col gap-2 overflow-y-auto">
+                column straight down over the buttons. Sideways it runs along
+                the top instead — there is no vertical room to spare on a
+                390px-tall screen. */}
+            <div className={clsx(
+              'scroll-pane pt-safe absolute right-3 top-3 z-10 flex gap-2 overflow-auto',
+              landscape ? 'max-w-[55%] flex-row' : 'max-h-[calc(100%-10rem)] flex-col',
+            )}>
               {!meOnStage && (
                 <div
                   onDoubleClick={swapSelf}
-                  className="h-32 w-24 overflow-hidden rounded-xl bg-slate-900 shadow-lg ring-1 ring-white/25"
+                  className={clsx(
+                    'shrink-0 overflow-hidden rounded-xl bg-slate-900 shadow-lg ring-1 ring-white/25',
+                    landscape ? 'h-20 w-28' : 'h-32 w-24',
+                  )}
                 >
                   {selfVideo}
                 </div>
@@ -1086,7 +1096,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   video
                   cover
                   active={activeSpeaker === p.uuid}
-                  className="h-32 w-24 rounded-xl shadow-lg ring-1 ring-white/25"
+                  className={clsx('shrink-0 rounded-xl shadow-lg ring-1 ring-white/25', landscape ? 'h-20 w-28' : 'h-32 w-24')}
                   onDoubleClick={() => setPinned(pinned === p.uuid ? null : p.uuid)}
                   onContextMenu={(e) => {
                     e.preventDefault()
@@ -1156,9 +1166,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     <CircleButton on={recording} danger={recording} label={recording ? 'Stop recording' : 'Record this call'} onClick={toggleRecord}>
                       {recording ? <Square className="size-5" /> : <Circle className="size-5 text-red-500" />}
                     </CircleButton>
-                    <div className="[&_button]:size-12 [&_button]:rounded-full [&_svg]:size-5">
-                      <BackgroundPicker active={bgLabel} busy={blurBusy} onPick={applyBackground} />
-                    </div>
+                    <BackgroundPicker active={bgLabel} busy={blurBusy} onPick={applyBackground} round />
                     <CircleButton label="Add someone to this call" onClick={() => { setMoreOpen(false); setShowInvite(true) }}>
                       <UserPlus className="size-5" />
                     </CircleButton>

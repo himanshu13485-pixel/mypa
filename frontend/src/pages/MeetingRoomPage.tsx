@@ -20,7 +20,7 @@ import {
   saveDeviceChoice, speakerSelectionSupported, swapTrack, useDevices, type DeviceChoice,
 } from '../lib/devices'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
-import { useIsPhone } from '../lib/useMediaQuery'
+import { useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
 import BackgroundPicker, { type BackgroundChoice } from '../components/BackgroundPicker'
 import MeetingLobby, { type LobbyResult } from '../components/MeetingLobby'
 import ParticipantsPanel, { QualityDot } from '../components/ParticipantsPanel'
@@ -280,6 +280,8 @@ export default function MeetingRoomPage() {
   const isHost = myRole === 'host'
 
   const isPhone = useIsPhone()
+  /** Sideways on a phone: the picture gets the room's own chrome as well. */
+  const landscape = useLandscapePhone()
   const { cameras } = useDevices(phase === 'in')
   const quality = usePeerQuality(useCallback(() => pcsRef.current, []), phase === 'in')
   const activeSpeaker = useActiveSpeaker([
@@ -1543,8 +1545,10 @@ export default function MeetingRoomPage() {
   }
 
   return (
-    <div ref={roomRef} className="flex h-full flex-col gap-3 bg-slate-100 dark:bg-slate-950">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div ref={roomRef} className={clsx('flex h-full flex-col bg-slate-100 dark:bg-slate-950', landscape ? 'gap-1' : 'gap-3')}>
+      {/* Sideways on a phone the title, code and passcode are a third of the
+          picture. The controls stay; everything else can wait for portrait. */}
+      <div className={clsx('flex-wrap items-center justify-between gap-2', landscape ? 'hidden' : 'flex')}>
         {/* Shrinkable, so the invite button can sit beside it rather than
             taking a third row of a phone screen away from the faces. */}
         <div className="min-w-0 flex-1">

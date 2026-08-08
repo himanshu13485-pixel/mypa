@@ -22,12 +22,22 @@ export default function BackgroundPicker({
   busy,
   onPick,
   compact = false,
+  round = false,
 }: {
   active: string
   disabled?: boolean
   busy?: boolean
   onPick: (choice: BackgroundChoice) => void
   compact?: boolean
+  /**
+   * Draw the trigger as a round control, to sit in a row of them.
+   *
+   * A prop rather than the caller reaching in with a descendant selector:
+   * `[&_button]:rounded-full` on a wrapper also hits every row *inside* the
+   * menu below, which turned the list of backgrounds into a stack of
+   * overlapping circles with the labels printed across them.
+   */
+  round?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -39,19 +49,37 @@ export default function BackgroundPicker({
 
   return (
     <div className="relative">
-      <Button
-        size="sm"
-        variant={active !== 'none' ? 'primary' : 'secondary'}
-        title={disabled ? 'Backgrounds are unavailable right now' : 'Change my background'}
-        onClick={() => setOpen((o) => !o)}
-        disabled={disabled || busy}
-      >
-        <Sparkles className={compact ? 'size-3.5' : 'size-4'} />
-      </Button>
+      {round ? (
+        <button
+          type="button"
+          title="Change my background"
+          aria-label="Change my background"
+          onClick={() => setOpen((o) => !o)}
+          disabled={disabled || busy}
+          className={
+            'flex size-12 shrink-0 items-center justify-center rounded-full backdrop-blur transition-colors ' +
+            (active !== 'none' ? 'bg-white text-slate-900' : 'bg-white/20 text-white hover:bg-white/30')
+          }
+        >
+          <Sparkles className="size-5" />
+        </button>
+      ) : (
+        <Button
+          size="sm"
+          variant={active !== 'none' ? 'primary' : 'secondary'}
+          title={disabled ? 'Backgrounds are unavailable right now' : 'Change my background'}
+          onClick={() => setOpen((o) => !o)}
+          disabled={disabled || busy}
+        >
+          <Sparkles className={compact ? 'size-3.5' : 'size-4'} />
+        </Button>
+      )}
       {open && (
-        <div className="absolute bottom-11 left-1/2 z-30 w-48 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-2 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+        <div className="absolute bottom-14 left-1/2 z-30 w-60 -translate-x-1/2 rounded-xl border border-slate-200 bg-white p-2 shadow-lift dark:border-slate-700 dark:bg-slate-900">
           <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">Background</p>
-          <div className="space-y-1">
+          {/* Two columns: as one list this was 400px tall and covered the row
+              of buttons it had just opened from. */}
+          <div className="grid grid-cols-2 gap-1">
             <button
               className={rowCls(active === 'none')}
               onClick={() => pick({ effect: null, label: 'none' })}
