@@ -3,7 +3,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import ErrorBoundary from './components/ErrorBoundary'
 import { lazyRoute } from './lib/lazyRoute'
 import Layout from './components/Layout'
-import { RequireAdmin, RequireAuth } from './components/Protected'
+import { RequireAdmin, RequireAuth, RequireGuestPass } from './components/Protected'
 import { ToastProvider } from './components/Toast'
 import { PromptProvider } from './components/Prompt'
 import { Spinner } from './components/ui'
@@ -67,7 +67,14 @@ export default function App() {
           {/* The room again, without the app shell or the auth guard — a guest
               has no account to be guarded by. Same component, so the two never
               drift apart. */}
-          <Route path="/guest/room/:code" element={<MeetingRoomPage />} />
+          <Route
+            path="/guest/room/:code"
+            element={
+              <RequireGuestPass>
+                <MeetingRoomPage />
+              </RequireGuestPass>
+            }
+          />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />

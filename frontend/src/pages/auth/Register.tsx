@@ -1,14 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Check, Loader2, MailCheck } from 'lucide-react'
 import { api, errorMessage } from '../../api/client'
 import NetvorkMark from '../../components/Logo'
 import { auth } from '../../api/endpoints'
 import { useAuthStore } from '../../stores/auth'
 import { Button, ErrorNote, Input, Label, Select } from '../../components/ui'
+import { returnState, returnTo } from '../../lib/returnTo'
 
 export default function Register() {
   const navigate = useNavigate()
+  const location = useLocation()
+  // Someone who made an account to attend a meeting should arrive at that
+  // meeting, not at an empty dashboard.
+  const next = returnTo(location.state)
   const { setAuth, setUser } = useAuthStore()
   const [step, setStep] = useState<'form' | 'verify'>('form')
   const [form, setForm] = useState({
@@ -99,7 +104,7 @@ export default function Register() {
       await auth.verifyEmailOtp(code)
       const fresh = await auth.me()
       setUser(fresh)
-      navigate('/')
+      navigate(next, { replace: true })
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -212,7 +217,7 @@ export default function Register() {
             </Button>
             <p className="text-center text-xs">
               Already have an account?{' '}
-              <Link to="/login" className="text-brand-600 hover:underline">
+              <Link to="/login" state={returnState(next)} className="text-brand-600 hover:underline">
                 Sign in
               </Link>
             </p>

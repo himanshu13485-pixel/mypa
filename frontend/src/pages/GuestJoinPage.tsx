@@ -4,6 +4,7 @@ import { Loader2, Video } from 'lucide-react'
 import { guestMeetings } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { saveGuestPass } from '../lib/guestPass'
+import { returnState } from '../lib/returnTo'
 import { Button, Card, ErrorNote, Input, Label } from '../components/ui'
 
 /**
@@ -47,6 +48,15 @@ export default function GuestJoinPage() {
   /** Accept a bare code or a whole pasted invite link. */
   const cleanCode = (raw: string) =>
     raw.trim().toLowerCase().match(/[a-z]{3}-[a-z]{4}-[a-z]{3}/)?.[0] ?? raw.trim().toLowerCase()
+
+  /*
+   * Signing in or making an account has to come back here, to the meeting.
+   * Anyone leaving this page is leaving it to attend one, and finishing at the
+   * dashboard means hunting down the invite a second time — the link is
+   * usually in somebody else's chat window by then.
+   */
+  const meetingPath = codeFromUrl ? `/meetings/room/${cleanCode(codeFromUrl)}` : '/meetings'
+  const leaveFor = (path: string) => () => navigate(path, { state: returnState(meetingPath) })
 
   // Ask up front whether this meeting takes guests at all, so a members-only
   // one says so before anybody types a name and a password into a form that
@@ -104,9 +114,15 @@ export default function GuestJoinPage() {
           <h1 className="text-xl font-semibold tracking-tight">This meeting needs an account</h1>
           <p className="text-sm text-slate-500">
             The host has not set a meeting password, so it is open to signed-in Netvork members only.
-            Sign in to join, or ask the host to set one.
+            Create an account or sign in to join — either way you land straight back in this meeting.
+            You could also ask the host to set a password.
           </p>
-          <Button className="w-full" onClick={() => navigate('/login')}>Sign in</Button>
+          {/* Making an account is the way in for the people who actually end up
+              on this card, so it leads. Both come back to the meeting. */}
+          <Button className="w-full" onClick={leaveFor('/register')}>Create account</Button>
+          <Button className="w-full" variant="secondary" onClick={leaveFor('/login')}>
+            I already have an account
+          </Button>
           <button
             className="text-xs text-slate-400 hover:text-brand-600"
             onClick={() => {
@@ -187,10 +203,14 @@ export default function GuestJoinPage() {
 
         <p className="text-center text-xs text-slate-400">
           Have an account?{' '}
-          <button className="text-brand-600 hover:underline" onClick={() => navigate('/login')}>
+          <button className="text-brand-600 hover:underline" onClick={leaveFor('/login')}>
             Sign in instead
           </button>{' '}
-          — no password to type, and no time limit.
+          — no password to type, and no time limit. Or{' '}
+          <button className="text-brand-600 hover:underline" onClick={leaveFor('/register')}>
+            create one
+          </button>
+          .
         </p>
       </Card>
     </div>

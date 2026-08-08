@@ -116,6 +116,23 @@ export async function openMic(deviceId?: string): Promise<MediaStreamTrack> {
 }
 
 /**
+ * The sender carrying one kind of media on this connection — including one
+ * that is currently holding nothing.
+ *
+ * Found through the transceiver rather than the sender's current track. A
+ * sender is empty whenever the camera was off at join or has since been
+ * switched off and released, and it has no track to read a kind from; looking
+ * only at sender.track matched nothing, so the camera coming back on, a screen
+ * share starting, or a background being applied all quietly reached nobody.
+ * The transceiver knows what it is for either way.
+ */
+export function senderFor(pc: RTCPeerConnection, kind: 'audio' | 'video'): RTCRtpSender | undefined {
+  return pc.getTransceivers()
+    .find((t) => (t.sender.track?.kind ?? t.receiver.track?.kind) === kind)?.sender
+    ?? pc.getSenders().find((s) => s.track?.kind === kind)
+}
+
+/**
  * Point every peer connection at a different outgoing track and swap it into
  * the local stream, so preview and what peers receive never disagree.
  * Returns the track that was retired (already stopped).
@@ -125,10 +142,11 @@ export function swapTrack(
   local: MediaStream | null,
   next: MediaStreamTrack,
 ): MediaStreamTrack | null {
-  const kind = next.kind
+  // MediaStreamTrack.kind is typed as a bare string; it is only ever one of
+  // the two, and senderFor asks for the narrower type.
+  const kind = next.kind === 'audio' ? 'audio' : 'video'
   for (const pc of pcs) {
-    const sender = pc.getSenders().find((s) => s.track?.kind === kind)
-    sender?.replaceTrack(next).catch(() => undefined)
+    senderFor(pc, kind)?.replaceTrack(next).catch(() => undefined)
   }
 
   let retired: MediaStreamTrack | null = null

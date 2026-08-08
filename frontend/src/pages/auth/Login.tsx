@@ -1,14 +1,19 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { auth } from '../../api/endpoints'
 import { errorMessage } from '../../api/client'
 import NetvorkMark from '../../components/Logo'
 import { useAuthStore } from '../../stores/auth'
 import { Button, ErrorNote, Input, Label } from '../../components/ui'
+import { returnState, returnTo } from '../../lib/returnTo'
 
 export default function Login() {
   const navigate = useNavigate()
+  const location = useLocation()
+  // Whoever sent us here — the auth guard, or the guest door on a meeting
+  // link — said where this ends. Default to the dashboard.
+  const next = returnTo(location.state)
   const setAuth = useAuthStore((s) => s.setAuth)
   const [mode, setMode] = useState<'password' | 'otp'>('password')
   const [identifier, setIdentifier] = useState('')
@@ -26,7 +31,7 @@ export default function Login() {
     try {
       const res = await auth.login({ identifier, password, device_name: 'web' })
       setAuth(res.token, res.data)
-      navigate('/')
+      navigate(next, { replace: true })
     } catch (err) {
       const message = errorMessage(err)
       setError(message)
@@ -64,7 +69,7 @@ export default function Login() {
     try {
       const res = await auth.loginWithOtp({ identifier: identifier.trim(), code, device_name: 'web' })
       setAuth(res.token, res.data)
-      navigate('/')
+      navigate(next, { replace: true })
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -136,7 +141,7 @@ export default function Login() {
                   <Link to="/forgot-password" className="text-brand-600 hover:underline">
                     Forgot password?
                   </Link>
-                  <Link to="/register" className="text-brand-600 hover:underline">
+                  <Link to="/register" state={returnState(next)} className="text-brand-600 hover:underline">
                     Create account
                   </Link>
                 </div>
@@ -173,7 +178,7 @@ export default function Login() {
                   ) : (
                     <span />
                   )}
-                  <Link to="/register" className="text-brand-600 hover:underline">
+                  <Link to="/register" state={returnState(next)} className="text-brand-600 hover:underline">
                     Create account
                   </Link>
                 </div>

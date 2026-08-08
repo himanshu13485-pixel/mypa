@@ -106,7 +106,18 @@ class Meeting extends Model
 
     public function host(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'host_id');
+        /*
+         * Asks for hidden users back, as the participants relation does.
+         *
+         * Nothing should make a guest the host any more — both hand-overs
+         * refuse it — but meetings that already had one became unreadable
+         * rather than merely odd: the relation resolved to null behind the
+         * global scope and every read of that meeting died on it, taking the
+         * whole meetings list with it. A host is worth resolving whoever it
+         * turned out to be.
+         */
+        return $this->belongsTo(User::class, 'host_id')
+            ->withoutGlobalScope('withoutMeetingGuests');
     }
 
     /**

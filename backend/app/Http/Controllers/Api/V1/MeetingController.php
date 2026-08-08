@@ -233,18 +233,35 @@ class MeetingController extends Controller
         // a co-host, or failing that to whoever has been here longest, so the
         // room is never left with nobody able to moderate it.
         if ($meeting->host_id === $me->id) {
+            /*
+             * A guest cannot inherit a meeting.
+             *
+             * They are a row that exists for half an hour and is hidden from
+             * ordinary user queries, so handing them the meeting left it owned
+             * by somebody the host relation could not resolve: every later read
+             * of that meeting died on "Attempt to read property uuid on null",
+             * which took out the whole meetings list, not just this room. It is
+             * also simply wrong — the meeting outlives them, and they never had
+             * an account to own it with.
+             */
             $successor = $remaining
+                ->reject(fn ($u) => $u->isGuest())
                 ->sortBy(fn ($u) => [$u->pivot->role === 'cohost' ? 0 : 1, (string) $u->pivot->joined_at])
                 ->first();
 
-            $meeting->update(['host_id' => $successor->id]);
-            $meeting->participants()->updateExistingPivot($successor->id, ['role' => 'host']);
-            $this->tellRoom($meeting, $me, $me->name, 'role', [
-                'uuid' => $successor->uuid,
-                'role' => 'host',
-                'previous_host' => $me->uuid,
-                'auto' => true,
-            ]);
+            // Only guests left. Ownership stays where it is, so the meeting
+            // remains readable and the host still owns it if they come back;
+            // nobody in the room is given controls they should not have.
+            if ($successor !== null) {
+                $meeting->update(['host_id' => $successor->id]);
+                $meeting->participants()->updateExistingPivot($successor->id, ['role' => 'host']);
+                $this->tellRoom($meeting, $me, $me->name, 'role', [
+                    'uuid' => $successor->uuid,
+                    'role' => 'host',
+                    'previous_host' => $me->uuid,
+                    'auto' => true,
+                ]);
+            }
         }
 
         return response()->json(['message' => 'Left the meeting.']);
@@ -306,7 +323,20 @@ class MeetingController extends Controller
             'allow' => ['required', 'boolean'],
         ]);
 
-        $target = \App\Models\User::where('uuid', $data['user_uuid'])->firstOrFail();
+        /*
+         * Resolve the person from this meeting's own participants, not from
+         * User at large.
+         *
+         * A guest is a user row hidden behind a global scope, so the plain
+         * lookup this used to do could never find one: admitting a guest threw
+         * a 404 the client discarded, the knock came straight back on the next
+         * heartbeat, and the host clicked Admit over and over on somebody the
+         * server would not let in. Going through the relation asks for guests
+         * back — and confines the whole thing to people actually waiting here,
+         * rather than any uuid in the database.
+         */
+        $target = $meeting->participants()->where('users.uuid', $data['user_uuid'])->first();
+        abort_unless($target, 404, 'Nobody by that name is waiting for this meeting.');
         $meeting->participants()->syncWithoutDetaching([
             $target->id => ['status' => $data['allow'] ? 'admitted' : 'denied'],
         ]);
@@ -467,6 +497,9 @@ class MeetingController extends Controller
 
             case 'transfer_host':
                 abort_unless($meeting->host_id === $me->id, 403, 'Only the host can hand over the meeting.');
+                // Same reason the automatic hand-over refuses them: a guest is
+                // gone in half an hour and owns no account to keep it with.
+                abort_if($target->isGuest(), 422, 'A guest cannot be made the host — they have no Netvork account.');
                 $meeting->update(['host_id' => $target->id]);
                 $meeting->participants()->updateExistingPivot($target->id, ['role' => 'host']);
                 $meeting->participants()->updateExistingPivot($me->id, ['role' => 'cohost']);
@@ -745,7 +778,13 @@ class MeetingController extends Controller
             'status' => $meeting->wasNeverStarted() ? 'not_started' : $meeting->status,
             'scheduled_at' => $meeting->scheduled_at?->toIso8601String(),
             'started_at' => $meeting->started_at?->toIso8601String(),
-            'host' => ['uuid' => $meeting->host->uuid, 'name' => $meeting->host->name],
+            // Tolerates a host that cannot be resolved at all — a deleted
+            // account, say. One unreadable row must not cost the caller their
+            // whole list of meetings.
+            'host' => [
+                'uuid' => $meeting->host?->uuid,
+                'name' => $meeting->host?->name ?? 'Former host',
+            ],
             'is_host' => $meeting->host_id === $request->user()->id,
             'joined_count' => $meeting->joined_count ?? null,
             'ended_at' => $meeting->ended_at?->toIso8601String(),

@@ -17,7 +17,7 @@ import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
   AUDIO_CONSTRAINTS, VIDEO_CONSTRAINTS, applySpeaker, loadDeviceChoice, nextCamera, openCamera, openMic,
-  saveDeviceChoice, speakerSelectionSupported, swapTrack, testSpeaker, useDevices, useMicLevel,
+  saveDeviceChoice, senderFor, speakerSelectionSupported, swapTrack, testSpeaker, useDevices, useMicLevel,
   type DeviceChoice,
 } from '../lib/devices'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
@@ -334,11 +334,21 @@ export default function MeetingRoomPage() {
       ...(choice.cameraId ? { deviceId: { exact: choice.cameraId } } : {}),
     }
 
+    /*
+     * Join with the camera off and the camera stays shut.
+     *
+     * This used to open it either way and then set track.enabled = false,
+     * which stops the picture but holds the device — so somebody who turned
+     * their camera off in the lobby watched the light come on by itself the
+     * moment they were let in, next to a button still showing it as off.
+     */
+    const wantVideo = meeting?.type !== 'audio' && lobbyRef.current?.camOn !== false
+
     let stream: MediaStream
     try {
       stream = await navigator.mediaDevices.getUserMedia({
         audio,
-        video: meeting?.type !== 'audio' ? video : false,
+        video: wantVideo ? video : false,
       })
     } catch (err) {
       // Camera busy (another app/browser window) or missing: join with mic
@@ -352,11 +362,12 @@ export default function MeetingRoomPage() {
       }
     }
 
-    // Carry the lobby's mic/camera choice into the room.
+    // Carry the lobby's mic choice into the room. The microphone is left open
+    // and muted rather than released: unmuting has to be instant, and a track
+    // that is not enabled sends nothing.
     const wanted = lobbyRef.current
     if (wanted) {
       stream.getAudioTracks().forEach((t) => (t.enabled = wanted.micOn))
-      stream.getVideoTracks().forEach((t) => (t.enabled = wanted.camOn))
     }
 
     localStreamRef.current = stream
@@ -402,6 +413,18 @@ export default function MeetingRoomPage() {
 
       const stream = await ensureLocalStream()
       stream.getTracks().forEach((t) => pc.addTrack(t, stream))
+
+      /*
+       * A place for the camera, even when it is off.
+       *
+       * Joining with the camera off means there is no video track to add, and
+       * nothing here handles renegotiation — so without a transceiver reserved
+       * up front there would be no sender to put a camera into later, and
+       * turning it on mid-meeting would reach nobody.
+       */
+      if (meeting?.type !== 'audio' && !stream.getVideoTracks().length) {
+        pc.addTransceiver('video', { direction: 'sendrecv' })
+      }
 
       // Allow decent video bandwidth so 720p does not get crushed.
       pc.getSenders().forEach((sender) => {
@@ -456,7 +479,7 @@ export default function MeetingRoomPage() {
       }
       return pc
     },
-    [code, ensureLocalStream, restartIce],
+    [code, ensureLocalStream, restartIce, meeting?.type],
   )
 
   const removePeer = useCallback((peerUuid: string) => {
@@ -828,10 +851,17 @@ export default function MeetingRoomPage() {
   useEffect(() => {
     const bye = () => {
       if (!joinedRef.current) return
+      // Raw fetch, so the api client's interceptor is not here to swap a guest
+      // onto their own routes: without this a guest left on `Bearer null` and
+      // stayed in the room as a frozen tile until the reaper took them.
       const token = useAuthStore.getState().token
-      fetch(`/api/v1/meetings/${code}/leave`, {
+      const pass = token ? null : readGuestPass()
+      const path = pass ? `/api/v1/guest/meetings/${code}/leave` : `/api/v1/meetings/${code}/leave`
+      const bearer = token ?? pass?.token
+      if (!bearer) return
+      fetch(path, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        headers: { Authorization: `Bearer ${bearer}`, Accept: 'application/json' },
         keepalive: true,
       }).catch(() => undefined)
     }
@@ -917,12 +947,89 @@ export default function MeetingRoomPage() {
   }, [broadcastMedia])
 
   const setCameraEnabled = useCallback((on: boolean) => {
+    /*
+     * Nothing to enable: the camera was never opened, because it was off when
+     * this meeting was joined. Open it now and put it into the sender that was
+     * reserved for exactly this.
+     */
+    if (on && !localStreamRef.current?.getVideoTracks().length) {
+      void (async () => {
+        try {
+          const track = await openCamera({
+            deviceId: deviceChoice.cameraId,
+            facing: deviceChoice.facing,
+          })
+          cameraTrackRef.current = track
+          swapTrack(pcsRef.current.values(), localStreamRef.current, track)
+          track.enabled = true
+
+          // A background chosen before the camera went off is put back, rather
+          // than silently dropping to the bare camera on the way in.
+          const bg = bgChoiceRef.current
+          if (bg?.effect) {
+            try {
+              const pipeline = await createEffectTrack(track, bg.effect)
+              blurRef.current?.stop()
+              blurRef.current = pipeline
+              pcsRef.current.forEach((pc) => {
+                senderFor(pc, 'video')?.replaceTrack(pipeline.track).catch(() => undefined)
+              })
+              showSelf(new MediaStream([pipeline.track]))
+            } catch {
+              showSelf(localStreamRef.current)
+            }
+          } else if (localStreamRef.current) {
+            showSelf(localStreamRef.current)
+          }
+
+          myMediaRef.current = { ...myMediaRef.current, cam: true }
+          setCameraOff(false)
+          broadcastMedia()
+        } catch {
+          toastError('Could not start the camera — it may be in use by another app or tab.')
+        }
+      })()
+      return
+    }
+
+    /*
+     * Switching the camera off lets go of it, rather than muting it.
+     *
+     * Disabling a track stops the picture but holds the device, so the light
+     * stayed on for the rest of the meeting next to a button showing the
+     * camera as off. The sender is emptied rather than removed, so the slot
+     * survives for the camera to be put back into — nothing here renegotiates.
+     *
+     * Not while sharing a screen: what the sender carries then is the
+     * composite, which is drawn from the camera and would break under it. That
+     * camera goes when the share ends, or is released by this on the next
+     * press.
+     */
+    if (!on && !sharing && localStreamRef.current?.getVideoTracks().length) {
+      const stream = localStreamRef.current
+      blurRef.current?.stop()
+      blurRef.current = null
+      pcsRef.current.forEach((pc) => {
+        senderFor(pc, 'video')?.replaceTrack(null).catch(() => undefined)
+      })
+      stream.getVideoTracks().forEach((t) => {
+        t.stop()
+        stream.removeTrack(t)
+      })
+      cameraTrackRef.current = null
+      showSelf(stream)
+      myMediaRef.current = { ...myMediaRef.current, cam: false }
+      setCameraOff(true)
+      broadcastMedia()
+      return
+    }
+
     localStreamRef.current?.getVideoTracks().forEach((t) => (t.enabled = on))
     if (blurRef.current) blurRef.current.track.enabled = on
     myMediaRef.current = { ...myMediaRef.current, cam: on }
     setCameraOff(!on)
     broadcastMedia()
-  }, [broadcastMedia])
+  }, [broadcastMedia, deviceChoice.cameraId, deviceChoice.facing, sharing, showSelf, toastError])
 
   function forceMute(who: string) {
     setMicEnabled(false)
@@ -960,7 +1067,7 @@ export default function MeetingRoomPage() {
         blurRef.current = pipeline
         pipeline.track.enabled = !cameraOff
         pcsRef.current.forEach((pc) => {
-          const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+          const sender = senderFor(pc, 'video')
           sender?.replaceTrack(pipeline.track).catch(() => undefined)
         })
         showSelf(new MediaStream([pipeline.track]))
@@ -1005,6 +1112,26 @@ export default function MeetingRoomPage() {
       toast(res.message, 'success')
     } catch (err) {
       toastError(errorMessage(err))
+    }
+  }
+
+  /**
+   * Let somebody in, or turn them away.
+   *
+   * The row goes the moment it is clicked, because the host has decided and
+   * the answer should not wait on a round trip. But if the server refuses,
+   * that has to be said: this used to discard the error and put the row back
+   * on the next heartbeat, so admitting a guest — which the server was
+   * rejecting outright — looked like a click that simply did nothing, over
+   * and over.
+   */
+  const decide = async (who: { uuid: string; name: string }, allow: boolean) => {
+    setKnocks((ks) => ks.filter((x) => x.uuid !== who.uuid))
+    try {
+      await meetingsApi.admit(code, who.uuid, allow)
+    } catch (err) {
+      toastError(`Could not let ${who.name} in — ${errorMessage(err)}`)
+      setKnocks((ks) => (ks.some((x) => x.uuid === who.uuid) ? ks : [...ks, who]))
     }
   }
 
@@ -1093,7 +1220,7 @@ export default function MeetingRoomPage() {
         meetingsApi.signal(code, 'share', { on: true }, uuid).catch(() => undefined)
       })
       pcsRef.current.forEach((pc) => {
-        const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+        const sender = senderFor(pc, 'video')
         sender?.replaceTrack(track).catch(() => undefined)
       })
       showSelf(new MediaStream([track]))
@@ -1106,8 +1233,10 @@ export default function MeetingRoomPage() {
   const stopShare = () => {
     const camera = blurRef.current?.track ?? cameraTrackRef.current
     pcsRef.current.forEach((pc) => {
-      const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
-      if (camera) sender?.replaceTrack(camera).catch(() => undefined)
+      // Emptied when there is no camera to go back to, rather than left
+      // holding the composite that is about to be stopped — otherwise peers
+      // keep the last frame of the shared screen frozen on the tile.
+      senderFor(pc, 'video')?.replaceTrack(camera ?? null).catch(() => undefined)
     })
     sharePipeRef.current?.stop() // stop the compositor before its inputs go
     sharePipeRef.current = null
@@ -1222,7 +1351,7 @@ export default function MeetingRoomPage() {
     const restore = () => {
       const camera = cameraTrackRef.current
       pcsRef.current.forEach((pc) => {
-        const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+        const sender = senderFor(pc, 'video')
         if (camera) sender?.replaceTrack(camera).catch(() => undefined)
       })
       showSelf(localStreamRef.current)
@@ -1244,7 +1373,7 @@ export default function MeetingRoomPage() {
       blurRef.current = pipeline
       pipeline.track.enabled = !cameraOff
       pcsRef.current.forEach((pc) => {
-        const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+        const sender = senderFor(pc, 'video')
         sender?.replaceTrack(pipeline.track).catch(() => undefined)
       })
       showSelf(new MediaStream([pipeline.track]))
@@ -1271,6 +1400,11 @@ export default function MeetingRoomPage() {
 
   const downloadChatFile = async (fileUuid: string, name: string) => {
     const token = useAuthStore.getState().token
+    // Files are the one part of the chat a guest does not get — there is no
+    // guest route for them. Say which it is, rather than "Download failed."
+    if (!token) {
+      return toastError('Files in a meeting need a Netvork account. Ask whoever shared it to send it another way.')
+    }
     const res = await fetch(meetingsApi.chatFileUrl(code, fileUuid), { headers: { Authorization: `Bearer ${token}` } })
     if (!res.ok) return toastError('Download failed.')
     const blob = await res.blob()
@@ -1696,23 +1830,8 @@ export default function MeetingRoomPage() {
               {knocks.map((k) => (
                 <div key={k.uuid} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs dark:border-amber-900 dark:bg-amber-950">
                   <span className="font-medium">{k.name}</span> wants to join
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      meetingsApi.admit(code, k.uuid, true).catch(() => undefined)
-                      setKnocks((ks) => ks.filter((x) => x.uuid !== k.uuid))
-                    }}
-                  >
-                    Admit
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                      meetingsApi.admit(code, k.uuid, false).catch(() => undefined)
-                      setKnocks((ks) => ks.filter((x) => x.uuid !== k.uuid))
-                    }}
-                  >
+                  <Button size="sm" onClick={() => void decide(k, true)}>Admit</Button>
+                  <Button size="sm" variant="secondary" onClick={() => void decide(k, false)}>
                     Deny
                   </Button>
                 </div>
@@ -1951,9 +2070,14 @@ export default function MeetingRoomPage() {
               onChange={(e) => setChatDraft(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && sendChat()}
             />
-            <Button size="sm" variant="secondary" title="Share a file or image (max 10 MB)" onClick={() => chatFileRef.current?.click()}>
-              <Paperclip className="size-3.5" />
-            </Button>
+            {/* Sharing a file is a members-only part of the panel — there is
+                no guest route behind it — so a guest is not offered a button
+                that could only fail. Typing still works for everybody. */}
+            {!isGuest && (
+              <Button size="sm" variant="secondary" title="Share a file or image (max 10 MB)" onClick={() => chatFileRef.current?.click()}>
+                <Paperclip className="size-3.5" />
+              </Button>
+            )}
             <input
               ref={chatFileRef}
               type="file"

@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation, useParams } from 'react-router-dom'
 import { isStaff, useAuthStore } from '../stores/auth'
-import { guestRouteFor, readGuestPass } from '../lib/guestPass'
+import { guestPassExpired, guestRouteFor, readGuestPass } from '../lib/guestPass'
+import { returnState } from '../lib/returnTo'
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -18,8 +19,17 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 
 
     // Visitors opening the site root see the public landing page;
-    // deep links into the app still go to sign-in.
-    return <Navigate to={location.pathname === '/' ? '/home' : '/login'} replace />
+    // deep links into the app still go to sign-in — and are remembered, so
+    // signing in finishes where they were going rather than at the dashboard.
+    if (location.pathname === '/') return <Navigate to="/home" replace />
+
+    return (
+      <Navigate
+        to="/login"
+        state={returnState(`${location.pathname}${location.search}`)}
+        replace
+      />
+    )
   }
 
   // Holding a token is not the same as owning the address it was issued for.
@@ -29,6 +39,31 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   // from the server so this matches the API's own rule exactly.
   if (user?.email_verification_required) {
     return <Navigate to="/verify-email" replace />
+  }
+
+  return children
+}
+
+/**
+ * The guest room, for someone actually holding a pass to it.
+ *
+ * The pass lives in sessionStorage, so it belongs to one tab and one sitting:
+ * a second tab, a shared or bookmarked /guest/room URL, and a sitting resumed
+ * after the half hour ran out all arrive here with nothing. Unguarded, the room
+ * asked to join anyway, the request went to the members-only endpoint with no
+ * credentials at all, and the answer was a bare "Unauthenticated." on a dead
+ * end. Send them to the door instead — the password is all they need.
+ */
+export function RequireGuestPass({ children }: { children: ReactNode }) {
+  const { code } = useParams()
+  const token = useAuthStore((s) => s.token)
+  const pass = readGuestPass()
+
+  // Signed in already: the ordinary room is theirs, with no half-hour limit.
+  if (token) return <Navigate to={`/meetings/room/${code}`} replace />
+
+  if (!pass || pass.code !== code || guestPassExpired(pass)) {
+    return <Navigate to={`/join/${code}`} replace />
   }
 
   return children

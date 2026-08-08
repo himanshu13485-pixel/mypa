@@ -27,6 +27,20 @@ api.interceptors.request.use((config) => {
   if (pass && config.url?.startsWith(`/meetings/${pass.code}`)) {
     config.headers.Authorization = `Bearer ${pass.token}`
     config.url = `/guest${config.url}`
+    return config
+  }
+
+  /*
+   * The handful of endpoints a guest needs that are not about one meeting.
+   *
+   * These keep their own path — there is no guest twin to point at — and are
+   * resolved server-side from the pass instead. The ICE servers are the whole
+   * list for now, and they are not optional: a peer connection cannot be built
+   * without them, so a guest missing this saw the room fail the moment
+   * somebody else was in it.
+   */
+  if (pass && config.url === '/calls/config') {
+    config.headers.Authorization = `Bearer ${pass.token}`
   }
 
   return config

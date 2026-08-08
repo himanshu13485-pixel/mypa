@@ -61,10 +61,10 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
      * What a guest may do, and nothing else.
      *
      * Everything a participant needs to be in a room — join, leave, keep
-     * presence, signal, rename themselves, react, read the room — and none of
-     * what a host needs. Ending the meeting, admitting people, host actions,
-     * approval settings and the file endpoints are all absent on purpose, so a
-     * guest cannot reach them even if they know the URL.
+     * presence, signal, rename themselves, react, read the room, say something
+     * — and none of what a host needs. Ending the meeting, admitting people,
+     * host actions, approval settings and the file endpoints are all absent on
+     * purpose, so a guest cannot reach them even if they know the URL.
      */
     Route::middleware('guest.meeting')->group(function () {
         Route::get('/guest/meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'show']);
@@ -75,6 +75,18 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
             ->middleware('throttle:240,1');
         Route::post('/guest/meetings/{meeting}/name', [\App\Http\Controllers\Api\V1\MeetingController::class, 'rename']);
         Route::post('/guest/meetings/{meeting}/react', [\App\Http\Controllers\Api\V1\MeetingController::class, 'react']);
+        /*
+         * Saying something is part of being in the room, and the panel is
+         * already there for a guest — without this every message they sent
+         * failed on a route that did not exist. The handler is the members'
+         * one unchanged: it lets nobody chat who has not joined this meeting,
+         * and a pass is only ever good for one meeting.
+         *
+         * Sharing a file stays out, as the note above says: that is the one
+         * part of the panel a guest does not get.
+         */
+        Route::post('/guest/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chat'])
+            ->middleware('throttle:60,1');
         Route::get('/guest/meetings/{meeting}/participants', [\App\Http\Controllers\Api\V1\MeetingController::class, 'participants']);
     });
 
@@ -302,7 +314,18 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
         Route::get('/conversations/{conversation}/attachments/{attachmentId}', [MessageController::class, 'downloadAttachment']);
 
         // Calls
-        Route::get('/calls/config', [CallController::class, 'config']);
+        /*
+         * The ICE servers, which a meeting guest needs as much as a member —
+         * a peer connection is built from them, so without this a guest who
+         * had just been admitted got "Unauthenticated." the moment there was
+         * somebody to connect to, and never saw the room. It only showed up
+         * on admission because that is when the first peer appears.
+         *
+         * Resolved, not required: a signed-in member carries on to Sanctum
+         * untouched, and anyone with neither is still turned away.
+         */
+        Route::get('/calls/config', [CallController::class, 'config'])
+            ->middleware(\App\Http\Middleware\ResolveMeetingGuest::class);
         Route::get('/calls/history', [CallController::class, 'history']);
         Route::post('/conversations/{conversation}/calls', [CallController::class, 'initiate']);
         Route::post('/calls/{call}/respond', [CallController::class, 'respond']);

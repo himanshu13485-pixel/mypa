@@ -54,6 +54,18 @@ export default function MeetingLobby({
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  /*
+   * What is currently switched on, readable from the effects below without
+   * making them re-run. Reopening on a device change must not turn a camera
+   * back on that was deliberately switched off, and the reconcile below must
+   * not fire again every time a device is picked.
+   */
+  const micOnRef = useRef(micOn)
+  const camOnRef = useRef(camOn)
+  const choiceRef = useRef(choice)
+  micOnRef.current = micOn
+  camOnRef.current = camOn
+  choiceRef.current = choice
   const { cameras, mics, speakers, refresh } = useDevices()
   // Same reasoning as the call window: a phone has two cameras whether or not
   // enumerateDevices has got round to saying so.
@@ -67,10 +79,23 @@ export default function MeetingLobby({
 
     const open = async () => {
       setMediaError(null)
+      const wantVideo = camOnRef.current && !audioOnly
+
+      // Nothing switched on: there is no preview to open, and asking for one
+      // would light up the very devices that were just turned off.
+      if (!micOnRef.current && !wantVideo) {
+        streamRef.current?.getTracks().forEach((t) => t.stop())
+        streamRef.current = new MediaStream()
+        setPreview(null)
+        return
+      }
+
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { ...AUDIO_CONSTRAINTS, ...(choice.micId ? { deviceId: { exact: choice.micId } } : {}) },
-          video: audioOnly
+          audio: micOnRef.current
+            ? { ...AUDIO_CONSTRAINTS, ...(choice.micId ? { deviceId: { exact: choice.micId } } : {}) }
+            : false,
+          video: !wantVideo
             ? false
             // deviceId is exact and wins; facingMode is what a phone has, and
             // without it here the reverse button below would change nothing.
@@ -111,13 +136,75 @@ export default function MeetingLobby({
   // Release the preview when we leave the lobby, either way.
   useEffect(() => () => streamRef.current?.getTracks().forEach((t) => t.stop()), [])
 
+  /*
+   * Turning a device off here releases it, rather than muting it.
+   *
+   * This used to set track.enabled = false. That stops the data but holds the
+   * device open, so the camera light stayed on next to a preview reading
+   * "Camera is off", and the microphone was still live — for however long
+   * somebody sat in the lobby before pressing Join. Off should mean off.
+   *
+   * The other track is left alone, so muting does not make the camera blink.
+   */
   useEffect(() => {
-    streamRef.current?.getAudioTracks().forEach((t) => (t.enabled = micOn))
-  }, [micOn, preview])
+    const stream = streamRef.current
+    if (!stream) return
+    let cancelled = false
 
-  useEffect(() => {
-    streamRef.current?.getVideoTracks().forEach((t) => (t.enabled = camOn))
-  }, [camOn, preview])
+    const wantVideo = camOn && !audioOnly
+    const release = (tracks: MediaStreamTrack[]) => tracks.forEach((t) => {
+      t.stop()
+      stream.removeTrack(t)
+    })
+
+    const sync = async () => {
+      if (!micOn) release(stream.getAudioTracks())
+      if (!wantVideo) release(stream.getVideoTracks())
+
+      // Asked for again: the device has to be reopened, since the old track
+      // was stopped and a stopped track never comes back.
+      const picked = choiceRef.current
+      const need: MediaStreamConstraints = {}
+      if (micOn && !stream.getAudioTracks().length) {
+        need.audio = { ...AUDIO_CONSTRAINTS, ...(picked.micId ? { deviceId: { exact: picked.micId } } : {}) }
+      }
+      if (wantVideo && !stream.getVideoTracks().length) {
+        need.video = {
+          ...VIDEO_CONSTRAINTS,
+          ...(picked.cameraId
+            ? { deviceId: { exact: picked.cameraId } }
+            : picked.facing
+              ? { facingMode: { ideal: picked.facing } }
+              : {}),
+        }
+      }
+
+      if (need.audio || need.video) {
+        try {
+          const extra = await navigator.mediaDevices.getUserMedia(need)
+          if (cancelled || streamRef.current !== stream) {
+            extra.getTracks().forEach((t) => t.stop())
+            return
+          }
+          extra.getTracks().forEach((t) => stream.addTrack(t))
+        } catch {
+          if (!cancelled) setMediaError('Camera or microphone is busy — close any other app or tab using it.')
+          return
+        }
+      }
+
+      if (cancelled) return
+      if (videoRef.current) videoRef.current.srcObject = stream
+      // A fresh handle so the level meter and anything else watching the
+      // preview notice that its tracks changed.
+      setPreview(new MediaStream(stream.getTracks()))
+    }
+
+    void sync()
+    return () => {
+      cancelled = true
+    }
+  }, [micOn, camOn, audioOnly])
 
   const pick = (patch: DeviceChoice) => setChoice(saveDeviceChoice(patch))
 

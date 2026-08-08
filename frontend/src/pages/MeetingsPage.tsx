@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, Copy, LogIn, Trash2, Video } from 'lucide-react'
+import { Calendar, Copy, KeyRound, LogIn, Trash2, Video } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
@@ -23,7 +23,7 @@ export function meetingLink(code: string): string {
 
 export default function MeetingsPage() {
   const { toast, toastError } = useToast()
-  const { confirm } = usePrompt()
+  const { ask, confirm } = usePrompt()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [joinCode, setJoinCode] = useState('')
@@ -78,13 +78,77 @@ export default function MeetingsPage() {
     }
   }
 
+  /*
+   * The password is the guest switch, and it used to live inside the room
+   * only — so a host who scheduled a meeting and closed the dialog had to
+   * start the meeting to find out whether outsiders could get in, or to let
+   * them. It belongs here, next to the link it governs.
+   */
+  const changePasscode = async (m: MeetingItem) => {
+    const next = await ask({
+      title: m.has_passcode ? 'Change the meeting password' : 'Add a meeting password',
+      message:
+        'Anyone without a Netvork account is asked for this on the way in, along with their name, '
+        + 'and stays 30 minutes. Signed-in members never need it. 4–12 letters or digits.',
+      value: m.passcode ?? '',
+      placeholder: 'e.g. open1234',
+      actionLabel: 'Save',
+    })
+    if (next === null) return
+
+    const clean = next.replace(/[^a-zA-Z0-9]/g, '')
+    if (clean.length < 4) {
+      toastError('A password needs at least 4 letters or digits.')
+      return
+    }
+
+    try {
+      const res = await meetingsApi.setPasscode(m.code, clean)
+      toast(res.message, 'success')
+      queryClient.invalidateQueries({ queryKey: ['meetings'] })
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
+  }
+
+  const clearPasscode = async (m: MeetingItem) => {
+    const sure = await confirm({
+      title: 'Remove the password?',
+      message: 'Anyone without a Netvork account will no longer be able to join with the link. '
+        + 'People already in the meeting stay.',
+      actionLabel: 'Remove it',
+      danger: true,
+    })
+    if (!sure) return
+
+    try {
+      const res = await meetingsApi.setPasscode(m.code, null)
+      toast(res.message, 'success')
+      queryClient.invalidateQueries({ queryKey: ['meetings'] })
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
+  }
+
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const copyLink = (m: MeetingItem) => {
+    /*
+     * The link is only half of what a guest needs, and it is the half that
+     * gets sent. The password stays out of the clipboard on purpose — the two
+     * together in one message let anyone who sees it in — so say it instead.
+     */
+    const copied = () => {
+      setCopiedCode(m.code)
+      setTimeout(() => setCopiedCode(null), 2000)
+      if (m.has_passcode && m.passcode) {
+        toast(`Link copied. Guests also need the password ${m.passcode} — send it separately.`, 'success')
+      } else if (!m.has_passcode && (m.can_moderate ?? m.is_host)) {
+        toast('Link copied. It works for signed-in Netvork members only — add a password to let guests in.', 'success')
+      }
+    }
+
     navigator.clipboard.writeText(meetingLink(m.code)).then(
-      () => {
-        setCopiedCode(m.code)
-        setTimeout(() => setCopiedCode(null), 2000)
-      },
+      copied,
       () => prompt('Copy this link:', meetingLink(m.code)),
     )
   }
@@ -162,6 +226,29 @@ export default function MeetingsPage() {
                     {m.started_at && `Held ${format(new Date(m.started_at), 'd MMM, HH:mm')}`}
                     {m.duration_seconds != null && ` · lasted ${Math.max(1, Math.round(m.duration_seconds / 60))} min`}
                     {!!m.participants?.length && ` · ${m.participants.length} attended: ${m.participants.join(', ')}`}
+                  </p>
+                )}
+                {/* Who this link actually works for, and the one control that
+                    changes the answer. Moderators only: nobody else may set it,
+                    and nobody else is shown what it is. */}
+                {(m.can_moderate ?? m.is_host) && m.status !== 'ended' && (
+                  <p className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
+                    <span className="inline-flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                      <KeyRound className="size-3" />
+                      {m.has_passcode ? (
+                        <>Guests: <span className="select-all font-mono">{m.passcode}</span></>
+                      ) : (
+                        'Members only'
+                      )}
+                    </span>
+                    <button className="text-brand-600 hover:underline" onClick={() => void changePasscode(m)}>
+                      {m.has_passcode ? 'change' : 'add a password'}
+                    </button>
+                    {m.has_passcode && (
+                      <button className="text-slate-400 hover:text-red-600" onClick={() => void clearPasscode(m)}>
+                        remove
+                      </button>
+                    )}
                   </p>
                 )}
               </div>

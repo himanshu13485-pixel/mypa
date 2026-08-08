@@ -26,6 +26,22 @@ return Application::configure(basePath: dirname(__DIR__))
         // terminator: trimming it makes Chrome reject the whole offer with
         // "Invalid SDP line", so WebRTC never connects between browsers.
         $middleware->trimStrings(except: ['payload.sdp', 'sdp']);
+        /*
+         * Keep the guest resolver in front of auth:sanctum.
+         *
+         * Listing it first in withBroadcasting() is not enough. Laravel sorts
+         * every route's middleware by $middlewarePriority before running it,
+         * and Authenticate sits above SubstituteBindings in that list — so on
+         * the broadcasting route it was hoisted past this middleware, which
+         * carries no priority of its own, and ran first. Sanctum then saw a
+         * guest pass it does not issue and answered "Unauthenticated.", so no
+         * guest could authorise their channel and no offer or answer ever
+         * reached them. route:list shows the unsorted order and looked right.
+         */
+        $middleware->prependToPriorityList(
+            \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            \App\Http\Middleware\ResolveMeetingGuest::class,
+        );
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureRole::class,
             'active' => \App\Http\Middleware\EnsureActiveUser::class,
