@@ -460,6 +460,8 @@ export const meetings = {
         | { waiting: true }
     }>(`/meetings/${code}/join`, opts).then((r) => r.data.data),
   leave: (code: string) => api.post(`/meetings/${code}/leave`),
+  /** Remove it from the list for good — host only, and not while it is running. */
+  remove: (code: string) => api.delete<{ message: string }>(`/meetings/${code}`).then((r) => r.data),
   heartbeat: (code: string) =>
     api.post<{ data: import('../types').MeetingHeartbeat }>(`/meetings/${code}/heartbeat`).then((r) => r.data.data),
   hostAction: (code: string, action: import('../types').MeetingHostAction, userUuid?: string) =>

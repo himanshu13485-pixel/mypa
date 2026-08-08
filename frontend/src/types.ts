@@ -660,7 +660,12 @@ export interface MeetingItem {
   code: string
   title?: string | null
   type: 'audio' | 'video'
-  status: 'scheduled' | 'active' | 'ended'
+  /**
+   * 'not_started' is derived, not stored: a meeting with no time set was never
+   * scheduled for anything, it was just made. The column defaults to
+   * 'scheduled' the moment the row exists, which is not the same claim.
+   */
+  status: 'not_started' | 'scheduled' | 'active' | 'ended'
   scheduled_at?: string | null
   started_at?: string | null
   host: { uuid: string; name: string }

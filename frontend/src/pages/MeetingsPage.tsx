@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, Copy, LogIn, Video } from 'lucide-react'
+import { Calendar, Copy, LogIn, Trash2, Video } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
+import { usePrompt } from '../components/Prompt'
 import type { MeetingItem } from '../types'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, Spinner,
@@ -21,7 +22,8 @@ export function meetingLink(code: string): string {
 }
 
 export default function MeetingsPage() {
-  const { toastError } = useToast()
+  const { toast, toastError } = useToast()
+  const { confirm } = usePrompt()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [joinCode, setJoinCode] = useState('')
@@ -50,6 +52,30 @@ export default function MeetingsPage() {
     const code = fromLink ? fromLink[0] : raw.replace(/[^a-z-]/g, '')
     if (!code) return
     navigate(`/meetings/room/${code}`)
+  }
+
+  const [removing, setRemoving] = useState<string | null>(null)
+  const remove = async (m: MeetingItem) => {
+    const sure = await confirm({
+      title: `Delete ${m.title || 'this meeting'}?`,
+      message: m.status === 'ended'
+        ? 'The record of who attended goes too, along with anything shared in its chat.'
+        : 'The invite link stops working for everyone you sent it to.',
+      actionLabel: 'Delete',
+      danger: true,
+    })
+    if (!sure) return
+
+    setRemoving(m.code)
+    try {
+      const res = await meetingsApi.remove(m.code)
+      toast(res.message, 'success')
+      queryClient.invalidateQueries({ queryKey: ['meetings'] })
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setRemoving(null)
+    }
   }
 
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
@@ -142,6 +168,19 @@ export default function MeetingsPage() {
               {/* Their own row on a phone. Beside the title the three of them
                   squeezed it to three wrapped words down the left. */}
               <div className="flex w-full justify-end gap-1.5 sm:w-auto">
+                {/* Nothing could be removed before, so a meeting made and then
+                    not used sat here for ever. */}
+                {m.is_host && m.status !== 'active' && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    title="Delete this meeting"
+                    disabled={removing === m.code}
+                    onClick={() => void remove(m)}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </Button>
+                )}
                 <Button size="sm" variant="secondary" title="Copy invite link" onClick={() => copyLink(m)}>
                   <Copy className="size-3.5" /> {copiedCode === m.code ? 'Copied ✓' : 'Link'}
                 </Button>

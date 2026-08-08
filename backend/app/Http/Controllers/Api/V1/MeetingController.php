@@ -250,6 +250,33 @@ class MeetingController extends Controller
         return response()->json(['message' => 'Left the meeting.']);
     }
 
+    /**
+     * Remove a meeting from the list for good.
+     *
+     * There was no way to do this, so a meeting created and then not used —
+     * one press of "New meeting" that was backed out of, a duplicate, a
+     * mistake — stayed in the list for ever with nothing to be done about it.
+     * Ending a meeting is not the same as never having wanted it.
+     */
+    public function destroy(Request $request, Meeting $meeting): JsonResponse
+    {
+        abort_unless($meeting->host_id === $request->user()->id, 403, 'Only the host can delete a meeting.');
+        abort_if(
+            $meeting->status === 'active',
+            409,
+            'This meeting is running. End it first, then delete it.',
+        );
+
+        // Chat files are on disk, not just in the database: dropping the rows
+        // alone would leave the bytes behind for ever.
+        foreach ($meeting->files as $file) {
+            \Illuminate\Support\Facades\Storage::disk('local')->delete($file->path);
+        }
+        $meeting->delete();
+
+        return response()->json(['message' => 'Meeting deleted.']);
+    }
+
     /** Host ends the meeting for everyone. */
     public function end(Request $request, Meeting $meeting): JsonResponse
     {
@@ -711,7 +738,11 @@ class MeetingController extends Controller
             'spotlight_uuid' => $meeting->spotlight_uuid,
             'my_role' => $myRole,
             'can_moderate' => $canModerate,
-            'status' => $meeting->status,
+            // 'scheduled' is the column default, so it arrives the instant a
+            // row exists and said nothing about whether a time was ever set.
+            // A meeting with no time was not scheduled — it is just made and
+            // waiting, and the list should say so.
+            'status' => $meeting->wasNeverStarted() ? 'not_started' : $meeting->status,
             'scheduled_at' => $meeting->scheduled_at?->toIso8601String(),
             'started_at' => $meeting->started_at?->toIso8601String(),
             'host' => ['uuid' => $meeting->host->uuid, 'name' => $meeting->host->name],

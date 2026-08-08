@@ -49,12 +49,39 @@ class ReapStaleMeetings extends Command
 
         [$callsDropped, $callsEnded] = $this->reapCalls();
         $guests = $this->reapGuests();
+        $abandoned = $this->reapAbandoned();
 
         $this->info("Dropped {$dropped} stale participant(s); ended {$ended} empty meeting(s).");
         $this->info("Calls: dropped {$callsDropped}; ended {$callsEnded}.");
         $this->info("Guests: removed {$guests} expired pass(es).");
+        $this->info("Removed {$abandoned} abandoned meeting(s) nobody ever opened.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Delete meetings that were made and never used.
+     *
+     * Pressing "New meeting" creates the room before the lobby is shown, so
+     * anyone who then changes their mind — closes the tab, presses Cancel —
+     * leaves a row behind that nothing ever cleaned up and, until now, nothing
+     * could delete. Over weeks the list stops being your meetings and becomes
+     * a log of every time you tapped the button.
+     *
+     * Deliberately narrow. Only rooms with no title, no time, no password and
+     * nobody who ever joined, and only after a day — long enough that a link
+     * shared for later still works, and anything you took the trouble to name
+     * or set a time on is never touched.
+     */
+    protected function reapAbandoned(): int
+    {
+        $meetings = Meeting::abandoned(now()->subDay())->limit(500)->get();
+
+        foreach ($meetings as $meeting) {
+            $meeting->delete();
+        }
+
+        return $meetings->count();
     }
 
     /**

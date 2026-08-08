@@ -72,9 +72,50 @@ class Meeting extends Model
         return (bool) $this->passcode;
     }
 
+    /**
+     * Was this meeting ever meant to happen at a particular time?
+     *
+     * The status column defaults to 'scheduled' the moment a row exists, which
+     * made every meeting anyone created — including one press of the instant
+     * "New meeting" button that was then backed out of — sit in the list
+     * labelled Scheduled, as if a time had been set for it. Nothing had been
+     * scheduled at all. This tells the two apart so the list can say which.
+     */
+    public function wasNeverStarted(): bool
+    {
+        return $this->status === 'scheduled' && $this->scheduled_at === null && $this->started_at === null;
+    }
+
+    /**
+     * A meeting nobody used and nobody will: made by the instant button, given
+     * no title, no time, no password, and never joined. The reaper deletes
+     * these after a day so the list is what you meant to keep, not a log of
+     * every button press. Anything with a title or a time is deliberate and is
+     * never touched.
+     */
+    public function scopeAbandoned($query, \Illuminate\Support\Carbon $before)
+    {
+        return $query->where('status', 'scheduled')
+            ->whereNull('scheduled_at')
+            ->whereNull('started_at')
+            ->whereNull('title')
+            ->whereNull('passcode')
+            ->where('created_at', '<', $before)
+            ->whereDoesntHave('participants');
+    }
+
     public function host(): BelongsTo
     {
         return $this->belongsTo(User::class, 'host_id');
+    }
+
+    /**
+     * Files shared in the meeting chat. The rows cascade when the meeting goes;
+     * the bytes on disk do not, so deleting a meeting has to remove them itself.
+     */
+    public function files(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(MeetingFile::class);
     }
 
     public function participants(): BelongsToMany
