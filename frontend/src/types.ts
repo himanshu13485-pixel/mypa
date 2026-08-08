@@ -13,6 +13,8 @@ export interface User {
   roles?: string[]
   profile?: {
     photo_path?: string | null
+    /** A picked illustration ("f3", "m1"), used when there is no photo. */
+    avatar?: string | null
     date_of_birth?: string | null
     gender?: string | null
     country?: string | null
@@ -216,7 +218,7 @@ export interface Connection {
   status: 'pending' | 'accepted' | 'declined'
   message?: string | null
   direction: 'sent' | 'received'
-  user: { uuid: string; name: string; app_id?: string; photo_path?: string | null } | null
+  user: { uuid: string; name: string; app_id?: string; photo_path?: string | null; avatar?: string | null } | null
   responded_at?: string | null
   created_at: string
 }
@@ -364,6 +366,7 @@ export interface GroupItem {
     name: string
     app_id?: string
     photo_path?: string | null
+    avatar?: string | null
     role: string
     joined_at?: string
   }[]
@@ -515,7 +518,7 @@ export interface ConversationItem {
   type: 'direct' | 'group'
   name: string
   group_uuid?: string | null
-  other_user?: { uuid: string; username?: string | null; app_id?: string; photo_path?: string | null } | null
+  other_user?: { uuid: string; username?: string | null; app_id?: string; photo_path?: string | null; avatar?: string | null } | null
   members_count: number
   unread_count: number
   is_muted: boolean
@@ -645,6 +648,7 @@ export type MeetingRole = 'host' | 'cohost' | 'participant'
 export interface MeetingParticipant {
   uuid: string
   name: string
+  avatar?: string | null
   role: MeetingRole
   mic_on: boolean
   cam_on: boolean

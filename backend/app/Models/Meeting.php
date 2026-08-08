@@ -84,6 +84,9 @@ class Meeting extends Model
     {
         return $this->participants()
             ->wherePivot('status', 'joined')
+            // The avatar comes back with the row rather than one query per
+            // person: this runs on every heartbeat, for everyone in the room.
+            ->with('profile:user_id,avatar')
             ->when($exceptUserId, fn ($q) => $q->where('users.id', '!=', $exceptUserId))
             ->get();
     }

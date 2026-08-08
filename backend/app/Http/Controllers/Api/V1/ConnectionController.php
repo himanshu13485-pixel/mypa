@@ -48,7 +48,7 @@ class ConnectionController extends Controller
             ->orWhere('username', 'like', "%{$q}%")
             ->orWhere('email', 'like', "%{$q}%");
 
-        $connections = \App\Models\User::with(['settings', 'appId'])
+        $connections = \App\Models\User::with(['settings', 'appId', 'profile'])
             ->whereIn('id', $connectionIds)
             ->where($match)
             ->orderBy('name')
@@ -59,7 +59,7 @@ class ConnectionController extends Controller
         // list, so the people you already know still sort first.
         $others = collect();
         if ($connections->count() < $limit) {
-            $others = \App\Models\User::with(['settings', 'appId'])
+            $others = \App\Models\User::with(['settings', 'appId', 'profile'])
                 ->where('status', 'active')
                 ->whereNotIn('id', $connectionIds->merge([$me->id]))
                 ->where(fn ($w) => $w->where(fn ($n) => $match($n))
@@ -107,6 +107,14 @@ class ConnectionController extends Controller
             // are not connected to are identified by username and App ID.
             'email' => $connected ? $u->email : null,
             'app_id' => $u->appId?->app_id,
+            // An avatar stands in for the profile photo, so it answers to the
+            // same privacy setting rather than being visible to everyone.
+            'avatar' => $u->settings?->privacyValue('profile_photo_visibility') === 'nobody'
+                ? null
+                : $u->profile?->avatar,
+            'photo_path' => $u->settings?->privacyValue('profile_photo_visibility') === 'nobody'
+                ? null
+                : $u->profile?->photo_path,
             'connected' => $connected,
         ];
     }

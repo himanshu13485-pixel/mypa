@@ -147,7 +147,7 @@ class ConversationController extends Controller
         abort_unless($conversation->hasMember($request->user()), 403);
 
         $members = $conversation->members()
-            ->with('profile:user_id,photo_path')
+            ->with('profile:user_id,photo_path,avatar')
             ->orderBy('name')
             ->get()
             ->map(fn ($u) => [
@@ -156,6 +156,7 @@ class ConversationController extends Controller
                 'username' => $u->username,
                 'is_me' => $u->id === $request->user()->id,
                 'photo_path' => $u->profile?->photo_path,
+                'avatar' => $u->profile?->avatar,
             ]);
 
         return response()->json(['data' => $members]);
@@ -205,6 +206,7 @@ class ConversationController extends Controller
                 'username' => $other->username,
                 'app_id' => $other->appId?->app_id,
                 'photo_path' => $other->profile?->photo_path,
+                'avatar' => $other->profile?->avatar,
                 'last_seen_visible' => $lastSeenVisible,
                 'online_visible' => $onlineVisible,
             ] : null,

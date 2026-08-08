@@ -6,6 +6,7 @@ import { clsx } from 'clsx'
 import type { MeetingHostAction, MeetingParticipant } from '../types'
 import type { PeerStats, Quality } from '../lib/netQuality'
 import { Button } from './ui'
+import { Avatar } from '../lib/avatars'
 
 const QUALITY_COLOR: Record<Quality, string> = {
   good: 'text-emerald-500',
@@ -96,9 +97,7 @@ export default function ParticipantsPanel({
 
           return (
             <li key={p.uuid} className="relative flex items-center gap-2 px-3 py-2 text-sm">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold text-white">
-                {p.name.charAt(0).toUpperCase()}
-              </span>
+              <Avatar name={p.name} avatar={p.avatar} size={30} />
 
               <span className="min-w-0 flex-1 truncate">
                 {p.name}{isMe && <span className="text-slate-400"> (you)</span>}

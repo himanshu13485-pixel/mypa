@@ -23,6 +23,7 @@ class ConnectionResource extends JsonResource
                 'username' => $other->username,
                 'app_id' => $other->appId?->app_id,
                 'photo_path' => $other->profile?->photo_path,
+                'avatar' => $other->profile?->avatar,
             ] : null,
             'responded_at' => $this->responded_at,
             'created_at' => $this->created_at,

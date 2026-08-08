@@ -73,6 +73,7 @@ class GroupController extends Controller
                     'name' => $u->name,
                     'app_id' => $u->appId?->app_id,
                     'photo_path' => $u->profile?->photo_path,
+                    'avatar' => $u->profile?->avatar,
                     'role' => $u->pivot->role,
                     'joined_at' => $u->pivot->created_at,
                 ]),

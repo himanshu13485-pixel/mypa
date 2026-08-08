@@ -23,6 +23,8 @@ class ProfileController extends Controller
             'mobile' => ['sometimes', 'nullable', 'string', 'max:32'],
             'date_of_birth' => ['sometimes', 'nullable', 'date', 'before:today'],
             'gender' => ['sometimes', 'nullable', 'string', 'max:32'],
+            // One of the illustrations the client draws, or null for initials.
+            'avatar' => ['sometimes', 'nullable', 'string', 'regex:/^[fmn][1-9]$/'],
             'country' => ['sometimes', 'nullable', 'string', 'max:64'],
             'timezone' => ['sometimes', 'timezone:all_with_bc'],
             'language' => ['sometimes', 'string', 'max:8'],
@@ -35,7 +37,7 @@ class ProfileController extends Controller
         $user->update(array_intersect_key($data, array_flip(['name', 'mobile'])));
 
         $profileFields = array_intersect_key($data, array_flip([
-            'date_of_birth', 'gender', 'country', 'timezone', 'language', 'account_type', 'bio',
+            'date_of_birth', 'gender', 'avatar', 'country', 'timezone', 'language', 'account_type', 'bio',
         ]));
 
         if ($profileFields) {

@@ -42,6 +42,7 @@ class UserResource extends JsonResource
             'roles' => $this->whenLoaded('roles', fn () => $this->roles->pluck('slug')),
             'profile' => $this->whenLoaded('profile', fn () => [
                 'photo_path' => $this->profile?->photo_path,
+                'avatar' => $this->profile?->avatar,
                 'date_of_birth' => $this->profile?->date_of_birth?->toDateString(),
                 'gender' => $this->profile?->gender,
                 'country' => $this->profile?->country,

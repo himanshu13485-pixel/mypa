@@ -6,6 +6,8 @@ import {
   speakerSelectionSupported, useDevices, useMicLevel, type DeviceChoice,
 } from '../lib/devices'
 import { Button, Card, ErrorNote, Input, Label, Select } from './ui'
+import { Avatar } from '../lib/avatars'
+import { useAuthStore } from '../stores/auth'
 
 export interface LobbyResult {
   displayName: string
@@ -41,6 +43,9 @@ export default function MeetingLobby({
   onJoin: (result: LobbyResult) => void
   onCancel: () => void
 }) {
+  // The lobby is only ever shown before joining, so this is always you —
+  // a guest simply has no account and falls back to their initial.
+  const me = useAuthStore((s) => s.user)
   const stored = loadDeviceChoice()
   const [displayName, setDisplayName] = useState(defaultName)
   const [passcode, setPasscode] = useState('')
@@ -131,9 +136,13 @@ export default function MeetingLobby({
             )}
             {(!camOn || audioOnly) && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300">
-                <span className="flex size-16 items-center justify-center rounded-full bg-brand-700 text-2xl font-semibold text-white">
-                  {(displayName || defaultName).charAt(0).toUpperCase()}
-                </span>
+                <Avatar
+                  name={displayName || defaultName}
+                  photoPath={me?.profile?.photo_path}
+                  avatar={me?.profile?.avatar}
+                  gender={me?.profile?.gender}
+                  size={72}
+                />
                 <span className="text-xs">{audioOnly ? 'Audio-only meeting' : 'Camera is off'}</span>
               </div>
             )}

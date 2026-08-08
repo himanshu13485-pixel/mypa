@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { api } from '../api/client'
 import { Input } from './ui'
+import { Avatar } from '../lib/avatars'
 
 interface Suggestion {
   uuid: string
@@ -9,6 +10,8 @@ interface Suggestion {
   username: string | null
   email: string | null
   app_id?: string | null
+  photo_path?: string | null
+  avatar?: string | null
   /** Already one of your connections — shown first and labelled. */
   connected?: boolean
 }
@@ -200,9 +203,7 @@ export default function UserSuggest({
                 onMouseEnter={() => setHighlight(i)}
                 onClick={() => pick(s)}
               >
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-700 dark:bg-brand-950 dark:text-brand-300">
-                  {s.name.charAt(0)}
-                </span>
+                <Avatar name={s.name} photoPath={s.photo_path} avatar={s.avatar} size={26} />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{s.name}</span>
                   <span className="block truncate text-[11px] text-slate-400">

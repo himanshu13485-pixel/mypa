@@ -28,6 +28,7 @@ class AppIdController extends Controller
                 'username' => $user->username,
                 'app_id' => $user->appId?->app_id,
                 'photo_path' => $photoVisible ? $user->profile?->photo_path : null,
+                'avatar' => $photoVisible ? $user->profile?->avatar : null,
                 'is_connected' => $appIds->areConnected($request->user(), $user),
             ],
         ]);

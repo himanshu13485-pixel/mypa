@@ -690,6 +690,8 @@ class MeetingController extends Controller
         return [
             'uuid' => $user->uuid,
             'name' => $pivot->display_name ?? $user->name,
+            // So a tile with the camera off shows a face rather than a letter.
+            'avatar' => $user->profile?->avatar,
             'role' => $meeting->host_id === $user->id ? 'host' : ($pivot->role ?? 'participant'),
             'mic_on' => (bool) ($pivot->mic_on ?? true),
             'cam_on' => (bool) ($pivot->cam_on ?? true),

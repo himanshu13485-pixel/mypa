@@ -328,6 +328,7 @@ class CallController extends Controller
             'participants' => $call->inCall()->map(fn ($u) => [
                 'uuid' => $u->uuid,
                 'name' => $u->name,
+                'avatar' => $u->profile?->avatar,
             ])->values(),
         ]]);
     }

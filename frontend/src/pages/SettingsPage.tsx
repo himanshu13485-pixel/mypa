@@ -1,4 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { clsx } from 'clsx'
+import { Upload } from 'lucide-react'
+import { Avatar } from '../lib/avatars'
+import { AVATAR_GROUPS } from '../lib/avatars'
 import { disablePush, enablePush, getPushSubscription, getSoundPrefs, playChime, pushSupported, setSoundPrefs } from '../lib/alerts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { auth, identity as identityApi, profile as profileApi, subscription as subscriptionApi } from '../api/endpoints'
@@ -216,6 +220,117 @@ function BillingHistory() {
   )
 }
 
+/**
+ * Choosing a picture.
+ *
+ * An upload is the better answer when someone has a photo to hand, but most
+ * people never get round to it, so the illustrations are offered first and the
+ * upload sits beside them. Whichever is chosen shows everywhere at once — the
+ * sidebar, chat lists, meeting tiles — because they all draw the same Avatar.
+ */
+function AvatarCard() {
+  const { user, setUser } = useAuthStore()
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const chosen = user?.profile?.avatar ?? null
+  const photo = user?.profile?.photo_path ?? null
+
+  const pick = (avatar: string | null) => {
+    setBusy(true)
+    setNote(null)
+    profileApi.update({ avatar })
+      .then((updated) => { setUser(updated); setNote('Saved.') })
+      .catch((err) => setNote(errorMessage(err)))
+      .finally(() => setBusy(false))
+  }
+
+  const upload = (file: File) => {
+    setBusy(true)
+    setNote(null)
+    profileApi.uploadPhoto(file)
+      .then((updated) => { setUser(updated); setNote('Photo uploaded.') })
+      .catch((err) => setNote(errorMessage(err)))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <Card>
+      <h2 className="text-sm font-semibold">Your picture</h2>
+      <p className="mb-4 mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+        Shown wherever your name appears. A photo you upload is used ahead of any avatar.
+      </p>
+
+      <div className="flex items-center gap-4">
+        <Avatar
+          name={user?.name}
+          photoPath={photo}
+          avatar={chosen}
+          gender={user?.profile?.gender}
+          size={72}
+        />
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (file) upload(file)
+            }}
+          />
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => fileRef.current?.click()}>
+            <Upload className="size-3.5" /> Upload a photo
+          </Button>
+          {photo && (
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => pick(chosen)}>
+              Use an avatar instead
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {AVATAR_GROUPS.map((group) => (
+        <div key={group.label} className="mt-4">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            {group.label}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {group.keys.map((key) => (
+              <button
+                key={key}
+                type="button"
+                disabled={busy}
+                aria-label={`${group.label} avatar ${key.slice(1)}`}
+                aria-pressed={chosen === key}
+                onClick={() => pick(key)}
+                className={clsx(
+                  'rounded-full transition-transform hover:scale-105',
+                  chosen === key
+                    ? 'ring-2 ring-brand-600 ring-offset-2 ring-offset-white dark:ring-offset-slate-900'
+                    : 'ring-1 ring-slate-900/5 dark:ring-white/10',
+                )}
+              >
+                <Avatar avatar={key} size={52} />
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <div className="mt-4 flex items-center gap-3">
+        <Button size="sm" variant="secondary" disabled={busy || !chosen} onClick={() => pick(null)}>
+          Use my initial
+        </Button>
+        {note && <p className="text-xs text-slate-500">{note}</p>}
+      </div>
+    </Card>
+  )
+}
+
 const PRIVACY_FIELDS: { key: string; label: string }[] = [
   { key: 'who_can_find_me', label: 'Who can find me by App ID' },
   { key: 'who_can_connect', label: 'Who can send connection requests' },
@@ -360,6 +475,8 @@ export default function SettingsPage() {
       )}
 
       <BillingHistory />
+
+      <AvatarCard />
 
       <Card>
         <h2 className="mb-3 text-sm font-semibold">Profile</h2>

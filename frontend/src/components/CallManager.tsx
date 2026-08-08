@@ -19,6 +19,7 @@ import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../li
 import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
 import { normalizeSdp } from '../lib/sdp'
 import { VIDEO_FIT, useGalleryLayout, useIsPhone, useSelfView } from '../lib/videoLayout'
+import { Avatar } from '../lib/avatars'
 
 interface ActiveCall {
   uuid: string
@@ -34,6 +35,8 @@ interface ActiveCall {
 interface RemotePeer {
   uuid: string
   name: string
+  /** From the call heartbeat, so a dark tile still shows a face. */
+  avatar?: string | null
   stream: MediaStream | null
   micOff?: boolean
   camOff?: boolean
@@ -117,9 +120,7 @@ function RemoteTile({ peer, video, active, className, style, cover, hideName, on
       )}
       {peer.camOff && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-          <span className="flex size-9 items-center justify-center rounded-full bg-brand-700 text-sm font-semibold text-white">
-            {peer.name.charAt(0)}
-          </span>
+          <Avatar name={peer.name} avatar={peer.avatar} size={44} />
         </div>
       )}
       {!hideName && (
@@ -736,10 +737,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
          * drifted anyway, within one beat, without a message having to arrive.
          */
         if (beat.participants?.length) {
-          const names = new Map(beat.participants.map((p) => [p.uuid, p.name]))
+          const roster = new Map(beat.participants.map((p) => [p.uuid, p]))
           setRemotePeers((ps) =>
-            ps.some((x) => names.get(x.uuid) && names.get(x.uuid) !== x.name)
-              ? ps.map((x) => ({ ...x, name: names.get(x.uuid) ?? x.name }))
+            ps.some((x) => {
+              const row = roster.get(x.uuid)
+              return row && (row.name !== x.name || (row.avatar ?? null) !== (x.avatar ?? null))
+            })
+              ? ps.map((x) => {
+                  const row = roster.get(x.uuid)
+                  return row ? { ...x, name: row.name, avatar: row.avatar ?? null } : x
+                })
               : ps,
           )
         }

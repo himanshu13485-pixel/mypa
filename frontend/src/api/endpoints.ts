@@ -36,6 +36,12 @@ export const profile = {
   updateSettings: (payload: Record<string, unknown>) =>
     api.put<{ data: User }>('/me/settings', payload).then((r) => r.data.data),
   myQr: () => api.get<{ data: { app_id: string; payload: string } }>('/me/app-id/qr').then((r) => r.data.data),
+  /** The endpoint has always existed; nothing in the app ever called it. */
+  uploadPhoto: (file: File) => {
+    const body = new FormData()
+    body.append('photo', file)
+    return api.post<{ data: User }>('/me/photo', body).then((r) => r.data.data)
+  },
 }
 
 // --- Dashboard --------------------------------------------------------------
@@ -352,7 +358,7 @@ export const chat = {
 // --- Calls ------------------------------------------------------------------
 
 export const conversationMembers = (uuid: string) =>
-  api.get<{ data: { uuid: string; name: string; username: string | null; is_me: boolean }[] }>(
+  api.get<{ data: { uuid: string; name: string; username: string | null; is_me: boolean; photo_path?: string | null; avatar?: string | null }[] }>(
     `/conversations/${uuid}/members`,
   ).then((r) => r.data.data)
 
@@ -369,7 +375,7 @@ export const calls = {
   invite: (uuid: string, identifier: string) =>
     api.post<{ message: string }>(`/calls/${uuid}/invite`, { identifier }).then((r) => r.data),
   heartbeat: (uuid: string) =>
-    api.post<{ data: { status: string; participants: { uuid: string; name: string }[] } }>(
+    api.post<{ data: { status: string; participants: { uuid: string; name: string; avatar?: string | null }[] } }>(
       `/calls/${uuid}/heartbeat`,
     ).then((r) => r.data.data),
   history: (page = 1) => api.get<Paginated<CallInfo>>('/calls/history', { params: { page } }).then((r) => r.data),

@@ -18,6 +18,7 @@ import { useCalls } from '../components/CallManager'
 import { useToast } from '../components/Toast'
 import { Button, EmptyState, Input, Modal, Spinner } from '../components/ui'
 import type { ChatMessage, ConversationItem } from '../types'
+import { Avatar } from '../lib/avatars'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
@@ -333,9 +334,12 @@ export default function MessagesPage() {
                     : 'hover:bg-slate-100 dark:hover:bg-slate-800',
                 )}
               >
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold text-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                  {c.name.charAt(0).toUpperCase()}
-                </div>
+                <Avatar
+                  name={c.name}
+                  photoPath={c.type === 'direct' ? c.other_user?.photo_path : null}
+                  avatar={c.type === 'direct' ? c.other_user?.avatar : null}
+                  size={38}
+                />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{c.name}</p>
                   <p className="truncate text-xs text-slate-400">
@@ -717,9 +721,7 @@ function MembersModal({ conversationUuid, onClose }: { conversationUuid: string;
         <div className="space-y-1.5">
           {members?.map((m) => (
             <div key={m.uuid} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800">
-              <div className="flex size-7 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold text-brand-700 dark:bg-brand-950 dark:text-brand-300">
-                {m.name.charAt(0)}
-              </div>
+              <Avatar name={m.name} photoPath={m.photo_path} avatar={m.avatar} size={30} />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">
                   {m.name}

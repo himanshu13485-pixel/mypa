@@ -31,6 +31,7 @@ import { Button, Card } from '../components/ui'
 import { meetingLink } from './MeetingsPage'
 import type { MeetingHostAction, MeetingParticipant, MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
+import { Avatar } from '../lib/avatars'
 
 const REACTIONS: Record<string, string> = {
   thumbsup: '\u{1F44D}', clap: '\u{1F44F}', heart: '\u{2764}\u{FE0F}', laugh: '\u{1F602}',
@@ -43,6 +44,8 @@ type Layout = 'gallery' | 'speaker' | 'sidebar'
 interface Peer {
   uuid: string
   name: string
+  /** From the meeting roster, so a camera-off tile still shows a face. */
+  avatar?: string | null
   stream: MediaStream | null
   sharing?: boolean
   micOff?: boolean
@@ -80,9 +83,7 @@ function PeerTile({
     return (
       <div className={clsx('flex items-center gap-2 rounded-lg bg-slate-800 px-3 py-2 text-sm text-white', active && 'ring-2 ring-emerald-400')}>
         <audio ref={attach} autoPlay />
-        <span className="flex size-7 items-center justify-center rounded-full bg-brand-600 text-xs font-semibold">
-          {peer.name.charAt(0)}
-        </span>
+        <Avatar name={peer.name} avatar={peer.avatar} size={28} />
         {peer.name}{isHost && <span className="text-[10px] text-amber-400"> (Host)</span>}
         {peer.micOff && <MicOff className="size-3.5 text-red-500" />}
         {hand && <span className="text-base">{REACTIONS.hand}</span>}
@@ -105,9 +106,7 @@ function PeerTile({
       <video ref={attach} autoPlay playsInline className={VIDEO_FIT} />
       {peer.camOff && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-900 text-slate-300">
-          <span className="flex size-12 items-center justify-center rounded-full bg-brand-700 text-lg font-semibold text-white">
-            {peer.name.charAt(0)}
-          </span>
+          <Avatar name={peer.name} avatar={peer.avatar} size={52} />
           <VideoOff className="size-4 text-red-500" />
         </div>
       )}
@@ -766,9 +765,16 @@ export default function MeetingRoomPage() {
          * anything that has drifted is put right within one beat.
          */
         setPeers((ps) => {
-          const names = new Map(others.map((p) => [p.uuid, p.name]))
-          return ps.some((x) => names.get(x.uuid) && names.get(x.uuid) !== x.name)
-            ? ps.map((x) => ({ ...x, name: names.get(x.uuid) ?? x.name }))
+          const roster = new Map(others.map((p) => [p.uuid, p]))
+          const stale = ps.some((x) => {
+            const row = roster.get(x.uuid)
+            return row && (row.name !== x.name || (row.avatar ?? null) !== (x.avatar ?? null))
+          })
+          return stale
+            ? ps.map((x) => {
+                const row = roster.get(x.uuid)
+                return row ? { ...x, name: row.name, avatar: row.avatar ?? null } : x
+              })
             : ps
         })
         setIsLocked(!!hb.is_locked)
@@ -1313,9 +1319,13 @@ export default function MeetingRoomPage() {
       />
       {cameraOff && !sharing && (
         <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
-          <span className="flex size-12 items-center justify-center rounded-full bg-brand-700 text-lg font-semibold text-white">
-            {(myName ?? user?.name ?? 'Y').charAt(0)}
-          </span>
+          <Avatar
+            name={myName ?? user?.name ?? 'You'}
+            photoPath={account?.profile?.photo_path}
+            avatar={account?.profile?.avatar}
+            gender={account?.profile?.gender}
+            size={52}
+          />
         </div>
       )}
       {bursts.me && <span className="absolute right-2 top-2 animate-bounce text-4xl drop-shadow">{REACTIONS[bursts.me]}</span>}
@@ -1727,9 +1737,13 @@ export default function MeetingRoomPage() {
                   title="Change your name for this meeting"
                   onClick={changeMyName}
                 >
-                  <span className="flex size-7 items-center justify-center rounded-full bg-emerald-600 text-xs font-semibold">
-                    {(myName ?? user?.name)?.charAt(0) ?? 'Y'}
-                  </span>
+                  <Avatar
+                    name={myName ?? user?.name}
+                    photoPath={account?.profile?.photo_path}
+                    avatar={account?.profile?.avatar}
+                    gender={account?.profile?.gender}
+                    size={28}
+                  />
                   {myName ?? 'You'} {muted && '(muted)'} ✎
                 </button>
               )}
