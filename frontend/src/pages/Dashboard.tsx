@@ -50,6 +50,19 @@ function TaskRow({ task }: { task: Task }) {
   )
 }
 
+/**
+ * Time of day, from the reader's own clock.
+ *
+ * Cheaper and more accurate than the server's idea of their timezone, which
+ * is a profile field they may never have corrected.
+ */
+function greeting(): string {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 17) return 'Good afternoon'
+  return 'Good evening'
+}
+
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user)
   const { data, isLoading } = useQuery({ queryKey: ['dashboard'], queryFn: dashboard.summary })
@@ -61,10 +74,17 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Hello, {user?.name?.split(' ')[0]} 👋
+        {/* The date first, small: it dates the numbers underneath, which is
+            what a dashboard is for. The greeting used to be "Hello, X 👋",
+            which reads like a consumer app rather than somewhere you run a
+            business from. */}
+        <p className="text-xs font-medium uppercase tracking-[0.08em] text-slate-400">
+          {format(new Date(), 'EEEE, d MMMM')}
+        </p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">
+          {greeting()}, {user?.name?.split(' ')[0]}
         </h1>
-        <p className="text-sm text-slate-500">
+        <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
           {counts.pending} pending · {counts.overdue} overdue · {counts.completion_rate}% completed overall
         </p>
       </div>
