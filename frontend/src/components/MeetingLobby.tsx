@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { Mic, MicOff, RefreshCw, Video, VideoOff } from 'lucide-react'
+import { Mic, MicOff, RefreshCw, SwitchCamera, Video, VideoOff } from 'lucide-react'
 import { clsx } from 'clsx'
 import {
-  AUDIO_CONSTRAINTS, VIDEO_CONSTRAINTS, loadDeviceChoice, saveDeviceChoice,
+  AUDIO_CONSTRAINTS, VIDEO_CONSTRAINTS, loadDeviceChoice, nextCamera, saveDeviceChoice,
   speakerSelectionSupported, useDevices, useMicLevel, type DeviceChoice,
 } from '../lib/devices'
 import { Button, Card, ErrorNote, Input, Label, Select } from './ui'
 import { Avatar } from '../lib/avatars'
 import { useAuthStore } from '../stores/auth'
+import { useIsPhone } from '../lib/videoLayout'
 
 export interface LobbyResult {
   displayName: string
@@ -58,6 +59,9 @@ export default function MeetingLobby({
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const { cameras, mics, speakers, refresh } = useDevices()
+  // Same reasoning as the call window: a phone has two cameras whether or not
+  // enumerateDevices has got round to saying so.
+  const isPhone = useIsPhone()
   const level = useMicLevel(preview)
 
   // (Re)open the preview whenever the chosen device changes. Labels only
@@ -72,7 +76,16 @@ export default function MeetingLobby({
           audio: { ...AUDIO_CONSTRAINTS, ...(choice.micId ? { deviceId: { exact: choice.micId } } : {}) },
           video: audioOnly
             ? false
-            : { ...VIDEO_CONSTRAINTS, ...(choice.cameraId ? { deviceId: { exact: choice.cameraId } } : {}) },
+            // deviceId is exact and wins; facingMode is what a phone has, and
+            // without it here the reverse button below would change nothing.
+            : {
+                ...VIDEO_CONSTRAINTS,
+                ...(choice.cameraId
+                  ? { deviceId: { exact: choice.cameraId } }
+                  : choice.facing
+                    ? { facingMode: { ideal: choice.facing } }
+                    : {}),
+              },
         })
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop())
@@ -97,7 +110,7 @@ export default function MeetingLobby({
     return () => {
       cancelled = true
     }
-  }, [choice.cameraId, choice.micId, audioOnly, refresh])
+  }, [choice.cameraId, choice.facing, choice.micId, audioOnly, refresh])
 
   // Release the preview when we leave the lobby, either way.
   useEffect(() => () => streamRef.current?.getTracks().forEach((t) => t.stop()), [])
@@ -154,6 +167,19 @@ export default function MeetingLobby({
               {!audioOnly && (
                 <Button size="sm" variant={camOn ? 'secondary' : 'danger'} onClick={() => setCamOn((c) => !c)}>
                   {camOn ? <Video className="size-4" /> : <VideoOff className="size-4" />}
+                </Button>
+              )}
+              {/* Checking how you look is the whole point of this screen, so
+                  the wrong camera is exactly the thing to fix here rather than
+                  after everyone can see you. */}
+              {!audioOnly && (isPhone || cameras.length > 1 || choice.facing) && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  title="Switch camera (front/back)"
+                  onClick={() => setChoice((c) => saveDeviceChoice(nextCamera(cameras, { deviceId: c.cameraId, facing: c.facing })))}
+                >
+                  <SwitchCamera className="size-4" />
                 </Button>
               )}
             </div>

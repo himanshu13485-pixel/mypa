@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Circle, Expand, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MoreHorizontal, Phone, PhoneOff, Pin, PinOff,
-  Square, UserPlus, Users, Video, VideoOff, X,
+  Square, SwitchCamera, UserPlus, Users, Video, VideoOff, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls } from '../api/endpoints'
@@ -19,6 +19,7 @@ import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../li
 import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
 import { normalizeSdp } from '../lib/sdp'
 import { VIDEO_FIT, useGalleryLayout, useIsPhone, useSelfView } from '../lib/videoLayout'
+import { loadDeviceChoice, nextCamera, openCamera, saveDeviceChoice, swapTrack, useDevices } from '../lib/devices'
 import { Avatar } from '../lib/avatars'
 
 interface ActiveCall {
@@ -203,11 +204,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
     () => localStorage.getItem('mypa-call-expanded') === '1' || window.matchMedia('(max-width: 639px)').matches,
   )
   const [bgLabel, setBgLabel] = useState('none')
+  /** The last background chosen, so a camera swap can rebuild it. */
+  const bgChoiceRef = useRef<BackgroundChoice | null>(null)
   const [blurBusy, setBlurBusy] = useState(false)
   const myMediaRef = useRef({ mic: true, cam: true })
   const recorderRef = useRef<CompositeRecorder | null>(null)
   const blurRef = useRef<BlurPipeline | null>(null)
   const cameraTrackRef = useRef<MediaStreamTrack | null>(null)
+  /** Which camera is open, so the flip button knows what to swap to. */
+  const [deviceChoice, setDeviceChoice] = useState(loadDeviceChoice)
+  const [flipping, setFlipping] = useState(false)
   const callBodyRef = useRef<HTMLDivElement>(null)
 
   /** The whole panel — video AND controls. Fullscreen used to target only the
@@ -550,6 +556,53 @@ export function CallProvider({ children }: { children: ReactNode }) {
     startRecordingNow()
   }
 
+  /**
+   * Front to back on a phone, or the next webcam on a laptop.
+   *
+   * Meetings have had this since the device work; calls never did, so anyone
+   * on a phone was stuck with whichever camera happened to open — no way to
+   * show the person you are talking to what you are looking at.
+   *
+   * replaceTrack swaps the outgoing video without renegotiating, so nobody
+   * else sees so much as a flicker. A background effect is built on top of the
+   * old track, so it has to be rebuilt on the new one or the peers keep
+   * receiving the camera that was just closed.
+   */
+  const flipCamera = async () => {
+    if (flipping || sharing) return
+    setFlipping(true)
+    try {
+      const target = nextCamera(cameras, { deviceId: deviceChoice.cameraId, facing: deviceChoice.facing })
+      const track = await openCamera(target)
+      cameraTrackRef.current = track
+      track.enabled = !cameraOff
+      swapTrack(peersRef.current.values(), localStreamRef.current, track)
+
+      const chosen = bgChoiceRef.current
+      if (blurRef.current && chosen?.effect) {
+        // Rebuilt from the same choice the picker last applied.
+        const rebuilt = await createEffectTrack(track, chosen.effect)
+        blurRef.current?.stop()
+        blurRef.current = rebuilt
+        rebuilt.track.enabled = !cameraOff
+        peersRef.current.forEach((pc) => {
+          const sender = pc.getSenders().find((s) => s.track?.kind === 'video')
+          sender?.replaceTrack(rebuilt.track).catch(() => undefined)
+        })
+        showSelf(new MediaStream([rebuilt.track]))
+      } else {
+        showSelf(localStreamRef.current)
+      }
+
+      setDeviceChoice(saveDeviceChoice(target))
+    } catch (err) {
+      toastError('Could not switch camera — it may be in use by another app.')
+      console.warn('[call] camera flip failed', err)
+    } finally {
+      setFlipping(false)
+    }
+  }
+
   const applyBackground = async (choice: BackgroundChoice) => {
     if (blurBusy) return
     const restore = () => {
@@ -562,6 +615,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       blurRef.current?.stop()
       blurRef.current = null
     }
+    bgChoiceRef.current = choice
     if (!choice.effect) {
       restore()
       setBgLabel('none')
@@ -916,7 +970,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
    * windowed panel that works on a laptop turned into a 320px box covering the
    * page it was floating over, with its own controls scrolling sideways.
    */
+  const { cameras } = useDevices(!!activeCall && isVideo)
   const phone = useIsPhone()
+  /*
+   * Offer the switch when there is somewhere to switch to.
+   *
+   * A phone always has a front and a back camera, but it does not always admit
+   * to both: enumerateDevices returns labelled entries only once a permission
+   * has stuck, and can report a single device until then. Waiting for the list
+   * to agree would mean the button is missing exactly when it is wanted, so a
+   * phone gets it unconditionally and a desktop gets it when it really does
+   * have more than one webcam.
+   */
+  const canFlip = isVideo && (phone || cameras.length > 1 || !!deviceChoice.facing)
   // "Minimise" still drops it back to the floating corner panel, so the rest
   // of the app is reachable mid-call.
   const fullBleed = !!activeCall && isVideo && phone && expanded
@@ -1116,6 +1182,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 <CircleButton on={cameraOff} danger={cameraOff} label="Camera on or off" onClick={toggleCamera}>
                   {cameraOff ? <VideoOff className="size-5" /> : <Video className="size-5" />}
                 </CircleButton>
+                {canFlip && (
+                  <CircleButton
+                    label={sharing ? 'Stop sharing to switch camera' : 'Switch camera (front/back)'}
+                    onClick={flipCamera}
+                  >
+                    <SwitchCamera className={clsx('size-5', flipping && 'animate-spin')} />
+                  </CircleButton>
+                )}
                 <CircleButton on={sharing} label={sharing ? 'Stop sharing my screen' : 'Share my screen'} onClick={toggleShare}>
                   <MonitorUp className="size-5" />
                 </CircleButton>
@@ -1273,6 +1347,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
               {isVideo && (
                 <Button size="sm" variant="secondary" onClick={toggleCamera} title="Toggle camera">
                   {cameraOff ? <VideoOff className="size-3.5 text-red-500" /> : <Video className="size-3.5" />}
+                </Button>
+              )}
+              {canFlip && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  title={sharing ? 'Stop sharing to switch camera' : 'Switch camera (front/back)'}
+                  onClick={flipCamera}
+                  disabled={flipping || sharing}
+                >
+                  <SwitchCamera className={clsx('size-3.5', flipping && 'animate-spin')} />
                 </Button>
               )}
               {isVideo && (
