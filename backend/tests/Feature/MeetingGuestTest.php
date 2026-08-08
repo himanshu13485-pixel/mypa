@@ -34,7 +34,6 @@ class MeetingGuestTest extends TestCase
             'status' => 'active',
             'started_at' => now(),
             'passcode' => 'open1234',
-            'guest_access' => true,
         ]);
     }
 
@@ -80,7 +79,7 @@ class MeetingGuestTest extends TestCase
         [$token] = $this->joinAsGuest();
 
         $this->withHeaders($this->asGuest($token))
-            ->postJson("/api/v1/guest/meetings/{$this->meeting->code}/join", ['passcode' => 'open1234'])
+            ->postJson("/api/v1/guest/meetings/{$this->meeting->code}/join")
             ->assertOk();
 
         $this->withHeaders($this->asGuest($token))
@@ -104,16 +103,14 @@ class MeetingGuestTest extends TestCase
             ->assertOk();
     }
 
-    public function test_a_signed_in_member_is_still_asked_for_the_passcode(): void
+    public function test_a_signed_in_member_never_needs_the_password(): void
     {
+        // The password is what stands in for an account. Someone who has one
+        // has already proved who they are, so the link is enough.
         $member = User::factory()->create();
 
         $this->actingAs($member)
             ->postJson("/api/v1/meetings/{$this->meeting->code}/join")
-            ->assertForbidden();
-
-        $this->actingAs($member)
-            ->postJson("/api/v1/meetings/{$this->meeting->code}/join", ['passcode' => 'open1234'])
             ->assertOk();
     }
 
@@ -125,34 +122,75 @@ class MeetingGuestTest extends TestCase
         ])->assertForbidden();
     }
 
-    public function test_guest_access_is_off_unless_the_host_turns_it_on(): void
+    public function test_no_password_means_no_guests(): void
     {
-        $this->meeting->update(['guest_access' => false]);
-
-        // Same answer as a meeting that does not exist: guessing codes should
-        // not reveal which meetings are real.
-        $this->postJson("/api/v1/meetings/{$this->meeting->code}/guest", [
-            'name' => 'Prashant',
-            'passcode' => 'open1234',
-        ])->assertNotFound();
-    }
-
-    public function test_a_meeting_with_no_passcode_cannot_be_joined_as_a_guest(): void
-    {
-        // Otherwise the join code alone would be enough for anyone who saw it.
+        // The password is the whole switch: without one there is nothing to
+        // check a stranger against, and the code alone would let in anyone who
+        // saw the link.
         $this->meeting->update(['passcode' => null]);
 
         $this->postJson("/api/v1/meetings/{$this->meeting->code}/guest", [
             'name' => 'Prashant',
-            'passcode' => '',
-        ])->assertStatus(422);
+            'passcode' => 'open1234',
+        ])->assertForbidden();
+    }
+
+    public function test_the_join_page_can_ask_whether_a_password_would_help(): void
+    {
+        $this->getJson("/api/v1/meetings/{$this->meeting->code}/guest")
+            ->assertOk()
+            ->assertJsonPath('data.exists', true)
+            ->assertJsonPath('data.allows_guests', true);
+
+        $this->meeting->update(['passcode' => null]);
+        $this->getJson("/api/v1/meetings/{$this->meeting->code}/guest")
+            ->assertOk()
+            ->assertJsonPath('data.allows_guests', false);
+
+        $this->getJson('/api/v1/meetings/nope-nope-nop/guest')
+            ->assertOk()
+            ->assertJsonPath('data.exists', false);
+    }
+
+    public function test_the_host_can_set_and_clear_the_password_mid_meeting(): void
+    {
+        // The instant "New meeting" button makes no password, so the only place
+        // this can be reached is from inside the room.
+        $this->actingAs($this->host)
+            ->putJson("/api/v1/meetings/{$this->meeting->code}/passcode", ['passcode' => null])
+            ->assertOk()
+            ->assertJsonPath('data.allows_guests', false);
+
+        $this->postJson("/api/v1/meetings/{$this->meeting->code}/guest", [
+            'name' => 'Prashant', 'passcode' => 'open1234',
+        ])->assertForbidden();
+
+        $this->actingAs($this->host)
+            ->putJson("/api/v1/meetings/{$this->meeting->code}/passcode", ['passcode' => 'later999'])
+            ->assertOk()
+            ->assertJsonPath('data.allows_guests', true);
+
+        $this->postJson("/api/v1/meetings/{$this->meeting->code}/guest", [
+            'name' => 'Prashant', 'passcode' => 'later999',
+        ])->assertCreated();
+    }
+
+    public function test_only_a_moderator_can_change_the_password(): void
+    {
+        $member = User::factory()->create();
+
+        $this->actingAs($member)
+            ->putJson("/api/v1/meetings/{$this->meeting->code}/passcode", ['passcode' => 'mine1234'])
+            ->assertForbidden();
+
+        $this->assertSame('open1234', $this->meeting->fresh()->passcode);
     }
 
     public function test_the_pass_stops_working_after_thirty_minutes(): void
     {
         [$token] = $this->joinAsGuest();
         $this->withHeaders($this->asGuest($token))
-            ->postJson("/api/v1/guest/meetings/{$this->meeting->code}/join", ['passcode' => 'open1234'])
+            ->postJson("/api/v1/guest/meetings/{$this->meeting->code}/join")
             ->assertOk();
 
         $this->withHeaders($this->asGuest($token))
@@ -176,7 +214,6 @@ class MeetingGuestTest extends TestCase
             'status' => 'active',
             'started_at' => now(),
             'passcode' => 'open1234',
-            'guest_access' => true,
         ]);
 
         [$token] = $this->joinAsGuest();

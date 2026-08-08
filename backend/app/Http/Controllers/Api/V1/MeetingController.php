@@ -42,7 +42,6 @@ class MeetingController extends Controller
             'is_screen' => ['sometimes', 'boolean'],
             'requires_approval' => ['sometimes', 'boolean'],
             'passcode' => ['sometimes', 'nullable', 'string', 'min:4', 'max:12', 'alpha_num'],
-            'guest_access' => ['sometimes', 'boolean'],
             'scheduled_at' => ['sometimes', 'nullable', 'date'],
         ]);
 
@@ -53,10 +52,9 @@ class MeetingController extends Controller
             'type' => $data['type'] ?? 'video',
             'is_screen' => (bool) ($data['is_screen'] ?? false),
             'requires_approval' => (bool) ($data['requires_approval'] ?? true),
+            // Also the guest switch: with a password set, the invite link works
+            // for people who have no account and type it.
             'passcode' => ($data['passcode'] ?? null) ?: null,
-            // Letting strangers in needs a passcode to be worth anything, so
-            // the two only travel together.
-            'guest_access' => (bool) ($data['guest_access'] ?? false) && ($data['passcode'] ?? null),
             'scheduled_at' => $data['scheduled_at'] ?? null,
         ]);
 
@@ -79,7 +77,6 @@ class MeetingController extends Controller
         abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
         $data = $request->validate([
             'display_name' => ['sometimes', 'nullable', 'string', 'max:50'],
-            'passcode' => ['sometimes', 'nullable', 'string', 'max:12'],
             'mic_on' => ['sometimes', 'boolean'],
             'cam_on' => ['sometimes', 'boolean'],
         ]);
@@ -100,18 +97,11 @@ class MeetingController extends Controller
         // (e.g. after a refresh), everyone else is turned away.
         abort_if($meeting->is_locked && ! $moderator, 423, 'This meeting is locked — the host is not letting anyone else in.');
 
-        // Passcode gate, checked before the waiting room so a wrong code never
-        // reaches the host as a knock.
-        // A guest already typed the passcode to be given a pass at all, and
-        // that pass is only valid for this meeting — asking again on the way
-        // into the room made them enter it twice for one join.
-        if ($meeting->passcode && ! $moderator && ! $me->isGuest()) {
-            abort_unless(
-                hash_equals($meeting->passcode, (string) ($data['passcode'] ?? '')),
-                403,
-                'That passcode is not right.',
-            );
-        }
+        // No passcode is asked for here, by anyone. A guest already typed it to
+        // be given a pass at all, and that pass is only good for this meeting;
+        // a signed-in member is already identified by their account, which is
+        // the thing the password stands in for. Who gets kept out is the
+        // waiting room's job, and the host's.
 
         // Waiting room: non-hosts must be admitted first (unless bypassed or
         // previously admitted/inside).
@@ -305,48 +295,39 @@ class MeetingController extends Controller
         return response()->json(['message' => $data['allow'] ? "{$target->name} admitted." : "{$target->name} turned away."]);
     }
 
-    /** Host toggles the waiting room on/off mid-meeting (the bypass). */
     /**
-     * Turn guest access on or off on a meeting that already exists.
+     * Set or clear the meeting password.
      *
-     * Guest access was only settable at creation, which left the instant
-     * "New meeting" button - the one most people press - with no way to reach
-     * it at all. A passcode is set here too, since guest access without one
-     * would make the join link alone enough for anyone who saw it.
+     * This is the guest switch. With a password, the ordinary invite link works
+     * for someone who has no account: they are asked for a name and the
+     * password instead of being sent to sign in. Without one, the link is for
+     * signed-in members only. The instant "New meeting" button — the one most
+     * people press — creates no password, so this has to be reachable from
+     * inside the room rather than only at creation time.
      */
-    public function setGuestAccess(Request $request, Meeting $meeting): JsonResponse
+    public function setPasscode(Request $request, Meeting $meeting): JsonResponse
     {
         abort_unless($meeting->canModerate($request->user()), 403, 'Only the host or a co-host can change this.');
 
         $data = $request->validate([
-            'guest_access' => ['required', 'boolean'],
-            'passcode' => ['sometimes', 'nullable', 'string', 'min:4', 'max:12', 'alpha_num'],
+            'passcode' => ['present', 'nullable', 'string', 'min:4', 'max:12', 'alpha_num'],
         ]);
 
-        $passcode = $data['passcode'] ?? $meeting->passcode;
-
-        if ($data['guest_access'] && ! $passcode) {
-            return response()->json([
-                'message' => 'Set a passcode first — without one the link alone would let anyone in.',
-            ], 422);
-        }
-
-        $meeting->update([
-            'guest_access' => $data['guest_access'],
-            'passcode' => $passcode,
-        ]);
+        $meeting->update(['passcode' => $data['passcode'] ?: null]);
 
         return response()->json([
-            'message' => $data['guest_access']
-                ? 'People without an account can now join with the passcode, for 30 minutes.'
-                : 'Guest access is off — a Netvork account is needed again.',
+            'message' => $meeting->passcode
+                ? 'Password set — anyone with the link can now join with it, account or not.'
+                : 'Password removed — the link is for signed-in members only again.',
             'data' => [
-                'guest_access' => (bool) $meeting->guest_access,
                 'passcode' => $meeting->passcode,
-                'join_url' => $data['guest_access'] ? url("/join/{$meeting->code}") : null,
+                'has_passcode' => (bool) $meeting->passcode,
+                'allows_guests' => $meeting->allowsGuests(),
             ],
         ]);
     }
+
+    /** Host toggles the waiting room on/off mid-meeting (the bypass). */
 
     public function setApproval(Request $request, Meeting $meeting): JsonResponse
     {
@@ -722,7 +703,8 @@ class MeetingController extends Controller
             'requires_approval' => $meeting->requires_approval,
             'is_locked' => $meeting->is_locked,
             'has_passcode' => (bool) $meeting->passcode,
-            'guest_access' => (bool) $meeting->guest_access,
+            // Derived, not stored: the password is the guest switch.
+            'allows_guests' => $meeting->allowsGuests(),
             // Only a moderator sees the actual passcode — they are the one
             // who has to pass it on to invitees.
             'passcode' => $canModerate ? $meeting->passcode : null,

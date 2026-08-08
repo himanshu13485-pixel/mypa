@@ -12,7 +12,6 @@ import { useIsPhone } from '../lib/useMediaQuery'
 
 export interface LobbyResult {
   displayName: string
-  passcode: string
   micOn: boolean
   camOn: boolean
   devices: DeviceChoice
@@ -26,7 +25,6 @@ export interface LobbyResult {
 export default function MeetingLobby({
   title,
   hostName,
-  needsPasscode,
   defaultName,
   audioOnly,
   busy,
@@ -36,7 +34,6 @@ export default function MeetingLobby({
 }: {
   title: string
   hostName?: string
-  needsPasscode?: boolean
   defaultName: string
   audioOnly?: boolean
   busy?: boolean
@@ -49,7 +46,6 @@ export default function MeetingLobby({
   const me = useAuthStore((s) => s.user)
   const stored = loadDeviceChoice()
   const [displayName, setDisplayName] = useState(defaultName)
-  const [passcode, setPasscode] = useState('')
   const [micOn, setMicOn] = useState(true)
   const [camOn, setCamOn] = useState(!audioOnly)
   const [choice, setChoice] = useState<DeviceChoice>(stored)
@@ -129,7 +125,7 @@ export default function MeetingLobby({
     // Hand the preview back so the room doesn't reopen the camera and make
     // the user watch it blink off and on again.
     streamRef.current?.getTracks().forEach((t) => t.stop())
-    onJoin({ displayName: displayName.trim() || defaultName, passcode, micOn, camOn, devices: choice })
+    onJoin({ displayName: displayName.trim() || defaultName, micOn, camOn, devices: choice })
   }
 
   return (
@@ -214,18 +210,10 @@ export default function MeetingLobby({
             <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={50} />
           </div>
 
-          {needsPasscode && (
-            <div>
-              <Label>Passcode</Label>
-              <Input
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
-                placeholder="From the invite"
-                maxLength={12}
-                autoComplete="off"
-              />
-            </div>
-          )}
+          {/* No password box: whoever reaches this screen has already proved
+              who they are — a member by being signed in, a guest by typing the
+              meeting password at the door. Asking again made one join take two
+              entries of the same thing. */}
 
           {!audioOnly && cameras.length > 0 && (
             <div>
@@ -264,7 +252,7 @@ export default function MeetingLobby({
           )}
 
           <div className="flex items-center gap-2 pt-1">
-            <Button className="flex-1" onClick={join} disabled={busy || (needsPasscode && !passcode.trim())}>
+            <Button className="flex-1" onClick={join} disabled={busy}>
               {busy ? 'Joining…' : 'Join now'}
             </Button>
             <Button variant="secondary" onClick={onCancel}>Cancel</Button>

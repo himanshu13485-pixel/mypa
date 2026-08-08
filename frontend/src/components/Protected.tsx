@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { isStaff, useAuthStore } from '../stores/auth'
+import { guestRouteFor, readGuestPass } from '../lib/guestPass'
 
 export function RequireAuth({ children }: { children: ReactNode }) {
   const token = useAuthStore((s) => s.token)
@@ -8,6 +9,14 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation()
 
   if (!token) {
+    // One link for everybody. A meeting invite is the deep link that regularly
+    // reaches people who have no account and are not about to make one, so it
+    // must not dead-end at a sign-in form: send them to the guest door for the
+    // same meeting, where the meeting password gets them in.
+    const guestRoute = guestRouteFor(location.pathname, readGuestPass())
+    if (guestRoute) return <Navigate to={guestRoute} replace />
+
+
     // Visitors opening the site root see the public landing page;
     // deep links into the app still go to sign-in.
     return <Navigate to={location.pathname === '/' ? '/home' : '/login'} replace />

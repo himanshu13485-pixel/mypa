@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Loader2, Video } from 'lucide-react'
 import { guestMeetings } from '../api/endpoints'
@@ -7,20 +7,27 @@ import { saveGuestPass } from '../lib/guestPass'
 import { Button, Card, ErrorNote, Input, Label } from '../components/ui'
 
 /**
- * Joining a meeting with a passcode and no account.
+ * The door a meeting link opens for someone who has no account.
  *
- * Deliberately outside the app shell and outside the auth guard — the person
- * landing here has no Netvork login and is not going to make one. All they
- * give is a name to appear as and the passcode the host sent them.
+ * There is one invite link, and it is the ordinary one. A signed-in member
+ * clicking it walks straight into the room; anyone else lands here, because
+ * the guard cannot let them past and sending them to a sign-in form would be
+ * a dead end — the people who most often follow a meeting link are exactly
+ * the ones who will not make an account to attend a half-hour call.
+ *
+ * All they give is a name to appear as and the meeting password. The password
+ * is also the switch: a meeting without one has nothing to check a stranger
+ * against, so this page says so plainly instead of taking a guess at it.
  *
  * The pass lasts 30 minutes and is kept in sessionStorage rather than
  * localStorage: it belongs to this tab and this sitting, and should not
  * outlive either.
  */
 export default function GuestJoinPage() {
-  // The code may arrive in the URL from an invite link, or be typed here.
-  // Typing it is the main way in: "go to netvork.app/join and enter this"
-  // survives being read out or written down, which a link does not.
+  // The code may arrive in the URL — from the invite link, or from the guard
+  // that redirected them here — or be typed. Typing it is worth keeping:
+  // "go to netvork.app/join and enter this" survives being read out or
+  // written down, which a link does not.
   const { code: codeFromUrl } = useParams()
   const navigate = useNavigate()
 
@@ -28,16 +35,36 @@ export default function GuestJoinPage() {
   const [name, setName] = useState('')
   const [passcode, setPasscode] = useState('')
   const [busy, setBusy] = useState(false)
+  /** null = not asked yet. Decides whether a password box is any use here. */
+  const [allowsGuests, setAllowsGuests] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(
     // Sent here by the API client when a pass ran out mid-meeting.
     new URLSearchParams(window.location.search).has('expired')
-      ? 'Your 30 minutes are up. Enter the passcode again for another half hour, or sign in for no limit.'
+      ? 'Your 30 minutes are up. Enter the password again for another half hour, or sign in for no limit.'
       : null,
   )
 
   /** Accept a bare code or a whole pasted invite link. */
   const cleanCode = (raw: string) =>
     raw.trim().toLowerCase().match(/[a-z]{3}-[a-z]{4}-[a-z]{3}/)?.[0] ?? raw.trim().toLowerCase()
+
+  // Ask up front whether this meeting takes guests at all, so a members-only
+  // one says so before anybody types a name and a password into a form that
+  // was never going to work.
+  useEffect(() => {
+    if (!codeFromUrl) return
+    let cancelled = false
+    guestMeetings
+      .peek(cleanCode(codeFromUrl))
+      .then((info) => {
+        if (cancelled) return
+        setAllowsGuests(info.exists ? info.allows_guests : null)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [codeFromUrl])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -63,6 +90,36 @@ export default function GuestJoinPage() {
     } finally {
       setBusy(false)
     }
+  }
+
+  // A meeting with no password is members-only, and no form here will change
+  // that. Say so, and point at the one thing that does work.
+  if (allowsGuests === false) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-slate-50 p-4 dark:bg-slate-950">
+        <Card className="w-full max-w-sm space-y-4 p-6 text-center">
+          <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-950">
+            <Video className="size-6" />
+          </span>
+          <h1 className="text-xl font-semibold tracking-tight">This meeting needs an account</h1>
+          <p className="text-sm text-slate-500">
+            The host has not set a meeting password, so it is open to signed-in Netvork members only.
+            Sign in to join, or ask the host to set one.
+          </p>
+          <Button className="w-full" onClick={() => navigate('/login')}>Sign in</Button>
+          <button
+            className="text-xs text-slate-400 hover:text-brand-600"
+            onClick={() => {
+              setAllowsGuests(null)
+              setCodeInput('')
+              navigate('/join', { replace: true })
+            }}
+          >
+            Use a different code
+          </button>
+        </Card>
+      </div>
+    )
   }
 
   return (
@@ -110,7 +167,7 @@ export default function GuestJoinPage() {
             />
           </div>
           <div>
-            <Label>Passcode</Label>
+            <Label>Meeting password</Label>
             <Input
               value={passcode}
               onChange={(e) => setPasscode(e.target.value)}
@@ -133,7 +190,7 @@ export default function GuestJoinPage() {
           <button className="text-brand-600 hover:underline" onClick={() => navigate('/login')}>
             Sign in instead
           </button>{' '}
-          — there is no time limit then.
+          — no password to type, and no time limit.
         </p>
       </Card>
     </div>

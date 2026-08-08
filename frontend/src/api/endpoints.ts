@@ -440,13 +440,17 @@ export const meetings = {
     api.post<{ data: import('../types').MeetingItem }>('/meetings', payload).then((r) => r.data.data),
   show: (code: string) =>
     api.get<{ data: import('../types').MeetingItem }>(`/meetings/${code}`).then((r) => r.data.data),
-  /** Turn guest access on or off on a meeting that already exists. */
-  setGuestAccess: (code: string, guest_access: boolean, passcode?: string) =>
-    api.put<{ message: string; data: { guest_access: boolean; passcode: string | null; join_url: string | null } }>(
-      `/meetings/${code}/guest-access`,
-      passcode ? { guest_access, passcode } : { guest_access },
+  /**
+   * Set or clear the meeting password — which is also the guest switch, since
+   * the password is what somebody without an account types instead of signing
+   * in. Pass null to remove it and make the meeting members-only again.
+   */
+  setPasscode: (code: string, passcode: string | null) =>
+    api.put<{ message: string; data: { passcode: string | null; has_passcode: boolean; allows_guests: boolean } }>(
+      `/meetings/${code}/passcode`,
+      { passcode },
     ).then((r) => r.data),
-  join: (code: string, opts: { display_name?: string; passcode?: string; mic_on?: boolean; cam_on?: boolean } = {}) =>
+  join: (code: string, opts: { display_name?: string; mic_on?: boolean; cam_on?: boolean } = {}) =>
     api.post<{
       data:
         | (import('../types').MeetingItem & {
@@ -593,8 +597,17 @@ export interface LiveMeeting {
   is_locked: boolean
 }
 
-/** Joining a meeting with a passcode and no account. */
+/** Joining a meeting with the meeting password and no account. */
 export const guestMeetings = {
+  /**
+   * Whether a password box is any use for this code, asked before anything is
+   * typed. Booleans only — a guessed code learns nothing it could not learn by
+   * simply trying.
+   */
+  peek: (code: string) =>
+    api.get<{ data: { exists: boolean; allows_guests: boolean; ended: boolean; is_locked: boolean } }>(
+      `/meetings/${code}/guest`,
+    ).then((r) => r.data.data),
   join: (code: string, name: string, passcode: string) =>
     api.post<{ data: {
       token: string

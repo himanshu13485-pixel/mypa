@@ -16,7 +16,6 @@ class Meeting extends Model
 
     protected $fillable = [
         'host_id', 'code', 'title', 'type', 'is_screen', 'requires_approval', 'passcode', 'is_locked',
-        'guest_access',
         'spotlight_uuid', 'status', 'scheduled_at', 'reminded_at', 'started_at', 'ended_at',
     ];
 
@@ -59,6 +58,18 @@ class Meeting extends Model
         } while (self::where('code', $code)->exists());
 
         return $code;
+    }
+
+    /**
+     * Whether somebody without an account can get in.
+     *
+     * The password is the only switch: it is what a guest types instead of
+     * signing in, so a meeting without one has nothing to check them against
+     * and admits members only.
+     */
+    public function allowsGuests(): bool
+    {
+        return (bool) $this->passcode;
     }
 
     public function host(): BelongsTo

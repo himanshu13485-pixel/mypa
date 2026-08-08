@@ -39,3 +39,33 @@ export function clearGuestPass(): void {
 export function guestPassExpired(pass: GuestPass | null): boolean {
   return pass !== null && new Date(pass.expiresAt).getTime() <= Date.now()
 }
+
+/**
+ * The share link, as sent to everyone: /meetings/room/abc-defg-hij
+ *
+ * Shape-checked but not alphabet-checked. Codes are generated from lowercase
+ * letters, and a pattern that insisted on exactly that would quietly send real
+ * invitees to a sign-in form the day the generator gained a digit. Case is
+ * forgiven too — links get retyped out of documents and messages.
+ */
+const MEETING_ROOM = /^\/meetings\/room\/([a-z0-9]{3}-[a-z0-9]{4}-[a-z0-9]{3})\/?$/i
+
+/**
+ * Where a signed-out visitor on a meeting link should be sent.
+ *
+ * There is one invite link and everybody gets the same one, so the guard
+ * cannot simply bounce whoever is not signed in to a sign-in form: a meeting
+ * invite regularly reaches people with no account who are not about to make
+ * one. Returns null for any other path, meaning "not my business".
+ */
+export function guestRouteFor(pathname: string, pass: GuestPass | null): string | null {
+  const room = pathname.match(MEETING_ROOM)
+  if (!room) return null
+
+  const code = room[1].toLowerCase()
+  // Already holding a live pass for this meeting: that is a reload, not a new
+  // arrival, and asking for the password again would be asking twice.
+  const live = pass?.code === code && !guestPassExpired(pass)
+
+  return live ? `/guest/room/${code}` : `/join/${code}`
+}

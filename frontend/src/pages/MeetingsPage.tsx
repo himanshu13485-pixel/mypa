@@ -1,8 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, Copy, LogIn, UserPlus, Video } from 'lucide-react'
-import { clsx } from 'clsx'
+import { Calendar, Copy, LogIn, Video } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
@@ -12,22 +11,21 @@ import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, Spinner,
 } from '../components/ui'
 
+/**
+ * The one link. Signed-in members open it and walk in; anyone else is asked
+ * for their name and the meeting password on the way through, and only if the
+ * host set one.
+ */
 export function meetingLink(code: string): string {
   return `${window.location.origin}/meetings/room/${code}`
 }
 
 export default function MeetingsPage() {
-  const { toast, toastError } = useToast()
+  const { toastError } = useToast()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [joinCode, setJoinCode] = useState('')
   const [showSchedule, setShowSchedule] = useState(false)
-  /* Guest access, reachable on any meeting you host — the instant "New
-     meeting" button has no form, so creation time cannot be the only way. */
-  const [guestFor, setGuestFor] = useState<MeetingItem | null>(null)
-  const [guestPasscode, setGuestPasscode] = useState('')
-  const [guestBusy, setGuestBusy] = useState(false)
-  const [guestUrl, setGuestUrl] = useState<string | null>(null)
 
   const { data: meetings, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ['meetings'],
@@ -147,16 +145,6 @@ export default function MeetingsPage() {
                 <Button size="sm" variant="secondary" title="Copy invite link" onClick={() => copyLink(m)}>
                   <Copy className="size-3.5" /> {copiedCode === m.code ? 'Copied ✓' : 'Link'}
                 </Button>
-                {m.status !== 'ended' && m.is_host && (
-                  <Button
-                    size="sm"
-                    variant={m.guest_access ? 'primary' : 'secondary'}
-                    title={m.guest_access ? 'People without an account can join' : 'Let people join without an account'}
-                    onClick={() => setGuestFor(m)}
-                  >
-                    <UserPlus className="size-3.5" /> Guests
-                  </Button>
-                )}
                 {m.status !== 'ended' && (
                   <Button size="sm" onClick={() => navigate(`/meetings/room/${m.code}`)}>
                     {m.status === 'active' ? 'Join' : 'Start'}
@@ -166,121 +154,6 @@ export default function MeetingsPage() {
             </Card>
           ))}
         </div>
-      )}
-
-      {guestFor && (
-        <Modal
-          title={`Guests — ${guestFor.title || guestFor.code}`}
-          onClose={() => { setGuestFor(null); setGuestPasscode(''); setGuestUrl(null) }}
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-slate-500">
-              People without a Netvork account can join with a passcode and stay 30 minutes.
-            </p>
-
-            {guestFor.guest_access ? (
-              <>
-                {/* The code first, and large. It is what gets read out on a
-                    phone or written down; the link is a convenience on top. */}
-                <div className="rounded-lg bg-slate-100 p-3 text-center dark:bg-slate-800">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-400">Tell them to go to</p>
-                  <p className="font-medium">{window.location.host}/join</p>
-                  <p className="mt-2 text-[11px] uppercase tracking-wide text-slate-400">and enter</p>
-                  <p className="select-all font-mono text-xl font-semibold tracking-wide">{guestFor.code}</p>
-                  <p className="mt-2 text-[11px] uppercase tracking-wide text-slate-400">passcode</p>
-                  <p className="select-all font-mono text-lg font-semibold">{guestFor.passcode ?? '—'}</p>
-                </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="flex-1"
-                    onClick={() => navigator.clipboard
-                      .writeText(`Join my Netvork meeting
-${window.location.origin}/join
-Code: ${guestFor.code}
-Passcode: ${guestFor.passcode ?? ''}`)
-                      .catch(() => undefined)}
-                  >
-                    <Copy className="size-3.5" /> Copy instructions
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    className="flex-1"
-                    title="A link that fills the code in for them"
-                    onClick={() => navigator.clipboard
-                      .writeText(guestUrl ?? `${window.location.origin}/join/${guestFor.code}`)
-                      .catch(() => undefined)}
-                  >
-                    <Copy className="size-3.5" /> Copy link
-                  </Button>
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Send the passcode separately from the code, or the two together let anyone in.
-                </p>
-                <Button
-                  size="sm"
-                  variant="danger"
-                  disabled={guestBusy}
-                  onClick={async () => {
-                    setGuestBusy(true)
-                    try {
-                      await meetingsApi.setGuestAccess(guestFor.code, false)
-                      toast('Guest access is off.', 'success')
-                      queryClient.invalidateQueries({ queryKey: ['meetings'] })
-                      setGuestFor(null)
-                    } catch (err) {
-                      toastError(errorMessage(err))
-                    } finally {
-                      setGuestBusy(false)
-                    }
-                  }}
-                >
-                  Turn guest access off
-                </Button>
-              </>
-            ) : (
-              <>
-                <div>
-                  <Label>Passcode</Label>
-                  <Input
-                    value={guestPasscode}
-                    onChange={(e) => setGuestPasscode(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
-                    placeholder="4–12 letters or digits"
-                    maxLength={12}
-                    autoComplete="off"
-                  />
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    Required — without one the link alone would let anyone in.
-                  </p>
-                </div>
-                <Button
-                  disabled={guestBusy || guestPasscode.trim().length < 4}
-                  onClick={async () => {
-                    setGuestBusy(true)
-                    try {
-                      const res = await meetingsApi.setGuestAccess(guestFor.code, true, guestPasscode.trim())
-                      setGuestUrl(res.data.join_url)
-                      toast(res.message, 'success')
-                      queryClient.invalidateQueries({ queryKey: ['meetings'] })
-                      // Carry the passcode back so the panel can show it —
-                      // a meeting made by the instant button had none before.
-                      setGuestFor({ ...guestFor, guest_access: true, passcode: res.data.passcode ?? undefined })
-                    } catch (err) {
-                      toastError(errorMessage(err))
-                    } finally {
-                      setGuestBusy(false)
-                    }
-                  }}
-                >
-                  {guestBusy ? 'Saving…' : 'Turn guest access on'}
-                </Button>
-              </>
-            )}
-          </div>
-        </Modal>
       )}
 
       {showSchedule && (
@@ -294,7 +167,7 @@ Passcode: ${guestFor.passcode ?? ''}`)
 }
 
 function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '', guest_access: false })
+  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '' })
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<MeetingItem | null>(null)
 
@@ -306,8 +179,6 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         scheduled_at: form.scheduled_at || null,
         requires_approval: form.requires_approval,
         passcode: form.passcode.trim() || null,
-        // Only meaningful with a passcode — the backend enforces the same.
-        guest_access: form.guest_access && form.passcode.trim().length >= 4,
       }),
     onSuccess: (m) => {
       setCreated(m)
@@ -321,8 +192,8 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
       {created ? (
         <div className="space-y-3 text-sm">
           <p>
-            <span className="font-semibold">{created.title ?? 'Meeting'}</span> is ready. Share this link —
-            anyone signed in to Netvork can join:
+            <span className="font-semibold">{created.title ?? 'Meeting'}</span> is ready. This is the link,
+            for everyone:
           </p>
           <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 font-mono text-xs dark:bg-slate-800">
             <span className="min-w-0 flex-1 truncate">{meetingLink(created.code)}</span>
@@ -334,34 +205,17 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               <Copy className="size-3.5" />
             </Button>
           </div>
-          {created.has_passcode && (
+          {created.has_passcode ? (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-300">
-              Passcode <span className="font-mono font-semibold">{created.passcode}</span> — send this
-              separately from the link, or it defeats the point.
+              Password <span className="font-mono font-semibold">{created.passcode}</span> — people without a
+              Netvork account are asked for this on the way in. Send it separately from the link, or the two
+              together let anyone in. Members just click and join.
             </p>
-          )}
-          {created.guest_access && (
-            <div className="space-y-1 rounded-lg bg-slate-100 px-3 py-2 dark:bg-slate-800">
-              <p className="text-xs font-medium">Link for people without an account</p>
-              <div className="flex gap-2">
-                <input
-                  readOnly
-                  value={`${window.location.origin}/join/${created.code}`}
-                  onFocus={(e) => e.currentTarget.select()}
-                  className="min-w-0 flex-1 rounded border border-slate-300 bg-white px-2 py-1 font-mono text-[11px] dark:border-slate-600 dark:bg-slate-900"
-                />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => navigator.clipboard
-                    .writeText(`${window.location.origin}/join/${created.code}`)
-                    .catch(() => undefined)}
-                >
-                  <Copy className="size-3.5" />
-                </Button>
-              </div>
-              <p className="text-[11px] text-slate-400">They will need the passcode too, and get 30 minutes.</p>
-            </div>
+          ) : (
+            <p className="text-xs text-slate-400">
+              No password, so the link works for signed-in Netvork members only. You can add one later from
+              inside the meeting.
+            </p>
           )}
           <div className="flex justify-end">
             <Button onClick={onClose}>Done</Button>
@@ -394,8 +248,11 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               <Input type="datetime-local" value={form.scheduled_at} onChange={(e) => setForm({ ...form, scheduled_at: e.target.value })} />
             </div>
           </div>
+          {/* The password is the whole guest switch. There is no second
+              checkbox: set one and outsiders can join with it, leave it empty
+              and they cannot. */}
           <div>
-            <Label>Passcode (optional)</Label>
+            <Label>Password (optional)</Label>
             <Input
               value={form.passcode}
               onChange={(e) => setForm({ ...form, passcode: e.target.value.replace(/[^a-zA-Z0-9]/g, '') })}
@@ -404,7 +261,9 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               autoComplete="off"
             />
             <p className="mt-1 text-[11px] text-slate-400">
-              Anyone joining has to type this as well as the link. Share it separately.
+              {form.passcode.trim().length >= 4
+                ? 'People without a Netvork account can join with this and stay 30 minutes. Members just use the link. Send the password separately.'
+                : 'Leave it empty and the link is for signed-in Netvork members only. Set one to let outsiders in with it.'}
             </p>
           </div>
           <label className="flex items-center gap-2 text-sm">
@@ -414,27 +273,6 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               onChange={(e) => setForm({ ...form, requires_approval: e.target.checked })}
             />
             Require my approval before anyone joins (waiting room)
-          </label>
-
-          {/* Guest access is only worth anything alongside a passcode, so the
-              control is disabled until there is one rather than silently
-              doing nothing. */}
-          <label className={clsx('flex items-start gap-2 text-sm', form.passcode.trim().length < 4 && 'opacity-50')}>
-            <input
-              type="checkbox"
-              className="mt-0.5"
-              disabled={form.passcode.trim().length < 4}
-              checked={form.guest_access}
-              onChange={(e) => setForm({ ...form, guest_access: e.target.checked })}
-            />
-            <span>
-              Let people join without a Netvork account
-              <span className="block text-[11px] text-slate-400">
-                {form.passcode.trim().length < 4
-                  ? 'Set a passcode first — without one the link alone would let anyone in.'
-                  : 'They get 30 minutes, and still need the passcode.'}
-              </span>
-            </span>
           </label>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>

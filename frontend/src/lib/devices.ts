@@ -183,6 +183,57 @@ export function speakerSelectionSupported(): boolean {
 }
 
 /**
+ * Play a short tone out of one speaker, so "did that work?" has an answer that
+ * does not involve asking the room to say something.
+ *
+ * Picking an output device is otherwise silent by definition: nothing happens
+ * until somebody speaks, and if the wrong one was chosen you find out by
+ * missing what they said.
+ */
+export async function testSpeaker(deviceId?: string): Promise<void> {
+  let ctx: AudioContext
+  try {
+    ctx = new AudioContext()
+  } catch {
+    return
+  }
+
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.frequency.value = 660
+  // Straight to full volume clicks; a short ramp at each end does not.
+  gain.gain.setValueAtTime(0, ctx.currentTime)
+  gain.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.02)
+  gain.gain.setValueAtTime(0.12, ctx.currentTime + 0.28)
+  gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.35)
+  osc.connect(gain)
+
+  // An AudioContext plays wherever the system says; only a media element can
+  // be pointed at a chosen output, so the tone goes through one.
+  const dest = ctx.createMediaStreamDestination()
+  gain.connect(dest)
+  const el = new Audio()
+  el.srcObject = dest.stream
+  if (deviceId) {
+    await (el as HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> })
+      .setSinkId?.(deviceId).catch(() => undefined)
+  }
+
+  try {
+    await el.play()
+    osc.start()
+    await new Promise((r) => setTimeout(r, 400))
+  } catch {
+    /* autoplay policy — the click that opened the menu should have covered it */
+  } finally {
+    osc.stop()
+    el.pause()
+    el.srcObject = null
+    await ctx.close().catch(() => undefined)
+  }
+}
+
+/**
  * Mic level 0..1, sampled ~20x/sec. Used by the pre-join meter so people can
  * see their microphone works before they walk into the room.
  */

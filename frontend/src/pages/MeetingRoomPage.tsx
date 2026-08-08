@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Circle, Copy, Expand, FlipHorizontal, Grid3x3, Hand, LayoutGrid, Lock, LockOpen, MessageSquare, Mic, MicOff,
-  MonitorUp, MoreHorizontal, Paperclip, PhoneOff, PictureInPicture2, Pin, PinOff, Rows3, Settings2, SmilePlus,
-  Square, SwitchCamera, User, Users, Video, VideoOff,
+  Circle, Copy, Expand, FlipHorizontal, Grid3x3, Hand, KeyRound, LayoutGrid, Lock, LockOpen, MessageSquare,
+  Mic, MicOff, MonitorUp, MoreHorizontal, Paperclip, PhoneOff, PictureInPicture2, Pin, PinOff, Rows3,
+  Settings2, SmilePlus, Square, SwitchCamera, User, Users, Video, VideoOff, Volume2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls, meetings as meetingsApi } from '../api/endpoints'
@@ -17,7 +17,8 @@ import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
   AUDIO_CONSTRAINTS, VIDEO_CONSTRAINTS, applySpeaker, loadDeviceChoice, nextCamera, openCamera, openMic,
-  saveDeviceChoice, speakerSelectionSupported, swapTrack, useDevices, type DeviceChoice,
+  saveDeviceChoice, speakerSelectionSupported, swapTrack, testSpeaker, useDevices, useMicLevel,
+  type DeviceChoice,
 } from '../lib/devices'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
 import { useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
@@ -166,7 +167,7 @@ export default function MeetingRoomPage() {
     [account, isGuest, guestPass],
   )
   const { toast, toastError } = useToast()
-  const { ask } = usePrompt()
+  const { ask, confirm } = usePrompt()
 
   const [peers, setPeers] = useState<Peer[]>([])
   const [phase, setPhase] = useState<'loading' | 'lobby' | 'joining' | 'waiting' | 'denied' | 'removed' | 'in' | 'ended' | 'error'>('loading')
@@ -247,6 +248,15 @@ export default function MeetingRoomPage() {
   const roomRef = useRef<HTMLDivElement>(null)
   const [knocks, setKnocks] = useState<{ uuid: string; name: string }[]>([])
   const [approvalOn, setApprovalOn] = useState<boolean | null>(null)
+  /**
+   * The meeting password, which is also the guest switch: with one set the
+   * ordinary invite link admits people who have no account and type it.
+   * Local because the host can change it from in here, and undefined until the
+   * meeting has loaded so "no password" and "not known yet" stay distinct.
+   */
+  const [roomPasscode, setRoomPasscode] = useState<string | null | undefined>(undefined)
+  /** Bumped whenever the outgoing mic track is replaced — see changeDevice. */
+  const [micRev, setMicRev] = useState(0)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
   const [chatTo, setChatTo] = useState('') // '' = everyone
@@ -279,6 +289,11 @@ export default function MeetingRoomPage() {
   })
   const isVideo = meeting?.type !== 'audio'
   const canModerate = myRole === 'host' || myRole === 'cohost'
+  // Only moderators are sent the actual password; everyone else gets null and
+  // never sees this control at all.
+  useEffect(() => {
+    if (meeting) setRoomPasscode(meeting.passcode ?? null)
+  }, [meeting])
   const isHost = myRole === 'host'
 
   const isPhone = useIsPhone()
@@ -509,7 +524,6 @@ export default function MeetingRoomPage() {
       await ensureLocalStream()
       const info = await meetingsApi.join(code, {
         ...(opts?.displayName ? { display_name: opts.displayName } : {}),
-        ...(opts?.passcode ? { passcode: opts.passcode } : {}),
         mic_on: opts ? opts.micOn : true,
         cam_on: opts ? opts.camOn : true,
       })
@@ -542,8 +556,9 @@ export default function MeetingRoomPage() {
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status
       const message = errorMessage(err)
-      // 403 (passcode) and 423 (locked) are things the user can fix from the
-      // lobby, so send them back there instead of to a dead end.
+      // 403 (removed, or a co-host restriction) and 423 (locked) are things
+      // that may resolve while they wait, so send them back to the lobby with
+      // the reason rather than to a dead end.
       if (status === 403 || status === 423) {
         setLobbyError(message)
         setPhase('lobby')
@@ -920,6 +935,9 @@ export default function MeetingRoomPage() {
     toast(`${who} turned your camera off.`, 'info')
   }
 
+  /** Stable across renders, so the meter's memo only re-runs on micRev. */
+  const getLocalStream = useCallback(() => localStreamRef.current, [])
+
   const toggleMute = () => setMicEnabled(muted)
   const toggleCamera = () => setCameraEnabled(cameraOff)
 
@@ -959,25 +977,90 @@ export default function MeetingRoomPage() {
     }
   }
 
+  /**
+   * Set or change the meeting password — the one control that decides whether
+   * the invite link works for people without an account.
+   */
+  const changePasscode = async () => {
+    const next = await ask({
+      title: roomPasscode ? 'Change the meeting password' : 'Add a meeting password',
+      message:
+        'Anyone without a Netvork account is asked for this on the way in, and stays 30 minutes. '
+        + 'Signed-in members never need it. 4–12 letters or digits.',
+      value: roomPasscode ?? '',
+      placeholder: 'e.g. open1234',
+      actionLabel: 'Save',
+    })
+    if (next === null) return
+
+    const clean = next.replace(/[^a-zA-Z0-9]/g, '')
+    if (clean.length < 4) {
+      toastError('A password needs at least 4 letters or digits.')
+      return
+    }
+
+    try {
+      const res = await meetingsApi.setPasscode(code, clean)
+      setRoomPasscode(res.data.passcode)
+      toast(res.message, 'success')
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
+  }
+
+  /** Take the password off, which also shuts the door on guests. */
+  const clearPasscode = async () => {
+    const sure = await confirm({
+      title: 'Remove the password?',
+      message: 'Anyone without a Netvork account will no longer be able to join with the link. '
+        + 'People already in the meeting stay.',
+      actionLabel: 'Remove it',
+      danger: true,
+    })
+    if (!sure) return
+
+    try {
+      const res = await meetingsApi.setPasscode(code, null)
+      setRoomPasscode(null)
+      toast(res.message, 'success')
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
+  }
+
+  /**
+   * Swap a camera, microphone or speaker without leaving the meeting.
+   *
+   * An empty deviceId is "whatever the system says" — the entry has to be
+   * selectable, or picking a specific device once would be permanent for the
+   * rest of the meeting.
+   */
   const changeDevice = async (kind: 'camera' | 'mic' | 'speaker', deviceId: string) => {
+    const id = deviceId || undefined
     try {
       if (kind === 'speaker') {
-        setDeviceChoice(saveDeviceChoice({ speakerId: deviceId }))
-        await applySpeaker(deviceId)
+        setDeviceChoice(saveDeviceChoice({ speakerId: id }))
+        // Back to the system default: there is no sink id for that, and the
+        // empty string is what setSinkId defines as "undo".
+        await applySpeaker(id ?? '')
         return
       }
       if (kind === 'mic') {
-        const track = await openMic(deviceId)
+        const track = await openMic(id)
         swapTrack(pcsRef.current.values(), localStreamRef.current, track)
-        setDeviceChoice(saveDeviceChoice({ micId: deviceId }))
+        setDeviceChoice(saveDeviceChoice({ micId: id }))
+        // The stream object is mutated in place, so nothing downstream would
+        // otherwise notice the track underneath it changed.
+        setMicRev((n) => n + 1)
+        toast(myMediaRef.current.mic ? 'Microphone switched.' : 'Microphone switched — you are still muted.', 'success')
         return
       }
       if (sharing) return
-      const track = await openCamera({ deviceId })
+      const track = await openCamera({ deviceId: id })
       cameraTrackRef.current = track
       swapTrack(pcsRef.current.values(), localStreamRef.current, track)
       showSelf(localStreamRef.current)
-      setDeviceChoice(saveDeviceChoice({ cameraId: deviceId }))
+      setDeviceChoice(saveDeviceChoice({ cameraId: id }))
     } catch (err) {
       toastError('Could not switch that device — it may be in use by another app.')
       console.warn('[meeting] device switch failed', err)
@@ -1046,7 +1129,13 @@ export default function MeetingRoomPage() {
   }
 
   const endForAll = async () => {
-    if (!confirm('End this meeting for everyone?')) return
+    const sure = await confirm({
+      title: 'End this meeting for everyone?',
+      message: 'Everybody is disconnected, not just you. To step out on your own, use Leave instead.',
+      actionLabel: 'End for everyone',
+      danger: true,
+    })
+    if (!sure) return
     pip?.close()
     teardown()
     joinedRef.current = false
@@ -1449,6 +1538,8 @@ export default function MeetingRoomPage() {
             }}
             onChange={changeDevice}
             onClose={() => setShowSettings(false)}
+            micStream={getLocalStream}
+            micRev={micRev}
           />
         )}
       </div>
@@ -1489,15 +1580,11 @@ export default function MeetingRoomPage() {
     return <Card className="mx-auto mt-10 max-w-md text-center text-sm text-slate-400">Opening the meeting…</Card>
   }
 
-  // A guest typed the passcode to be given a pass at all, and the server no
-  // longer asks them for it — so the lobby must not either, or one join takes
-  // two entries of the same code.
   if (phase === 'lobby') {
     return (
       <MeetingLobby
         title={meeting?.title ?? 'Meeting'}
         hostName={meeting?.is_host ? undefined : meeting?.host.name}
-        needsPasscode={!!meeting?.has_passcode && !meeting?.can_moderate && !isGuest}
         defaultName={user?.name ?? 'Guest'}
         audioOnly={!isVideo}
         error={lobbyError}
@@ -1567,11 +1654,29 @@ export default function MeetingRoomPage() {
                 <Lock className="size-3" /> Locked
               </span>
             )}
-            {meeting?.passcode && (
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
-                Passcode: <span className="font-mono">{meeting.passcode}</span>
+            {/* The password is the guest switch, and the instant "New meeting"
+                button makes none — so in here is the only place a host can
+                reach it. Participants see whether there is one, never what. */}
+            {canModerate && roomPasscode !== undefined ? (
+              <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <KeyRound className="size-3" />
+                {roomPasscode ? (
+                  <>Password: <span className="select-all font-mono">{roomPasscode}</span></>
+                ) : (
+                  'Members only'
+                )}
+                <button className="hover:text-brand-600" onClick={changePasscode}>
+                  {roomPasscode ? 'change' : 'add a password'}
+                </button>
+                {roomPasscode && (
+                  <button className="hover:text-red-600" onClick={clearPasscode}>remove</button>
+                )}
               </span>
-            )}
+            ) : meeting?.has_passcode ? (
+              <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <KeyRound className="size-3" /> Password set
+              </span>
+            ) : null}
             {canModerate && approvalOn !== null && (
               <button
                 className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:text-brand-600 dark:bg-slate-800 dark:text-slate-400"
@@ -1961,9 +2066,18 @@ export default function MeetingRoomPage() {
   )
 }
 
-/** Mid-meeting device switcher — the same choices as the lobby, live. */
+/**
+ * Mid-meeting device switcher — the same choices as the lobby, live.
+ *
+ * Changing microphone or speaker halfway through is the common case, not the
+ * exotic one: headphones come off, a headset gets plugged in, the laptop lid
+ * shuts and the meeting moves to a monitor. Each change takes effect on the
+ * spot (replaceTrack for the mic, setSinkId for the speaker) with no
+ * renegotiation and nobody dropping out.
+ */
 function DeviceMenu({
   choice, audioOnly, hideSelf, onHideSelf, mirror, mirrorSuppressed, onMirror, onChange, onClose,
+  micStream, micRev,
 }: {
   choice: DeviceChoice
   audioOnly: boolean
@@ -1975,73 +2089,128 @@ function DeviceMenu({
   onMirror: (v: boolean) => void
   onChange: (kind: 'camera' | 'mic' | 'speaker', deviceId: string) => void
   onClose: () => void
+  /** The live outgoing stream, for the level meter. */
+  micStream: () => MediaStream | null
+  /** Bumped on every mic swap — swapTrack mutates the stream in place, so
+      without this the meter would keep watching the track we just stopped. */
+  micRev: number
 }) {
   const { cameras, mics, speakers } = useDevices()
+  const [testing, setTesting] = useState(false)
+  const meterStream = useMemo(() => {
+    const s = micStream()
+    return s ? new MediaStream(s.getAudioTracks()) : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [micStream, micRev])
+  const level = useMicLevel(meterStream)
+
+  const select = 'w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900'
 
   return (
-    <div
-      className="absolute bottom-11 right-0 z-30 w-64 space-y-2 rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900"
-      onMouseLeave={onClose}
-    >
-      {!audioOnly && (
-        <label className="block">
-          <span className="mb-1 block font-medium text-slate-500">Camera</span>
-          <select
-            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900"
-            value={choice.cameraId ?? ''}
-            onChange={(e) => e.target.value && onChange('camera', e.target.value)}
-          >
-            <option value="">Default camera</option>
-            {cameras.map((c) => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
-          </select>
-        </label>
-      )}
-      <label className="block">
-        <span className="mb-1 block font-medium text-slate-500">Microphone</span>
-        <select
-          className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900"
-          value={choice.micId ?? ''}
-          onChange={(e) => e.target.value && onChange('mic', e.target.value)}
-        >
-          <option value="">Default microphone</option>
-          {mics.map((m) => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
-        </select>
-      </label>
-      {speakerSelectionSupported() && (
-        <label className="block">
-          <span className="mb-1 block font-medium text-slate-500">Speaker</span>
-          <select
-            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 dark:border-slate-700 dark:bg-slate-900"
-            value={choice.speakerId ?? ''}
-            onChange={(e) => e.target.value && onChange('speaker', e.target.value)}
-          >
-            <option value="">Default speaker</option>
-            {speakers.map((s) => <option key={s.deviceId} value={s.deviceId}>{s.label}</option>)}
-          </select>
-        </label>
-      )}
-      {!audioOnly && (
-        <>
-          <label className="flex items-center gap-2 pt-1">
-            <input type="checkbox" checked={hideSelf} onChange={(e) => onHideSelf(e.target.checked)} />
-            <User className="size-3.5" /> Hide my own tile
+    // A phone has no hover, so leaving is not a gesture it can make: the
+    // backdrop is what closes this there. On a desktop it is invisible and
+    // catches the click-away.
+    <>
+      <div className="fixed inset-0 z-20" onMouseDown={onClose} />
+      <div
+        className="absolute bottom-11 right-0 z-30 max-h-[70vh] w-64 max-w-[calc(100vw-2rem)] space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900"
+      >
+        {!audioOnly && (
+          <label className="block">
+            <span className="mb-1 block font-medium text-slate-500">Camera</span>
+            <select
+              className={select}
+              value={choice.cameraId ?? ''}
+              onChange={(e) => onChange('camera', e.target.value)}
+            >
+              <option value="">Default camera</option>
+              {cameras.map((c) => <option key={c.deviceId} value={c.deviceId}>{c.label}</option>)}
+            </select>
           </label>
-          <label className={clsx('flex items-center gap-2', mirrorSuppressed && 'opacity-50')}>
-            <input
-              type="checkbox"
-              checked={mirror && !mirrorSuppressed}
-              disabled={mirrorSuppressed}
-              onChange={(e) => onMirror(e.target.checked)}
+        )}
+
+        <label className="block">
+          <span className="mb-1 block font-medium text-slate-500">Microphone</span>
+          <select
+            className={select}
+            value={choice.micId ?? ''}
+            onChange={(e) => onChange('mic', e.target.value)}
+          >
+            <option value="">Default microphone</option>
+            {mics.map((m) => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
+          </select>
+        </label>
+
+        {/* Proof the one you just picked is the one hearing you — otherwise
+            switching mic mid-meeting is a guess you only settle by asking
+            everyone whether they can still hear you. */}
+        <div className="flex items-center gap-2">
+          <Mic className="size-3 shrink-0 text-slate-400" />
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+            <div
+              className="h-full rounded-full bg-emerald-500 transition-[width] duration-75"
+              style={{ width: `${Math.round(level * 100)}%` }}
             />
-            <FlipHorizontal className="size-3.5" /> Mirror my own view
+          </div>
+        </div>
+
+        {speakerSelectionSupported() ? (
+          <label className="block">
+            <span className="mb-1 block font-medium text-slate-500">Speaker</span>
+            <select
+              className={select}
+              value={choice.speakerId ?? ''}
+              onChange={(e) => onChange('speaker', e.target.value)}
+            >
+              <option value="">Default speaker</option>
+              {speakers.map((s) => <option key={s.deviceId} value={s.deviceId}>{s.label}</option>)}
+            </select>
+            <button
+              className="mt-1 flex items-center gap-1 text-[11px] text-slate-400 hover:text-brand-600"
+              disabled={testing}
+              onClick={async (e) => {
+                e.preventDefault()
+                setTesting(true)
+                await testSpeaker(choice.speakerId)
+                setTesting(false)
+              }}
+            >
+              <Volume2 className="size-3" /> {testing ? 'Playing…' : 'Play a test sound'}
+            </button>
           </label>
+        ) : (
+          // Safari and Firefox have no setSinkId: the browser follows the
+          // system output and there is nothing to offer here but the truth.
           <p className="text-[11px] leading-snug text-slate-400">
-            {mirrorSuppressed
-              ? 'Off while you have a picture background — mirroring would show its text backwards. Only you ever saw the flip; others always see you the right way round.'
-              : 'Affects your tile only. Everyone else always sees you unmirrored.'}
+            Sound goes to whichever output your device is set to — this browser
+            gives no way to choose one per meeting. Change it in your system
+            sound settings and it follows immediately.
           </p>
-        </>
-      )}
-    </div>
+        )}
+
+        {!audioOnly && (
+          <>
+            <label className="flex items-center gap-2 pt-1">
+              <input type="checkbox" checked={hideSelf} onChange={(e) => onHideSelf(e.target.checked)} />
+              <User className="size-3.5" /> Hide my own tile
+            </label>
+            <label className={clsx('flex items-center gap-2', mirrorSuppressed && 'opacity-50')}>
+              <input
+                type="checkbox"
+                checked={mirror && !mirrorSuppressed}
+                disabled={mirrorSuppressed}
+                onChange={(e) => onMirror(e.target.checked)}
+              />
+              <FlipHorizontal className="size-3.5" /> Mirror my own view
+            </label>
+            <p className="text-[11px] leading-snug text-slate-400">
+              {mirrorSuppressed
+                ? 'Off while you have a picture background — mirroring would show its text backwards. Only you ever saw the flip; others always see you the right way round.'
+                : 'Affects your tile only. Everyone else always sees you unmirrored.'}
+            </p>
+          </>
+        )}
+      </div>
+    </>
   )
 }

@@ -669,8 +669,11 @@ export interface MeetingItem {
   requires_approval?: boolean
   is_locked?: boolean
   has_passcode?: boolean
-  /** People without an account may join with the passcode, for 30 minutes. */
-  guest_access?: boolean
+  /**
+   * Derived from the password, never stored separately: with one set, the
+   * ordinary invite link admits people who have no account and type it.
+   */
+  allows_guests?: boolean
   /** Only sent to the host / co-hosts — they are the ones sharing it. */
   passcode?: string | null
   spotlight_uuid?: string | null

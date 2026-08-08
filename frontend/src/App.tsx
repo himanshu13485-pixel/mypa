@@ -57,10 +57,11 @@ export default function App() {
     <BrowserRouter>
       <Suspense fallback={<Spinner className="h-screen" />}>
         <Routes>
-          {/* Public: joining a meeting with a passcode and no account. */}
+          {/* Public: joining a meeting with the meeting password and no
+              account. Reached by typing a code, and by the auth guard when
+              somebody signed out opens the ordinary invite link — there is one
+              link and everybody gets the same one. */}
           <Route path="/join" element={<GuestJoinPage />} />
-          {/* Same page with the code already filled in, so invite links that
-              are already out there keep working. */}
           <Route path="/join/:code" element={<GuestJoinPage />} />
           {/* The room again, without the app shell or the auth guard — a guest
               has no account to be guarded by. Same component, so the two never

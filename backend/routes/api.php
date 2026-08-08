@@ -47,6 +47,13 @@ Route::prefix('v1')->group(function () {
 Route::post('/client-errors', [\App\Http\Controllers\Api\V1\ClientErrorController::class, 'store'])
     ->middleware('throttle:20,1');
 
+// Is this code worth showing a password box for? Answered before anyone types
+// anything, so a meeting with no password says "sign in" up front instead of
+// after a failed attempt. Booleans only — no title, nothing a guessed code
+// could harvest.
+Route::get('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'peek'])
+    ->middleware('throttle:30,1');
+
 Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'join'])
         ->middleware('throttle:10,1');
 
@@ -222,7 +229,7 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
         Route::post('/meetings/{meeting}/react', [\App\Http\Controllers\Api\V1\MeetingController::class, 'react']);
         Route::post('/meetings/{meeting}/admit', [\App\Http\Controllers\Api\V1\MeetingController::class, 'admit']);
         Route::put('/meetings/{meeting}/approval', [\App\Http\Controllers\Api\V1\MeetingController::class, 'setApproval']);
-        Route::put('/meetings/{meeting}/guest-access', [\App\Http\Controllers\Api\V1\MeetingController::class, 'setGuestAccess']);
+        Route::put('/meetings/{meeting}/passcode', [\App\Http\Controllers\Api\V1\MeetingController::class, 'setPasscode']);
         Route::post('/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chat']);
         Route::post('/meetings/{meeting}/chat-file', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chatFile']);
         Route::get('/meetings/{meeting}/chat-file/{file}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chatFileDownload']);
