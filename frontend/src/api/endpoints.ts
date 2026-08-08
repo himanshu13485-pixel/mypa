@@ -36,6 +36,9 @@ export const profile = {
   updateSettings: (payload: Record<string, unknown>) =>
     api.put<{ data: User }>('/me/settings', payload).then((r) => r.data.data),
   myQr: () => api.get<{ data: { app_id: string; payload: string } }>('/me/app-id/qr').then((r) => r.data.data),
+  /** Irreversible: the account and everything it owns. */
+  deleteAccount: (password: string) =>
+    api.delete<{ message: string }>('/me', { data: { confirm: 'DELETE', password } }).then((r) => r.data),
   /** The endpoint has always existed; nothing in the app ever called it. */
   uploadPhoto: (file: File) => {
     const body = new FormData()

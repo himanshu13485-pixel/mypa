@@ -32,6 +32,7 @@ import { meetingLink } from './MeetingsPage'
 import type { MeetingHostAction, MeetingParticipant, MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
 import { Avatar } from '../lib/avatars'
+import { usePrompt } from '../components/Prompt'
 
 const REACTIONS: Record<string, string> = {
   thumbsup: '\u{1F44D}', clap: '\u{1F44F}', heart: '\u{2764}\u{FE0F}', laugh: '\u{1F602}',
@@ -165,6 +166,7 @@ export default function MeetingRoomPage() {
     [account, isGuest, guestPass],
   )
   const { toast, toastError } = useToast()
+  const { ask } = usePrompt()
 
   const [peers, setPeers] = useState<Peer[]>([])
   const [phase, setPhase] = useState<'loading' | 'lobby' | 'joining' | 'waiting' | 'denied' | 'removed' | 'in' | 'ended' | 'error'>('loading')
@@ -1191,8 +1193,8 @@ export default function MeetingRoomPage() {
     setTimeout(() => URL.revokeObjectURL(url), 10_000)
   }
 
-  const changeMyName = () => {
-    const name = prompt('Your name for this meeting:', myName ?? user?.name ?? '')
+  const changeMyName = async () => {
+    const name = await ask({ title: 'Your name in this meeting', value: myName ?? user?.name ?? '', actionLabel: 'Rename' })
     if (!name?.trim()) return
     meetingsApi.rename(code, name.trim())
       .then(() => setMyName(name.trim()))
@@ -1623,7 +1625,7 @@ export default function MeetingRoomPage() {
                 setCopied(true)
                 setTimeout(() => setCopied(false), 2000)
               },
-              () => prompt('Copy this link:', meetingLink(code)),
+              () => void ask({ title: 'Invite link', message: 'Copy this and send it to whoever should join.', value: meetingLink(code), readOnly: true, actionLabel: 'Done' }),
             )
           }
         >

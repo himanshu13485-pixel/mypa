@@ -10,6 +10,7 @@ import { useToast } from '../components/Toast'
 import { PickUserModal } from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card, EmptyState, Modal, Spinner } from '../components/ui'
+import { usePrompt } from '../components/Prompt'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -35,6 +36,7 @@ async function authedDownload(uuid: string, name: string) {
 }
 
 export default function FilesPage() {
+  const { ask } = usePrompt()
   const { toast, toastError } = useToast()
   const queryClient = useQueryClient()
 
@@ -161,8 +163,8 @@ export default function FilesPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  const name = prompt('Folder name:')
+                onClick={async () => {
+                  const name = await ask({ title: 'New folder', placeholder: 'Folder name', actionLabel: 'Create' })
                   if (name?.trim()) filesApi.createFolder(name.trim(), folder).then(invalidate)
                 }}
               >
@@ -223,8 +225,8 @@ export default function FilesPage() {
                   <button
                     className="rounded p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                     title="Rename"
-                    onClick={() => {
-                      const name = prompt('New name:', f.name)
+                    onClick={async () => {
+                      const name = await ask({ title: 'Rename folder', value: f.name, actionLabel: 'Rename' })
                       if (name?.trim()) filesApi.renameFolder(f.uuid, name.trim()).then(invalidate)
                     }}
                   >
@@ -282,8 +284,8 @@ export default function FilesPage() {
                   <button
                     className="rounded p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                     title="Rename"
-                    onClick={() => {
-                      const name = prompt('New name:', f.name)
+                    onClick={async () => {
+                      const name = await ask({ title: 'Rename file', value: f.name, actionLabel: 'Rename' })
                       if (name?.trim()) filesApi.rename(f.uuid, name.trim()).then(invalidate)
                     }}
                   >

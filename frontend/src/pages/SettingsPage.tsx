@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import { Upload } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { disconnectEcho } from '../lib/echo'
 import { Avatar } from '../lib/avatars'
 import { AVATAR_GROUPS } from '../lib/avatars'
 import { disablePush, enablePush, getPushSubscription, getSoundPrefs, playChime, pushSupported, setSoundPrefs } from '../lib/alerts'
@@ -331,6 +333,72 @@ function AvatarCard() {
   )
 }
 
+/**
+ * Closing the account.
+ *
+ * Last on the page, behind a disclosure, needing the word DELETE typed and
+ * the password — three deliberate acts, because there is no undo and no
+ * "deleted" flag quietly keeping the data.
+ */
+function DangerZone() {
+  const { clear } = useAuthStore()
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [confirm, setConfirm] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const remove = () => {
+    setBusy(true)
+    setError(null)
+    profileApi.deleteAccount(password)
+      .then(() => {
+        disconnectEcho()
+        clear()
+        navigate('/login')
+      })
+      .catch((err) => { setError(errorMessage(err)); setBusy(false) })
+  }
+
+  return (
+    <Card className="ring-red-200 dark:ring-red-900/60">
+      <h2 className="text-sm font-semibold text-red-700 dark:text-red-400">Delete my account</h2>
+      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+        Permanently removes your account and everything in it — tasks, notes, files, projects and
+        chats. This cannot be undone. Messages you have already sent stay in other people's
+        conversations.
+      </p>
+
+      {!open ? (
+        <Button variant="secondary" size="sm" className="mt-3" onClick={() => setOpen(true)}>
+          Delete my account…
+        </Button>
+      ) : (
+        <div className="mt-3 space-y-3">
+          <ErrorNote message={error} />
+          <div>
+            <Label>Type DELETE to confirm</Label>
+            <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="DELETE" autoCapitalize="characters" />
+          </div>
+          <div>
+            <Label>Your password</Label>
+            <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </div>
+          <div className="flex gap-2">
+            <Button variant="danger" disabled={busy || confirm !== 'DELETE' || !password} onClick={remove}>
+              {busy ? 'Deleting…' : 'Delete everything'}
+            </Button>
+            <Button variant="ghost" disabled={busy} onClick={() => { setOpen(false); setConfirm(''); setPassword(''); setError(null) }}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </Card>
+  )
+}
+
 const PRIVACY_FIELDS: { key: string; label: string }[] = [
   { key: 'who_can_find_me', label: 'Who can find me by App ID' },
   { key: 'who_can_connect', label: 'Who can send connection requests' },
@@ -611,6 +679,8 @@ export default function SettingsPage() {
           )}
         </div>
       </Card>
+
+      <DangerZone />
     </div>
   )
 }

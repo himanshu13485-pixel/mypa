@@ -4,6 +4,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
 import { RequireAdmin, RequireAuth } from './components/Protected'
 import { ToastProvider } from './components/Toast'
+import { PromptProvider } from './components/Prompt'
 import { Spinner } from './components/ui'
 import Login from './pages/auth/Login'
 import GuestJoinPage from './pages/GuestJoinPage'
@@ -52,6 +53,7 @@ export default function App() {
   return (
     <ErrorBoundary>
     <ToastProvider>
+    <PromptProvider>
     <BrowserRouter>
       <Suspense fallback={<Spinner className="h-screen" />}>
         <Routes>
@@ -126,6 +128,7 @@ export default function App() {
         </Routes>
       </Suspense>
     </BrowserRouter>
+    </PromptProvider>
     </ToastProvider>
     </ErrorBoundary>
   )

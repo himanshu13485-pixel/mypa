@@ -123,6 +123,10 @@ Route::prefix('v1')->group(function () {
         Route::put('/me/profile', [ProfileController::class, 'updateProfile']);
         Route::put('/me/settings', [ProfileController::class, 'updateSettings']);
         Route::post('/me/photo', [ProfileController::class, 'uploadPhoto']);
+        // Closing an account for good. Throttled because it is irreversible
+        // and there is no reason to attempt it more than once a minute.
+        Route::delete('/me', [\App\Http\Controllers\Api\V1\AccountController::class, 'destroy'])
+            ->middleware('throttle:5,1');
         Route::get('/me/app-id/qr', [AppIdController::class, 'myQr']);
 
         // App ID & connections

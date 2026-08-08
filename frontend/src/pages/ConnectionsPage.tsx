@@ -7,16 +7,17 @@ import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
 import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
-import { Badge, Button, Card, EmptyState, ErrorNote, Spinner } from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorNote, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
 import { Avatar } from '../lib/avatars'
 
 export default function ConnectionsPage() {
-  const { toastError } = useToast()
+  const { toast, toastError } = useToast()
   const queryClient = useQueryClient()
   const user = useAuthStore((s) => s.user)
   const [query, setQuery] = useState('')
   const [result, setResult] = useState<Awaited<ReturnType<typeof connectionsApi.search>> | null>(null)
   const [searchError, setSearchError] = useState<string | null>(null)
+  const [reporting, setReporting] = useState<{ identifier: string; name: string; reason: string; details: string } | null>(null)
 
   const { data: list, isLoading } = useQuery({
     queryKey: ['connections'],
@@ -35,19 +36,22 @@ export default function ConnectionsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  /*
+   * Reporting somebody used to be two window.prompts in a row: pick a reason
+   * by typing one of six words exactly, then add details. Getting the word
+   * wrong threw the whole thing away, and in browsers that ignore prompt()
+   * the first one returned null and the report simply never happened.
+   */
   const reportUser = (identifier: string, name: string) => {
-    const reason = prompt(
-      `Report ${name} — reason (${REPORT_REASONS.join(', ')}):`,
-      'spam',
-    )?.trim().toLowerCase()
-    if (!reason) return
-    if (!REPORT_REASONS.includes(reason as (typeof REPORT_REASONS)[number])) {
-      alert('Please use one of: ' + REPORT_REASONS.join(', '))
-      return
-    }
-    const details = prompt('Details (optional):') ?? undefined
-    reportsApi.fileUser(identifier, reason, details)
-      .then((res) => alert((res as { message?: string }).message ?? 'Reported.'))
+    setReporting({ identifier, name, reason: 'spam', details: '' })
+  }
+
+  const sendReport = () => {
+    if (!reporting) return
+    const { identifier, reason, details } = reporting
+    setReporting(null)
+    reportsApi.fileUser(identifier, reason, details.trim() || undefined)
+      .then((res) => toast((res as { message?: string }).message ?? 'Reported. Thank you.'))
       .catch((err) => toastError(errorMessage(err)))
   }
 
@@ -229,6 +233,37 @@ export default function ConnectionsPage() {
             )}
           </Card>
         </div>
+      )}
+
+      {reporting && (
+        <Modal title={`Report ${reporting.name}`} onClose={() => setReporting(null)}>
+          <div className="space-y-4">
+            <div>
+              <Label>Reason</Label>
+              <Select
+                value={reporting.reason}
+                onChange={(e) => setReporting({ ...reporting, reason: e.target.value })}
+              >
+                {REPORT_REASONS.map((r) => (
+                  <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                ))}
+              </Select>
+            </div>
+            <div>
+              <Label>Anything else? (optional)</Label>
+              <Textarea
+                rows={3}
+                value={reporting.details}
+                onChange={(e) => setReporting({ ...reporting, details: e.target.value })}
+                placeholder="Anything that helps us understand."
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setReporting(null)}>Cancel</Button>
+              <Button variant="danger" onClick={sendReport}>Send report</Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   )

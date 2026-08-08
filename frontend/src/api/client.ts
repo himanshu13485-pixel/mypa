@@ -73,6 +73,21 @@ api.interceptors.response.use(
 
 export function errorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
+    /*
+     * An upload the server threw away before Laravel ever saw it.
+     *
+     * PHP compares the request body against post_max_size in the web server,
+     * so an oversized upload never reaches the application: there is no
+     * validation error to read, and what comes back is a bare 413 or, on some
+     * hosts, an empty 500 with the body discarded. Either way the app said
+     * "Request failed with status code 413", which tells nobody anything.
+     */
+    const status = error.response?.status
+    const upload = error.config?.data instanceof FormData
+    if (status === 413 || (upload && (status === 500 || status === 0 || !error.response))) {
+      return 'That file is too large to upload. Try a smaller one, or ask an admin to raise the server limit.'
+    }
+
     const data = error.response?.data as { message?: string; errors?: Record<string, string[]> } | undefined
     if (data?.errors) {
       const first = Object.values(data.errors)[0]
