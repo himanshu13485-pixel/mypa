@@ -92,6 +92,8 @@ export default function Layout() {
    */
   const landscape = useLandscapePhone()
   const bare = immersive && landscape
+  /** A conversation is open, so the bottom-right corner belongs to Send. */
+  const chatOpen = pathname.startsWith('/messages')
   const [dark, setDark] = useState(() =>
     localStorage.getItem('mypa-theme')
       ? localStorage.getItem('mypa-theme') === 'dark'
@@ -369,9 +371,13 @@ export default function Layout() {
           </button>
         </nav>
       </div>
-      {/* Its button floats over the bottom-right corner, which in a meeting is
-          exactly where the leave button is. Nobody dictates a task mid-call. */}
-      {!immersive && <VoiceAssistant />}
+      {/*
+        Its button floats over the bottom-right corner, which is exactly where
+        a meeting puts Leave and a chat puts Send — and on a phone it was
+        sitting on top of both. A chat has its own microphone in the composer,
+        so nothing is lost by standing down there.
+      */}
+      {!immersive && !chatOpen && <VoiceAssistant />}
     </div>
     </CallProvider>
   )

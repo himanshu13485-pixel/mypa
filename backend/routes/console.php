@@ -20,6 +20,10 @@ Schedule::command('mypa:project-reminders')->everyMinute()->withoutOverlapping()
 // and end meetings once the room is empty.
 Schedule::command('mypa:reap-meetings')->everyMinute()->withoutOverlapping();
 
+// Ten minutes before a scheduled meeting, everyone invited hears about it.
+// Every minute, because "in ten minutes" is only true for one of them.
+Schedule::command('mypa:send-meeting-reminders')->everyMinute()->withoutOverlapping();
+
 // Daily ledger emails go out at 6 AM, only for projects that changed.
 Schedule::command('mypa:project-daily-reports')->dailyAt('06:00')->withoutOverlapping();
 

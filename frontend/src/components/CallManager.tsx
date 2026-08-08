@@ -519,6 +519,33 @@ export function CallProvider({ children }: { children: ReactNode }) {
     calls.respond(uuid, 'decline').catch(() => undefined)
   }, [incoming])
 
+  /*
+   * Keep the lock-screen notification honest.
+   *
+   * A call rings in two places at once — the websocket for an open tab, the
+   * push for everything else. Whichever one is dealt with, the other has to
+   * stop: answering in the app must clear the notification, and pressing
+   * Decline on the notification must hang up here.
+   */
+  useEffect(() => {
+    const uuid = activeCall?.uuid ?? incoming?.call_uuid
+    if (!uuid) return
+    navigator.serviceWorker?.ready
+      .then((reg) => reg.getNotifications({ tag: `call-${uuid}` }))
+      .then((notes) => notes?.forEach((n) => n.close()))
+      .catch(() => undefined)
+  }, [activeCall?.uuid, incoming?.call_uuid])
+
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      if (e.data?.type !== 'call-decline' || !e.data.uuid) return
+      calls.respond(e.data.uuid, 'decline').catch(() => undefined)
+      setIncoming((cur) => (cur?.call_uuid === e.data.uuid ? null : cur))
+    }
+    navigator.serviceWorker?.addEventListener('message', onMessage)
+    return () => navigator.serviceWorker?.removeEventListener('message', onMessage)
+  }, [])
+
   const startRecordingNow = () => {
     const uuid = callRef.current?.uuid
     if (!uuid || !callBodyRef.current) return

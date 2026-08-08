@@ -17,7 +17,7 @@ class Meeting extends Model
     protected $fillable = [
         'host_id', 'code', 'title', 'type', 'is_screen', 'requires_approval', 'passcode', 'is_locked',
         'guest_access',
-        'spotlight_uuid', 'status', 'scheduled_at', 'started_at', 'ended_at',
+        'spotlight_uuid', 'status', 'scheduled_at', 'reminded_at', 'started_at', 'ended_at',
     ];
 
     protected $hidden = ['passcode'];
@@ -29,6 +29,7 @@ class Meeting extends Model
             'requires_approval' => 'boolean',
             'is_locked' => 'boolean',
             'scheduled_at' => 'datetime',
+            'reminded_at' => 'datetime',
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
         ];

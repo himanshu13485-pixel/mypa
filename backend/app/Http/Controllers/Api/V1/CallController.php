@@ -101,6 +101,7 @@ class CallController extends Controller
         foreach ($callees as $callee) {
             \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $me->name, $callee->uuid, 'ring'));
         }
+        $this->ring($loaded, $me, $callees, $conversation->type !== 'direct', $conversation->group?->name);
 
         return response()->json([
             'message' => 'Calling…',
@@ -267,7 +268,9 @@ class CallController extends Controller
             $call->participants()->attach([$target->id => ['status' => 'invited', 'joined_at' => null]]);
         }
 
-        \App\Support\Realtime::send(new CallSignal($call->load(['conversation', 'caller']), $me->uuid, $me->name, $target->uuid, 'ring'));
+        $loaded = $call->load(['conversation', 'caller']);
+        \App\Support\Realtime::send(new CallSignal($loaded, $me->uuid, $me->name, $target->uuid, 'ring'));
+        $this->ring($loaded, $me, collect([$target]), (bool) $call->conversation->group_id, $call->conversation->group?->name);
 
         return response()->json(['message' => "Ringing {$target->name}…"]);
     }
@@ -331,6 +334,25 @@ class CallController extends Controller
                 'avatar' => $u->profile?->avatar,
             ])->values(),
         ]]);
+    }
+
+    /**
+     * Ring a phone that is not looking at the app.
+     *
+     * Sent alongside the websocket signal rather than instead of it: an open
+     * tab answers on the socket in milliseconds, and the push is what reaches
+     * everyone else. Delivery failures are swallowed by the channel — a call
+     * must not fail to start because a browser vendor's push service is slow.
+     */
+    protected function ring(Call $call, \App\Models\User $from, \Illuminate\Support\Collection $to, bool $isGroup, ?string $groupName): void
+    {
+        foreach ($to as $callee) {
+            try {
+                $callee->notify(new \App\Notifications\IncomingCallNotification($call, $from->name, $isGroup, $groupName));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('[call] ring push failed', ['reason' => $e->getMessage()]);
+            }
+        }
     }
 
     public function history(Request $request): JsonResponse

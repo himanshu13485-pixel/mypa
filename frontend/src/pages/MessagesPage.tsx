@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Check, CheckCheck, ChevronLeft, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Send, Smile,
-  Square, Trash2, Video, X,
+  Check, CheckCheck, ChevronLeft, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Search, Send,
+  Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
 import { conversationMembers, reportsApi } from '../api/endpoints'
 import { PickUserModal } from '../components/UserSuggest'
@@ -146,12 +146,28 @@ export default function MessagesPage() {
     refetchInterval: 20_000,
   })
 
+  /*
+   * Searching within a conversation.
+   *
+   * The API has always taken `?q=` and filtered message bodies; nothing ever
+   * sent it, so finding an old message meant scrolling for it. While a search
+   * is running the poll is off — results should not shuffle underneath you.
+   */
+  const [search, setSearch] = useState('')
+  const [searching, setSearching] = useState(false)
+  const query = searching ? search.trim() : ''
+
   const { data: messages } = useQuery({
-    queryKey: ['messages', selected?.uuid],
-    queryFn: () => chat.messages(selected!.uuid),
+    queryKey: ['messages', selected?.uuid, query],
+    queryFn: () => chat.messages(selected!.uuid, query ? { q: query } : undefined),
     enabled: !!selected,
-    refetchInterval: 15_000,
+    refetchInterval: query ? false : 15_000,
   })
+
+  useEffect(() => {
+    setSearching(false)
+    setSearch('')
+  }, [selected?.uuid])
 
   const invalidateMessages = () => {
     queryClient.invalidateQueries({ queryKey: ['messages', selected?.uuid] })
@@ -406,6 +422,14 @@ export default function MessagesPage() {
               <div className="flex gap-1">
                 <Button
                   size="sm"
+                  variant={searching ? 'primary' : 'ghost'}
+                  title="Search this conversation"
+                  onClick={() => setSearching((v) => !v)}
+                >
+                  <Search className="size-4" />
+                </Button>
+                <Button
+                  size="sm"
                   variant="ghost"
                   title={selected.type === 'group' ? 'Group audio call' : 'Audio call'}
                   onClick={() => {
@@ -440,6 +464,35 @@ export default function MessagesPage() {
                 </Button>
               </div>
             </div>
+
+            {searching && (
+              <div className="shrink-0 border-b border-slate-100 px-4 py-2 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Search className="size-4 shrink-0 text-slate-400" />
+                  <Input
+                    autoFocus
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search this conversation…"
+                    className="min-w-0 flex-1 border-0 shadow-none ring-0 focus:ring-0"
+                  />
+                  <button
+                    aria-label="Close search"
+                    className="tap flex size-9 items-center justify-center rounded-lg text-slate-400 hover:text-slate-600"
+                    onClick={() => { setSearching(false); setSearch('') }}
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+                {query && (
+                  <p className="pl-6 text-xs text-slate-400">
+                    {messages?.length
+                      ? `${messages.length} message${messages.length === 1 ? '' : 's'} matching “${query}”`
+                      : `Nothing matching “${query}”`}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Messages */}
             <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto p-4">

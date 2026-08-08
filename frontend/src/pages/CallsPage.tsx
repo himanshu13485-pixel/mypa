@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { PhoneIncoming, PhoneMissed, PhoneOutgoing, Users, Video } from 'lucide-react'
 import { format } from 'date-fns'
@@ -14,6 +15,8 @@ export default function CallsPage() {
   const { toastError } = useToast()
   const [page, setPage] = useState(1)
   const [joining, setJoining] = useState<string | null>(null)
+  const [params, setParams] = useSearchParams()
+  const answered = useRef<string | null>(null)
 
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['calls-history', page],
@@ -47,6 +50,31 @@ export default function CallsPage() {
       setJoining(null)
     }
   }
+
+  /*
+   * Answering from the lock screen.
+   *
+   * The push notification opens /calls?join=<uuid>. Walking in that way is the
+   * same as pressing Join on a call that is still ringing, so it reuses the
+   * same path — but only once, and only while the call is genuinely live, so a
+   * stale notification tapped ten minutes later does not drag anyone into a
+   * call that ended.
+   */
+  useEffect(() => {
+    const wanted = params.get('join')
+    if (!wanted || activeCall || answered.current === wanted) return
+    const call = data?.data.find((c) => c.uuid === wanted)
+    if (!call) return
+
+    answered.current = wanted
+    setParams(new URLSearchParams(), { replace: true })
+    if (call.is_active) {
+      void rejoin(call.uuid, call.type, call.other_user?.name ?? call.group_name ?? 'Call')
+    } else {
+      toastError('That call has already ended.')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params, data, activeCall])
 
   return (
     <div className="space-y-4">

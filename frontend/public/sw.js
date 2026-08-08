@@ -1,6 +1,6 @@
 /* My PA service worker: cache-first for built static assets, network-first for
    everything else. API requests are never cached. */
-const CACHE = 'mypa-static-v1'
+const CACHE = 'mypa-static-v2'
 
 self.addEventListener('install', (event) => {
   self.skipWaiting()
@@ -61,22 +61,49 @@ self.addEventListener('push', (event) => {
   } catch {
     data = { title: 'My PA', body: event.data ? event.data.text() : '' }
   }
+  /*
+   * A call is not a message.
+   *
+   * It stays on screen until it is dealt with, re-alerts rather than being
+   * swapped in silently, carries Answer and Decline, and vibrates in the
+   * long-short pattern of a ringing phone. This is as close to a ringtone as
+   * a web app is allowed: no page is running, so nothing can play audio on a
+   * loop — the device's own notification sound is what rings.
+   */
+  const call = data.kind === 'call'
+
   event.waitUntil(
     self.registration.showNotification(data.title || 'My PA', {
       body: data.body || '',
       tag: data.tag || undefined,
       icon: '/icons/icon.svg',
       badge: '/icons/icon.svg',
-      data: { url: data.url || '/' },
-      // Sound/vibration are controlled by the device's notification settings.
-      vibrate: [200, 100, 200],
+      data: { url: data.url || '/', kind: data.kind, callUuid: data.call_uuid },
+      renotify: data.renotify === true,
+      requireInteraction: data.requireInteraction === true,
+      actions: Array.isArray(data.actions) ? data.actions : undefined,
+      // Sound is the device's own; vibration is ours to choose.
+      vibrate: call ? [400, 200, 400, 200, 400] : [200, 100, 200],
     }),
   )
 })
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
-  const url = (event.notification.data && event.notification.data.url) || '/'
+  const info = event.notification.data || {}
+
+  // Declining must not open the app — the whole point is to silence it from
+  // the lock screen. The call reaper ends it as a missed call either way.
+  if (event.action === 'decline') {
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+        for (const win of wins) win.postMessage({ type: 'call-decline', uuid: info.callUuid })
+      }),
+    )
+    return
+  }
+
+  const url = info.url || '/'
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
       for (const win of wins) {
