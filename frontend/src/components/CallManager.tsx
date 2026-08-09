@@ -1210,7 +1210,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 </div>
               )}
 
-              <div className="flex items-center justify-center gap-3">
+              {/* Same reason as the docked panel below: a narrow phone cannot
+                  fit this many round buttons on one line, and the ones past
+                  the edge are unreachable rather than merely off-screen. */}
+              <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-2">
                 <CircleButton on={muted} danger={muted} label={muted ? 'Unmute' : 'Mute'} onClick={toggleMute}>
                   {muted ? <MicOff className="size-5" /> : <Mic className="size-5" />}
                 </CircleButton>
@@ -1375,7 +1378,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
               {activeCall.status === 'ongoing' && fmt(elapsed)}
               {activeCall.isGroup && activeCall.status === 'ongoing' && ` · ${tiles + 1} participants`}
             </p>
-            <div className="mt-2 flex gap-2">
+            {/* Wrapping, not scrolling. Nine controls do not fit across a
+                20rem panel, and the panel clips what overhangs — so the last
+                of them — End among them — were simply not there, with no way
+                to scroll and reach them. The row grows downward instead, which
+                the panel is sized to follow. */}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
               <Button size="sm" variant="secondary" onClick={toggleMute} title={muted ? 'Unmute' : 'Mute'}>
                 {muted ? <MicOff className="size-3.5 text-red-500" /> : <Mic className="size-3.5" />}
               </Button>
