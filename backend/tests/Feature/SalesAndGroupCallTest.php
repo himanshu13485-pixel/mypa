@@ -168,6 +168,42 @@ class SalesAndGroupCallTest extends TestCase
             ->json('data.uuid');
     }
 
+    public function test_call_history_knows_a_direct_call_from_a_group_one(): void
+    {
+        Event::fake([CallSignal::class]);
+        $this->connect($this->alice, $this->bob);
+
+        $direct = $this->actingAs($this->alice)
+            ->postJson('/api/v1/conversations', ['app_id' => $this->bob->appId->app_id])
+            ->json('data.uuid');
+        $this->actingAs($this->alice)
+            ->postJson("/api/v1/conversations/{$direct}/calls", ['type' => 'audio'])
+            ->assertCreated();
+
+        $group = $this->groupConversation();
+        $this->actingAs($this->alice)
+            ->postJson("/api/v1/conversations/{$group}/calls", ['type' => 'audio'])
+            ->assertCreated();
+
+        /*
+         * The history loaded its conversations by column list, and the list
+         * left out the very fields this is decided by. Every call came back a
+         * group call, the direct one included — so anything offering to ring
+         * somebody back from the log had nobody to ring.
+         */
+        $rows = collect($this->actingAs($this->alice)->getJson('/api/v1/calls/history')->json('data'));
+        $this->assertCount(2, $rows);
+
+        $one = $rows->firstWhere('conversation_uuid', $direct);
+        $this->assertFalse($one['is_group']);
+        $this->assertNull($one['group_name']);
+        $this->assertEquals($this->bob->uuid, $one['other_user']['uuid']);
+
+        $many = $rows->firstWhere('conversation_uuid', $group);
+        $this->assertTrue($many['is_group']);
+        $this->assertEquals('Team', $many['group_name']);
+    }
+
     public function test_group_call_rings_everyone_and_supports_mesh_join(): void
     {
         Event::fake([CallSignal::class]);

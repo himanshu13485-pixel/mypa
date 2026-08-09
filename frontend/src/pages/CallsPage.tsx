@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { PhoneIncoming, PhoneMissed, PhoneOutgoing, Users, Video } from 'lucide-react'
+import { MessageCircle, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Users, Video } from 'lucide-react'
 import { format } from 'date-fns'
 import { badges as badgesApi, calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
@@ -11,8 +11,9 @@ import { Badge, Button, Card, EmptyState, LoadError, Pager, Spinner } from '../c
 
 export default function CallsPage() {
   const queryClient = useQueryClient()
-  const { activeCall, joinCall } = useCalls()
+  const { activeCall, joinCall, startCall } = useCalls()
   const { toastError } = useToast()
+  const navigate = useNavigate()
   const [page, setPage] = useState(1)
   const [joining, setJoining] = useState<string | null>(null)
   const [params, setParams] = useSearchParams()
@@ -156,6 +157,41 @@ export default function CallsPage() {
                 )}
                 {inThisCall && <Badge value="active" />}
                 {!live && <Badge value={call.status} />}
+                {/* Call back, or write instead, without hunting for the
+                    conversation first — the log already knows which one it
+                    was. Not offered for a call still running: Join above is
+                    the thing to press then, and a group has no one person to
+                    ring back. */}
+                {!live && !call.is_group && call.conversation_uuid && (
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      title={`Audio call ${call.other_user?.name ?? ''}`.trim()}
+                      disabled={!!activeCall}
+                      onClick={() => startCall(call.conversation_uuid, 'audio', call.other_user?.name ?? 'Call')}
+                    >
+                      <Phone className="size-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      title={`Video call ${call.other_user?.name ?? ''}`.trim()}
+                      disabled={!!activeCall}
+                      onClick={() => startCall(call.conversation_uuid, 'video', call.other_user?.name ?? 'Call')}
+                    >
+                      <Video className="size-3.5" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      title="Open the conversation"
+                      onClick={() => navigate(`/messages?conversation=${call.conversation_uuid}`)}
+                    >
+                      <MessageCircle className="size-3.5" />
+                    </Button>
+                  </div>
+                )}
               </Card>
             )
           })}

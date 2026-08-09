@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Flag, Search, UserPlus, X } from 'lucide-react'
-import { badges as badgesApi, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
+import { Check, Flag, Phone, Search, UserPlus, Video, X } from 'lucide-react'
+import { badges as badgesApi, chat, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
+import { useCalls } from '../components/CallManager'
 import { REPORT_REASONS } from '../types'
 import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
@@ -13,10 +14,15 @@ import { Avatar } from '../lib/avatars'
 export default function ConnectionsPage() {
   const { toast, toastError } = useToast()
   const queryClient = useQueryClient()
+  const { startCall } = useCalls()
   const user = useAuthStore((s) => s.user)
   const [query, setQuery] = useState('')
   const [result, setResult] = useState<Awaited<ReturnType<typeof connectionsApi.search>> | null>(null)
   const [searchError, setSearchError] = useState<string | null>(null)
+  /** Narrows the connections you already have, not a search for new ones. */
+  const [filter, setFilter] = useState('')
+  /** App ID of whoever we are opening a conversation for, to disable its buttons. */
+  const [calling, setCalling] = useState<string | null>(null)
   const [reporting, setReporting] = useState<{ identifier: string; name: string; reason: string; details: string } | null>(null)
 
   const { data: list, isLoading } = useQuery({
@@ -83,6 +89,36 @@ export default function ConnectionsPage() {
 
   const pending = list?.data.filter((c) => c.status === 'pending') ?? []
   const accepted = list?.data.filter((c) => c.status === 'accepted') ?? []
+
+  // Filtering the people you already know, which is a different question from
+  // the App ID search above — that one goes looking for strangers.
+  const needle = filter.trim().toLowerCase()
+  const shown = needle
+    // Name and App ID: the two things the row actually shows, and the App ID
+    // is the identifier people quote to each other.
+    ? accepted.filter((c) =>
+        (c.user?.name ?? '').toLowerCase().includes(needle)
+        || (c.user?.app_id ?? '').toLowerCase().includes(needle))
+    : accepted
+
+  /**
+   * Ring somebody straight from the list.
+   *
+   * A call needs a conversation, and the list only knows App IDs — so open (or
+   * reuse) the direct conversation first, exactly as the Message button does,
+   * and start the call in the one that comes back.
+   */
+  const callConnection = async (appId: string, name: string, type: 'audio' | 'video') => {
+    setCalling(appId)
+    try {
+      const conversation = await chat.start(appId)
+      await startCall(conversation.uuid, type, name)
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setCalling(null)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -185,11 +221,33 @@ export default function ConnectionsPage() {
 
           <Card className="min-w-0">
             <h2 className="mb-2 text-sm font-semibold">My connections</h2>
+            {accepted.length > 0 && (
+              <div className="relative mb-3">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder="Search your connections by name or App ID"
+                  className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm outline-none focus:border-slate-400 dark:border-slate-700 dark:bg-slate-900"
+                />
+                {filter && (
+                  <button
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"
+                    title="Clear"
+                    onClick={() => setFilter('')}
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                )}
+              </div>
+            )}
             {accepted.length === 0 ? (
               <EmptyState title="No connections yet" hint="Search an App ID to connect with someone." />
+            ) : shown.length === 0 ? (
+              <EmptyState title="Nobody by that name" hint="Clear the search to see everyone you are connected to." />
             ) : (
               <div className="space-y-2">
-                {accepted.map((c) => (
+                {shown.map((c) => (
                   <div key={c.uuid} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
@@ -199,13 +257,33 @@ export default function ConnectionsPage() {
                       </div>
                     </div>
                     {c.user?.app_id && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => { window.location.href = `/messages?start=${c.user!.app_id}` }}
-                      >
-                        Message
-                      </Button>
+                      <div className="flex items-center gap-1.5">
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          title={`Audio call ${c.user.name}`}
+                          disabled={calling === c.user.app_id}
+                          onClick={() => callConnection(c.user!.app_id!, c.user!.name, 'audio')}
+                        >
+                          <Phone className="size-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          title={`Video call ${c.user.name}`}
+                          disabled={calling === c.user.app_id}
+                          onClick={() => callConnection(c.user!.app_id!, c.user!.name, 'video')}
+                        >
+                          <Video className="size-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => { window.location.href = `/messages?start=${c.user!.app_id}` }}
+                        >
+                          Message
+                        </Button>
+                      </div>
                     )}
                     <Button
                       size="sm"

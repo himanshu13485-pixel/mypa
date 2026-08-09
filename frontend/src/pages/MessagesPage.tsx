@@ -184,6 +184,23 @@ export default function MessagesPage() {
     onError: (err) => toastError(errorMessage(err)),
   })
 
+  /*
+   * Deep link: ?conversation=<uuid>, from the call log.
+   *
+   * It knows which conversation a call belonged to but not the App ID of
+   * whoever was on it, so it cannot use ?start= below. Nothing is fetched:
+   * the list is already on its way and the wanted thread is one of its
+   * entries, so this waits for it rather than asking twice.
+   */
+  const wantConversation = params.get('conversation')
+  useEffect(() => {
+    if (!wantConversation || !conversations?.data) return
+    const found = conversations.data.find((c) => c.uuid === wantConversation)
+    if (!found) return
+    setSelected(found)
+    setParams(new URLSearchParams(), { replace: true })
+  }, [wantConversation, conversations, setParams])
+
   // Deep link: ?start=<app_id> (from connections page) or ?group=<uuid>
   useEffect(() => {
     const startWith = params.get('start')

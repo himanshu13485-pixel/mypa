@@ -360,7 +360,16 @@ class CallController extends Controller
         $me = $request->user();
 
         $calls = Call::whereHas('participants', fn ($p) => $p->where('users.id', $me->id))
-            ->with(['caller:id,uuid,name', 'participants:id,uuid,name', 'conversation:id,uuid'])
+            /*
+             * type and name, not the uuid alone.
+             *
+             * serialize() asks the conversation whether it is a group and what
+             * it is called. Selecting only id and uuid left both null, and a
+             * null type is not 'direct' — so every call in the history came
+             * back marked as a group call. Nothing depended on it, so nothing
+             * showed it, until something did.
+             */
+            ->with(['caller:id,uuid,name', 'participants:id,uuid,name', 'conversation:id,uuid,type,name'])
             ->latest('started_at')
             ->paginate(20);
 

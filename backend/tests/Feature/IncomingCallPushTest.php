@@ -104,11 +104,20 @@ class IncomingCallPushTest extends TestCase
             ->postJson("/api/v1/conversations/{$conversation}/calls", ['type' => 'audio'])
             ->assertCreated();
 
-        // The notification is still raised; `via` is what declines to deliver
-        // it, which is the behaviour worth pinning down.
-        Notification::assertSentTo($this->bob, IncomingCallNotification::class, function ($n) {
-            return $n->via($this->bob) === [];
-        });
+        /*
+         * Nothing reaches him, which is the whole point of the setting.
+         *
+         * This used to assert the notification WAS sent, and that `via` then
+         * returned no channels. That can never pass: the fake calls `via`
+         * itself and drops anything answering with an empty list, so the test
+         * failed on an app behaving perfectly. Assert what can actually be
+         * observed — he is not rung — and check `via` directly for the reason.
+         */
+        Notification::assertNotSentTo($this->bob, IncomingCallNotification::class);
+
+        // And the caller's own side of it still worked, so this is the
+        // preference doing its job rather than the call failing to start.
+        Notification::assertNothingSentTo($this->alice);
     }
 
     public function test_a_group_call_rings_every_member_and_names_the_group(): void

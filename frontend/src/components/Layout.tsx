@@ -32,8 +32,8 @@ const navSections: { label: string | null; items: { to: string; label: string; i
   { label: 'Connect', items: [
     { to: '/connections', label: 'Connections', icon: UserPlus },
     { to: '/groups', label: 'Family & Teams', icon: Users },
-    { to: '/messages', label: 'Messages', icon: MessageCircle },
-    { to: '/calls', label: 'Calls', icon: Phone },
+    { to: '/messages', label: 'Call/Messages', icon: MessageCircle },
+    { to: '/calls', label: 'Call Logs', icon: Phone },
     { to: '/meetings', label: 'Meetings', icon: Video },
     { to: '/screen', label: 'Screen', icon: MonitorUp },
   ]},
