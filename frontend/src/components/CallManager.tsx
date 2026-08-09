@@ -1038,7 +1038,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
       playsInline
       muted
       onDoubleClick={swapSelf}
-      className="h-full w-full object-cover -scale-x-100"
+      /* Cropped in the corner, whole on the stage — the same reasoning as the
+         remote tile. A thumbnail is too small to letterbox and too small to
+         lose anything worth keeping; the stage is the whole phone. */
+      className={clsx('h-full w-full -scale-x-100', meOnStage ? 'bg-black object-contain' : 'object-cover')}
     />
   )
 
@@ -1076,11 +1079,18 @@ export function CallProvider({ children }: { children: ReactNode }) {
               // nature, and `absolute` passed in beside it is a coin toss over
               // which utility Tailwind emitted last.
               <div className="absolute inset-0">
+                {/* Fits, where the corner thumbnails crop.
+                    A phone held upright is nothing like the shape of the
+                    camera pointed at the other person, and filling it means
+                    throwing away most of the width and magnifying what is
+                    left — a face becomes a chin, and the caller sees nothing
+                    wrong at their end because their own window is the right
+                    shape. Cropping a thumbnail the size of a stamp is fine and
+                    stays; cropping the whole screen is not. */}
                 <RemoteTile
                   key={stagePeer.uuid}
                   peer={stagePeer}
                   video
-                  cover
                   hideName
                   className="h-full w-full rounded-none"
                   onDoubleClick={() => setPinned(pinned === stagePeer.uuid ? null : stagePeer.uuid)}
