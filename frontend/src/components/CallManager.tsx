@@ -812,6 +812,102 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (incoming) return startRingtone('incoming')
   }, [incoming])
+
+  /*
+   * Say which tab is ringing.
+   *
+   * The ring comes out of a tab that may be behind a dozen others, showing
+   * its ordinary title, with the call panel drawn somewhere nobody can see —
+   * a sound with no way to find its source. Until now the only thing that
+   * pointed at it was the push notification, and that needs this exact
+   * browser to have subscribed. Firefox had; Chrome had not; the phone had
+   * not. So the ring arrived alone.
+   *
+   * The title costs nothing and asks for no permission.
+   */
+  useEffect(() => {
+    if (!incoming) return
+    const original = document.title
+    const who = incoming.from_name || 'Someone'
+    let on = false
+    const flip = () => {
+      on = !on
+      document.title = on ? `📞 ${who} is calling…` : original
+    }
+    flip()
+    const timer = setInterval(flip, 1200)
+    return () => {
+      clearInterval(timer)
+      document.title = original
+    }
+  }, [incoming])
+
+  /*
+   * And show something, even where push never reached.
+   *
+   * This is raised by the page itself, so it needs notification permission
+   * and nothing else — no subscription, no server, no VAPID. A browser that
+   * never subscribed still gets a visible, clickable call with the same
+   * Answer and Decline the pushed one carries, because the service worker
+   * handles both the same way.
+   *
+   * Only while hidden: with the tab in front of you the panel is already
+   * there, and a notification on top of it would be noise. It is closed on
+   * the way out, so answering, declining or the caller giving up all take it
+   * off the screen.
+   */
+  useEffect(() => {
+    if (!incoming) return
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
+
+    const call = incoming
+    const tag = `call-${call.call_uuid}`
+    let cancelled = false
+
+    const show = () => {
+      if (cancelled || document.visibilityState === 'visible') return
+      navigator.serviceWorker?.ready
+        .then((reg) => {
+          if (cancelled) return
+          return reg.showNotification(call.from_name || 'Incoming call', {
+            body: call.call_type === 'video' ? 'Incoming video call' : 'Incoming call',
+            tag,
+            icon: '/icons/icon.svg',
+            badge: '/icons/icon.svg',
+            data: { url: `/calls?join=${call.call_uuid}`, kind: 'call', callUuid: call.call_uuid },
+            requireInteraction: true,
+            /*
+             * Not silent, even though the tab is ringing too. The tab's ring
+             * is the thing that cannot be relied on — a page nobody has
+             * touched since it loaded is not allowed to make a sound, and
+             * that is the very case this is here to cover. Hearing it twice
+             * is a smaller problem than the silence we have been chasing all
+             * session. The tag means the pushed copy replaces this one rather
+             * than doubling it.
+             */
+            actions: [
+              { action: 'answer', title: 'Answer' },
+              { action: 'decline', title: 'Decline' },
+            ],
+          } as NotificationOptions)
+        })
+        .catch(() => undefined)
+    }
+
+    // Also when you look away mid-ring, not only when the call arrives while
+    // you are already elsewhere. The effect above clears it again on return.
+    show()
+    document.addEventListener('visibilitychange', show)
+
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', show)
+      navigator.serviceWorker?.ready
+        .then((reg) => reg.getNotifications({ tag }))
+        .then((notes) => notes?.forEach((n) => n.close()))
+        .catch(() => undefined)
+    }
+  }, [incoming])
   useEffect(() => {
     if (activeCall?.status === 'ringing' && activeCall.direction === 'outgoing') {
       return startRingtone('outgoing')
