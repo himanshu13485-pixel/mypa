@@ -575,6 +575,13 @@ export default function MeetingRoomPage() {
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
         await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, peer.uuid)
+        // An offer says nothing about mute, and only the answering side sends
+        // its own state back — so a lobby mute has to be announced here, or
+        // the room shows it a heartbeat late. The mirror of the same call in
+        // the offer handler.
+        if (!myMediaRef.current.mic || !myMediaRef.current.cam) {
+          meetingsApi.signal(code, 'media', myMediaRef.current, peer.uuid).catch(() => undefined)
+        }
       }
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status
@@ -1680,33 +1687,53 @@ export default function MeetingRoomPage() {
     </>
   )
 
-  const peerTile = (p: Peer, onStage: boolean) => (
-    <PeerTile
-      key={p.uuid}
-      peer={p}
-      video={isVideo}
-      burst={bursts[p.uuid]}
-      hand={hands.has(p.uuid) || !!rosterMap.get(p.uuid)?.hand_raised}
-      role={rosterMap.get(p.uuid)?.role}
-      active={activeSpeaker === p.uuid}
-      spotlight={spotlight === p.uuid}
-      pinned={pinned === p.uuid}
-      quality={quality[p.uuid]}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY })
-      }}
-      // Right-click is not a gesture a phone has. Double-tap does the same
-      // thing the menu's Pin does, and only changes your own view.
-      onDoubleClick={() => setPinned(pinned === p.uuid ? null : p.uuid)}
-      className={clsx(
-        isVideo && (stagedLayout
-          ? onStage ? 'h-full min-h-0' : 'aspect-video h-full shrink-0'
-          : 'min-h-0 shrink-0'),
-      )}
-      style={isVideo && !stagedLayout ? galleryTileStyle : undefined}
-    />
-  )
+  /*
+   * The mic and camera badges come from the roster, not from whichever `media`
+   * signal happened to arrive.
+   *
+   * A `media` signal is only sent when somebody toggles, and at connect time
+   * only the answering side sends one — so anyone who joined already muted, or
+   * with the camera off, showed up to everyone already in the room as though
+   * both were on, for the rest of the meeting. Which tiles were wrong depended
+   * on join order, so host, member and guest each saw a different room.
+   *
+   * The server records mic_on/cam_on when a person joins and on every toggle
+   * after that, and the heartbeat carries them, so the roster knows about
+   * state that was set before we were listening. Signals still write to the
+   * roster, so a toggle is as instant as it ever was.
+   */
+  const peerTile = (p: Peer, onStage: boolean) => {
+    const row = rosterMap.get(p.uuid)
+    const peer = row ? { ...p, micOff: !row.mic_on, camOff: !row.cam_on } : p
+
+    return (
+      <PeerTile
+        key={p.uuid}
+        peer={peer}
+        video={isVideo}
+        burst={bursts[p.uuid]}
+        hand={hands.has(p.uuid) || !!row?.hand_raised}
+        role={row?.role}
+        active={activeSpeaker === p.uuid}
+        spotlight={spotlight === p.uuid}
+        pinned={pinned === p.uuid}
+        quality={quality[p.uuid]}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setTileMenu({ uuid: p.uuid, name: p.name, x: e.clientX, y: e.clientY })
+        }}
+        // Right-click is not a gesture a phone has. Double-tap does the same
+        // thing the menu's Pin does, and only changes your own view.
+        onDoubleClick={() => setPinned(pinned === p.uuid ? null : p.uuid)}
+        className={clsx(
+          isVideo && (stagedLayout
+            ? onStage ? 'h-full min-h-0' : 'aspect-video h-full shrink-0'
+            : 'min-h-0 shrink-0'),
+        )}
+        style={isVideo && !stagedLayout ? galleryTileStyle : undefined}
+      />
+    )
+  }
 
   // --- Phases ---------------------------------------------------------------
 
