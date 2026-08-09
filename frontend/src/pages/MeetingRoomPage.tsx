@@ -569,23 +569,45 @@ export default function MeetingRoomPage() {
    *
    * Saying sendrecv out loud costs nothing when it is already true.
    */
-  const renegotiate = useCallback(async (why: string) => {
-    for (const [peerUuid, pc] of pcsRef.current) {
-      try {
-        if (pc.signalingState !== 'stable') continue
-        const tx = pc.getTransceivers()
-          .find((t) => (t.sender.track?.kind ?? t.receiver.track?.kind) === 'video')
-        if (tx && tx.direction !== 'sendrecv') tx.direction = 'sendrecv'
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-        await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, peerUuid)
-        dialedAtRef.current.set(peerUuid, Date.now())
-        console.info('[meeting] renegotiated with', peerUuid, why)
-      } catch (err) {
-        console.warn('[meeting] renegotiation failed', peerUuid, err)
-      }
+  const renegotiateWith = useCallback(async (peerUuid: string, why: string) => {
+    const pc = pcsRef.current.get(peerUuid)
+    if (!pc) return
+    /*
+     * Wait for the line to clear instead of giving up on it.
+     *
+     * A connection busy negotiating used to be skipped outright, and nothing
+     * ever came back to it — the camera coming on is a moment, and by the time
+     * the line was free that moment had passed. Connections are at their
+     * busiest in the first seconds of a meeting, which is exactly when someone
+     * who left their camera off in the lobby turns it on, so the one case that
+     * needed this most was the one that reliably missed it.
+     */
+    for (let wait = 0; pc.signalingState !== 'stable' && wait < 10; wait++) {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      if (pcsRef.current.get(peerUuid) !== pc) return // torn down while waiting
+    }
+    if (pc.signalingState !== 'stable') {
+      console.warn('[meeting] gave up renegotiating with', peerUuid, pc.signalingState)
+      return
+    }
+    try {
+      const tx = pc.getTransceivers()
+        .find((t) => (t.sender.track?.kind ?? t.receiver.track?.kind) === 'video')
+      if (tx && tx.direction !== 'sendrecv') tx.direction = 'sendrecv'
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, peerUuid)
+      dialedAtRef.current.set(peerUuid, Date.now())
+      console.info('[meeting] renegotiated with', peerUuid, why)
+    } catch (err) {
+      console.warn('[meeting] renegotiation failed', peerUuid, err)
     }
   }, [code])
+
+  /** Everyone at once — one slow peer must not hold up the rest. */
+  const renegotiate = useCallback(async (why: string) => {
+    await Promise.all([...pcsRef.current.keys()].map((uuid) => renegotiateWith(uuid, why)))
+  }, [renegotiateWith])
 
   const removePeer = useCallback((peerUuid: string) => {
     pcsRef.current.get(peerUuid)?.close()
@@ -959,11 +981,16 @@ export default function MeetingRoomPage() {
          * arriving in the same instant, a throttled signal — the gap looks
          * the same from here and is closed the same way.
          *
-         * Only one side may dial, or the two offers collide. The lower uuid
-         * goes, the same arbitrary tie-break an ICE restart uses.
+         * When neither side has anything, both see the same gap at the same
+         * moment, so only one may dial or the offers collide — the lower uuid
+         * goes, the same arbitrary tie-break an ICE restart uses. A connection
+         * we can see is broken from here is different: the other end may think
+         * it is perfectly well, and waiting for it to act would be waiting for
+         * ever. Whoever can see the damage repairs it, and a collision, if it
+         * comes to that, is handled where offers are answered.
          */
         for (const peer of others) {
-          if (!user?.uuid || user.uuid > peer.uuid) continue
+          if (!user?.uuid) continue
           const pc = pcsRef.current.get(peer.uuid)
           if (dialingRef.current.has(peer.uuid)) continue
           // An offer sent long enough ago that an answer should have come
@@ -973,6 +1000,7 @@ export default function MeetingRoomPage() {
             && Date.now() - (dialedAtRef.current.get(peer.uuid) ?? 0) > 10_000
           const broken = !!pc && ['failed', 'closed'].includes(pc.connectionState)
           if (pc && !unanswered && !broken) continue
+          if (!pc && user.uuid > peer.uuid) continue
           console.info('[meeting] redialling', peer.uuid, pc ? pc.connectionState : 'never connected')
           // Start from nothing: a half-negotiated connection cannot be
           // offered on, and createPeer hands back whatever it already has.
