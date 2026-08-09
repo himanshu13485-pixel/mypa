@@ -534,6 +534,37 @@ export default function MeetingRoomPage() {
     }
   }, [code, createPeer])
 
+  /**
+   * Offer again, because what we send has changed shape.
+   *
+   * replaceTrack is enough only when the slot it goes into was negotiated to
+   * send. A camera that arrives after the connection was made does not always
+   * get that: the far end settled the direction of that slot while it was
+   * empty, and no amount of replacing a track says otherwise. The picture then
+   * never left this machine, and reloading was the only thing that helped — a
+   * reload is a renegotiation, just an expensive one that takes the whole
+   * meeting with it.
+   *
+   * Saying sendrecv out loud costs nothing when it is already true.
+   */
+  const renegotiate = useCallback(async (why: string) => {
+    for (const [peerUuid, pc] of pcsRef.current) {
+      try {
+        if (pc.signalingState !== 'stable') continue
+        const tx = pc.getTransceivers()
+          .find((t) => (t.sender.track?.kind ?? t.receiver.track?.kind) === 'video')
+        if (tx && tx.direction !== 'sendrecv') tx.direction = 'sendrecv'
+        const offer = await pc.createOffer()
+        await pc.setLocalDescription(offer)
+        await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, peerUuid)
+        dialedAtRef.current.set(peerUuid, Date.now())
+        console.info('[meeting] renegotiated with', peerUuid, why)
+      } catch (err) {
+        console.warn('[meeting] renegotiation failed', peerUuid, err)
+      }
+    }
+  }, [code])
+
   const removePeer = useCallback((peerUuid: string) => {
     pcsRef.current.get(peerUuid)?.close()
     pcsRef.current.delete(peerUuid)
@@ -778,6 +809,21 @@ export default function MeetingRoomPage() {
         case 'offer': {
           try {
             const pc = await createPeer(signal.from_uuid, signal.from_name ?? 'Participant')
+            /*
+             * Two offers can now cross, since either side re-offers when its
+             * camera arrives. The lower uuid wins — the tie-break used
+             * everywhere else here. The other takes its own offer back,
+             * answers this one, and asks again once the line is clear.
+             */
+            let yielded = false
+            if (pc.signalingState !== 'stable') {
+              if ((user.uuid ?? '') < signal.from_uuid) {
+                console.info('[meeting] ignoring colliding offer from', signal.from_uuid)
+                return
+              }
+              await pc.setLocalDescription({ type: 'rollback' })
+              yielded = true
+            }
             await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(signal.payload.sdp as string) })
             flushPendingIce(signal.from_uuid)
             const answer = await pc.createAnswer()
@@ -792,6 +838,8 @@ export default function MeetingRoomPage() {
             if (!myMediaRef.current.mic || !myMediaRef.current.cam) {
               meetingsApi.signal(code, 'media', myMediaRef.current, signal.from_uuid).catch(() => undefined)
             }
+            // Whatever we rolled back to answer this has not been said yet.
+            if (yielded) void renegotiate('after giving way')
           } catch (err) {
             console.warn('[meeting] offer handling failed', err)
           }
@@ -829,7 +877,7 @@ export default function MeetingRoomPage() {
       channel.stopListening('.meeting.signal')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uuid, code, createPeer, removePeer, teardown, flushPendingIce, showBurst, joinRoom])
+  }, [user?.uuid, code, createPeer, removePeer, teardown, flushPendingIce, showBurst, joinRoom, renegotiate])
 
   /**
    * Presence ping. The server drops anyone who stops sending this and ends
@@ -1075,6 +1123,9 @@ export default function MeetingRoomPage() {
           myMediaRef.current = { ...myMediaRef.current, cam: true }
           setCameraOff(false)
           broadcastMedia()
+          // The slot this went into was negotiated while it was empty, and may
+          // not have been agreed as one we can send on. Settle that now.
+          void renegotiate('camera on')
         } catch {
           toastError('Could not start the camera — it may be in use by another app or tab.')
         }
@@ -1119,7 +1170,7 @@ export default function MeetingRoomPage() {
     myMediaRef.current = { ...myMediaRef.current, cam: on }
     setCameraOff(!on)
     broadcastMedia()
-  }, [broadcastMedia, deviceChoice.cameraId, deviceChoice.facing, sharing, showSelf, toastError])
+  }, [broadcastMedia, deviceChoice.cameraId, deviceChoice.facing, sharing, showSelf, toastError, renegotiate])
 
   function forceMute(who: string) {
     setMicEnabled(false)
@@ -1313,6 +1364,10 @@ export default function MeetingRoomPage() {
         const sender = senderFor(pc, 'video')
         sender?.replaceTrack(track).catch(() => undefined)
       })
+      // The composite needs no new transceiver, but it does need the one it
+      // goes into to be agreed as ours to send on — which it is not, for
+      // anyone who joined with the camera off and never turned it on.
+      void renegotiate('screen share')
       showSelf(new MediaStream([track]))
       setSharing(true)
     } catch {
