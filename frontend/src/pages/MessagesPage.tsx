@@ -524,12 +524,17 @@ export default function MessagesPage() {
                           : 'rounded-bl-sm bg-slate-100 dark:bg-slate-800',
                       )}
                     >
-                      {!m.is_own && selected.type === 'group' && m.sender && (
-                        <p className="mb-0.5 text-[11px] font-semibold opacity-70">{m.sender.name}</p>
+                      {/* A message outlives the account that sent it, so the
+                          name can be missing. Saying so is better than a line
+                          of text from nobody at all. */}
+                      {!m.is_own && selected.type === 'group' && (
+                        <p className="mb-0.5 text-[11px] font-semibold opacity-70">
+                          {m.sender?.name ?? 'Deleted account'}
+                        </p>
                       )}
                       {m.reply_to && (
                         <p className={clsx('mb-1 rounded-lg border-l-2 px-2 py-1 text-xs opacity-80', m.is_own ? 'border-white/50 bg-white/10' : 'border-brand-400 bg-white dark:bg-slate-900')}>
-                          <span className="font-medium">{m.reply_to.sender_name}: </span>
+                          <span className="font-medium">{m.reply_to.sender_name ?? 'Deleted account'}: </span>
                           {m.reply_to.body ?? '…'}
                         </p>
                       )}

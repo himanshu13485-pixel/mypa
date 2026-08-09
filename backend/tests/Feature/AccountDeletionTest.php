@@ -93,9 +93,60 @@ class AccountDeletionTest extends TestCase
             ->deleteJson('/api/v1/me', ['confirm' => 'DELETE', 'password' => 'correct-horse'])
             ->assertOk();
 
+        /*
+         * Both requests run through one application here, and the guard keeps
+         * whoever it resolved the first time — so the second never looked at
+         * the token, and a revoked session read as one that outlived its
+         * account. Ask for the guard afresh, as a second request to a real
+         * server does.
+         */
+        $this->app['auth']->forgetGuards();
+
         $this->withHeaders(['Authorization' => "Bearer {$token}"])
             ->getJson('/api/v1/tasks')
             ->assertUnauthorized();
+    }
+
+    public function test_what_was_said_to_other_people_stays_with_them(): void
+    {
+        $friend = User::factory()->create(['name' => 'Friend']);
+        app(AppIdService::class)->generateFor($friend);
+        $friend->settings()->create([]);
+        \App\Models\Connection::create([
+            'requester_id' => $this->user->id,
+            'addressee_id' => $friend->id,
+            'status' => 'accepted',
+            'responded_at' => now(),
+        ]);
+
+        $conversation = $this->actingAs($this->user)
+            ->postJson('/api/v1/conversations', ['app_id' => $friend->appId->app_id])
+            ->json('data.uuid');
+        $this->actingAs($this->user)
+            ->postJson("/api/v1/conversations/{$conversation}/messages", ['body' => 'Said out loud'])
+            ->assertCreated();
+
+        $this->actingAs($this->user)
+            ->deleteJson('/api/v1/me', ['confirm' => 'DELETE', 'password' => 'correct-horse'])
+            ->assertOk();
+
+        /*
+         * The account is gone and the message is not. It used to be one or the
+         * other: the foreign key cascaded, so deleting the account for real
+         * would have emptied half of somebody else's conversation, and the
+         * soft delete that avoided it deleted nothing whatsoever.
+         */
+        $this->assertDatabaseMissing('users', ['id' => $this->user->id]);
+
+        $this->app['auth']->forgetGuards();
+        $messages = $this->actingAs($friend->fresh())
+            ->getJson("/api/v1/conversations/{$conversation}/messages")
+            ->assertOk()
+            ->json('data');
+
+        $this->assertCount(1, $messages);
+        $this->assertSame('Said out loud', $messages[0]['body']);
+        $this->assertNull($messages[0]['sender']);
     }
 
     public function test_the_deletion_is_recorded_without_recording_the_data(): void

@@ -62,9 +62,27 @@ class AccountController extends Controller
         DB::transaction(function () use ($user) {
             $user->pushSubscriptions()->delete();
             $user->tokens()->delete();
-            // Every other table hangs off users with a cascading foreign key,
-            // so this is what actually removes the data.
-            $user->delete();
+
+            /*
+             * Let go of what was said to other people first.
+             *
+             * Their conversations are not this account's to erase, and the
+             * foreign key would take every message with it — so the messages
+             * are released before the row they hang from goes. They keep their
+             * place with nobody behind them, which the serializer already
+             * reads as a sender who is no longer there.
+             */
+            \App\Models\Message::withTrashed()->where('user_id', $user->id)->update(['user_id' => null]);
+
+            /*
+             * forceDelete, not delete.
+             *
+             * The model soft-deletes, so this was an UPDATE setting deleted_at.
+             * No row left the table, so no foreign key cascaded, so nothing was
+             * deleted at all — the account was told its data was gone while
+             * every task, note and file of it stayed exactly where it was.
+             */
+            $user->forceDelete();
         });
 
         foreach ($paths as $path) {
