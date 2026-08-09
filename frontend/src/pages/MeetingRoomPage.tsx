@@ -446,26 +446,48 @@ export default function MeetingRoomPage() {
 
       setPeers((p) => (p.some((x) => x.uuid === peerUuid) ? p : [...p, { uuid: peerUuid, name: peerName, stream: null }]))
 
-      pc.ontrack = (event) => {
-        console.info('[meeting] track from', peerUuid, event.track.kind, 'streams', event.streams.length)
+      /*
+       * What this peer is sending us, as it stands right now.
+       *
+       * Taken from the receivers rather than collected from track events as
+       * they arrive. A renegotiation hands out fresh tracks and the old ones
+       * linger, and a stream carrying a dead video track ahead of the live
+       * one plays the dead one — a black tile with every sign of a healthy
+       * connection.
+       *
+       * A new stream object each time is the point: the tile re-attaches when
+       * the identity changes, and a stream altered in place would not repaint.
+       */
+      const refreshStream = () => {
+        const live = pc.getReceivers()
+          .map((r) => r.track)
+          .filter((t): t is MediaStreamTrack => !!t && t.readyState === 'live')
+        const video = live.filter((t) => t.kind === 'video')
         /*
-         * A track can arrive belonging to no stream — that is what a reserved
-         * camera slot looks like from this end. Reading streams[0] blindly
-         * threw, and the throw took the track with it, so the tile stayed
-         * black however long the meeting ran.
-         *
-         * Keep the tracks this peer has sent so far and add the new one, so a
-         * camera switched on after the connection was made joins the voice
-         * already playing instead of replacing it. The stream is rebuilt
-         * rather than mutated: the tile re-attaches on identity, and a stream
-         * changed in place would not repaint.
+         * A video element plays the first video track it is handed, so a slot
+         * that is carrying nothing must not be the one it picks. Renegotiation
+         * can leave more than one, and choosing wrongly looks exactly like a
+         * broken connection. Before frames start they are all silent, and that
+         * is fine — the unmute below comes back through here.
          */
-        setPeers((p) => p.map((x) => {
-          if (x.uuid !== peerUuid) return x
-          const tracks = new Map((x.stream?.getTracks() ?? []).map((t) => [t.id, t]))
-          for (const t of event.streams[0]?.getTracks() ?? [event.track]) tracks.set(t.id, t)
-          return { ...x, stream: new MediaStream([...tracks.values()]) }
-        }))
+        const showing = video.some((t) => !t.muted) ? video.filter((t) => !t.muted) : video
+        const tracks = [...live.filter((t) => t.kind !== 'video'), ...showing]
+        setPeers((p) => p.map((x) => (x.uuid === peerUuid ? { ...x, stream: new MediaStream(tracks) } : x)))
+      }
+
+      pc.ontrack = (event) => {
+        console.info('[meeting] track from', peerUuid, event.track.kind, event.track.muted ? 'muted' : 'live')
+        /*
+         * A track arrives muted when the camera at the far end is not on yet,
+         * and the picture starting later is not a new track — it is this one
+         * unmuting. Nothing was listening for that, so an element that
+         * attached a silent track kept showing black until the page was
+         * reloaded and it attached a stream already running. That is what the
+         * reloads were for.
+         */
+        event.track.onunmute = refreshStream
+        event.track.onended = refreshStream
+        refreshStream()
       }
       pc.oniceconnectionstatechange = () => {
         const state = pc.iceConnectionState
