@@ -26,12 +26,47 @@ export function setSoundPrefs(prefs: SoundPrefs) {
   localStorage.setItem(SOUND_KEY, JSON.stringify(prefs))
 }
 
+/*
+ * One audio context, woken at the first touch of the page.
+ *
+ * A context built before the page has been interacted with is born suspended,
+ * and a suspended context does not throw or fail — it simply plays nothing,
+ * for as long as you ask it to. A tab opened in the morning and left alone was
+ * therefore silent for every call that came in, ringing its full loop with no
+ * error anywhere to show for it.
+ *
+ * Nothing here can make sound on a page that has never been touched; browsers
+ * do not allow it, and that is what the notification is for. What this does is
+ * make sure a page that HAS been touched, at any point, actually rings — and
+ * that a ring already in progress comes alive the moment somebody clicks.
+ */
+let shared: AudioContext | null = null
+
+function audio(): AudioContext | null {
+  try {
+    shared ??= new AudioContext()
+    if (shared.state === 'suspended') void shared.resume().catch(() => undefined)
+    return shared
+  } catch {
+    return null
+  }
+}
+
+if (typeof window !== 'undefined') {
+  // Not `once`: a context can be suspended again later, and asking a running
+  // one to resume costs nothing.
+  const wake = () => void audio()
+  window.addEventListener('pointerdown', wake)
+  window.addEventListener('keydown', wake)
+}
+
 /** Two-tone chime; volume follows the saved preference. */
 export function playChime() {
   const prefs = getSoundPrefs()
   if (!prefs.enabled || prefs.volume <= 0) return
+  const ctx = audio()
+  if (!ctx) return
   try {
-    const ctx = new AudioContext()
     const gain = ctx.createGain()
     gain.gain.value = prefs.volume * 0.3
     gain.connect(ctx.destination)
@@ -51,7 +86,9 @@ export function playChime() {
     }
     tone(880, 0, 0.25)
     tone(1174.66, 0.12, 0.3)
-    setTimeout(() => ctx.close(), 800)
+    // Let go of the nodes, not the context — it is shared now, and closing it
+    // would silence everything that came after.
+    setTimeout(() => gain.disconnect(), 800)
   } catch {
     /* no audio available (autoplay policy etc.) — silently skip */
   }
@@ -64,19 +101,27 @@ export function playChime() {
  */
 export function startRingtone(kind: 'incoming' | 'outgoing'): () => void {
   let stopped = false
-  let ctx: AudioContext | null = null
   let timer: ReturnType<typeof setInterval> | null = null
+  let master: GainNode | null = null
+  const ctx = audio()
 
   try {
-    ctx = new AudioContext()
+    if (!ctx) throw new Error('no audio')
     const prefs = getSoundPrefs()
     const volume = Math.max(kind === 'incoming' ? 0.15 : 0.05, prefs.enabled ? prefs.volume : 0) * 0.3
-    const master = ctx.createGain()
-    master.gain.value = volume
-    master.connect(ctx.destination)
+    // Held locally as well: the closure below cannot see through a `let` that
+    // the stop function also clears.
+    const bus = ctx.createGain()
+    bus.gain.value = volume
+    bus.connect(ctx.destination)
+    master = bus
 
     const burst = () => {
       if (stopped || !ctx) return
+      // Each repeat asks again. A ring that began on a page nobody had touched
+      // yet becomes audible from the next burst, rather than staying silent
+      // for the whole call because of how it started.
+      if (ctx.state === 'suspended') void ctx.resume().catch(() => undefined)
       const freqs = kind === 'incoming' ? [880, 960] : [440, 480]
       const beep = (start: number, duration: number) => {
         if (!ctx) return
@@ -91,7 +136,7 @@ export function startRingtone(kind: 'incoming' | 'outgoing'): () => void {
         g.gain.linearRampToValueAtTime(0, ctx.currentTime + start + duration)
         osc1.connect(g)
         osc2.connect(g)
-        g.connect(master)
+        g.connect(bus)
         osc1.start(ctx.currentTime + start)
         osc2.start(ctx.currentTime + start)
         osc1.stop(ctx.currentTime + start + duration)
@@ -114,7 +159,7 @@ export function startRingtone(kind: 'incoming' | 'outgoing'): () => void {
   return () => {
     stopped = true
     if (timer) clearInterval(timer)
-    ctx?.close().catch(() => undefined)
+    master?.disconnect()
   }
 }
 

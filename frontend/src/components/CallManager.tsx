@@ -530,10 +530,34 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const uuid = activeCall?.uuid ?? incoming?.call_uuid
     if (!uuid) return
-    navigator.serviceWorker?.ready
-      .then((reg) => reg.getNotifications({ tag: `call-${uuid}` }))
-      .then((notes) => notes?.forEach((n) => n.close()))
-      .catch(() => undefined)
+
+    const clear = () => {
+      navigator.serviceWorker?.ready
+        .then((reg) => reg.getNotifications({ tag: `call-${uuid}` }))
+        .then((notes) => notes?.forEach((n) => n.close()))
+        .catch(() => undefined)
+    }
+
+    /*
+     * Only once somebody is actually looking.
+     *
+     * This used to fire the moment the tab heard about the call, whether or
+     * not anyone could see it — so a tab sitting behind other windows threw
+     * away the notification, and with it the system sound, seconds after it
+     * arrived. Its own ringtone cannot be relied on to take over: a page that
+     * has not been touched since it loaded is not allowed to make a sound at
+     * all. Both alerts cancelled out and the call passed in silence.
+     *
+     * Hidden, the notification stays and does the ringing. It is cleared when
+     * the tab is looked at, which is the moment it stops being the only thing
+     * telling anybody.
+     */
+    if (document.visibilityState === 'visible') {
+      clear()
+      return
+    }
+    document.addEventListener('visibilitychange', clear)
+    return () => document.removeEventListener('visibilitychange', clear)
   }, [activeCall?.uuid, incoming?.call_uuid])
 
   useEffect(() => {
