@@ -255,6 +255,10 @@ class MeetingController extends Controller
             if ($successor !== null) {
                 $meeting->update(['host_id' => $successor->id]);
                 $meeting->participants()->updateExistingPivot($successor->id, ['role' => 'host']);
+                // Step down on the way out. This row was left saying 'host',
+                // so walking back into the meeting later showed two of them —
+                // the deliberate hand-over further down has always done this.
+                $meeting->participants()->updateExistingPivot($me->id, ['role' => 'cohost']);
                 $this->tellRoom($meeting, $me, $me->name, 'role', [
                     'uuid' => $successor->uuid,
                     'role' => 'host',
@@ -728,12 +732,22 @@ class MeetingController extends Controller
     {
         $pivot = $user->pivot;
 
+        // Only host_id makes a host. A row left saying 'host' from before the
+        // meeting changed hands puts a second one in the room, which is what
+        // the tiles were showing. Meeting::roleFor has to say the same.
+        $role = $pivot->role ?? 'participant';
+        if ($meeting->host_id === $user->id) {
+            $role = 'host';
+        } elseif ($role === 'host') {
+            $role = 'cohost';
+        }
+
         return [
             'uuid' => $user->uuid,
             'name' => $pivot->display_name ?? $user->name,
             // So a tile with the camera off shows a face rather than a letter.
             'avatar' => $user->profile?->avatar,
-            'role' => $meeting->host_id === $user->id ? 'host' : ($pivot->role ?? 'participant'),
+            'role' => $role,
             'mic_on' => (bool) ($pivot->mic_on ?? true),
             'cam_on' => (bool) ($pivot->cam_on ?? true),
             'hand_raised' => (bool) ($pivot->hand_raised ?? false),

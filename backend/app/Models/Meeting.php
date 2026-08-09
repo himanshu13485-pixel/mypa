@@ -174,6 +174,16 @@ class Meeting extends Model
             return 'host';
         }
 
-        return $this->participants()->where('users.id', $user->id)->first()?->pivot->role ?? 'participant';
+        $role = $this->participants()->where('users.id', $user->id)->first()?->pivot->role ?? 'participant';
+
+        /*
+         * host_id is the only thing that makes a host.
+         *
+         * A participant row can still read 'host' from before the meeting
+         * changed hands, and taking its word for it put two hosts in the room:
+         * one because the meeting says so, one because an old row does. The
+         * roster has to agree with this — see MeetingController::rosterEntry.
+         */
+        return $role === 'host' ? 'cohost' : $role;
     }
 }

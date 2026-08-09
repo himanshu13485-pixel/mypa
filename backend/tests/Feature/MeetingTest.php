@@ -468,6 +468,25 @@ class MeetingTest extends TestCase
         $this->assertEquals('active', \App\Models\Meeting::where('code', $meeting)->first()->status);
     }
 
+    public function test_a_host_who_left_comes_back_to_one_host_in_the_room(): void
+    {
+        $meeting = $this->openMeeting();
+        $this->join($meeting, $this->host);
+        $this->join($meeting, $this->alice);
+        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting}/leave")->assertOk();
+
+        // Alice has the room now. The old host walking back in used to be told
+        // they were still the host, so both tiles read Host and the controls
+        // they were offered were refused by every endpoint behind them.
+        $this->join($meeting, $this->host);
+        $this->assertEquals('cohost', $this->actingAs($this->host)->getJson("/api/v1/meetings/{$meeting}")->json('data.my_role'));
+
+        $roster = $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting}/heartbeat")->json('data.participants');
+        $hosts = array_values(array_filter($roster, fn ($p) => $p['role'] === 'host'));
+        $this->assertCount(1, $hosts);
+        $this->assertEquals($this->alice->uuid, $hosts[0]['uuid']);
+    }
+
     public function test_locking_a_meeting_shuts_the_door(): void
     {
         $meeting = $this->openMeeting();
