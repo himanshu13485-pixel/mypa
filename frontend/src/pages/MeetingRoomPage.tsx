@@ -280,6 +280,10 @@ export default function MeetingRoomPage() {
   const joinedRef = useRef(false)
   const lobbyRef = useRef<LobbyResult | null>(null)
   const restartTimersRef = useRef<Map<string, number>>(new Map())
+  /** Offers in flight, so a slow one is not dialled a second time. */
+  const dialingRef = useRef<Set<string>>(new Set())
+  /** When each offer went out — an answer that never comes is repaired. */
+  const dialedAtRef = useRef<Map<string, number>>(new Map())
   const wakeLockRef = useRef<{ release: () => void } | null>(null)
 
   const { data: meeting } = useQuery({
@@ -503,9 +507,37 @@ export default function MeetingRoomPage() {
     [code, ensureLocalStream, restartIce, meeting?.type],
   )
 
+  /**
+   * Ring somebody and offer them our media.
+   *
+   * Used on the way in, and again by the heartbeat for anyone we ought to be
+   * connected to but are not.
+   */
+  const offerTo = useCallback(async (peerUuid: string, peerName: string) => {
+    if (dialingRef.current.has(peerUuid)) return
+    dialingRef.current.add(peerUuid)
+    try {
+      const pc = await createPeer(peerUuid, peerName)
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+      await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, peerUuid)
+      dialedAtRef.current.set(peerUuid, Date.now())
+      // An offer says nothing about mute, and only the answering side sends
+      // its own state back — so a lobby mute has to be announced here, or
+      // the room shows it a heartbeat late. The mirror of the same call in
+      // the offer handler.
+      if (!myMediaRef.current.mic || !myMediaRef.current.cam) {
+        meetingsApi.signal(code, 'media', myMediaRef.current, peerUuid).catch(() => undefined)
+      }
+    } finally {
+      dialingRef.current.delete(peerUuid)
+    }
+  }, [code, createPeer])
+
   const removePeer = useCallback((peerUuid: string) => {
     pcsRef.current.get(peerUuid)?.close()
     pcsRef.current.delete(peerUuid)
+    dialedAtRef.current.delete(peerUuid)
     const t = restartTimersRef.current.get(peerUuid)
     if (t) {
       clearTimeout(t)
@@ -591,18 +623,13 @@ export default function MeetingRoomPage() {
       setRoster(room.joined_peers ?? [])
       keepScreenAwake().then((lock) => (wakeLockRef.current = lock))
 
+      // One peer we cannot reach must not cost us the others: a throw here
+      // used to abandon everybody further down the list and drop the room
+      // into the error screen. The heartbeat picks up whatever failed.
       for (const peer of room.joined_peers ?? []) {
-        const pc = await createPeer(peer.uuid, peer.name)
-        const offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)
-        await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, peer.uuid)
-        // An offer says nothing about mute, and only the answering side sends
-        // its own state back — so a lobby mute has to be announced here, or
-        // the room shows it a heartbeat late. The mirror of the same call in
-        // the offer handler.
-        if (!myMediaRef.current.mic || !myMediaRef.current.cam) {
-          meetingsApi.signal(code, 'media', myMediaRef.current, peer.uuid).catch(() => undefined)
-        }
+        await offerTo(peer.uuid, peer.name).catch((err) => {
+          console.warn('[meeting] could not offer to', peer.uuid, err)
+        })
       }
     } catch (err) {
       const status = (err as { response?: { status?: number } }).response?.status
@@ -624,7 +651,7 @@ export default function MeetingRoomPage() {
       )
       console.warn('[meeting] join failed', err)
     }
-  }, [code, createPeer, ensureLocalStream])
+  }, [code, offerTo, ensureLocalStream])
 
   // Show the lobby once the meeting is loaded. Screen-share codes belong to
   // the Screen module - send them there instead of a meeting room.
@@ -847,6 +874,41 @@ export default function MeetingRoomPage() {
               })
             : ps
         })
+        /*
+         * Anyone we ought to be talking to but are not.
+         *
+         * A connection was made once, when somebody walked in, and nothing
+         * ever looked at it again — no renegotiation, no retry. So a single
+         * offer or answer that went missing left a black tile for the rest of
+         * the meeting, and reloading the page was the only way to repair it.
+         * That is what the refreshes were doing.
+         *
+         * The roster says who is in the room and the peer map says who we
+         * actually reached; the difference is dialled again here. It does not
+         * matter why a connection is missing — lost answer, two people
+         * arriving in the same instant, a throttled signal — the gap looks
+         * the same from here and is closed the same way.
+         *
+         * Only one side may dial, or the two offers collide. The lower uuid
+         * goes, the same arbitrary tie-break an ICE restart uses.
+         */
+        for (const peer of others) {
+          if (!user?.uuid || user.uuid > peer.uuid) continue
+          const pc = pcsRef.current.get(peer.uuid)
+          if (dialingRef.current.has(peer.uuid)) continue
+          // An offer sent long enough ago that an answer should have come
+          // back. Fresh ones are left alone, since the first beat runs
+          // immediately and would otherwise cut off a normal join.
+          const unanswered = pc?.signalingState === 'have-local-offer'
+            && Date.now() - (dialedAtRef.current.get(peer.uuid) ?? 0) > 10_000
+          const broken = !!pc && ['failed', 'closed'].includes(pc.connectionState)
+          if (pc && !unanswered && !broken) continue
+          console.info('[meeting] redialling', peer.uuid, pc ? pc.connectionState : 'never connected')
+          // Start from nothing: a half-negotiated connection cannot be
+          // offered on, and createPeer hands back whatever it already has.
+          if (pc) removePeer(peer.uuid)
+          void offerTo(peer.uuid, peer.name).catch(() => undefined)
+        }
         setIsLocked(!!hb.is_locked)
         setSpotlight(hb.spotlight_uuid ?? null)
         setKnocks(hb.waiting ?? [])
@@ -869,7 +931,7 @@ export default function MeetingRoomPage() {
       stop = true
       clearInterval(timer)
     }
-  }, [phase, code, teardown, user?.uuid, joinRoom])
+  }, [phase, code, teardown, user?.uuid, joinRoom, offerTo, removePeer])
 
   /**
    * Closing the tab or navigating away never runs a normal request, so the
