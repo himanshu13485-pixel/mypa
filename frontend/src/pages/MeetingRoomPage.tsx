@@ -421,9 +421,14 @@ export default function MeetingRoomPage() {
        * nothing here handles renegotiation — so without a transceiver reserved
        * up front there would be no sender to put a camera into later, and
        * turning it on mid-meeting would reach nobody.
+       *
+       * The slot has to name the stream. A transceiver added without one puts
+       * no msid in the offer, so the far side received the track with no
+       * stream attached to it and never showed the picture — the camera came
+       * on here and stayed black over there for the rest of the meeting.
        */
       if (meeting?.type !== 'audio' && !stream.getVideoTracks().length) {
-        pc.addTransceiver('video', { direction: 'sendrecv' })
+        pc.addTransceiver('video', { direction: 'sendrecv', streams: [stream] })
       }
 
       // Allow decent video bandwidth so 720p does not get crushed.
@@ -438,9 +443,25 @@ export default function MeetingRoomPage() {
       setPeers((p) => (p.some((x) => x.uuid === peerUuid) ? p : [...p, { uuid: peerUuid, name: peerName, stream: null }]))
 
       pc.ontrack = (event) => {
-        const [remote] = event.streams
-        console.info('[meeting] track from', peerUuid, remote.getTracks().map((t) => t.kind).join('+'))
-        setPeers((p) => p.map((x) => (x.uuid === peerUuid ? { ...x, stream: remote } : x)))
+        console.info('[meeting] track from', peerUuid, event.track.kind, 'streams', event.streams.length)
+        /*
+         * A track can arrive belonging to no stream — that is what a reserved
+         * camera slot looks like from this end. Reading streams[0] blindly
+         * threw, and the throw took the track with it, so the tile stayed
+         * black however long the meeting ran.
+         *
+         * Keep the tracks this peer has sent so far and add the new one, so a
+         * camera switched on after the connection was made joins the voice
+         * already playing instead of replacing it. The stream is rebuilt
+         * rather than mutated: the tile re-attaches on identity, and a stream
+         * changed in place would not repaint.
+         */
+        setPeers((p) => p.map((x) => {
+          if (x.uuid !== peerUuid) return x
+          const tracks = new Map((x.stream?.getTracks() ?? []).map((t) => [t.id, t]))
+          for (const t of event.streams[0]?.getTracks() ?? [event.track]) tracks.set(t.id, t)
+          return { ...x, stream: new MediaStream([...tracks.values()]) }
+        }))
       }
       pc.oniceconnectionstatechange = () => {
         const state = pc.iceConnectionState
