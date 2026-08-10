@@ -58,6 +58,31 @@ alternative and why the two must never be mixed.
    connects, scheduler writes to laravel.log. `bash deploy/cpanel/diag-broadcast.sh`
    exercises the whole broadcast path end to end.
 
+## Big meetings: the SFU (optional)
+
+Meetings run peer-to-peer by default. That costs nothing to host and stops
+being usable at six to eight people, because in a mesh everyone uploads their
+own picture once per participant — ten people means about 15 Mbps of upload
+each, which no phone and few homes have.
+
+`bash deploy/cpanel/setup-livekit.sh` installs LiveKit, an SFU: each person
+sends one stream to the server and the server copies it out, so a participant's
+upload stops growing with the room. That is what makes twenty or fifty people
+possible.
+
+It moves the cost onto us. A twenty-person meeting is roughly **30 Mbps in,
+60 Mbps out, sustained — about 40 GB per hour**. Check that against the host's
+transfer allowance before enabling it for everyone; it is the number that
+decides whether this is affordable, not CPU.
+
+Needs `sfu.netvork.app` pointing at the box, a certificate covering it, and
+UDP 50000-60000 open. `LIVEKIT_MESH_UP_TO` keeps small rooms peer-to-peer,
+where direct is genuinely better — lower latency and no bandwidth bill.
+
+Ideally not on the same machine as the web app: 60 Mbps of sustained media
+alongside Laravel, MySQL and Reverb will starve the app during exactly the
+meetings you care about.
+
 ## Updating an already-deployed server
 
 ```bash

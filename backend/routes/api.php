@@ -87,6 +87,9 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
          */
         Route::post('/guest/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chat'])
             ->middleware('throttle:60,1');
+        // A guest in the room needs the same token a member does — they are
+        // in the same meeting, and the pass they hold is only good for it.
+        Route::post('/guest/meetings/{meeting}/realtime-token', [\App\Http\Controllers\Api\V1\MeetingController::class, 'realtimeToken']);
         Route::get('/guest/meetings/{meeting}/participants', [\App\Http\Controllers\Api\V1\MeetingController::class, 'participants']);
     });
 
@@ -232,6 +235,9 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
         Route::post('/meetings/{meeting}/host-action', [\App\Http\Controllers\Api\V1\MeetingController::class, 'hostAction']);
         Route::post('/meetings/{meeting}/end', [\App\Http\Controllers\Api\V1\MeetingController::class, 'end']);
         Route::delete('/meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'destroy']);
+        // A join token for the SFU. Only ever issued to somebody the room has
+        // already admitted — see the controller.
+        Route::post('/meetings/{meeting}/realtime-token', [\App\Http\Controllers\Api\V1\MeetingController::class, 'realtimeToken']);
         // WebRTC signalling posts one request per ICE candidate - with a TURN
         // server in play that is dozens per peer, so the ordinary per-minute
         // limit would drop candidates and strand the connection in "checking".

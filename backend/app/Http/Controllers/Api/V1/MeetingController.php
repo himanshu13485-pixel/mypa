@@ -332,6 +332,39 @@ class MeetingController extends Controller
     }
 
     /**
+     * A LiveKit join token, for a meeting running on the SFU.
+     *
+     * Deliberately narrow: it hands out a credential, so it answers only for
+     * somebody the room has already admitted. Being in the meeting is the
+     * check — join() does the deciding about passcodes, locks, the waiting
+     * room, plan limits and removals, and this refuses anyone it has not
+     * already let through. Minting a token for someone still knocking would
+     * route around every one of those.
+     */
+    public function realtimeToken(Request $request, Meeting $meeting): JsonResponse
+    {
+        $me = $request->user();
+        $livekit = app(\App\Services\LiveKitTokenService::class);
+
+        abort_unless($livekit->configured(), 503, 'Real-time media is not configured on this server.');
+        abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
+
+        $pivot = $meeting->participants()->where('users.id', $me->id)->first()?->pivot;
+        abort_unless($pivot?->status === 'joined', 403, 'Join the meeting first.');
+
+        return response()->json(['data' => [
+            'url' => config('livekit.url'),
+            'room' => $livekit->roomFor($meeting),
+            'token' => $livekit->tokenFor(
+                $meeting,
+                $me,
+                $pivot->display_name ?? $me->name,
+                $meeting->canModerate($me),
+            ),
+        ]]);
+    }
+
+    /**
      * Remove a meeting from the list for good.
      *
      * There was no way to do this, so a meeting created and then not used —
@@ -843,6 +876,11 @@ class MeetingController extends Controller
             // who has to pass it on to invitees.
             'passcode' => $canModerate ? $meeting->passcode : null,
             'spotlight_uuid' => $meeting->spotlight_uuid,
+            // Which transport this room is on, so the client knows whether to
+            // build a mesh or ask for an SFU token. Decided by the server so
+            // everybody in one meeting agrees — half a room on each would
+            // simply not see the other half.
+            'transport' => app(\App\Services\LiveKitTokenService::class)->shouldUseFor($meeting) ? 'sfu' : 'mesh',
             // The host's plan, applied to everyone in the room. Sent to all so
             // the countdown and the "x of y" count are the same for everybody.
             'participant_limit' => $meeting->participantLimit(),
