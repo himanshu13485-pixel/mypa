@@ -75,19 +75,45 @@ keys:
 # config is one more thing to get wrong for no benefit. Reverb does the same.
 YAML
 
-if [ -f "$SSLDIR/cert.pem" ] && [ -f "$SSLDIR/privkey.pem" ]; then
+# The certificate has to cover $SFU_DOMAIN specifically, so prefer one cPanel
+# issued for that name and fall back to the main domain's (which covers it only
+# if AutoSSL included it as a SAN). Deliberately not reusing $SSLDIR/fullchain.pem
+# blindly: that file is the main domain's, and serving it for a subdomain it
+# does not list gets the websocket refused with a name-mismatch that says
+# nothing useful in a browser console.
+SFU_SSL=$SSLDIR/sfu
+SRC=/var/cpanel/ssl/apache_tls/$SFU_DOMAIN/combined
+[ -f "$SRC" ] || SRC=/var/cpanel/ssl/apache_tls/$DOMAIN/combined
+[ -f "$SRC" ] || SRC="$(ls -d /var/cpanel/ssl/apache_tls/*"$DOMAIN"* 2>/dev/null | head -1)/combined"
+
+if [ -f "$SRC" ]; then
+  mkdir -p "$SFU_SSL"
+  awk '/BEGIN (RSA |EC )?PRIVATE KEY/,/END (RSA |EC )?PRIVATE KEY/' "$SRC" > "$SFU_SSL/privkey.pem"
+  awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' "$SRC" > "$SFU_SSL/fullchain.pem"
+  chown -R $APP_USER:$APP_USER "$SFU_SSL"
+  chmod 700 "$SFU_SSL"; chmod 600 "$SFU_SSL"/*.pem
+
   cat >> "$CONFIG" <<YAML
 tls:
-  cert_file: $SSLDIR/cert.pem
-  key_file: $SSLDIR/privkey.pem
+  cert_file: $SFU_SSL/fullchain.pem
+  key_file: $SFU_SSL/privkey.pem
 YAML
   SCHEME=wss
-  echo "   TLS on, using $SSLDIR"
+  echo "   TLS on, from $SRC"
+
+  # Say so rather than let it fail at connect time, which looks like a LiveKit
+  # problem and is not.
+  if command -v openssl >/dev/null; then
+    openssl x509 -in "$SFU_SSL/fullchain.pem" -noout -text 2>/dev/null \
+      | grep -qi "$SFU_DOMAIN" \
+      || echo "!! that certificate does not mention $SFU_DOMAIN — add the subdomain in cPanel, wait for AutoSSL, then re-run this."
+  fi
 else
   SCHEME=ws
-  echo "!! no certificate at $SSLDIR — running without TLS."
-  echo "   Browsers refuse insecure websockets from an https:// page, so this"
-  echo "   is only good for a local test. Run refresh-ssl.sh, then re-run this."
+  echo "!! no certificate found for $SFU_DOMAIN or $DOMAIN — running without TLS."
+  echo "   Browsers refuse insecure websockets from an https:// page, so this is"
+  echo "   only good for a local test. Add the subdomain in cPanel, let AutoSSL"
+  echo "   issue for it, then re-run this."
 fi
 
 chmod 600 "$CONFIG"

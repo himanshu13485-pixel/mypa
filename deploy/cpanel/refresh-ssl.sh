@@ -28,6 +28,23 @@ chmod 700 "$SSLDIR"; chmod 600 "$SSLDIR"/*.pem
 
 systemctl restart netvork-reverb
 
+# LiveKit keeps its own copy too, for the SFU subdomain rather than the main
+# one. Without this it would go on serving the certificate it was installed
+# with and start being refused about sixty days later — the same failure this
+# script exists to prevent for Reverb, just further from anything obvious.
+if systemctl list-unit-files livekit.service >/dev/null 2>&1; then
+  SFU_DOMAIN=${SFU_DOMAIN:-sfu.$DOMAIN}
+  SFU_SRC=/var/cpanel/ssl/apache_tls/$SFU_DOMAIN/combined
+  [ -f "$SFU_SRC" ] || SFU_SRC="$SRC"
+
+  mkdir -p "$SSLDIR/sfu"
+  awk '/BEGIN (RSA |EC )?PRIVATE KEY/,/END (RSA |EC )?PRIVATE KEY/' "$SFU_SRC" > "$SSLDIR/sfu/privkey.pem"
+  awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' "$SFU_SRC" > "$SSLDIR/sfu/fullchain.pem"
+  chown -R $APP_USER:$APP_USER "$SSLDIR/sfu"
+  chmod 700 "$SSLDIR/sfu"; chmod 600 "$SSLDIR/sfu"/*.pem
+  systemctl restart livekit
+fi
+
 if [ -d /etc/coturn/certs ]; then
   for U in coturn turnserver; do id -u "$U" >/dev/null 2>&1 && SVC=$U && break; done
   cp -f "$SSLDIR/fullchain.pem" "$SSLDIR/privkey.pem" /etc/coturn/certs/
