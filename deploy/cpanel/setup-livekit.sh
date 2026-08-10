@@ -93,14 +93,27 @@ fi
 chmod 600 "$CONFIG"
 
 echo "== firewall =="
-if command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
+# CSF first: that is what WHM installs, and a box running it usually has
+# firewalld stopped. Checking only firewalld would report success on a WHM
+# server and leave the UDP range shut, which does not look like a firewall
+# problem from the outside — the meeting connects, and then stays black.
+if [ -x /usr/sbin/csf ]; then
+  cp -n /etc/csf/csf.conf /etc/csf/csf.conf.before-livekit 2>/dev/null || true
+  grep -q "\b$WS_PORT\b" /etc/csf/csf.conf \
+    || sed -i "s/^TCP_IN = \"\(.*\)\"/TCP_IN = \"\1,$WS_PORT\"/" /etc/csf/csf.conf
+  grep -q "$RTC_MIN:$RTC_MAX" /etc/csf/csf.conf \
+    || sed -i "s/^UDP_IN = \"\(.*\)\"/UDP_IN = \"\1,$RTC_MIN:$RTC_MAX\"/" /etc/csf/csf.conf
+  csf -r >/dev/null 2>&1 || true
+  echo "   csf updated: $WS_PORT/tcp and $RTC_MIN-$RTC_MAX/udp"
+  echo "   (previous config saved as /etc/csf/csf.conf.before-livekit)"
+elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
   firewall-cmd --permanent --add-port=$WS_PORT/tcp >/dev/null
   firewall-cmd --permanent --add-port=$RTC_MIN-$RTC_MAX/udp >/dev/null
   firewall-cmd --reload >/dev/null
-  echo "   opened $WS_PORT/tcp and $RTC_MIN-$RTC_MAX/udp"
+  echo "   firewalld updated: $WS_PORT/tcp and $RTC_MIN-$RTC_MAX/udp"
 else
-  echo "!! firewalld not running — open $WS_PORT/tcp and $RTC_MIN-$RTC_MAX/udp yourself."
-  echo "   Media is UDP; without that range the call connects and then stays black."
+  echo "!! no firewall manager found — open $WS_PORT/tcp and $RTC_MIN-$RTC_MAX/udp yourself."
+  echo "   Media is UDP; without that range the meeting connects and then stays black."
 fi
 
 echo "== service =="
@@ -152,9 +165,14 @@ echo "   signalling : $SCHEME://$SFU_DOMAIN:$WS_PORT"
 echo "   media      : UDP $RTC_MIN-$RTC_MAX"
 echo "   log        : /home/$APP_USER/logs/livekit.log"
 echo
-echo "Before this works end to end:"
-echo "  1. $SFU_DOMAIN must resolve to $PUB_IP (an A record)."
-echo "  2. The certificate at $SSLDIR must cover $SFU_DOMAIN, or the browser"
-echo "     will refuse the websocket without saying much about why."
-echo "  3. Meetings stay on the mesh until LIVEKIT_MESH_UP_TO is set or left"
-echo "     empty — empty means every meeting uses the SFU."
+echo "Before this works end to end — none of which WHM does for you:"
+echo "  1. $SFU_DOMAIN must resolve to $PUB_IP. Add it as a subdomain in"
+echo "     cPanel, which creates the DNS record and brings it into AutoSSL."
+echo "  2. The certificate at $SSLDIR must then cover $SFU_DOMAIN, or the"
+echo "     browser refuses the websocket without saying much about why."
+echo "     refresh-ssl.sh copies the AutoSSL cert into place."
+echo "  3. Check the host's transfer allowance. A twenty-person meeting is"
+echo "     about 40 GB an hour through this box; that is the number that"
+echo "     decides whether this is affordable, not CPU."
+echo "  4. Meetings stay on the mesh until LIVEKIT_MESH_UP_TO is set, or"
+echo "     left empty — empty means every meeting uses the SFU."
