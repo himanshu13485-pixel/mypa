@@ -681,6 +681,14 @@ export interface MeetingItem {
   allows_guests?: boolean
   /** Only sent to the host / co-hosts — they are the ones sharing it. */
   passcode?: string | null
+  /**
+   * Ceilings from the HOST's plan, applied to everyone in the room — a guest
+   * has no plan to consult and a room that resized itself per joiner would be
+   * impossible to explain. Null means no ceiling.
+   */
+  participant_limit?: number | null
+  minutes_limit?: number | null
+  expires_at?: string | null
   spotlight_uuid?: string | null
   my_role?: MeetingRole
   can_moderate?: boolean
@@ -693,10 +701,15 @@ export interface MeetingItem {
 
 export interface MeetingHeartbeat {
   status: 'scheduled' | 'active' | 'ended'
+  /** Why it ended, when it was not a person who ended it. */
+  ended_reason?: 'time_limit'
   is_locked?: boolean
   spotlight_uuid?: string | null
   participants: MeetingParticipant[]
   waiting: { uuid: string; name: string }[]
+  /** When the host's plan runs out. Null means the meeting has no limit. */
+  expires_at?: string | null
+  participant_limit?: number | null
 }
 
 export type MeetingHostAction =

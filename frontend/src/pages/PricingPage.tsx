@@ -15,6 +15,13 @@ function formatLimit(key: string, value: number | null): string {
     const gb = value / (1024 * 1024 * 1024)
     return gb >= 1 ? `${gb} GB` : `${Math.round(value / (1024 * 1024))} MB`
   }
+  // "40 minutes" reads as a plan; "40" next to the word minutes reads as a
+  // riddle. Hours once it is long enough that minutes stop being meaningful.
+  if (key === 'max_meeting_minutes') {
+    return value >= 60 && value % 60 === 0
+      ? `${value / 60} ${value === 60 ? 'hour' : 'hours'}`
+      : `${value} minutes`
+  }
   return String(value)
 }
 
@@ -24,6 +31,8 @@ const LIMIT_LABELS: Record<string, string> = {
   max_groups: 'groups',
   max_group_members: 'members per group',
   max_categories: 'custom categories',
+  max_meeting_participants: 'people per meeting',
+  max_meeting_minutes: 'per meeting',
 }
 
 const FEATURE_LABELS: Record<string, string> = {

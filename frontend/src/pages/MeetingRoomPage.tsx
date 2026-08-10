@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Circle, Copy, Expand, FlipHorizontal, Grid3x3, Hand, KeyRound, LayoutGrid, Lock, LockOpen, MessageSquare,
+  Circle, Copy, Expand, FlipHorizontal, Grid3x3, Hand, Hourglass, KeyRound, LayoutGrid, Lock, LockOpen, MessageSquare,
   Mic, MicOff, MonitorUp, MoreHorizontal, Paperclip, PhoneOff, PictureInPicture2, Pin, PinOff, Rows3,
   Settings2, SmilePlus, Square, SwitchCamera, User, Users, Video, VideoOff, Volume2,
 } from 'lucide-react'
@@ -275,6 +275,15 @@ export default function MeetingRoomPage() {
   const [roomPasscode, setRoomPasscode] = useState<string | null | undefined>(undefined)
   /** Bumped whenever the outgoing mic track is replaced — see changeDevice. */
   const [micRev, setMicRev] = useState(0)
+  /**
+   * The plan's ceilings, as the room sees them.
+   *
+   * expiresAt comes back on every heartbeat rather than being computed once,
+   * because it can move: a host who upgrades mid-meeting lifts the limit, and
+   * the countdown should follow rather than keep threatening.
+   */
+  const [expiresAt, setExpiresAt] = useState<string | null>(null)
+  const [endedReason, setEndedReason] = useState<'time_limit' | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatUnread, setChatUnread] = useState(0)
   const [chatTo, setChatTo] = useState('') // '' = everyone
@@ -318,6 +327,15 @@ export default function MeetingRoomPage() {
   useEffect(() => {
     if (meeting) setRoomPasscode(meeting.passcode ?? null)
   }, [meeting])
+  const minutesLimit = meeting?.minutes_limit ?? null
+  const participantLimit = meeting?.participant_limit ?? null
+  /** Seconds left, or null when the meeting has no time limit. */
+  const secondsLeft = useMemo(() => {
+    if (!expiresAt) return null
+    return Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000))
+    // elapsed ticks once a second, which is exactly the recompute we want.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expiresAt, elapsed])
   const isHost = myRole === 'host'
 
   const isPhone = useIsPhone()
@@ -726,6 +744,9 @@ export default function MeetingRoomPage() {
       setMyRole(room.my_role ?? (room.is_host ? 'host' : 'participant'))
       setIsLocked(!!room.is_locked)
       setSpotlight(room.spotlight_uuid ?? null)
+      // Straight away, rather than waiting up to 15s for the first heartbeat
+      // — a 40-minute meeting should not start by claiming to be untimed.
+      setExpiresAt(room.expires_at ?? null)
       if (opts) {
         setMuted(!opts.micOn)
         setCameraOff(!opts.camOn)
@@ -986,9 +1007,12 @@ export default function MeetingRoomPage() {
         if (hb.status === 'ended') {
           teardown()
           joinedRef.current = false
+          if (hb.ended_reason === 'time_limit') setEndedReason('time_limit')
           setPhase('ended')
           return
         }
+        // The deadline can move: the host upgrading mid-meeting lifts it.
+        setExpiresAt(hb.expires_at ?? null)
         const others = hb.participants.filter((p) => p.uuid !== user?.uuid)
         setRoster(others)
         /*
@@ -2031,9 +2055,16 @@ export default function MeetingRoomPage() {
   if (phase === 'error' || phase === 'ended') {
     return (
       <Card className="mx-auto mt-10 max-w-md text-center">
-        <p className="text-sm font-semibold">{phase === 'ended' ? 'Meeting ended' : 'Could not join'}</p>
+        <p className="text-sm font-semibold">
+          {phase !== 'ended' ? 'Could not join' : endedReason === 'time_limit' ? 'Time is up' : 'Meeting ended'}
+        </p>
         <p className="mt-1 text-xs text-slate-400">
-          {phase === 'ended' ? 'Everyone has left, or the host ended it.' : errorMsg}
+          {phase !== 'ended'
+            ? errorMsg
+            : endedReason === 'time_limit'
+              ? `This meeting reached the ${minutesLimit ? `${minutesLimit}-minute ` : ''}limit on the host's plan. `
+                + 'Starting another one carries on from where you left off.'
+              : 'Everyone has left, or the host ended it.'}
         </p>
         <Button className="mt-4" onClick={() => navigate('/meetings')}>Back to Meetings</Button>
       </Card>
@@ -2052,7 +2083,29 @@ export default function MeetingRoomPage() {
           <p className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
             <span className="font-mono">{code}</span>
             {phase === 'in' ? <span className="text-emerald-600">{fmt(elapsed)}</span> : 'Connecting…'}
-            <span className="flex items-center gap-1"><Users className="size-3" /> {peers.length + 1}</span>
+            <span
+              className="flex items-center gap-1"
+              title={participantLimit ? `The host's plan allows ${participantLimit} people at once` : undefined}
+            >
+              <Users className="size-3" /> {peers.length + 1}{participantLimit ? ` / ${participantLimit}` : ''}
+            </span>
+            {/* Counting down only near the end. A timer running the whole way
+                through makes a meeting feel like an exam; five minutes out it
+                is information you can act on. */}
+            {secondsLeft !== null && secondsLeft <= 5 * 60 && (
+              <span
+                className={clsx(
+                  'flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold',
+                  secondsLeft <= 60
+                    ? 'bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300'
+                    : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300',
+                )}
+                title={minutesLimit ? `The host's plan allows ${minutesLimit} minutes per meeting` : undefined}
+              >
+                <Hourglass className="size-3" />
+                {fmt(secondsLeft)} left
+              </span>
+            )}
             <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               You: {myRole === 'host' ? 'host' : myRole === 'cohost' ? 'co-host' : 'participant'}
             </span>

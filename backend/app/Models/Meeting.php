@@ -104,6 +104,88 @@ class Meeting extends Model
             ->whereDoesntHave('participants');
     }
 
+    /**
+     * The plan ceilings that apply to this meeting.
+     *
+     * Always the host's, for every participant: the meeting belongs to whoever
+     * opened it, guests have no plan to consult, and a room whose size depended
+     * on who happened to walk in next would be impossible to explain. Null
+     * means no ceiling.
+     */
+    public function participantLimit(): ?int
+    {
+        return app(\App\Services\SubscriptionEntitlementService::class)
+            ->meetingParticipantLimit($this->host);
+    }
+
+    public function minutesLimit(): ?int
+    {
+        return app(\App\Services\SubscriptionEntitlementService::class)
+            ->meetingMinutesLimit($this->host);
+    }
+
+    /**
+     * When this meeting runs out of time, or null if it never does.
+     *
+     * Measured from started_at — the moment somebody first walked in — not
+     * from creation, so a link made in the morning and used at night still
+     * gets its full length.
+     */
+    public function expiresAt(): ?\Illuminate\Support\Carbon
+    {
+        $minutes = $this->minutesLimit();
+
+        return $minutes === null || $this->started_at === null
+            ? null
+            : $this->started_at->copy()->addMinutes($minutes);
+    }
+
+    /** Has it run past its plan's time limit? */
+    public function isOverrun(): bool
+    {
+        $expires = $this->expiresAt();
+
+        return $expires !== null && $expires->isPast();
+    }
+
+    /**
+     * End the meeting and turn everybody out, telling them why.
+     *
+     * Three places need this — the heartbeat that first notices the time is
+     * up, the join that must not let anyone back into a finished room, and the
+     * reaper that catches a meeting nobody is still polling. Having it once
+     * means they cannot disagree about what "ended" leaves behind.
+     *
+     * Idempotent: a meeting already ended is left exactly as it was, so two
+     * clients noticing the same expiry in the same second do not each announce
+     * it.
+     */
+    public function endNow(string $reason = 'time_limit'): bool
+    {
+        if ($this->status === 'ended') {
+            return false;
+        }
+
+        $this->update(['status' => 'ended', 'ended_at' => now(), 'spotlight_uuid' => null]);
+
+        foreach ($this->participants()->wherePivot('status', 'joined')->get() as $peer) {
+            \App\Support\Realtime::send(new \App\Events\MeetingSignal(
+                $this,
+                $peer->uuid,
+                $peer->name,
+                $peer->uuid,
+                'end',
+                ['reason' => $reason],
+            ));
+        }
+
+        $this->participants()->newPivotStatement()
+            ->where('meeting_id', $this->id)->where('status', 'joined')
+            ->update(['status' => 'left', 'left_at' => now()]);
+
+        return true;
+    }
+
     public function host(): BelongsTo
     {
         /*

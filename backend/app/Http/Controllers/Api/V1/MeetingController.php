@@ -75,6 +75,20 @@ class MeetingController extends Controller
     {
         $me = $request->user();
         abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
+
+        /*
+         * Out of time, and nobody has been by to notice — the heartbeat that
+         * normally spots this only runs for people already inside.
+         *
+         * First of all the checks, because it outranks them: a meeting that is
+         * both full and finished should say it is finished, or the person
+         * turned away goes looking for a seat that was never the problem.
+         */
+        if ($meeting->isOverrun()) {
+            $meeting->endNow();
+            abort(410, 'This meeting has ended — it reached the time limit on the host\'s plan.');
+        }
+
         $data = $request->validate([
             'display_name' => ['sometimes', 'nullable', 'string', 'max:50'],
             'mic_on' => ['sometimes', 'boolean'],
@@ -96,6 +110,26 @@ class MeetingController extends Controller
         // Locked room: the host shut the door. Moderators still get back in
         // (e.g. after a refresh), everyone else is turned away.
         abort_if($meeting->is_locked && ! $moderator, 423, 'This meeting is locked — the host is not letting anyone else in.');
+
+        /*
+         * Room size, from the host's plan.
+         *
+         * Two people are never turned away. Someone already in the room is
+         * reconnecting after a refresh or a tunnel, and refusing them would
+         * make a full meeting impossible to rejoin rather than merely hard to
+         * enter. And the host is never locked out of their own meeting — being
+         * one over is a smaller wrong than the person paying for the room
+         * standing outside it.
+         */
+        $limit = $meeting->participantLimit();
+        if ($limit !== null && $myPivot?->status !== 'joined' && $meeting->host_id !== $me->id) {
+            $inRoom = $meeting->participants()->wherePivot('status', 'joined')->count();
+            abort_if(
+                $inRoom >= $limit,
+                409,
+                "This meeting is full — {$meeting->host->name}'s plan allows {$limit} people at once.",
+            );
+        }
 
         // No passcode is asked for here, by anyone. A guest already typed it to
         // be given a pass at all, and that pass is only good for this meeting;
@@ -182,6 +216,19 @@ class MeetingController extends Controller
             return response()->json(['data' => ['status' => 'ended', 'participants' => [], 'waiting' => []]]);
         }
 
+        // Time's up. Every client polls this, so this is where a running
+        // meeting notices — the reaper is only for rooms nobody is polling.
+        if ($meeting->isOverrun()) {
+            $meeting->endNow();
+
+            return response()->json(['data' => [
+                'status' => 'ended',
+                'ended_reason' => 'time_limit',
+                'participants' => [],
+                'waiting' => [],
+            ]]);
+        }
+
         $touched = $meeting->participants()
             ->where('users.id', $me->id)
             ->wherePivot('status', 'joined')
@@ -205,6 +252,10 @@ class MeetingController extends Controller
             'spotlight_uuid' => $meeting->spotlight_uuid,
             'participants' => $roster,
             'waiting' => $waiting,
+            // So the room can count down and warn before it happens, rather
+            // than everyone being dropped without notice.
+            'expires_at' => $meeting->expiresAt()?->toIso8601String(),
+            'participant_limit' => $meeting->participantLimit(),
         ]]);
     }
 
@@ -783,6 +834,11 @@ class MeetingController extends Controller
             // who has to pass it on to invitees.
             'passcode' => $canModerate ? $meeting->passcode : null,
             'spotlight_uuid' => $meeting->spotlight_uuid,
+            // The host's plan, applied to everyone in the room. Sent to all so
+            // the countdown and the "x of y" count are the same for everybody.
+            'participant_limit' => $meeting->participantLimit(),
+            'minutes_limit' => $meeting->minutesLimit(),
+            'expires_at' => $meeting->expiresAt()?->toIso8601String(),
             'my_role' => $myRole,
             'can_moderate' => $canModerate,
             // 'scheduled' is the column default, so it arrives the instant a

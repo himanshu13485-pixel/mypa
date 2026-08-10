@@ -65,6 +65,18 @@ class MeetingGuestController extends Controller
         abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
         abort_if((bool) $meeting->is_locked, 423, 'This meeting is locked — the host is not letting anyone else in.');
 
+        /*
+         * Checked here as well as on the way into the room, so a guest is
+         * turned away before being handed a pass — otherwise they would type
+         * their name and the password, be given credentials, and only then be
+         * told there was never any space.
+         */
+        $limit = $meeting->participantLimit();
+        if ($limit !== null) {
+            $inRoom = $meeting->participants()->wherePivot('status', 'joined')->count();
+            abort_if($inRoom >= $limit, 409, "This meeting is full — it allows {$limit} people at once.");
+        }
+
         $data = $request->validate([
             'name' => ['required', 'string', 'min:1', 'max:50'],
             'passcode' => ['required', 'string', 'max:12'],

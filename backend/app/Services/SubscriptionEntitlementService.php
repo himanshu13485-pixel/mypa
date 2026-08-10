@@ -109,6 +109,23 @@ class SubscriptionEntitlementService
         return $limit === null || $group->members()->count() < $limit;
     }
 
+    /**
+     * How many people may be in one of this user's meetings, null for no cap.
+     *
+     * Always the host's plan, never the joiner's — the meeting belongs to
+     * whoever opened it, and a guest has no plan at all to consult.
+     */
+    public function meetingParticipantLimit(User $host): ?int
+    {
+        return $this->planFor($host)->limit('max_meeting_participants');
+    }
+
+    /** How long one of this user's meetings may run, in minutes. Null = no cap. */
+    public function meetingMinutesLimit(User $host): ?int
+    {
+        return $this->planFor($host)->limit('max_meeting_minutes');
+    }
+
     public function hasFeature(User $user, string $feature): bool
     {
         return $this->planFor($user)->hasFeature($feature);
@@ -140,6 +157,10 @@ class SubscriptionEntitlementService
                 'used' => Group::where('owner_id', $user->id)->count(),
                 'limit' => $plan->limit('max_groups'),
             ],
+            // No "used" for these: they are per-meeting ceilings rather than
+            // a running total, so the settings page shows the ceiling alone.
+            'meeting_participants' => ['limit' => $plan->limit('max_meeting_participants')],
+            'meeting_minutes' => ['limit' => $plan->limit('max_meeting_minutes')],
         ];
     }
 }

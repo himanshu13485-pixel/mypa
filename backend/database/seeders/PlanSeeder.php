@@ -20,6 +20,7 @@ class PlanSeeder extends Seeder
                 'limits' => [
                     'max_tasks' => 50, 'storage_bytes' => $gb, 'max_groups' => 1,
                     'max_group_members' => 4, 'max_categories' => 5,
+                    'max_meeting_participants' => 4, 'max_meeting_minutes' => 40,
                 ],
                 'features' => [
                     'reminders' => true, 'notes' => true, 'voice_assistant' => true,
@@ -34,6 +35,7 @@ class PlanSeeder extends Seeder
                 'limits' => [
                     'max_tasks' => null, 'storage_bytes' => 5 * $gb, 'max_groups' => 2,
                     'max_group_members' => 6, 'max_categories' => null,
+                    'max_meeting_participants' => 8, 'max_meeting_minutes' => 60,
                 ],
                 'features' => [
                     'reminders' => true, 'notes' => true, 'voice_assistant' => true,
@@ -49,6 +51,7 @@ class PlanSeeder extends Seeder
                 'limits' => [
                     'max_tasks' => null, 'storage_bytes' => 20 * $gb, 'max_groups' => 5,
                     'max_group_members' => 12, 'max_categories' => null,
+                    'max_meeting_participants' => 16, 'max_meeting_minutes' => 120,
                 ],
                 'features' => [
                     'reminders' => true, 'notes' => true, 'voice_assistant' => true,
@@ -63,6 +66,7 @@ class PlanSeeder extends Seeder
                 'limits' => [
                     'max_tasks' => null, 'storage_bytes' => 50 * $gb, 'max_groups' => 15,
                     'max_group_members' => 30, 'max_categories' => null,
+                    'max_meeting_participants' => 50, 'max_meeting_minutes' => 300,
                 ],
                 'features' => [
                     'reminders' => true, 'notes' => true, 'voice_assistant' => true,
@@ -77,6 +81,7 @@ class PlanSeeder extends Seeder
                 'limits' => [
                     'max_tasks' => null, 'storage_bytes' => 200 * $gb, 'max_groups' => null,
                     'max_group_members' => 100, 'max_categories' => null,
+                    'max_meeting_participants' => 100, 'max_meeting_minutes' => null,
                 ],
                 'features' => [
                     'reminders' => true, 'notes' => true, 'voice_assistant' => true,
@@ -91,6 +96,7 @@ class PlanSeeder extends Seeder
                 'limits' => [
                     'max_tasks' => null, 'storage_bytes' => null, 'max_groups' => null,
                     'max_group_members' => null, 'max_categories' => null,
+                    'max_meeting_participants' => null, 'max_meeting_minutes' => null,
                 ],
                 'features' => [
                     'reminders' => true, 'notes' => true, 'voice_assistant' => true,

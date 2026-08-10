@@ -33,8 +33,16 @@ class ReapStaleMeetings extends Command
         $dropped = 0;
         $ended = 0;
 
-        Meeting::where('status', 'active')->chunkById(100, function ($meetings) use ($cutoff, &$dropped, &$ended) {
+        Meeting::where('status', 'active')->with('host')->chunkById(100, function ($meetings) use ($cutoff, &$dropped, &$ended) {
             foreach ($meetings as $meeting) {
+                // Past the time limit on the host's plan. The heartbeat
+                // normally gets here first; this catches a room whose clients
+                // have all gone quiet without leaving cleanly.
+                if ($meeting->isOverrun()) {
+                    $ended += (int) $meeting->endNow();
+                    continue;
+                }
+
                 $dropped += $this->dropGhosts($meeting, $cutoff);
 
                 // Nobody home -> the meeting is over. Guard on started_at so a

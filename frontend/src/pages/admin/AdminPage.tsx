@@ -362,6 +362,10 @@ const PLAN_LIMIT_FIELDS: { key: string; label: string; isBytes?: boolean }[] = [
   { key: 'max_groups', label: 'Max groups' },
   { key: 'max_group_members', label: 'Members per group' },
   { key: 'max_categories', label: 'Custom categories' },
+  // The host's plan governs the whole meeting, so these are what everyone in
+  // one of their rooms gets — not a per-person allowance.
+  { key: 'max_meeting_participants', label: 'People per meeting' },
+  { key: 'max_meeting_minutes', label: 'Meeting length (minutes)' },
 ]
 const PLAN_FEATURE_FIELDS: { key: string; label: string }[] = [
   { key: 'calls', label: 'Audio & video calls' },
