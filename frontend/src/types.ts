@@ -689,6 +689,13 @@ export interface MeetingItem {
   participant_limit?: number | null
   minutes_limit?: number | null
   expires_at?: string | null
+  /**
+   * How media reaches this room. Decided by the server and the same for
+   * everyone in it — half a room on each would simply not see the other half.
+   * 'mesh' is peer-to-peer and free to host; 'sfu' routes through LiveKit and
+   * is what makes a room bigger than about eight people work.
+   */
+  transport?: 'mesh' | 'sfu'
   spotlight_uuid?: string | null
   my_role?: MeetingRole
   can_moderate?: boolean

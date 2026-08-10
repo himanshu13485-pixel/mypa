@@ -460,6 +460,15 @@ export const meetings = {
         | { waiting: true }
     }>(`/meetings/${code}/join`, opts).then((r) => r.data.data),
   leave: (code: string) => api.post(`/meetings/${code}/leave`),
+  /**
+   * A join token for the SFU. Only issued to somebody already in the room, so
+   * this is called after join(), never instead of it. The client rewrites the
+   * path for guests, who need the same token members do.
+   */
+  realtimeToken: (code: string) =>
+    api.post<{ data: { url: string; room: string; token: string } }>(
+      `/meetings/${code}/realtime-token`,
+    ).then((r) => r.data.data),
   /** Remove it from the list for good — host only, and not while it is running. */
   remove: (code: string) => api.delete<{ message: string }>(`/meetings/${code}`).then((r) => r.data),
   heartbeat: (code: string) =>

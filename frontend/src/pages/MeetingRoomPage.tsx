@@ -312,6 +312,12 @@ export default function MeetingRoomPage() {
   /** When each offer went out — an answer that never comes is repaired. */
   const dialedAtRef = useRef<Map<string, number>>(new Map())
   const wakeLockRef = useRef<{ release: () => void } | null>(null)
+  /**
+   * The SFU session, when this meeting is on one. Null on the mesh, which is
+   * every meeting until a LiveKit server is configured — so the peer-connection
+   * code below stays exactly as it was rather than growing a second mode.
+   */
+  const sfuRef = useRef<import('../lib/sfu').SfuSession | null>(null)
 
   const { data: meeting } = useQuery({
     queryKey: ['meeting', code],
@@ -679,6 +685,10 @@ export default function MeetingRoomPage() {
   }, [])
 
   const teardown = useCallback(() => {
+    // Leaving the SFU room releases what we publish and unsubscribes us; the
+    // peer-connection teardown below is a no-op there, since there are none.
+    sfuRef.current?.disconnect()
+    sfuRef.current = null
     pcsRef.current.forEach((pc) => pc.close())
     pcsRef.current.clear()
     pendingIceRef.current.clear()
@@ -754,6 +764,28 @@ export default function MeetingRoomPage() {
       // One peer we cannot reach must not cost us the others: a throw here
       // used to abandon everybody further down the list and drop the room
       // into the error screen. The heartbeat picks up whatever failed.
+      /*
+       * On the SFU there is nobody to dial.
+       *
+       * Everyone publishes one stream to the server and subscribes to what it
+       * sends back, so the whole offer/answer/ICE dance below is skipped —
+       * along with the mesh's per-peer upload, which is the reason a room
+       * bigger than about eight people needs this at all.
+       */
+      if (room.transport === 'sfu') {
+        const grant = await meetingsApi.realtimeToken(live)
+        const { joinSfu } = await import('../lib/sfu')
+        sfuRef.current = await joinSfu(grant.url, grant.token, localStreamRef.current, {
+          onPeers: (list) => setPeers(list),
+          onState: (state) => {
+            if (state === 'closed' && joinedRef.current) toastError('Lost the connection to the meeting.')
+          },
+          onError: (message) => toastError(message),
+        })
+
+        return
+      }
+
       // offerTo signals with `code`, which is still the placeholder on the
       // render that creates the room. Safe: a meeting that did not exist a
       // moment ago has nobody in it, so this loop is empty in exactly the case
@@ -1194,6 +1226,10 @@ export default function MeetingRoomPage() {
 
   const setMicEnabled = useCallback((on: boolean) => {
     localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = on))
+    // On the SFU, muting the track locally is not enough: the server is the
+    // one forwarding it, and it needs telling so it stops — and so everyone
+    // else's roster shows the mute rather than silence they cannot explain.
+    void sfuRef.current?.setMicEnabled(on)
     myMediaRef.current = { ...myMediaRef.current, mic: on }
     setMuted(!on)
     broadcastMedia()
@@ -1235,6 +1271,12 @@ export default function MeetingRoomPage() {
             showSelf(localStreamRef.current)
           }
 
+          // On the SFU the server forwards what we publish, so a track that
+          // only went into the mesh senders would reach nobody.
+          if (sfuRef.current && localStreamRef.current) {
+            await sfuRef.current.publish(localStreamRef.current)
+          }
+
           myMediaRef.current = { ...myMediaRef.current, cam: true }
           setCameraOff(false)
           broadcastMedia()
@@ -1274,6 +1316,9 @@ export default function MeetingRoomPage() {
       })
       cameraTrackRef.current = null
       showSelf(stream)
+      // Tell the SFU too, or it keeps forwarding a track that no longer has a
+      // camera behind it and everyone stares at a frozen last frame.
+      void sfuRef.current?.setCameraEnabled(false)
       myMediaRef.current = { ...myMediaRef.current, cam: false }
       setCameraOff(true)
       broadcastMedia()
