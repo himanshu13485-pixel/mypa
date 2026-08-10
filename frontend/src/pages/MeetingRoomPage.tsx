@@ -29,7 +29,7 @@ import { useAuthStore } from '../stores/auth'
 import { readGuestPass } from '../lib/guestPass'
 import { useToast } from '../components/Toast'
 import { Button, Card } from '../components/ui'
-import { meetingLink } from './MeetingsPage'
+import { NEW_MEETING, meetingLink } from './MeetingsPage'
 import type { MeetingHostAction, MeetingParticipant, MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
 import { Avatar } from '../lib/avatars'
@@ -149,7 +149,22 @@ function PeerTile({
  * meeting) exactly like a clean "leave" would.
  */
 export default function MeetingRoomPage() {
-  const { code = '' } = useParams()
+  const { code: routeCode = '' } = useParams()
+  /**
+   * A meeting that does not exist yet.
+   *
+   * "New meeting" used to create the room and then show the lobby, so anyone
+   * who looked at their camera and thought better of it left a meeting behind
+   * that they had never held. Pressing the button now only opens the lobby;
+   * the room is created at the moment somebody actually walks into it, which
+   * is the moment it becomes a real thing.
+   *
+   * Everything below goes on using `code` exactly as before — it simply starts
+   * out as the placeholder and becomes the real code on join.
+   */
+  const [createdCode, setCreatedCode] = useState<string | null>(null)
+  const code = createdCode ?? routeCode
+  const unborn = code === NEW_MEETING
   const navigate = useNavigate()
   const account = useAuthStore((s) => s.user)
   /*
@@ -290,6 +305,8 @@ export default function MeetingRoomPage() {
     queryKey: ['meeting', code],
     queryFn: () => meetingsApi.show(code),
     retry: false,
+    // Nothing to look up until it exists.
+    enabled: !unborn,
   })
   const isVideo = meeting?.type !== 'audio'
   const canModerate = myRole === 'host' || myRole === 'cohost'
@@ -673,7 +690,21 @@ export default function MeetingRoomPage() {
     setPhase('joining')
     try {
       await ensureLocalStream()
-      const info = await meetingsApi.join(code, {
+
+      // The room is made here, not when the button was pressed — so backing
+      // out of the lobby leaves nothing behind. Local because everything below
+      // in this call needs the real code before the re-render delivers it.
+      let live = code
+      if (live === NEW_MEETING) {
+        const made = await meetingsApi.create({ type: 'video' })
+        live = made.code
+        setCreatedCode(made.code)
+        // Replace rather than push: Back should return to the meetings list,
+        // not to a placeholder URL for a room that now exists.
+        navigate(`/meetings/room/${made.code}`, { replace: true })
+      }
+
+      const info = await meetingsApi.join(live, {
         ...(opts?.displayName ? { display_name: opts.displayName } : {}),
         mic_on: opts ? opts.micOn : true,
         cam_on: opts ? opts.camOn : true,
@@ -701,6 +732,10 @@ export default function MeetingRoomPage() {
       // One peer we cannot reach must not cost us the others: a throw here
       // used to abandon everybody further down the list and drop the room
       // into the error screen. The heartbeat picks up whatever failed.
+      // offerTo signals with `code`, which is still the placeholder on the
+      // render that creates the room. Safe: a meeting that did not exist a
+      // moment ago has nobody in it, so this loop is empty in exactly the case
+      // where the two differ.
       for (const peer of room.joined_peers ?? []) {
         await offerTo(peer.uuid, peer.name).catch((err) => {
           console.warn('[meeting] could not offer to', peer.uuid, err)
@@ -726,18 +761,24 @@ export default function MeetingRoomPage() {
       )
       console.warn('[meeting] join failed', err)
     }
-  }, [code, offerTo, ensureLocalStream])
+  }, [code, offerTo, ensureLocalStream, navigate])
 
   // Show the lobby once the meeting is loaded. Screen-share codes belong to
   // the Screen module - send them there instead of a meeting room.
   useEffect(() => {
+    // A meeting that does not exist yet has nothing to load: straight to the
+    // lobby, and it is created if and when they decide to walk in.
+    if (unborn) {
+      if (phase === 'loading') setPhase('lobby')
+      return
+    }
     if (!meeting || phase !== 'loading') return
     if (meeting.is_screen) {
       navigate(`/screen/session/${code}`, { replace: true })
       return
     }
     setPhase('lobby')
-  }, [meeting, navigate, code, phase])
+  }, [meeting, navigate, code, phase, unborn])
 
   // Signalling listener — shares the personal channel with calls, so only
   // stop OUR listener on unmount (never leave the channel itself).

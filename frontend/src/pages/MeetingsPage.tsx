@@ -21,6 +21,20 @@ export function meetingLink(code: string): string {
   return `${window.location.origin}/meetings/room/${code}`
 }
 
+/**
+ * The URL for a meeting that has not been created yet.
+ *
+ * "New meeting" opens the lobby at this address and the room is made only when
+ * somebody joins, so backing out leaves nothing behind. Deliberately not a
+ * valid meeting code — those are three dash-separated groups of letters — so
+ * it can never collide with a real one.
+ *
+ * Lives here rather than in the room page because the dependency between the
+ * two already runs room -> list (see meetingLink above); the other direction
+ * would be a cycle, and would pull the whole room bundle into this page.
+ */
+export const NEW_MEETING = 'new'
+
 export default function MeetingsPage() {
   const { toast, toastError } = useToast()
   const { ask, confirm } = usePrompt()
@@ -35,14 +49,15 @@ export default function MeetingsPage() {
     refetchInterval: 30_000,
   })
 
-  const instantMutation = useMutation({
-    mutationFn: () => meetingsApi.create({ type: 'video' }),
-    onSuccess: (m) => {
-      queryClient.invalidateQueries({ queryKey: ['meetings'] })
-      navigate(`/meetings/room/${m.code}`)
-    },
-    onError: (err) => toastError(errorMessage(err)),
-  })
+  /**
+   * Straight to the lobby, without creating anything.
+   *
+   * This used to create the meeting and then show you your camera, so anyone
+   * who thought better of it left behind a room they had never held — and the
+   * list slowly filled with them. The room is made when somebody actually
+   * joins; back out of the lobby and there is nothing to tidy up.
+   */
+  const startInstant = () => navigate(`/meetings/room/${NEW_MEETING}`)
 
   const join = () => {
     // Accept a bare code OR a full pasted invite link — extract the
@@ -165,8 +180,8 @@ export default function MeetingsPage() {
         <Card className="flex flex-col items-start gap-2">
           <p className="text-sm font-semibold">Start now</p>
           <p className="text-xs text-slate-400">Instant video meeting — share the link after it opens.</p>
-          <Button size="sm" onClick={() => instantMutation.mutate()} disabled={instantMutation.isPending}>
-            <Video className="size-3.5" /> {instantMutation.isPending ? 'Creating…' : 'New meeting'}
+          <Button size="sm" onClick={startInstant}>
+            <Video className="size-3.5" /> New meeting
           </Button>
         </Card>
         <Card className="flex flex-col items-start gap-2">
