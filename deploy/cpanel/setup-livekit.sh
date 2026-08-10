@@ -103,10 +103,24 @@ YAML
 
   # Say so rather than let it fail at connect time, which looks like a LiveKit
   # problem and is not.
+  # Read the SANs rather than grepping the whole text. A wildcard certificate
+  # covers sfu.netvork.app while containing only "*.netvork.app", so grepping
+  # for the literal name calls a perfectly good certificate broken — which is
+  # exactly what it did on the first real run.
   if command -v openssl >/dev/null; then
-    openssl x509 -in "$SFU_SSL/fullchain.pem" -noout -text 2>/dev/null \
-      | grep -qi "$SFU_DOMAIN" \
-      || echo "!! that certificate does not mention $SFU_DOMAIN — add the subdomain in cPanel, wait for AutoSSL, then re-run this."
+    SANS=$(openssl x509 -in "$SFU_SSL/fullchain.pem" -noout -ext subjectAltName 2>/dev/null \
+      | tr -d ' ' | tr ',' '\n' | sed -n 's/^DNS://p')
+    PARENT=${SFU_DOMAIN#*.}
+    COVERED=no
+    for NAME in $SANS; do
+      if [ "$NAME" = "$SFU_DOMAIN" ] || [ "$NAME" = "*.$PARENT" ]; then COVERED=yes; break; fi
+    done
+    if [ "$COVERED" = yes ]; then
+      echo "   certificate covers $SFU_DOMAIN"
+    else
+      echo "!! that certificate does not cover $SFU_DOMAIN (it lists: $(echo $SANS | tr '\n' ' '))"
+      echo "   Add the subdomain in cPanel, wait for AutoSSL, then re-run this."
+    fi
   fi
 else
   SCHEME=ws
@@ -165,8 +179,22 @@ mkdir -p /home/$APP_USER/logs
 chown $APP_USER:$APP_USER /home/$APP_USER/logs
 systemctl daemon-reload
 systemctl enable --now livekit >/dev/null 2>&1 || systemctl restart livekit
-sleep 2
-systemctl is-active livekit
+
+# is-active exits non-zero for anything but "active", including the perfectly
+# ordinary "activating" of a service two seconds old — and under set -e that
+# killed this script before it wrote any of the settings below, leaving LiveKit
+# installed and the app with no idea it existed.
+STATE=starting
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  STATE=$(systemctl is-active livekit || true)
+  [ "$STATE" = active ] && break
+  sleep 1
+done
+echo "   service: $STATE"
+if [ "$STATE" != active ]; then
+  echo "!! livekit is not up. The settings below are still written, so nothing is"
+  echo "   left half-done — but check:  journalctl -u livekit -n 40 --no-pager"
+fi
 
 echo "== pointing the app at it =="
 ENV_FILE="$APP_DIR/backend/.env"
