@@ -59,78 +59,67 @@ cat > "$CONFIG" <<YAML
 # Managed by deploy/cpanel/setup-livekit.sh — re-running rewrites this file.
 port: $WS_PORT
 rtc:
-  udp_port: $RTC_MIN
+  # A range, not udp_port — those are alternatives. Setting both said "one
+  # port" and "ten thousand ports" in the same breath.
   port_range_start: $RTC_MIN
   port_range_end: $RTC_MAX
+  # Discovers the public address itself, so ICE candidates point somewhere
+  # reachable rather than at a private interface nobody outside can route to.
+  # Also an alternative to node_ip rather than a companion; this one needs no
+  # maintenance if the address ever changes.
   use_external_ip: true
-  # The public address, so ICE candidates point somewhere reachable rather
-  # than at a private interface nobody outside the box can route to.
-  node_ip: $PUB_IP
 
 keys:
   $API_KEY: $API_SECRET
 
-# TLS is terminated here rather than behind Apache: LiveKit's signalling is a
-# websocket carrying media negotiation, and proxying it through cPanel's vhost
-# config is one more thing to get wrong for no benefit. Reverb does the same.
+# TLS is NOT terminated here. LiveKit has no tls: section at all — inventing
+# one is what made it exit 0 on every start with "field tls not found in type
+# config.Config", seventy-seven times before anyone read the log. It expects a
+# proxy in front, and this box already has the right one: Apache holds the
+# AutoSSL certificate for the subdomain.
 YAML
-
-# The certificate has to cover $SFU_DOMAIN specifically, so prefer one cPanel
-# issued for that name and fall back to the main domain's (which covers it only
-# if AutoSSL included it as a SAN). Deliberately not reusing $SSLDIR/fullchain.pem
-# blindly: that file is the main domain's, and serving it for a subdomain it
-# does not list gets the websocket refused with a name-mismatch that says
-# nothing useful in a browser console.
-SFU_SSL=$SSLDIR/sfu
-SRC=/var/cpanel/ssl/apache_tls/$SFU_DOMAIN/combined
-[ -f "$SRC" ] || SRC=/var/cpanel/ssl/apache_tls/$DOMAIN/combined
-[ -f "$SRC" ] || SRC="$(ls -d /var/cpanel/ssl/apache_tls/*"$DOMAIN"* 2>/dev/null | head -1)/combined"
-
-if [ -f "$SRC" ]; then
-  mkdir -p "$SFU_SSL"
-  awk '/BEGIN (RSA |EC )?PRIVATE KEY/,/END (RSA |EC )?PRIVATE KEY/' "$SRC" > "$SFU_SSL/privkey.pem"
-  awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' "$SRC" > "$SFU_SSL/fullchain.pem"
-  chown -R $APP_USER:$APP_USER "$SFU_SSL"
-  chmod 700 "$SFU_SSL"; chmod 600 "$SFU_SSL"/*.pem
-
-  cat >> "$CONFIG" <<YAML
-tls:
-  cert_file: $SFU_SSL/fullchain.pem
-  key_file: $SFU_SSL/privkey.pem
-YAML
-  SCHEME=wss
-  echo "   TLS on, from $SRC"
-
-  # Say so rather than let it fail at connect time, which looks like a LiveKit
-  # problem and is not.
-  # Read the SANs rather than grepping the whole text. A wildcard certificate
-  # covers sfu.netvork.app while containing only "*.netvork.app", so grepping
-  # for the literal name calls a perfectly good certificate broken — which is
-  # exactly what it did on the first real run.
-  if command -v openssl >/dev/null; then
-    SANS=$(openssl x509 -in "$SFU_SSL/fullchain.pem" -noout -ext subjectAltName 2>/dev/null \
-      | tr -d ' ' | tr ',' '\n' | sed -n 's/^DNS://p')
-    PARENT=${SFU_DOMAIN#*.}
-    COVERED=no
-    for NAME in $SANS; do
-      if [ "$NAME" = "$SFU_DOMAIN" ] || [ "$NAME" = "*.$PARENT" ]; then COVERED=yes; break; fi
-    done
-    if [ "$COVERED" = yes ]; then
-      echo "   certificate covers $SFU_DOMAIN"
-    else
-      echo "!! that certificate does not cover $SFU_DOMAIN (it lists: $(echo $SANS | tr '\n' ' '))"
-      echo "   Add the subdomain in cPanel, wait for AutoSSL, then re-run this."
-    fi
-  fi
-else
-  SCHEME=ws
-  echo "!! no certificate found for $SFU_DOMAIN or $DOMAIN — running without TLS."
-  echo "   Browsers refuse insecure websockets from an https:// page, so this is"
-  echo "   only good for a local test. Add the subdomain in cPanel, let AutoSSL"
-  echo "   issue for it, then re-run this."
-fi
 
 chmod 600 "$CONFIG"
+
+echo "== apache in front (TLS) =="
+# LiveKit stays on plain HTTP on the loopback side; Apache does the certificate
+# on 443 for $SFU_DOMAIN. Only signalling goes through here — the media is UDP
+# straight to the box on the range above and never touches Apache.
+if [ ! -d /etc/apache2/conf.d/userdata ]; then
+  echo "!! no cPanel Apache userdata directory — set up a proxy for"
+  echo "   https://$SFU_DOMAIN -> http://127.0.0.1:$WS_PORT yourself."
+  SCHEME=wss
+else
+  INC=/etc/apache2/conf.d/userdata/ssl/2_4/$APP_USER/$SFU_DOMAIN
+  mkdir -p "$INC"
+  cat > "$INC/livekit.conf" <<APACHE
+# Managed by deploy/cpanel/setup-livekit.sh
+# Signalling only. Media is UDP direct to this host and does not come past here.
+ProxyPreserveHost On
+ProxyRequests Off
+# The websocket upgrade has to be matched before the generic rule, or Apache
+# proxies it as ordinary HTTP and the connection closes as soon as it opens.
+RewriteEngine On
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
+RewriteRule ^/(.*) ws://127.0.0.1:$WS_PORT/\$1 [P,L]
+ProxyPass / http://127.0.0.1:$WS_PORT/
+ProxyPassReverse / http://127.0.0.1:$WS_PORT/
+APACHE
+
+  # Websockets need mod_proxy_wstunnel; without it the upgrade is refused and
+  # the meeting never gets past "connecting".
+  if ! httpd -M 2>/dev/null | grep -q proxy_wstunnel; then
+    echo "!! mod_proxy_wstunnel is not loaded. Install it, or signalling will fail:"
+    echo "   yum -y install ea-apache24-mod_proxy_wstunnel && systemctl restart httpd"
+  fi
+
+  /scripts/ensure_vhost_includes --user="$APP_USER" >/dev/null 2>&1 \
+    || echo "!! ensure_vhost_includes failed — run it by hand, then restart httpd"
+  systemctl restart httpd >/dev/null 2>&1 || true
+  echo "   proxying https://$SFU_DOMAIN -> http://127.0.0.1:$WS_PORT"
+  SCHEME=wss
+fi
+
 
 echo "== firewall =="
 # CSF first: that is what WHM installs, and a box running it usually has
@@ -139,20 +128,19 @@ echo "== firewall =="
 # problem from the outside — the meeting connects, and then stays black.
 if [ -x /usr/sbin/csf ]; then
   cp -n /etc/csf/csf.conf /etc/csf/csf.conf.before-livekit 2>/dev/null || true
-  grep -q "\b$WS_PORT\b" /etc/csf/csf.conf \
-    || sed -i "s/^TCP_IN = \"\(.*\)\"/TCP_IN = \"\1,$WS_PORT\"/" /etc/csf/csf.conf
+  # Only the UDP range. 7880 is reached over the loopback by Apache, so opening
+  # it publicly would expose the unencrypted signalling port for nothing.
   grep -q "$RTC_MIN:$RTC_MAX" /etc/csf/csf.conf \
     || sed -i "s/^UDP_IN = \"\(.*\)\"/UDP_IN = \"\1,$RTC_MIN:$RTC_MAX\"/" /etc/csf/csf.conf
   csf -r >/dev/null 2>&1 || true
-  echo "   csf updated: $WS_PORT/tcp and $RTC_MIN-$RTC_MAX/udp"
+  echo "   csf updated: $RTC_MIN-$RTC_MAX/udp (7880 stays loopback-only, behind Apache)"
   echo "   (previous config saved as /etc/csf/csf.conf.before-livekit)"
 elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
-  firewall-cmd --permanent --add-port=$WS_PORT/tcp >/dev/null
   firewall-cmd --permanent --add-port=$RTC_MIN-$RTC_MAX/udp >/dev/null
   firewall-cmd --reload >/dev/null
-  echo "   firewalld updated: $WS_PORT/tcp and $RTC_MIN-$RTC_MAX/udp"
+  echo "   firewalld updated: $RTC_MIN-$RTC_MAX/udp (7880 stays loopback-only, behind Apache)"
 else
-  echo "!! no firewall manager found — open $WS_PORT/tcp and $RTC_MIN-$RTC_MAX/udp yourself."
+  echo "!! no firewall manager found — open $RTC_MIN-$RTC_MAX/udp yourself."
   echo "   Media is UDP; without that range the meeting connects and then stays black."
 fi
 
@@ -208,14 +196,14 @@ set_env () {
   fi
 }
 set_env LIVEKIT_ENABLED true
-set_env LIVEKIT_URL "$SCHEME://$SFU_DOMAIN:$WS_PORT"
+set_env LIVEKIT_URL "$SCHEME://$SFU_DOMAIN"
 set_env LIVEKIT_API_KEY "$API_KEY"
 set_env LIVEKIT_API_SECRET "$API_SECRET"
 sudo -u $APP_USER $PHP "$APP_DIR/backend/artisan" config:cache >/dev/null
 
 echo
 echo "== done =="
-echo "   signalling : $SCHEME://$SFU_DOMAIN:$WS_PORT"
+echo "   signalling : $SCHEME://$SFU_DOMAIN  (Apache -> 127.0.0.1:$WS_PORT)"
 echo "   media      : UDP $RTC_MIN-$RTC_MAX"
 echo "   log        : /home/$APP_USER/logs/livekit.log"
 echo

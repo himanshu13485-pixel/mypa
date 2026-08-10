@@ -28,22 +28,10 @@ chmod 700 "$SSLDIR"; chmod 600 "$SSLDIR"/*.pem
 
 systemctl restart netvork-reverb
 
-# LiveKit keeps its own copy too, for the SFU subdomain rather than the main
-# one. Without this it would go on serving the certificate it was installed
-# with and start being refused about sixty days later — the same failure this
-# script exists to prevent for Reverb, just further from anything obvious.
-if systemctl list-unit-files livekit.service >/dev/null 2>&1; then
-  SFU_DOMAIN=${SFU_DOMAIN:-sfu.$DOMAIN}
-  SFU_SRC=/var/cpanel/ssl/apache_tls/$SFU_DOMAIN/combined
-  [ -f "$SFU_SRC" ] || SFU_SRC="$SRC"
-
-  mkdir -p "$SSLDIR/sfu"
-  awk '/BEGIN (RSA |EC )?PRIVATE KEY/,/END (RSA |EC )?PRIVATE KEY/' "$SFU_SRC" > "$SSLDIR/sfu/privkey.pem"
-  awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' "$SFU_SRC" > "$SSLDIR/sfu/fullchain.pem"
-  chown -R $APP_USER:$APP_USER "$SSLDIR/sfu"
-  chmod 700 "$SSLDIR/sfu"; chmod 600 "$SSLDIR/sfu"/*.pem
-  systemctl restart livekit
-fi
+# Nothing to do for LiveKit. It has no TLS of its own — it exits outright if
+# you give it a tls: block — so Apache holds the SFU subdomain's certificate
+# and cPanel renews that on its own. An earlier version of this script copied
+# certificates for LiveKit to read; there was never anything there to read them.
 
 if [ -d /etc/coturn/certs ]; then
   for U in coturn turnserver; do id -u "$U" >/dev/null 2>&1 && SVC=$U && break; done
