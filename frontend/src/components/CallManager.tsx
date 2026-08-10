@@ -24,7 +24,7 @@ import {
   enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported, onFullscreenChange,
 } from '../lib/fullscreen'
 import {
-  loadDeviceChoice, nextCamera, openCamera, saveDeviceChoice, screenShareSupported, shareFailureMessage,
+  applySendQuality, loadDeviceChoice, nextCamera, openCamera, saveDeviceChoice, screenShareSupported, shareFailureMessage,
   swapTrack, useDevices,
 } from '../lib/devices'
 import { Avatar } from '../lib/avatars'
@@ -367,13 +367,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
 
       const stream = await ensureLocalStream(type)
       stream.getTracks().forEach((track) => pc.addTrack(track, stream))
-      pc.getSenders().forEach((sender) => {
-        if (sender.track?.kind !== 'video') return
-        const params = sender.getParameters()
-        params.encodings = params.encodings?.length ? params.encodings : [{}]
-        params.encodings[0].maxBitrate = 1_500_000
-        sender.setParameters(params).catch(() => undefined)
-      })
+      // A group call is a mesh too, so the same sizing applies.
+      applySendQuality([pc], peersRef.current.size)
 
       setRemotePeers((peers) =>
         peers.some((p) => p.uuid === peerUuid) ? peers : [...peers, { uuid: peerUuid, name: peerName, stream: null }],
@@ -1055,6 +1050,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
       }
     }
   }
+
+  /** Same as meetings: a group call grows, so what everyone sends must shrink. */
+  useEffect(() => {
+    if (activeCall?.status !== 'ongoing') return
+    applySendQuality(peersRef.current.values(), peersRef.current.size)
+  }, [remotePeers.length, activeCall?.status])
 
   const toggleFullscreen = async () => {
     if (fullscreenElement()) {

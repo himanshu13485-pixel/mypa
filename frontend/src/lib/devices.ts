@@ -91,6 +91,85 @@ export const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
   frameRate: { ideal: 30 },
 }
 
+/**
+ * How much video to send each peer, given how many there are.
+ *
+ * In a mesh everybody sends their own picture to everybody else, so a flat
+ * per-connection cap means total upload grows with the room: at 1.5 Mbps
+ * apiece, six people needed 7.5 Mbps up and ten needed 13.5 — past what most
+ * home connections give and far past a phone on mobile data. The room did not
+ * fail politely either; it degraded for everyone at once.
+ *
+ * Stepping the cap down as people arrive holds the total near 2 Mbps whatever
+ * the size, which is the number that has to fit down one uplink. Resolution
+ * comes down with it — bitrate alone just makes a soft 720p, and the tiles are
+ * small in a full room anyway.
+ *
+ * Above about twelve this stops being enough and the answer is an SFU, where
+ * each person sends one stream and the server does the copying.
+ */
+export interface SendQuality {
+  maxBitrate: number
+  /** 1 = full capture resolution, 2 = half width and height, and so on. */
+  scaleResolutionDownBy: number
+  /** For logging and the network panel — not sent anywhere. */
+  label: string
+}
+
+/** What one uplink is asked to carry in total, whatever the room size. */
+const UPLOAD_BUDGET = 2_000_000
+
+/**
+ * Below this, video is worse than no video — blocky enough to be a distraction
+ * while still costing the bandwidth. Past the point where the budget divides
+ * down to it, the mesh is simply out of road: the fix is an SFU, not a smaller
+ * number, because by then it is the encoding and the connection count hurting
+ * rather than the bitrate.
+ */
+const FLOOR = 120_000
+
+export function sendQualityFor(peerCount: number): SendQuality {
+  // One other person: nothing to share the uplink with, so spend it.
+  if (peerCount <= 1) return { maxBitrate: 1_500_000, scaleResolutionDownBy: 1, label: '720p' }
+  if (peerCount <= 3) return { maxBitrate: 700_000, scaleResolutionDownBy: 1.5, label: '480p' }
+  if (peerCount <= 6) return { maxBitrate: 350_000, scaleResolutionDownBy: 2, label: '360p' }
+
+  // Beyond six, divide rather than step: a fixed bottom rung looks tidy and
+  // quietly reintroduces the original bug, because a flat cap times twenty
+  // peers is 4 Mbps again.
+  return {
+    maxBitrate: Math.max(FLOOR, Math.round(UPLOAD_BUDGET / peerCount)),
+    scaleResolutionDownBy: 3,
+    label: '240p',
+  }
+}
+
+/**
+ * Apply that to every outgoing video sender.
+ *
+ * Called whenever the room changes size, not only when a connection is made —
+ * the fifth person arriving has to quieten down the four who were already
+ * talking, or only their own stream is sized for the room they are in.
+ */
+export function applySendQuality(pcs: Iterable<RTCPeerConnection>, peerCount: number): SendQuality {
+  const quality = sendQualityFor(peerCount)
+
+  for (const pc of pcs) {
+    for (const sender of pc.getSenders()) {
+      if (sender.track?.kind !== 'video') continue
+      const params = sender.getParameters()
+      // getParameters can come back with no encodings before the first
+      // negotiation; setting one is how you get something to configure.
+      params.encodings = params.encodings?.length ? params.encodings : [{}]
+      params.encodings[0].maxBitrate = quality.maxBitrate
+      params.encodings[0].scaleResolutionDownBy = quality.scaleResolutionDownBy
+      sender.setParameters(params).catch(() => undefined)
+    }
+  }
+
+  return quality
+}
+
 export const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
   echoCancellation: true,
   noiseSuppression: true,

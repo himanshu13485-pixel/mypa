@@ -17,7 +17,7 @@ import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
   AUDIO_CONSTRAINTS, VIDEO_CONSTRAINTS, applySpeaker, loadDeviceChoice, nextCamera, openCamera, openMic,
-  saveDeviceChoice, screenShareSupported, senderFor, shareFailureMessage, speakerSelectionSupported,
+  applySendQuality, saveDeviceChoice, screenShareSupported, senderFor, shareFailureMessage, speakerSelectionSupported,
   swapTrack, testSpeaker, useDevices, useMicLevel, type DeviceChoice,
 } from '../lib/devices'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
@@ -476,14 +476,9 @@ export default function MeetingRoomPage() {
         pc.addTransceiver('video', { direction: 'sendrecv', streams: [stream] })
       }
 
-      // Allow decent video bandwidth so 720p does not get crushed.
-      pc.getSenders().forEach((sender) => {
-        if (sender.track?.kind !== 'video') return
-        const params = sender.getParameters()
-        params.encodings = params.encodings?.length ? params.encodings : [{}]
-        params.encodings[0].maxBitrate = 1_500_000
-        sender.setParameters(params).catch(() => undefined)
-      })
+      // Sized for the room, not for this one connection — see applySendQuality.
+      // pcsRef already holds this peer, so the count includes them.
+      applySendQuality([pc], pcsRef.current.size)
 
       setPeers((p) => (p.some((x) => x.uuid === peerUuid) ? p : [...p, { uuid: peerUuid, name: peerName, stream: null }]))
 
@@ -1302,6 +1297,21 @@ export default function MeetingRoomPage() {
     setCameraEnabled(false)
     toast(`${who} turned your camera off.`, 'info')
   }
+
+  /**
+   * Re-size every outgoing stream whenever the room changes size.
+   *
+   * Doing it only when a connection is made would size the newcomer's stream
+   * correctly and leave everyone already talking still sending as though the
+   * room were empty — which is exactly the case that overloads an uplink,
+   * because it is the people who have been there longest who have the most
+   * connections to feed.
+   */
+  useEffect(() => {
+    if (phase !== 'in') return
+    const quality = applySendQuality(pcsRef.current.values(), pcsRef.current.size)
+    console.info('[meeting] sending', quality.label, 'to', pcsRef.current.size, 'peer(s)')
+  }, [peers.length, phase])
 
   /** Stable across renders, so the meter's memo only re-runs on micRev. */
   const getLocalStream = useCallback(() => localStreamRef.current, [])
