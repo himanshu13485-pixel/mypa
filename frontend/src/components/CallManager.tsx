@@ -21,6 +21,9 @@ import { normalizeSdp } from '../lib/sdp'
 import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
 import { isPhoneViewport, useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
 import {
+  enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported, onFullscreenChange,
+} from '../lib/fullscreen'
+import {
   loadDeviceChoice, nextCamera, openCamera, saveDeviceChoice, screenShareSupported, shareFailureMessage,
   swapTrack, useDevices,
 } from '../lib/devices'
@@ -178,6 +181,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const { toast, toastError } = useToast()
   /** Whether this browser can capture a screen — not whether it looks like a phone. */
   const canShareScreen = screenShareSupported()
+  /** iPhone has no fullscreen for anything but a bare video element. */
+  const canFullscreen = fullscreenSupported()
   const [showInvite, setShowInvite] = useState(false)
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<CallSignalPayload | null>(null)
@@ -265,9 +270,8 @@ export function CallProvider({ children }: { children: ReactNode }) {
   ])
 
   useEffect(() => {
-    const onFs = () => setIsFs(!!document.fullscreenElement)
-    document.addEventListener('fullscreenchange', onFs)
-    return () => document.removeEventListener('fullscreenchange', onFs)
+    const onFs = () => setIsFs(!!fullscreenElement())
+    return onFullscreenChange(onFs)
   }, [])
 
   const cleanup = useCallback(() => {
@@ -285,7 +289,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
     displayTrackRef.current?.stop()
     displayTrackRef.current = null
     setSharing(false)
-    if (document.fullscreenElement) document.exitFullscreen().catch(() => undefined)
+    if (fullscreenElement()) void exitFullscreen()
     myMediaRef.current = { mic: true, cam: true }
     peersRef.current.forEach((pc) => pc.close())
     peersRef.current.clear()
@@ -1052,14 +1056,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => undefined)
+  const toggleFullscreen = async () => {
+    if (fullscreenElement()) {
+      await exitFullscreen()
     } else {
       // The panel, not just the video: fullscreening the video element's
       // wrapper left every control outside the fullscreen element, so mute,
       // camera and hang-up all vanished until you pressed Escape.
-      panelRef.current?.requestFullscreen().catch(() => undefined)
+      await enterFullscreen(panelRef.current)
     }
   }
 
@@ -1338,9 +1342,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     <CircleButton label="Add someone to this call" onClick={() => { setMoreOpen(false); setShowInvite(true) }}>
                       <UserPlus className="size-5" />
                     </CircleButton>
-                    <CircleButton label={isFs ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
-                      <Expand className="size-5" />
-                    </CircleButton>
+                    {canFullscreen && (
+                      <CircleButton label={isFs ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
+                        <Expand className="size-5" />
+                      </CircleButton>
+                    )}
                     <CircleButton label="Minimise to the corner" onClick={() => { setMoreOpen(false); toggleExpanded() }}>
                       <Minimize2 className="size-5" />
                     </CircleButton>
@@ -1561,7 +1567,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   {expanded ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
                 </Button>
               )}
-              {isVideo && (
+              {isVideo && canFullscreen && (
                 <Button size="sm" variant="secondary" title={isFs ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
                   <Expand className="size-3.5" />
                 </Button>

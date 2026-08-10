@@ -162,10 +162,23 @@ export default function MeetingsPage() {
       }
     }
 
-    navigator.clipboard.writeText(meetingLink(m.code)).then(
-      copied,
-      () => prompt('Copy this link:', meetingLink(m.code)),
-    )
+    // The fallback used to be window.prompt, which several in-app browsers —
+    // Instagram's, a number of Android WebViews — refuse outright and return
+    // null without showing anything. So the one path that existed for people
+    // whose clipboard is blocked did nothing at all for exactly the browsers
+    // most likely to block it. There is no clipboard on an insecure origin
+    // either, hence the optional call rather than a bare one.
+    const showItInstead = () => void ask({
+      title: 'Copy this link',
+      message: 'Your browser would not copy it for us — select it and copy it by hand.',
+      value: meetingLink(m.code),
+      readOnly: true,
+      actionLabel: 'Done',
+    })
+
+    const attempt = navigator.clipboard?.writeText(meetingLink(m.code))
+    if (attempt) attempt.then(copied, showItInstead)
+    else showItInstead()
   }
 
   return (
@@ -308,6 +321,7 @@ export default function MeetingsPage() {
 }
 
 function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const { toast, toastError } = useToast()
   const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '' })
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<MeetingItem | null>(null)
@@ -341,7 +355,12 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => navigator.clipboard.writeText(meetingLink(created.code)).catch(() => undefined)}
+              // A silent catch here meant a failed copy looked exactly like a
+              // successful one: nothing moved, nothing said so.
+              onClick={() => navigator.clipboard?.writeText(meetingLink(created.code)).then(
+                () => toast('Link copied.', 'success'),
+                () => toastError('Your browser would not copy it — select the link above and copy it by hand.'),
+              )}
             >
               <Copy className="size-3.5" />
             </Button>

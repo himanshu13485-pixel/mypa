@@ -11,6 +11,9 @@ import type { MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
 import { useSelfView } from '../lib/videoLayout'
 import { shareFailureMessage } from '../lib/devices'
+import {
+  enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported,
+} from '../lib/fullscreen'
 
 /**
  * A screen session: the HOST captures their screen and answers offers from
@@ -332,11 +335,11 @@ export default function ScreenSessionPage() {
     // The page, not the <video>: fullscreening the picture alone put the
     // controls outside the fullscreen element, so stop-sharing and leave
     // vanished until you found Escape. The same fault meetings had.
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => undefined)
+    if (fullscreenElement()) {
+      void exitFullscreen()
       return
     }
-    pageRef.current?.requestFullscreen().catch(() => undefined)
+    void enterFullscreen(pageRef.current)
   }
 
   const fmt = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
@@ -543,9 +546,11 @@ export default function ScreenSessionPage() {
             >
               {viewerMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
             </Button>
-            <Button size="sm" variant="secondary" onClick={fullscreen} title="Fullscreen">
-              <Expand className="size-4" /> Fullscreen
-            </Button>
+            {fullscreenSupported() && (
+              <Button size="sm" variant="secondary" onClick={fullscreen} title="Fullscreen">
+                <Expand className="size-4" /> Fullscreen
+              </Button>
+            )}
             <Button size="sm" variant="danger" onClick={leaveViewer}>
               <MonitorUp className="size-4" /> Stop viewing
             </Button>

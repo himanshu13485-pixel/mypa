@@ -21,6 +21,9 @@ import {
   swapTrack, testSpeaker, useDevices, useMicLevel, type DeviceChoice,
 } from '../lib/devices'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
+import {
+  enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported, onFullscreenChange,
+} from '../lib/fullscreen'
 import { useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
 import BackgroundPicker, { type BackgroundChoice } from '../components/BackgroundPicker'
 import MeetingLobby, { type LobbyResult } from '../components/MeetingLobby'
@@ -320,6 +323,7 @@ export default function MeetingRoomPage() {
   const isPhone = useIsPhone()
   /** Constant for the life of the page — the browser does not grow the API. */
   const canShareScreen = useMemo(screenShareSupported, [])
+  const canFullscreen = useMemo(fullscreenSupported, [])
   /** Sideways on a phone: the picture gets the room's own chrome as well. */
   const landscape = useLandscapePhone()
   const { cameras } = useDevices(phase === 'in')
@@ -1121,14 +1125,13 @@ export default function MeetingRoomPage() {
 
   // Track fullscreen so the layout can switch to the split/speaker view.
   useEffect(() => {
-    const onFs = () => setIsFs(!!document.fullscreenElement)
-    document.addEventListener('fullscreenchange', onFs)
-    return () => document.removeEventListener('fullscreenchange', onFs)
+    const onFs = () => setIsFs(!!fullscreenElement())
+    return onFullscreenChange(onFs)
   }, [])
 
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => undefined)
+  const toggleFullscreen = async () => {
+    if (fullscreenElement()) {
+      await exitFullscreen()
     } else {
       /*
        * The whole room, not just the tiles.
@@ -1139,7 +1142,7 @@ export default function MeetingRoomPage() {
        * is easy to hit by accident, with no visible way back but Escape, which
        * a phone does not have. Calls were fixed this way; meetings never were.
        */
-      roomRef.current?.requestFullscreen().catch(() => undefined)
+      await enterFullscreen(roomRef.current)
     }
   }
 
@@ -1895,9 +1898,14 @@ export default function MeetingRoomPage() {
         </Button>
       )}
 
-      <Button size="sm" variant="secondary" title={isFs ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
-        <Expand className="size-4" />
-      </Button>
+      {/* Absent on iPhone, which has no fullscreen for anything but a bare
+          video element — turning the phone sideways is what gets you the whole
+          picture there, and that already happens by itself. */}
+      {canFullscreen && (
+        <Button size="sm" variant="secondary" title={isFs ? 'Exit fullscreen' : 'Fullscreen'} onClick={toggleFullscreen}>
+          <Expand className="size-4" />
+        </Button>
+      )}
 
       <div className="relative">
         <Button size="sm" variant={showSettings ? 'primary' : 'secondary'} title="Devices & view" onClick={() => setShowSettings((s) => !s)}>

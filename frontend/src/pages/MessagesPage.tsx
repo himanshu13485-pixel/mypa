@@ -52,6 +52,7 @@ function linkify(text: string, own: boolean) {
 }
 
 function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => void }) {
+  const { toastError } = useToast()
   const [recording, setRecording] = useState(false)
   const [seconds, setSeconds] = useState(0)
   const recorderRef = useRef<MediaRecorder | null>(null)
@@ -59,6 +60,12 @@ function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => vo
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const start = async () => {
+    // Asked before the microphone, so a browser that cannot record says so
+    // instead of blaming a permission the person already granted.
+    if (typeof MediaRecorder === 'undefined') {
+      toastError('This browser cannot record audio. Try Chrome, Edge or Safari, or type your message instead.')
+      return
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const recorder = new MediaRecorder(stream)
@@ -72,8 +79,17 @@ function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => vo
       setRecording(true)
       setSeconds(0)
       timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000)
-    } catch {
-      alert('Microphone access is required for voice messages.')
+    } catch (err) {
+      // Blocked and busy are different problems with different fixes, and
+      // "access is required" only described one of them.
+      const name = (err as { name?: string } | null)?.name
+      toastError(
+        name === 'NotAllowedError'
+          ? 'Microphone access is blocked. Allow it for this site in your browser, then try again.'
+          : name === 'NotFoundError'
+            ? 'No microphone was found.'
+            : 'The microphone is busy — close any other app or tab using it.',
+      )
     }
   }
 
