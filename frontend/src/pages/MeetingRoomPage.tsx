@@ -24,7 +24,7 @@ import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pi
 import {
   enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported, onFullscreenChange,
 } from '../lib/fullscreen'
-import { useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
+import { isPhoneViewport, useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
 import BackgroundPicker, { type BackgroundChoice } from '../components/BackgroundPicker'
 import MeetingLobby, { type LobbyResult } from '../components/MeetingLobby'
 import ParticipantsPanel, { QualityDot } from '../components/ParticipantsPanel'
@@ -781,6 +781,11 @@ export default function MeetingRoomPage() {
             if (state === 'closed' && joinedRef.current) toastError('Lost the connection to the meeting.')
           },
           onError: (message) => toastError(message),
+        }, {
+          // Read once at join time, not from the hook: a phone rotated into
+          // landscape is still a phone, and re-publishing because the viewport
+          // crossed a breakpoint would interrupt the video for no reason.
+          mobile: isPhoneViewport(),
         })
 
         return

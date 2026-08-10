@@ -64,24 +64,59 @@ function peersFrom(room: Room): SfuPeer[] {
   })
 }
 
+/**
+ * What one uplink is asked to carry, whatever the room size.
+ *
+ * The same idea as the mesh's budget and a different sum. On a mesh the budget
+ * is divided by the number of peers, because you send a separate copy to each
+ * of them. Here you send once, so this is simply what you send — and it does
+ * not move when somebody joins. That is the whole difference between six
+ * people being the limit and fifty being possible.
+ *
+ * A phone gets less: it is usually on an uplink measured in single-digit
+ * megabits and it is encoding every layer itself, so it runs hot long before
+ * it runs out of bandwidth.
+ */
+function publishBudget(mobile: boolean) {
+  return mobile
+    ? { maxBitrate: 600_000, maxFramerate: 24 }
+    : { maxBitrate: 1_500_000, maxFramerate: 30 }
+}
+
 export async function joinSfu(
   url: string,
   token: string,
   local: MediaStream | null,
   callbacks: SfuCallbacks,
+  { mobile = false }: { mobile?: boolean } = {},
 ): Promise<SfuSession> {
   // Imported here rather than at module scope so the mesh path never pays for
   // the SDK's weight.
   const { Room: LiveKitRoom, RoomEvent, ConnectionState } = await import('livekit-client')
 
   const options: RoomOptions = {
-    // The SFU forwards whichever layer suits each receiver, so the sender
-    // publishes several and stops having to guess. This is the thing a mesh
-    // fundamentally cannot do, and the reason a big room works at all.
-    publishDefaults: { simulcast: true },
-    // Sends only what is actually on screen. A gallery of thirty tiles has no
-    // use for thirty full-resolution streams.
+    publishDefaults: {
+      /*
+       * Publish several qualities at once and let the server hand each viewer
+       * whichever fits their tile and their connection.
+       *
+       * This is the mesh's adaptive bitrate done properly. There, one number
+       * had to serve everybody, so it was set by the worst case and the room
+       * as a whole got quieter as it filled. Here the choice is made per
+       * viewer, downstream, by something that knows how big your tile is on
+       * their screen — so the person watching you full-screen gets the sharp
+       * layer while the gallery gets a thumbnail, at the same time.
+       */
+      simulcast: true,
+      // Named rather than left to the SDK's default, so what a participant
+      // uploads is a number we chose and can be held to.
+      videoEncoding: publishBudget(mobile),
+    },
+    // Subscribe only to what is actually on screen, at the size it is being
+    // shown. A gallery of thirty tiles has no use for thirty full streams.
     adaptiveStream: true,
+    // And tell the server to stop sending layers nobody is currently watching,
+    // rather than paying to forward them into a void.
     dynacast: true,
   }
 
