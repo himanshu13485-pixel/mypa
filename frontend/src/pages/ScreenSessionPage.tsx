@@ -10,6 +10,7 @@ import { screenLink } from './ScreenPage'
 import type { MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
 import { useSelfView } from '../lib/videoLayout'
+import { shareFailureMessage } from '../lib/devices'
 
 /**
  * A screen session: the HOST captures their screen and answers offers from
@@ -125,7 +126,17 @@ export default function ScreenSessionPage() {
         }
       } catch (err) {
         setPhase('error')
-        setErrorMsg(err instanceof Error ? err.message : 'Could not start the session.')
+        // A host on a phone used to be shown the raw exception —
+        // "getDisplayMedia is not a function" — which describes the code
+        // rather than the situation.
+        // A null here means they simply dismissed the picker, which is not a
+        // fault and should not read like one.
+        const why = shareFailureMessage(err)
+        setErrorMsg(
+          why === null && session?.is_host
+            ? 'You did not pick a screen to share. Press Retry to choose one.'
+            : why ?? (err instanceof Error ? err.message : 'Could not start the session.'),
+        )
       }
     }
     await runStart()

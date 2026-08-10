@@ -17,8 +17,8 @@ import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
   AUDIO_CONSTRAINTS, VIDEO_CONSTRAINTS, applySpeaker, loadDeviceChoice, nextCamera, openCamera, openMic,
-  saveDeviceChoice, senderFor, speakerSelectionSupported, swapTrack, testSpeaker, useDevices, useMicLevel,
-  type DeviceChoice,
+  saveDeviceChoice, screenShareSupported, senderFor, shareFailureMessage, speakerSelectionSupported,
+  swapTrack, testSpeaker, useDevices, useMicLevel, type DeviceChoice,
 } from '../lib/devices'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
 import { useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
@@ -318,6 +318,8 @@ export default function MeetingRoomPage() {
   const isHost = myRole === 'host'
 
   const isPhone = useIsPhone()
+  /** Constant for the life of the page — the browser does not grow the API. */
+  const canShareScreen = useMemo(screenShareSupported, [])
   /** Sideways on a phone: the picture gets the room's own chrome as well. */
   const landscape = useLandscapePhone()
   const { cameras } = useDevices(phase === 'in')
@@ -1461,8 +1463,15 @@ export default function MeetingRoomPage() {
       void renegotiate('screen share')
       showSelf(new MediaStream([track]))
       setSharing(true)
-    } catch {
-      /* user cancelled the picker */
+    } catch (err) {
+      // A bare catch here meant a browser that cannot share a screen at all
+      // behaved identically to one where you changed your mind: nothing
+      // happened, and nothing said why.
+      const message = shareFailureMessage(err)
+      if (message) {
+        toastError(message)
+        console.warn('[meeting] screen share failed', err)
+      }
     }
   }
 
@@ -2370,9 +2379,10 @@ export default function MeetingRoomPage() {
             >
               <SwitchCamera className={clsx('size-4', flipping && 'animate-spin')} />
             </Button>
-            {/* Screen sharing from a phone browser is not a thing — getDisplayMedia
-                is unsupported on mobile Safari and Android Chrome. */}
-            {!isPhone && (
+            {/* Whether the browser can, not whether the window is narrow — a
+                desktop dragged small keeps its button, and a phone that never
+                could is not offered one that does nothing. */}
+            {canShareScreen && (
               <Button size="sm" variant={sharing ? 'primary' : 'secondary'} onClick={toggleShare} title={sharing ? 'Stop sharing' : 'Share screen'}>
                 <MonitorUp className="size-4" />
               </Button>
@@ -2429,10 +2439,24 @@ export default function MeetingRoomPage() {
               <button className="tap rounded-lg px-2 text-xs text-slate-400" onClick={() => setMoreOpen(false)}>Done</button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {isVideo && (
+              {/* This sheet used to offer Share unconditionally while the
+                  toolbar above hid it on phones — so the only place a phone
+                  could reach it was the one place it could never work. */}
+              {isVideo && canShareScreen && (
                 <Button size="sm" variant={sharing ? 'primary' : 'secondary'} onClick={toggleShare} title="Share screen">
                   <MonitorUp className="size-4" /> Share
                 </Button>
+              )}
+              {isVideo && !canShareScreen && (
+                // Saying nothing would leave someone hunting for a button that
+                // is not there. This is a browser limit, not a setting they
+                // have missed, so the note says so and offers the way round it.
+                <p className="w-full text-[11px] leading-snug text-slate-400">
+                  <MonitorUp className="mr-1 inline size-3" />
+                  Screen sharing needs a computer — no phone browser can capture its own screen.
+                  Join from a laptop to share, or use the camera switch to point the back camera at
+                  whatever you want people to see.
+                </p>
               )}
               {secondaryControls}
               {isHost && (

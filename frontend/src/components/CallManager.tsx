@@ -20,7 +20,10 @@ import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
 import { normalizeSdp } from '../lib/sdp'
 import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
 import { isPhoneViewport, useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
-import { loadDeviceChoice, nextCamera, openCamera, saveDeviceChoice, swapTrack, useDevices } from '../lib/devices'
+import {
+  loadDeviceChoice, nextCamera, openCamera, saveDeviceChoice, screenShareSupported, shareFailureMessage,
+  swapTrack, useDevices,
+} from '../lib/devices'
 import { Avatar } from '../lib/avatars'
 
 interface ActiveCall {
@@ -173,6 +176,8 @@ function CircleButton({ on, danger, label, onClick, children }: {
 export function CallProvider({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
   const { toast, toastError } = useToast()
+  /** Whether this browser can capture a screen — not whether it looks like a phone. */
+  const canShareScreen = screenShareSupported()
   const [showInvite, setShowInvite] = useState(false)
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<CallSignalPayload | null>(null)
@@ -1036,8 +1041,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
       setSharing(true)
       const uuid = callRef.current?.uuid
       if (uuid) peersRef.current.forEach((_, peerUuid) => calls.signal(uuid, 'share', { on: true }, peerUuid).catch(() => undefined))
-    } catch {
-      /* user cancelled the picker */
+    } catch (err) {
+      // Changing your mind stays silent; a browser that cannot do this at all
+      // says so, instead of the button appearing to be broken.
+      const message = shareFailureMessage(err)
+      if (message) {
+        toastError(message)
+        console.warn('[call] screen share failed', err)
+      }
     }
   }
 
@@ -1358,9 +1369,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     <SwitchCamera className={clsx('size-5', flipping && 'animate-spin')} />
                   </CircleButton>
                 )}
-                <CircleButton on={sharing} label={sharing ? 'Stop sharing my screen' : 'Share my screen'} onClick={toggleShare}>
-                  <MonitorUp className="size-5" />
-                </CircleButton>
+                {canShareScreen && (
+                  <CircleButton on={sharing} label={sharing ? 'Stop sharing my screen' : 'Share my screen'} onClick={toggleShare}>
+                    <MonitorUp className="size-5" />
+                  </CircleButton>
+                )}
                 <CircleButton on={moreOpen} label="More options" onClick={() => setMoreOpen((o) => !o)}>
                   <MoreHorizontal className="size-5" />
                 </CircleButton>
@@ -1533,7 +1546,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   <SwitchCamera className={clsx('size-3.5', flipping && 'animate-spin')} />
                 </Button>
               )}
-              {isVideo && (
+              {isVideo && canShareScreen && (
                 <Button size="sm" variant={sharing ? 'primary' : 'secondary'} title={sharing ? 'Stop sharing my screen' : 'Share my screen'} onClick={toggleShare}>
                   <MonitorUp className="size-3.5" />
                 </Button>

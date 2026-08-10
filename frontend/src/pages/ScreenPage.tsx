@@ -6,6 +6,7 @@ import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { Badge, Button, Card, EmptyState, Input, Spinner } from '../components/ui'
+import { screenShareSupported } from '../lib/devices'
 
 export function screenLink(code: string): string {
   return `${window.location.origin}/screen/session/${code}`
@@ -17,6 +18,8 @@ export function screenLink(code: string): string {
  */
 export default function ScreenPage() {
   const navigate = useNavigate()
+  /** Ask the browser, not the window width. */
+  const canShareScreen = screenShareSupported()
   const queryClient = useQueryClient()
   const [viewCode, setViewCode] = useState('')
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
@@ -67,9 +70,21 @@ export default function ScreenPage() {
             Get a code and link instantly — anyone signed in to Netvork who opens it watches your
             screen live. Great for support and demos.
           </p>
-          <Button size="sm" onClick={() => shareMutation.mutate()} disabled={shareMutation.isPending}>
-            <MonitorUp className="size-3.5" /> {shareMutation.isPending ? 'Starting…' : 'Start sharing'}
-          </Button>
+          {/* Pressing this on a phone used to create the session and then fail
+              on the next screen with a raw JavaScript error, leaving a dead
+              session behind. No phone browser can capture its own screen, so
+              say that here rather than after the fact. Watching one still
+              works, which is why only this half is withheld. */}
+          {canShareScreen ? (
+            <Button size="sm" onClick={() => shareMutation.mutate()} disabled={shareMutation.isPending}>
+              <MonitorUp className="size-3.5" /> {shareMutation.isPending ? 'Starting…' : 'Start sharing'}
+            </Button>
+          ) : (
+            <p className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] leading-snug text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+              Sharing needs a computer — no phone browser can capture its own screen. You can still
+              watch someone else's from here.
+            </p>
+          )}
         </Card>
         <Card className="flex flex-col items-start gap-2">
           <p className="text-sm font-semibold">View someone's screen</p>

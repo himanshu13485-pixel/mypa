@@ -201,6 +201,47 @@ export function speakerSelectionSupported(): boolean {
 }
 
 /**
+ * Can this browser share a screen at all?
+ *
+ * The room used to decide this from the window width, which is a guess about
+ * the device rather than a question about the browser — and the two disagreed:
+ * the toolbar hid the button on a phone while the overflow sheet offered it
+ * anyway, so the only place a phone could reach Share was the one place it
+ * could never work. Asking the API directly is right in both directions. A
+ * narrow desktop window keeps its button, and any browser that gains screen
+ * capture gets one the day it does, with nothing here to update.
+ *
+ * getDisplayMedia also needs a secure context, so an http:// origin has it
+ * undefined and is correctly reported as unable.
+ */
+export function screenShareSupported(): boolean {
+  return typeof navigator.mediaDevices?.getDisplayMedia === 'function'
+}
+
+/**
+ * Why a share attempt failed, or null if it did not really fail.
+ *
+ * Dismissing the picker rejects exactly like being refused, and both arrive as
+ * NotAllowedError — so that one stays silent, because a toast saying "you
+ * cancelled" every time somebody changes their mind is noise. Everything else
+ * is a genuine fault and used to be swallowed by a bare catch, which is how
+ * pressing Share came to do nothing at all with nothing to show for it.
+ */
+export function shareFailureMessage(err: unknown): string | null {
+  const name = (err as { name?: string } | null)?.name
+
+  if (name === 'NotAllowedError' || name === 'AbortError') return null
+  if (name === 'NotFoundError') return 'No screen or window was available to share.'
+  if (name === 'NotReadableError') return 'Your system would not hand over the screen — another app may be capturing it.'
+  if (!screenShareSupported()) {
+    return 'This browser cannot share a screen. On a phone that is a browser limitation, not a setting — '
+      + 'join from a computer to share, or point the back camera at what you want people to see.'
+  }
+
+  return 'Could not start sharing your screen.'
+}
+
+/**
  * Play a short tone out of one speaker, so "did that work?" has an answer that
  * does not involve asking the room to say something.
  *
