@@ -12,7 +12,7 @@ import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
 import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
-import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
+import { MAX_VIDEO_TILES, VIDEO_FIT, rankTiles, useGalleryLayout, useSelfView } from '../lib/videoLayout'
 import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
@@ -1849,6 +1849,49 @@ export default function MeetingRoomPage() {
    */
   const stagedLayout = isVideo && stageUuid !== null
     && (layout !== 'gallery' || pinned !== null || someoneSharing)
+
+  /*
+   * Only so many faces at once.
+   *
+   * Left out rather than hidden with CSS, and that distinction is the whole
+   * point on an SFU: adaptiveStream decides what to subscribe to from what is
+   * actually on the page, so a tile that is rendered-but-invisible is still
+   * paid for in full. Not rendering it is what stops the stream arriving.
+   *
+   * Whoever is talking is ranked in, so a small grid still shows you the
+   * person worth looking at.
+   */
+  /*
+   * Who has spoken lately, most recent first.
+   *
+   * Without it, somebody who stops talking is swapped off screen the instant
+   * the next person starts — mid-conversation, exactly when you still want to
+   * see their reaction. Holding the last few speakers keeps a back-and-forth
+   * on screen instead of flickering between two tiles.
+   */
+  const [recentSpeakers, setRecentSpeakers] = useState<string[]>([])
+  useEffect(() => {
+    if (!activeSpeaker || activeSpeaker === 'me') return
+    setRecentSpeakers((prev) => (
+      // Guarded, or setting state from a value derived from it loops.
+      prev[0] === activeSpeaker
+        ? prev
+        : [activeSpeaker, ...prev.filter((u) => u !== activeSpeaker)].slice(0, MAX_VIDEO_TILES)
+    ))
+  }, [activeSpeaker])
+
+  const { visible: visiblePeers, overflow: overflowPeers } = useMemo(
+    () => rankTiles(peers, {
+      spotlight,
+      pinned,
+      activeSpeaker,
+      recentSpeakers,
+      // A staged layout already shows one big tile plus a filmstrip, so the
+      // strip gets the same allowance as the grid.
+      limit: MAX_VIDEO_TILES,
+    }),
+    [peers, spotlight, pinned, activeSpeaker, recentSpeakers],
+  )
   const stripSide = layout === 'sidebar'
 
   const selfTile = showSelfTile ? (
@@ -2319,7 +2362,7 @@ export default function MeetingRoomPage() {
                 )}
               >
                 {stageUuid !== 'me' && selfTile}
-                {peers.filter((p) => p.uuid !== stageUuid).map((p) => peerTile(p, false))}
+                {visiblePeers.filter((p) => p.uuid !== stageUuid).map((p) => peerTile(p, false))}
               </div>
               {/* Stage */}
               <div className="min-h-0 min-w-0 flex-1">
@@ -2330,7 +2373,28 @@ export default function MeetingRoomPage() {
           ) : (
             <>
               {selfTile}
-              {peers.map((p) => peerTile(p, false))}
+              {visiblePeers.map((p) => peerTile(p, false))}
+              {/*
+                Everyone past the ninth tile. They are still in the meeting and
+                still heard — audio is never dropped — they simply have no
+                picture on screen, and saying so is better than letting someone
+                wonder whether their camera is working. Whoever speaks is
+                swapped in, so this list is not a queue anybody is stuck in.
+              */}
+              {overflowPeers.length > 0 && (
+                <div
+                  className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-2 text-center dark:border-slate-700 dark:bg-slate-900"
+                  style={galleryTileStyle}
+                  title={overflowPeers.map((p) => p.name).join(', ')}
+                >
+                  <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+                    +{overflowPeers.length}
+                  </span>
+                  <span className="px-1 text-[10px] leading-tight text-slate-400">
+                    {overflowPeers.length === 1 ? 'more person' : 'more people'} — heard, not shown
+                  </span>
+                </div>
+              )}
               {/*
                 Floated over the grid rather than placed in it. As a grid child
                 this took a row of its own, so the only person in the room got

@@ -156,6 +156,69 @@ export function bestGalleryFit(w: number, h: number, count: number, gap = 8): Ga
  * top and bottom off people. Shares and portrait phones always had to fit;
  * landscape cameras were the exception and no longer are.
  */
+/**
+ * How many remote faces to show at once.
+ *
+ * Nine, which is where Teams sits and near enough where Meet does. Not chosen
+ * to save bandwidth — three separate things run out at about the same point,
+ * and only one of them is the network:
+ *
+ *  - Every visible tile is its own continuous video decode. A laptop labours
+ *    at twenty-five and a phone throttles at five or six, which is why Zoom
+ *    shows four per page on a phone and twenty-five on a desktop while the
+ *    bandwidth between those two devices is identical.
+ *  - On an SFU the server sends each viewer a copy of every tile they show, so
+ *    cost is viewers times tiles — quadratic. Twenty people each watching
+ *    nineteen others is three hundred and eighty streams.
+ *  - At forty-nine tiles a face is about a hundred pixels wide. Nobody reads
+ *    an expression at that size, so the first two costs buy nothing.
+ *
+ * Whoever is talking is swapped in, which is what makes a small grid feel like
+ * the whole room.
+ */
+export const MAX_VIDEO_TILES = 9
+
+/**
+ * Which peers get a tile, in order, and who is left over.
+ *
+ * Ranked rather than truncated: taking the first nine in join order would drop
+ * whoever is speaking the moment a tenth person arrived, which is precisely
+ * backwards. Anything the viewer or the host has deliberately singled out
+ * outranks everything, then whoever is talking, then the most recent speakers,
+ * then join order as the tie-break — so the grid does not reshuffle itself
+ * every time somebody clears their throat.
+ */
+export function rankTiles<T extends { uuid: string }>(
+  peers: T[],
+  opts: {
+    spotlight?: string | null
+    pinned?: string | null
+    activeSpeaker?: string | null
+    /** Most recent first. */
+    recentSpeakers?: string[]
+    limit?: number
+  } = {},
+): { visible: T[]; overflow: T[] } {
+  const { spotlight, pinned, activeSpeaker, recentSpeakers = [], limit = MAX_VIDEO_TILES } = opts
+
+  const rank = (p: T): number => {
+    if (p.uuid === pinned) return 0
+    if (p.uuid === spotlight) return 1
+    if (p.uuid === activeSpeaker) return 2
+    const recent = recentSpeakers.indexOf(p.uuid)
+
+    return recent === -1 ? 100 : 3 + recent
+  }
+
+  const ordered = peers
+    .map((peer, index) => ({ peer, index, rank: rank(peer) }))
+    // Index as the tie-break keeps it stable: equal ranks hold join order.
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.peer)
+
+  return { visible: ordered.slice(0, limit), overflow: ordered.slice(limit) }
+}
+
 export const VIDEO_FIT = 'h-full w-full bg-black object-contain'
 
 /**
