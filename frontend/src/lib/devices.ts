@@ -128,20 +128,39 @@ const UPLOAD_BUDGET = 2_000_000
  */
 const FLOOR = 120_000
 
-export function sendQualityFor(peerCount: number): SendQuality {
-  // One other person: nothing to share the uplink with, so spend it.
-  if (peerCount <= 1) return { maxBitrate: 1_500_000, scaleResolutionDownBy: 1, label: '720p' }
-  if (peerCount <= 3) return { maxBitrate: 700_000, scaleResolutionDownBy: 1.5, label: '480p' }
-  if (peerCount <= 6) return { maxBitrate: 350_000, scaleResolutionDownBy: 2, label: '360p' }
+/** Nobody needs more than this, even alone with one other person. */
+const CEILING = 1_500_000
 
-  // Beyond six, divide rather than step: a fixed bottom rung looks tidy and
-  // quietly reintroduces the original bug, because a flat cap times twenty
-  // peers is 4 Mbps again.
-  return {
-    maxBitrate: Math.max(FLOOR, Math.round(UPLOAD_BUDGET / peerCount)),
-    scaleResolutionDownBy: 3,
-    label: '240p',
-  }
+export function sendQualityFor(peerCount: number): SendQuality {
+  const peers = Math.max(1, peerCount)
+
+  /*
+   * Divide the budget, all the way up.
+   *
+   * This started as fixed rungs — 700k up to three people, 350k up to six —
+   * which made the total sawtooth: 1.4 Mbps at two, 2.1 at three, back to 1.4
+   * at four. The peaks were the top of each rung and meant nothing, and the
+   * rungs were also worse than dividing at most sizes (700k where division
+   * gives 1000k at two people, 350k where it gives 500k at four). They added
+   * an edge to reason about in exchange for lower quality.
+   */
+  // floor, not round: the budget is a ceiling, so rounding up puts the total
+  // over it — by one bit at three people, which is harmless, but a rule that
+  // can exceed its own limit is one you cannot then rely on.
+  const maxBitrate = Math.min(CEILING, Math.max(FLOOR, Math.floor(UPLOAD_BUDGET / peers)))
+
+  /*
+   * Resolution still steps, where bitrate does not.
+   *
+   * A scale factor that slid a little every time somebody joined would have
+   * the encoder re-keying on each arrival for a change nobody can see. Three
+   * steps are enough, and they line up with how large the tiles actually are
+   * by then.
+   */
+  const scale = peers <= 1 ? 1 : peers <= 3 ? 1.5 : peers <= 6 ? 2 : 3
+  const label = scale === 1 ? '720p' : scale === 1.5 ? '480p' : scale === 2 ? '360p' : '240p'
+
+  return { maxBitrate, scaleResolutionDownBy: scale, label }
 }
 
 /**

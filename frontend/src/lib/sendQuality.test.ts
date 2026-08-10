@@ -14,11 +14,21 @@ describe('sendQualityFor', () => {
     expect(sendQualityFor(1)).toMatchObject({ maxBitrate: 1_500_000, scaleResolutionDownBy: 1 })
   })
 
-  it('keeps total upload near 2 Mbps across every size mesh claims to serve', () => {
-    // A flat bottom rung passed at six and failed at twenty, which is how the
-    // original bug worked: fine in testing, 13.5 Mbps in a real full room.
+  it('holds total upload at exactly the budget, with no sawtooth', () => {
+    // Fixed rungs made this wobble — 1.4 Mbps at two people, 2.1 at three,
+    // 1.4 again at four — because the peaks were the top of a rung and meant
+    // nothing. Dividing throughout is flat, and the flatness is the point:
+    // the total is what has to fit down one uplink.
+    for (const peers of [2, 3, 4, 5, 6, 8, 10, 12, 16]) {
+      // Within a few bits of the budget — the remainder of an integer divide,
+      // not a rung.
+      expect(totalUpload(peers), `${peers} peers`).toBeGreaterThan(1_999_900)
+    }
+  })
+
+  it('never exceeds the budget, above the floor', () => {
     for (const peers of [1, 2, 3, 4, 5, 6, 8, 10, 12, 16]) {
-      expect(totalUpload(peers), `${peers} peers`).toBeLessThanOrEqual(2_500_000)
+      expect(totalUpload(peers), `${peers} peers`).toBeLessThanOrEqual(2_000_000)
     }
   })
 
