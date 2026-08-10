@@ -149,6 +149,29 @@ class Meeting extends Model
     }
 
     /**
+     * Did it end because the clock ran out, rather than because somebody
+     * ended it?
+     *
+     * Derived rather than stored. Only the one heartbeat that happens to catch
+     * the expiry knows the reason first-hand; everyone polling a moment later,
+     * and anyone reconnecting afterwards, would otherwise be told the generic
+     * "the host ended it" for a meeting the host never touched.
+     *
+     * A meeting that reached its limit ended for that reason — a host pressing
+     * End in the last second is the only case this calls wrongly, and calling
+     * it "time" there is not really wrong either.
+     */
+    public function endedBecauseOfTime(): bool
+    {
+        $expires = $this->expiresAt();
+
+        return $this->status === 'ended'
+            && $expires !== null
+            && $this->ended_at !== null
+            && $this->ended_at->gte($expires);
+    }
+
+    /**
      * End the meeting and turn everybody out, telling them why.
      *
      * Three places need this — the heartbeat that first notices the time is

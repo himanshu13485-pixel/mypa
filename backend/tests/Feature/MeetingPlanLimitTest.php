@@ -139,9 +139,15 @@ class MeetingPlanLimitTest extends TestCase
 
     public function test_a_meeting_ends_when_it_runs_out_of_time(): void
     {
+        // The sequence that actually happens: you are in the room, and the
+        // clock runs out while you are sitting in it. Starting from a meeting
+        // that had already expired ended it on the way in instead, so the
+        // heartbeat never saw the case this is about.
         $this->hostPlan(people: null, minutes: 40);
-        $meeting = $this->meeting(['started_at' => now()->subMinutes(41)]);
-        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting->code}/join");
+        $meeting = $this->meeting();
+        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+
+        $this->travel(41)->minutes();
 
         $this->actingAs($this->host)
             ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
@@ -150,6 +156,37 @@ class MeetingPlanLimitTest extends TestCase
             ->assertJsonPath('data.ended_reason', 'time_limit');
 
         $this->assertSame('ended', $meeting->fresh()->status);
+    }
+
+    public function test_arriving_late_to_the_news_still_learns_why(): void
+    {
+        // Only one poll catches the expiry first-hand. Everybody else — a
+        // client a beat behind, a tab reconnecting afterwards — must not be
+        // told the host ended a meeting the host never touched.
+        $this->hostPlan(people: null, minutes: 40);
+        $meeting = $this->meeting();
+        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+
+        $this->travel(41)->minutes();
+        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting->code}/heartbeat");
+
+        $this->actingAs($this->host)
+            ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
+            ->assertJsonPath('data.status', 'ended')
+            ->assertJsonPath('data.ended_reason', 'time_limit');
+    }
+
+    public function test_a_meeting_the_host_ended_does_not_blame_the_clock(): void
+    {
+        $this->hostPlan(people: null, minutes: 40);
+        $meeting = $this->meeting();
+        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+        $this->actingAs($this->host)->postJson("/api/v1/meetings/{$meeting->code}/end")->assertOk();
+
+        $this->actingAs($this->host)
+            ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
+            ->assertJsonPath('data.status', 'ended')
+            ->assertJsonPath('data.ended_reason', null);
     }
 
     public function test_it_is_left_alone_before_the_time_is_up(): void

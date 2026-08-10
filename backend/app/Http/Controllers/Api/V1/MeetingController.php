@@ -213,7 +213,16 @@ class MeetingController extends Controller
         $me = $request->user();
 
         if ($meeting->status === 'ended') {
-            return response()->json(['data' => ['status' => 'ended', 'participants' => [], 'waiting' => []]]);
+            return response()->json(['data' => [
+                'status' => 'ended',
+                // Said here too, not only on the poll that first noticed: a
+                // client one beat behind, or one reconnecting afterwards, would
+                // otherwise be told the host ended a meeting the host never
+                // touched.
+                'ended_reason' => $meeting->endedBecauseOfTime() ? 'time_limit' : null,
+                'participants' => [],
+                'waiting' => [],
+            ]]);
         }
 
         // Time's up. Every client polls this, so this is where a running
