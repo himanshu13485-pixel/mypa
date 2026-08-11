@@ -810,11 +810,33 @@ export default function MeetingRoomPage() {
     ))
   }, [retireMeshPeer])
 
-  const openSfu = useCallback(async (live: string, onPeers: (list: import('../lib/sfu').SfuPeer[]) => void) => {
+  const openSfu = useCallback(async (
+    live: string,
+    onPeers: (list: import('../lib/sfu').SfuPeer[]) => void,
+    { clone = false }: { clone?: boolean } = {},
+  ) => {
     const grant = await meetingsApi.realtimeToken(live)
     const { joinSfu } = await import('../lib/sfu')
 
-    return joinSfu(grant.url, grant.token, outgoingStream(), {
+    /*
+     * Give LiveKit its own copy of each track when the mesh is still using
+     * the originals.
+     *
+     * LiveKit stops a camera track when the camera is turned off — that is how
+     * the indicator light goes out — and it was being handed the very same
+     * MediaStreamTrack objects the mesh senders were sending. So escalating
+     * with the camera off stopped the track for everyone still on the mesh
+     * too, and their picture of that person simply died.
+     *
+     * A clone shares the source and nothing else, so the two transports can
+     * mute, stop and republish without reaching into each other.
+     */
+    const source = outgoingStream()
+    const publishing = source && clone
+      ? new MediaStream(source.getTracks().map((t) => t.clone()))
+      : source
+
+    return joinSfu(grant.url, grant.token, publishing, {
       onPeers,
       onState: (state) => {
         if (state === 'closed' && joinedRef.current) toastError('Lost the connection to the meeting.')
@@ -847,8 +869,26 @@ export default function MeetingRoomPage() {
     migratingRef.current = true
     console.info('[meeting] escalating to the SFU')
     try {
-      sfuRef.current = await openSfu(live, adoptSfuPeers)
+      sfuRef.current = await openSfu(live, adoptSfuPeers, { clone: true })
       transportRef.current = 'sfu'
+
+      /*
+       * A deadline on the overlap.
+       *
+       * Mesh connections are meant to be let go one at a time as each person
+       * turns up on the server, and "turns up" was read as "is sending
+       * something we can show". Somebody sitting with their camera off and
+       * their microphone muted never sends anything — so their mesh connection
+       * was never retired, and the room stayed half on each transport
+       * indefinitely, paying for both and reconciling two sources of truth
+       * about who is present.
+       *
+       * Everyone has had long enough by now. Whatever is left goes.
+       */
+      window.setTimeout(() => {
+        if (transportRef.current !== 'sfu') return
+        for (const uuid of [...pcsRef.current.keys()]) retireMeshPeer(uuid)
+      }, 8000)
 
       /*
        * Re-assert mute and camera-off on the new connection.
@@ -872,7 +912,7 @@ export default function MeetingRoomPage() {
       sfuRef.current = null
       console.warn('[meeting] could not escalate to the SFU', err)
     }
-  }, [openSfu, adoptSfuPeers])
+  }, [openSfu, adoptSfuPeers, retireMeshPeer])
 
   const joinRoom = useCallback(async (lobby?: LobbyResult) => {
     if (lobby) lobbyRef.current = lobby

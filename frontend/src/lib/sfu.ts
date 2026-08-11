@@ -43,6 +43,54 @@ export interface SfuSession {
 }
 
 /**
+ * One MediaStream per participant, kept for as long as they are in the room.
+ *
+ * This has to be the same object every time or the room flickers. A tile
+ * attaches by assigning to video.srcObject and skips the work if it is already
+ * holding that stream — an identity check, because there is no cheap way to
+ * compare two MediaStreams by value. Handing out a new object with the same
+ * tracks inside therefore reads as "different stream": every video element
+ * re-attaches and restarts playback.
+ *
+ * And this is recomputed on every LiveKit event, including someone muting.
+ * So one person pressing mute made everybody's video blink, on every device in
+ * the room, which is not what anyone would guess mute does.
+ *
+ * Tracks are added and removed in place instead. The stream survives; only its
+ * contents change, which is what actually happened.
+ */
+const streams = new WeakMap<Room, Map<string, MediaStream>>()
+
+function streamFor(room: Room, uuid: string, tracks: MediaStreamTrack[]): MediaStream | null {
+  let byUuid = streams.get(room)
+  if (!byUuid) streams.set(room, byUuid = new Map())
+
+  if (!tracks.length) {
+    // Kept rather than deleted: somebody who turns their camera off and on
+    // again should get their existing stream back, not a new one.
+    const empty = byUuid.get(uuid)
+    empty?.getTracks().forEach((t) => empty.removeTrack(t))
+
+    return null
+  }
+
+  let stream = byUuid.get(uuid)
+  if (!stream) {
+    stream = new MediaStream(tracks)
+    byUuid.set(uuid, stream)
+
+    return stream
+  }
+
+  const want = new Set(tracks)
+  for (const had of stream.getTracks()) if (!want.has(had)) stream.removeTrack(had)
+  const have = new Set(stream.getTracks())
+  for (const track of tracks) if (!have.has(track)) stream.addTrack(track)
+
+  return stream
+}
+
+/**
  * Identity is the participant's uuid, set when the token was signed. Using the
  * same one the roster and host controls already use means LiveKit's view of
  * who is in the room and ours cannot drift apart.
@@ -56,10 +104,7 @@ function peersFrom(room: Room): SfuPeer[] {
     return {
       uuid: p.identity,
       name: p.name || p.identity,
-      // A fresh MediaStream each time would restart playback on every roster
-      // change; the room compares by uuid and only re-attaches when the track
-      // set actually differs.
-      stream: tracks.length ? new MediaStream(tracks) : null,
+      stream: streamFor(room, p.identity, tracks),
     }
   })
 }
