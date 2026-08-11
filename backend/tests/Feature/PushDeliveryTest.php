@@ -52,8 +52,16 @@ class PushDeliveryTest extends TestCase
         ]);
     }
 
-    /** A real call, since a Call belongs to a conversation. */
-    private function call(string $type = 'video'): Call
+    /**
+     * A real call, since a Call belongs to a conversation.
+     *
+     * Not call(): TestCase already has a public one — the HTTP verb helper —
+     * and redeclaring it private is a fatal at class-load time. phpunit loads
+     * every test file before it filters any of them, so this single collision
+     * took the whole suite down and did it silently, since a fatal with
+     * display_errors off exits 255 and prints nothing.
+     */
+    private function aCall(string $type = 'video'): Call
     {
         $conversation = $this->actingAs($this->alice)
             ->postJson('/api/v1/conversations', ['app_id' => $this->bob->appId->app_id])
@@ -81,7 +89,7 @@ class PushDeliveryTest extends TestCase
 
     public function test_a_ring_is_urgent_and_short_lived(): void
     {
-        $options = (new IncomingCallNotification($this->call(), 'Alice', false, null))->pushOptions();
+        $options = (new IncomingCallNotification($this->aCall(), 'Alice', false, null))->pushOptions();
 
         // Normal urgency is the whole bug: Android holds it until the device
         // wakes, so a pocketed phone never rings while one in a hand does.
@@ -95,13 +103,13 @@ class PushDeliveryTest extends TestCase
 
     public function test_re_ringing_the_same_call_collapses_rather_than_stacking(): void
     {
-        $call = $this->call('audio');
+        $call = $this->aCall('audio');
 
         $first = (new IncomingCallNotification($call, 'A', false, null))->pushOptions();
         $second = (new IncomingCallNotification($call, 'A', false, null))->pushOptions();
         $this->assertSame($first['topic'], $second['topic']);
 
-        $other = $this->call('audio');
+        $other = $this->aCall('audio');
         $this->assertNotSame(
             $first['topic'],
             (new IncomingCallNotification($other, 'A', false, null))->pushOptions()['topic'],
