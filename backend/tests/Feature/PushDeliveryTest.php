@@ -109,10 +109,21 @@ class PushDeliveryTest extends TestCase
         $second = (new IncomingCallNotification($call, 'A', false, null))->pushOptions();
         $this->assertSame($first['topic'], $second['topic']);
 
+        /*
+         * The first call has to finish before there can be a second.
+         *
+         * Both go between the same two people, and a conversation may only
+         * have one live call — asking for another while one is ringing is a
+         * 409, which is the app working correctly. This test staged two at
+         * once and read the resulting failure as its own.
+         */
+        $call->update(['status' => 'ended', 'ended_at' => now()]);
+
         $other = $this->aCall('audio');
         $this->assertNotSame(
             $first['topic'],
             (new IncomingCallNotification($other, 'A', false, null))->pushOptions()['topic'],
+            'two calls must not collapse into one notification — the second would replace the first',
         );
     }
 
