@@ -37,6 +37,24 @@ class WebPushChannel
 
         $payload = json_encode($notification->toPush($notifiable));
 
+        /*
+         * How urgently, and for how long.
+         *
+         * Both were left at the library's defaults, and both defaults are wrong
+         * for this app. Normal urgency is the one that hurts: Android holds a
+         * normal-priority push until the device's next maintenance window, so a
+         * phone awake in someone's hand rings and an identical phone asleep in
+         * a pocket does not — which is exactly the "it works for some of us"
+         * this was reported as. High urgency wakes the device now.
+         *
+         * The default TTL is four weeks. For anything time-bound that is worse
+         * than not delivering: a call that rings the following morning is not a
+         * late notification, it is a wrong one.
+         */
+        $options = method_exists($notification, 'pushOptions')
+            ? $notification->pushOptions()
+            : ['TTL' => 3600, 'urgency' => 'normal'];
+
         try {
             $webPush = new WebPush([
                 'VAPID' => [
@@ -52,7 +70,7 @@ class WebPushChannel
                     'publicKey' => $sub->public_key,
                     'authToken' => $sub->auth_token,
                     'contentEncoding' => $sub->content_encoding,
-                ]), $payload);
+                ]), $payload, $options);
             }
 
             foreach ($webPush->flush() as $report) {

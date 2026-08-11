@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\PushSubscription;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -15,6 +16,39 @@ class PushSubscriptionController extends Controller
     }
 
     /** Register (or refresh) this browser's push subscription. */
+    /**
+     * The browser moved a subscription; point the existing row at the new one.
+     *
+     * Unauthenticated on purpose, and it has to be: a service worker holds no
+     * session, and pushsubscriptionchange can fire when no tab is open to lend
+     * it one. What stands in for a session is the old endpoint — a long opaque
+     * URL that only the browser holding that subscription and this server ever
+     * knew. Anyone who can produce it already had the subscription.
+     *
+     * Deliberately narrow: it moves a row that already exists and creates
+     * nothing. An unknown old endpoint is answered exactly like a known one so
+     * the route cannot be used to work out which endpoints are live.
+     */
+    public function rotate(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'old_endpoint' => ['required', 'string', 'max:2000'],
+            'endpoint' => ['required', 'string', 'max:2000'],
+            'keys.p256dh' => ['required', 'string', 'max:255'],
+            'keys.auth' => ['required', 'string', 'max:255'],
+        ]);
+
+        PushSubscription::where('endpoint_hash', hash('sha256', $data['old_endpoint']))
+            ->update([
+                'endpoint' => $data['endpoint'],
+                'endpoint_hash' => hash('sha256', $data['endpoint']),
+                'public_key' => $data['keys']['p256dh'],
+                'auth_token' => $data['keys']['auth'],
+            ]);
+
+        return response()->json(['message' => 'ok']);
+    }
+
     public function subscribe(Request $request): JsonResponse
     {
         $data = $request->validate([

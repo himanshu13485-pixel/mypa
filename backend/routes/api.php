@@ -57,6 +57,12 @@ Route::get('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestC
 Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'join'])
         ->middleware('throttle:10,1');
 
+// The browser moved a push subscription. Open because a service worker holds
+// no session and this can fire with no tab to lend it one; the old endpoint is
+// what stands in for the session, and only the device that had it knows it.
+Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'rotate'])
+    ->middleware('throttle:20,1');
+
     /*
      * What a guest may do, and nothing else.
      *

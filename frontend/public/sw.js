@@ -121,6 +121,53 @@ self.addEventListener('push', (event) => {
   )
 })
 
+/*
+ * The browser moved this device's push subscription.
+ *
+ * Chrome rotates a subscription on its own — after a browser update, under
+ * storage pressure, or simply with age. The old endpoint stops working and no
+ * new one is registered, so the phone quietly stops receiving anything and the
+ * server keeps posting to an address nobody reads. Nothing on the device says
+ * so; the person just notices they stopped being told about calls while
+ * everyone else still was.
+ *
+ * Re-subscribing here and telling the server is what keeps them.
+ */
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    const previous = event.oldSubscription
+    // The key the old subscription was made with. Without it there is nothing
+    // to re-subscribe against — the next visit to the app re-registers, so
+    // giving up here loses a window rather than the subscription.
+    const key = previous?.options?.applicationServerKey
+    if (!key) return
+
+    try {
+      const fresh = event.newSubscription
+        ?? (await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: key,
+        }))
+      const json = fresh.toJSON()
+
+      // Identified by the endpoint it replaces: a service worker holds no
+      // session, and knowing the old endpoint is what proves this is the same
+      // device rather than somebody claiming to be.
+      await fetch('/api/v1/push/rotate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          old_endpoint: previous.endpoint,
+          endpoint: json.endpoint,
+          keys: json.keys,
+        }),
+      })
+    } catch (err) {
+      console.warn('[sw] could not move the push subscription', err)
+    }
+  })())
+})
+
 self.addEventListener('notificationclick', (event) => {
   event.notification.close()
   const info = event.notification.data || {}

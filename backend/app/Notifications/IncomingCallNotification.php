@@ -42,6 +42,30 @@ class IncomingCallNotification extends Notification
         return [WebPushChannel::class];
     }
 
+    /**
+     * A ring is the most urgent thing this app sends, and the shortest-lived.
+     *
+     * High urgency because Android holds a normal-priority push until the
+     * device's next maintenance window — which is why a phone in someone's
+     * hand rang and the same phone asleep in a pocket did not.
+     *
+     * Forty-five seconds because a ring is worthless after that. The library's
+     * default is four weeks; delivering this one late is worse than not
+     * delivering it, since answering a call that stopped ringing yesterday is
+     * not something anyone can do.
+     *
+     * The topic collapses re-rings for the same call into one notification
+     * rather than a row of them.
+     */
+    public function pushOptions(): array
+    {
+        return [
+            'TTL' => 45,
+            'urgency' => 'high',
+            'topic' => 'call-' . substr(hash('sha256', $this->call->uuid), 0, 24),
+        ];
+    }
+
     public function toPush(object $notifiable): array
     {
         $video = $this->call->type === 'video';
