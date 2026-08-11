@@ -198,25 +198,64 @@ class LiveKitTokenTest extends TestCase
             ->assertJsonPath('data.transport', 'mesh');
     }
 
-    public function test_small_rooms_stay_direct_when_a_threshold_is_set(): void
+    public function test_the_threshold_is_read_from_the_plan_and_not_from_who_is_in_the_room(): void
     {
-        // No server in the middle means lower latency and no bandwidth bill,
-        // so the SFU should earn its keep rather than be used by default.
+        /*
+         * The regression this exists for.
+         *
+         * The threshold used to be compared against a live headcount, which
+         * reads as obviously right and splits rooms in half: the transport is
+         * settled per person as they arrive, so with a threshold of four the
+         * first four were told "mesh" and the fifth was told "sfu". Four people
+         * carried on meshing with each other, the fifth sat alone in an empty
+         * room, and nothing anywhere reported an error.
+         *
+         * So the assertion is not "small rooms use the mesh". It is that the
+         * answer does not move while people are walking in.
+         */
         config(['livekit.mesh_up_to' => 4]);
         $meeting = $this->meeting();
-        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
 
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+        $first = $this->actingAs($this->alice)
+            ->getJson("/api/v1/meetings/{$meeting->code}")->json('data.transport');
+
+        // Well past the threshold, one at a time, exactly as a real room fills.
+        foreach (range(1, 5) as $i) {
+            $user = User::factory()->create();
+            $user->profile()->create(['timezone' => 'UTC']);
+            $this->actingAs($user)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+
+            $this->actingAs($user)
+                ->getJson("/api/v1/meetings/{$meeting->code}")
+                ->assertJsonPath('data.transport', $first);
+
+            // And the people already inside are still told the same thing, so
+            // nobody is left on a transport the room has moved off.
+            $this->actingAs($this->alice)
+                ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
+                ->assertJsonPath('data.transport', $first);
+        }
+    }
+
+    public function test_a_plan_that_cannot_outgrow_the_mesh_stays_direct(): void
+    {
+        // No server in the middle means lower latency and no bandwidth bill, so
+        // the SFU should earn its keep rather than be used by default. A host
+        // whose plan caps the room at or below the threshold can never need it.
+        $limit = app(\App\Services\SubscriptionEntitlementService::class)
+            ->meetingParticipantLimit($this->host);
+        $this->assertNotNull($limit, 'this test needs a host whose plan actually caps the room');
+
+        config(['livekit.mesh_up_to' => $limit]);
+        $meeting = $this->meeting();
         $this->actingAs($this->alice)
             ->getJson("/api/v1/meetings/{$meeting->code}")
             ->assertJsonPath('data.transport', 'mesh');
 
-        // Fill it past the threshold.
-        foreach (range(1, 3) as $i) {
-            $user = User::factory()->create();
-            $user->profile()->create(['timezone' => 'UTC']);
-            $this->actingAs($user)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
-        }
-
+        // One below the ceiling and the room can outgrow the mesh, so it starts
+        // on the SFU and stays there — rather than moving once it is too late.
+        config(['livekit.mesh_up_to' => $limit - 1]);
         $this->actingAs($this->alice)
             ->getJson("/api/v1/meetings/{$meeting->code}")
             ->assertJsonPath('data.transport', 'sfu');

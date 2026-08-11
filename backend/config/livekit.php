@@ -40,11 +40,21 @@ return [
     'token_ttl_minutes' => (int) env('LIVEKIT_TOKEN_TTL_MINUTES', 10),
 
     /**
-     * Above this many people, use the SFU even when the mesh is otherwise
-     * preferred. Below it the mesh is genuinely better: no server in the
-     * middle means lower latency and no bandwidth bill.
+     * The room size the mesh can carry. A meeting whose plan allows more than
+     * this uses the SFU; one that can never grow past it stays peer-to-peer,
+     * where it is genuinely better — no server in the middle means lower
+     * latency and no bandwidth bill.
      *
-     * Null means "always the SFU when enabled".
+     * Null means "always the SFU when enabled", which is the safe setting.
+     *
+     * Compared against the host's plan ceiling, deliberately, and not against
+     * how many people are in the room at the moment somebody asks. A headcount
+     * moves while a meeting is being joined, and each person is told which
+     * transport to use exactly once, on the way in — so a threshold of four
+     * gave the first four the mesh and the fifth the SFU, split the room down
+     * the middle, and reported nothing to anyone. A ceiling cannot move like
+     * that, so everybody gets the same answer from the first arrival to the
+     * last.
      */
     'mesh_up_to' => env('LIVEKIT_MESH_UP_TO') === null
         ? null

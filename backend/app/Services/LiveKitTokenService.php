@@ -47,9 +47,27 @@ class LiveKitTokenService
             return true;
         }
 
-        // Counts who is in the room now, not the plan's ceiling: a meeting
-        // allowed fifty people but attended by three should still be direct.
-        return $meeting->participants()->wherePivot('status', 'joined')->count() >= $meshUpTo;
+        /*
+         * The plan's ceiling, not who is in the room right now.
+         *
+         * Counting live participants looked obviously right and split rooms in
+         * half. The transport is settled per person as they join, so with a
+         * threshold of four the first four got the mesh and the fifth got the
+         * SFU — alone, while the other four went on meshing with each other
+         * and opening peer connections to somebody who was no longer listening
+         * for them. No error anywhere: four people carried on and the fifth sat
+         * in an empty room.
+         *
+         * A ceiling cannot move underneath a meeting the way a headcount can.
+         * Everyone who joins gets the same answer from the first arrival to the
+         * last, which is the only property that matters here — a room split
+         * across two transports is not a degraded meeting, it is two meetings.
+         */
+        $ceiling = $meeting->participantLimit();
+
+        // No ceiling means it can grow to any size, which is exactly what the
+        // mesh cannot do.
+        return $ceiling === null || $ceiling > $meshUpTo;
     }
 
     /**

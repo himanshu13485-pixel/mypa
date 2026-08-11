@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Events\MeetingSignal;
 use App\Http\Controllers\Controller;
 use App\Models\Meeting;
+use App\Services\LiveKitTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -265,6 +266,22 @@ class MeetingController extends Controller
             // than everyone being dropped without notice.
             'expires_at' => $meeting->expiresAt()?->toIso8601String(),
             'participant_limit' => $meeting->participantLimit(),
+            /*
+             * Repeated here, not only in the join response, so the room can
+             * notice if it ever changes underneath it.
+             *
+             * It is not supposed to change — shouldUseFor() answers from the
+             * host's plan ceiling precisely so that it cannot. But when it was
+             * answered from the live headcount instead, a room could be told
+             * "mesh" for its first four people and "sfu" for the fifth, and the
+             * only symptom was four people carrying on happily while the fifth
+             * sat in an empty room. Nothing errored, so nothing could react.
+             *
+             * Sending it every few seconds costs one string and turns any
+             * future version of that mistake into something the client can see
+             * and recover from rather than something nobody notices.
+             */
+            'transport' => app(LiveKitTokenService::class)->shouldUseFor($meeting) ? 'sfu' : 'mesh',
         ]]);
     }
 

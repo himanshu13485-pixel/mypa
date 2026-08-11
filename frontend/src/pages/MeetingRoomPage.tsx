@@ -318,6 +318,13 @@ export default function MeetingRoomPage() {
    * code below stays exactly as it was rather than growing a second mode.
    */
   const sfuRef = useRef<import('../lib/sfu').SfuSession | null>(null)
+  /*
+   * Which way this browser is connected, so the heartbeat can tell if the
+   * server has changed its mind. Two people in one meeting on two different
+   * transports do not see each other at all, and — this is the part that makes
+   * it worth a ref — neither of them gets an error about it.
+   */
+  const transportRef = useRef<'mesh' | 'sfu'>('mesh')
 
   const { data: meeting } = useQuery({
     queryKey: ['meeting', code],
@@ -772,6 +779,8 @@ export default function MeetingRoomPage() {
        * along with the mesh's per-peer upload, which is the reason a room
        * bigger than about eight people needs this at all.
        */
+      transportRef.current = room.transport ?? 'mesh'
+
       if (room.transport === 'sfu') {
         const grant = await meetingsApi.realtimeToken(live)
         const { joinSfu } = await import('../lib/sfu')
@@ -1045,6 +1054,21 @@ export default function MeetingRoomPage() {
         }
         // The deadline can move: the host upgrading mid-meeting lifts it.
         setExpiresAt(hb.expires_at ?? null)
+        /*
+         * And if the deadline can move, so can the transport — the same upgrade
+         * raises the participant ceiling the server reads to choose one.
+         *
+         * Staying put would be the quiet failure: this browser would carry on
+         * meshing while everyone who joined after the upgrade is on the SFU,
+         * both halves of the room working perfectly and unable to see each
+         * other. Rejoining is disruptive, and it is the only thing that gets
+         * everybody back into the same meeting.
+         */
+        if (hb.transport && hb.transport !== transportRef.current) {
+          toastError('Reconnecting — the meeting moved to a different connection.')
+          window.location.reload()
+          return
+        }
         const others = hb.participants.filter((p) => p.uuid !== user?.uuid)
         setRoster(others)
         /*

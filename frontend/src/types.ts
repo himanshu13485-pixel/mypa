@@ -717,6 +717,12 @@ export interface MeetingHeartbeat {
   /** When the host's plan runs out. Null means the meeting has no limit. */
   expires_at?: string | null
   participant_limit?: number | null
+  /**
+   * Repeated on every beat so the room can tell if it has changed. It is not
+   * meant to, but two people on different transports simply do not see each
+   * other, and nothing else in the room would ever notice.
+   */
+  transport?: 'mesh' | 'sfu'
 }
 
 export type MeetingHostAction =
