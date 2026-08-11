@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Flag, Phone, Search, UserPlus, Video, X } from 'lucide-react'
+import { Check, Flag, MessageSquare, Phone, Search, UserPlus, Video, X } from 'lucide-react'
 import { badges as badgesApi, chat, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
 import { useCalls } from '../components/CallManager'
 import { REPORT_REASONS } from '../types'
@@ -276,12 +276,19 @@ export default function ConnectionsPage() {
                         >
                           <Video className="size-3.5" />
                         </Button>
+                        {/* An icon like the two beside it. As the only word in
+                            the row it set the button's height and pushed the
+                            call icons out of line, and it was also the only one
+                            with no title — so on a phone, where nothing hovers,
+                            it was the least labelled of the three despite being
+                            the only one that said anything. */}
                         <Button
                           size="sm"
                           variant="secondary"
+                          title={`Message ${c.user.name}`}
                           onClick={() => { window.location.href = `/messages?start=${c.user!.app_id}` }}
                         >
-                          Message
+                          <MessageSquare className="size-3.5" />
                         </Button>
                       </div>
                     )}
