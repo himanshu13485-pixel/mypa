@@ -106,8 +106,19 @@ ProxyRequests Off
 RewriteEngine On
 RewriteCond %{HTTP:Upgrade} =websocket [NC]
 RewriteRule ^/(.*) ws://127.0.0.1:$WS_PORT/\$1 [P,L]
-ProxyPass / http://127.0.0.1:$WS_PORT/
+ProxyPass / http://127.0.0.1:$WS_PORT/ timeout=600 keepalive=On
 ProxyPassReverse / http://127.0.0.1:$WS_PORT/
+
+# Ten minutes, because Apache's default is sixty seconds and it applies to a
+# websocket that is simply sitting there.
+#
+# A meeting's signalling connection is quiet most of the time — it carries
+# who joined and who muted, not media — so a room where nothing is being
+# announced looks idle and got cut. LiveKit reconnected, which is why the
+# symptom was not "the meeting ended" but video stalling and people dropping
+# out and back at intervals nobody could account for. The server log calls it
+# RR_SIGNAL_DISCONNECTED.
+ProxyTimeout 600
 APACHE
 
   # Websockets need mod_proxy_wstunnel; without it the upgrade is refused and
