@@ -20,6 +20,7 @@ import {
   applySendQuality, saveDeviceChoice, screenShareSupported, senderFor, shareFailureMessage, speakerSelectionSupported,
   swapTrack, testSpeaker, useDevices, useMicLevel, type DeviceChoice,
 } from '../lib/devices'
+import { mergeForHandover, readyToRetire } from '../lib/handover'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
 import {
   enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported, onFullscreenChange,
@@ -325,6 +326,8 @@ export default function MeetingRoomPage() {
    * it worth a ref — neither of them gets an error about it.
    */
   const transportRef = useRef<'mesh' | 'sfu'>('mesh')
+  /** A migration in flight. Two at once would publish twice. */
+  const migratingRef = useRef(false)
 
   const { data: meeting } = useQuery({
     queryKey: ['meeting', code],
@@ -696,6 +699,11 @@ export default function MeetingRoomPage() {
     // peer-connection teardown below is a no-op there, since there are none.
     sfuRef.current?.disconnect()
     sfuRef.current = null
+    // Back to undecided. teardown runs on the way out and before a rejoin, and
+    // a leftover "already on the SFU" would leave the next room believing it
+    // had migrated when it has not even joined.
+    transportRef.current = 'mesh'
+    migratingRef.current = false
     pcsRef.current.forEach((pc) => pc.close())
     pcsRef.current.clear()
     pendingIceRef.current.clear()
@@ -719,6 +727,152 @@ export default function MeetingRoomPage() {
     wakeLockRef.current?.release()
     wakeLockRef.current = null
   }, [])
+
+  /**
+   * Exactly what this browser is putting on the wire right now.
+   *
+   * Not localStreamRef: while a screen is being shared the outgoing video is
+   * the composite — screen with the camera drawn into a corner — and while the
+   * background is blurred it is the filtered track. Publishing the raw camera
+   * to the SFU instead would end somebody's screen share by moving the room,
+   * which is not a thing a transport change is allowed to do.
+   */
+  const outgoingStream = useCallback((): MediaStream | null => {
+    const video = sharePipeRef.current?.track ?? blurRef.current?.track ?? cameraTrackRef.current ?? null
+    const audio = localStreamRef.current?.getAudioTracks()[0] ?? null
+    const tracks = [video, audio].filter((t): t is MediaStreamTrack => !!t)
+
+    return tracks.length ? new MediaStream(tracks) : null
+  }, [])
+
+  /**
+   * Send the SFU whatever we are sending now. A no-op on the mesh, where
+   * replaceTrack on each sender does the same job without renegotiating.
+   */
+  const republishToSfu = useCallback(async () => {
+    const stream = outgoingStream()
+    if (!sfuRef.current || !stream) return
+    try {
+      await sfuRef.current.publish(stream)
+      // publish() unpublishes everything first, which drops the mute state
+      // along with the track it was set on.
+      await sfuRef.current.setMicEnabled(myMediaRef.current.mic)
+    } catch (err) {
+      console.warn('[meeting] could not republish to the SFU', err)
+    }
+  }, [outgoingStream])
+
+  /**
+   * Let go of one mesh connection, keeping the tile.
+   *
+   * removePeer takes the person off the screen as well, which is right when
+   * they have left and catastrophic when they are still here and merely being
+   * reached a different way — the picture would blink out and come back.
+   */
+  const retireMeshPeer = useCallback((peerUuid: string) => {
+    const pc = pcsRef.current.get(peerUuid)
+    if (!pc) return
+    pc.close()
+    pcsRef.current.delete(peerUuid)
+    dialedAtRef.current.delete(peerUuid)
+    const t = restartTimersRef.current.get(peerUuid)
+    if (t) {
+      clearTimeout(t)
+      restartTimersRef.current.delete(peerUuid)
+    }
+  }, [])
+
+  /**
+   * The handover, one person at a time.
+   *
+   * The room does not switch from the mesh to the SFU at a moment; it crosses
+   * over peer by peer as each one turns up on the server, and both paths are
+   * live at once in between. That overlap is the whole design — the mesh
+   * connection to somebody is only dropped once their video is already
+   * arriving the other way, so there is no instant where a tile has nothing to
+   * show. Tearing down first and reconnecting after would be far simpler and
+   * would black the room out for as long as it took everybody to migrate.
+   *
+   * Once the last mesh connection has gone this behaves exactly like the plain
+   * SFU path: the server's participant list is the room.
+   */
+  const adoptSfuPeers = useCallback((list: import('../lib/sfu').SfuPeer[]) => {
+    // Before the state update, never inside it: React runs updaters twice in
+    // development, and closing a peer connection twice is not free.
+    for (const uuid of readyToRetire(list)) retireMeshPeer(uuid)
+
+    setPeers((prev) => mergeForHandover(
+      prev,
+      // The roster is the authority on names, so an established tile keeps the
+      // one it has; the SFU's identity is only a fallback for a stranger.
+      list.map((p) => ({ ...p, name: prev.find((x) => x.uuid === p.uuid)?.name ?? p.name })),
+      (uuid) => pcsRef.current.has(uuid),
+    ))
+  }, [retireMeshPeer])
+
+  const openSfu = useCallback(async (live: string, onPeers: (list: import('../lib/sfu').SfuPeer[]) => void) => {
+    const grant = await meetingsApi.realtimeToken(live)
+    const { joinSfu } = await import('../lib/sfu')
+
+    return joinSfu(grant.url, grant.token, outgoingStream(), {
+      onPeers,
+      onState: (state) => {
+        if (state === 'closed' && joinedRef.current) toastError('Lost the connection to the meeting.')
+      },
+      onError: (message) => toastError(message),
+    }, {
+      // Read once at join time, not from the hook: a phone rotated into
+      // landscape is still a phone, and re-publishing because the viewport
+      // crossed a breakpoint would interrupt the video for no reason.
+      mobile: isPhoneViewport(),
+    })
+  }, [outgoingStream, toastError])
+
+  /**
+   * Move this browser from the mesh to the SFU, without the room noticing.
+   *
+   * Called when the meeting outgrows what the mesh can carry — either by the
+   * signal the server sends on the join that tipped it over, or by the
+   * heartbeat for anyone who missed that. Both routes land here and it runs
+   * once: two migrations in flight would publish twice and leave the room
+   * watching whichever copy the server picked.
+   *
+   * Nothing is torn down here. The mesh connections are retired individually
+   * by adoptSfuPeers as each person appears on the other side, so a browser
+   * that never manages to reach the SFU keeps the meeting it already has
+   * rather than being left with neither.
+   */
+  const escalateToSfu = useCallback(async (live: string) => {
+    if (transportRef.current === 'sfu' || migratingRef.current || sfuRef.current) return
+    migratingRef.current = true
+    console.info('[meeting] escalating to the SFU')
+    try {
+      sfuRef.current = await openSfu(live, adoptSfuPeers)
+      transportRef.current = 'sfu'
+
+      /*
+       * Re-assert mute and camera-off on the new connection.
+       *
+       * On the mesh they are track.enabled, which travels with the track and
+       * needs nothing said. LiveKit publishes its own mute state, so a person
+       * who joined muted and said nothing since would arrive on the SFU
+       * unmuted — the room would hear them, and their own button would still
+       * say they were muted.
+       */
+      await sfuRef.current.setMicEnabled(myMediaRef.current.mic)
+      // Not while sharing. What we just published is the composite, which goes
+      // out through the camera publication because that is how the mesh sends
+      // it too — so disabling the camera for somebody who is sharing with their
+      // face off would take their screen down along with it.
+      if (!displayTrackRef.current) await sfuRef.current.setCameraEnabled(myMediaRef.current.cam)
+    } catch (err) {
+      // Left on the mesh, which still works for everyone who has not moved
+      // yet, and the heartbeat will try again on its next beat.
+      migratingRef.current = false
+      sfuRef.current = null
+      console.warn('[meeting] could not escalate to the SFU', err)
+    }
+  }, [openSfu, adoptSfuPeers])
 
   const joinRoom = useCallback(async (lobby?: LobbyResult) => {
     if (lobby) lobbyRef.current = lobby
@@ -782,20 +936,11 @@ export default function MeetingRoomPage() {
       transportRef.current = room.transport ?? 'mesh'
 
       if (room.transport === 'sfu') {
-        const grant = await meetingsApi.realtimeToken(live)
-        const { joinSfu } = await import('../lib/sfu')
-        sfuRef.current = await joinSfu(grant.url, grant.token, localStreamRef.current, {
-          onPeers: (list) => setPeers(list),
-          onState: (state) => {
-            if (state === 'closed' && joinedRef.current) toastError('Lost the connection to the meeting.')
-          },
-          onError: (message) => toastError(message),
-        }, {
-          // Read once at join time, not from the hook: a phone rotated into
-          // landscape is still a phone, and re-publishing because the viewport
-          // crossed a breakpoint would interrupt the video for no reason.
-          mobile: isPhoneViewport(),
-        })
+        // adoptSfuPeers, not a plain setPeers: with no mesh connections open
+        // it reduces to exactly that, and using it here means the merge path
+        // is the one that runs in every meeting rather than only in the rarer
+        // case, where a mistake in it could sit unnoticed for months.
+        sfuRef.current = await openSfu(live, adoptSfuPeers)
 
         return
       }
@@ -861,6 +1006,19 @@ export default function MeetingRoomPage() {
       switch (signal.signal) {
         case 'join':
           setPeers((p) => (p.some((x) => x.uuid === signal.from_uuid) ? p : p)) // roster only; offers arrive next
+          break
+        /*
+         * The room has outgrown the mesh. Sent alongside the join that tipped
+         * it over, so the move starts in the same moment the new tile appears
+         * rather than up to a heartbeat later — which is the difference between
+         * a stutter and a pause everyone notices.
+         *
+         * Only ever mesh to SFU. escalateToSfu ignores a second one, so this
+         * arriving twice, or after the heartbeat already acted on it, costs a
+         * function call.
+         */
+        case 'transport':
+          if (signal.payload.transport === 'sfu') void escalateToSfu(code)
           break
         case 'leave':
           removePeer(signal.from_uuid)
@@ -1055,20 +1213,16 @@ export default function MeetingRoomPage() {
         // The deadline can move: the host upgrading mid-meeting lifts it.
         setExpiresAt(hb.expires_at ?? null)
         /*
-         * And if the deadline can move, so can the transport — the same upgrade
-         * raises the participant ceiling the server reads to choose one.
+         * The meeting has outgrown the mesh and moved to the SFU.
          *
-         * Staying put would be the quiet failure: this browser would carry on
-         * meshing while everyone who joined after the upgrade is on the SFU,
-         * both halves of the room working perfectly and unable to see each
-         * other. Rejoining is disruptive, and it is the only thing that gets
-         * everybody back into the same meeting.
+         * The join that tipped it over signals this immediately, so by the time
+         * a beat notices, this browser has usually gone already and the call
+         * below returns at once. This is the backstop for the browser that
+         * missed the signal — a throttled background tab, a websocket that was
+         * reconnecting — which is precisely the browser that would otherwise be
+         * left alone on a transport the rest of the room has abandoned.
          */
-        if (hb.transport && hb.transport !== transportRef.current) {
-          toastError('Reconnecting — the meeting moved to a different connection.')
-          window.location.reload()
-          return
-        }
+        if (hb.transport === 'sfu') void escalateToSfu(code)
         const others = hb.participants.filter((p) => p.uuid !== user?.uuid)
         setRoster(others)
         /*
@@ -1118,6 +1272,18 @@ export default function MeetingRoomPage() {
          */
         for (const peer of others) {
           if (!user?.uuid) continue
+          /*
+           * Not once this browser is on the SFU. The gap this repairs is a
+           * missing mesh connection, and after the move there is supposed to be
+           * one — so redialling would open a peer connection to somebody who is
+           * being reached through the server already, and pay the mesh's upload
+           * for a second copy of a picture that is arriving anyway.
+           *
+           * Offers still get answered, deliberately: they come from people who
+           * have not moved yet, and answering is what keeps their video up
+           * until they do.
+           */
+          if (transportRef.current === 'sfu') continue
           const pc = pcsRef.current.get(peer.uuid)
           if (dialingRef.current.has(peer.uuid)) continue
           // An offer sent long enough ago that an answer should have come
@@ -1156,7 +1322,7 @@ export default function MeetingRoomPage() {
       stop = true
       clearInterval(timer)
     }
-  }, [phase, code, teardown, user?.uuid, joinRoom, offerTo, removePeer])
+  }, [phase, code, teardown, user?.uuid, joinRoom, offerTo, removePeer, escalateToSfu])
 
   /**
    * Closing the tab or navigating away never runs a normal request, so the
@@ -1572,6 +1738,11 @@ export default function MeetingRoomPage() {
       // goes into to be agreed as ours to send on — which it is not, for
       // anyone who joined with the camera off and never turned it on.
       void renegotiate('screen share')
+      // On the SFU there is no sender to swap: what everyone sees is what we
+      // publish, so the composite has to be published in its place. Without
+      // this, starting a share in a room that had escalated did all the work
+      // of compositing and then showed it to nobody.
+      void republishToSfu()
       showSelf(new MediaStream([track]))
       setSharing(true)
     } catch (err) {
@@ -1601,6 +1772,9 @@ export default function MeetingRoomPage() {
     pcsRef.current.forEach((_, uuid) => {
       meetingsApi.signal(code, 'share', { on: false }, uuid).catch(() => undefined)
     })
+    // The composite has just been stopped; publish the camera in its place, or
+    // the room keeps the last frame of the shared screen frozen on the tile.
+    void republishToSfu()
     showSelf(localStreamRef.current)
     setSharing(false)
   }

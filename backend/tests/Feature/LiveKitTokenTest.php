@@ -198,67 +198,138 @@ class LiveKitTokenTest extends TestCase
             ->assertJsonPath('data.transport', 'mesh');
     }
 
-    public function test_the_threshold_is_read_from_the_plan_and_not_from_who_is_in_the_room(): void
+    /** Someone new, in the room, with the pivot the controller expects. */
+    private function joiner(Meeting $meeting): User
     {
-        /*
-         * The regression this exists for.
-         *
-         * The threshold used to be compared against a live headcount, which
-         * reads as obviously right and splits rooms in half: the transport is
-         * settled per person as they arrive, so with a threshold of four the
-         * first four were told "mesh" and the fifth was told "sfu". Four people
-         * carried on meshing with each other, the fifth sat alone in an empty
-         * room, and nothing anywhere reported an error.
-         *
-         * So the assertion is not "small rooms use the mesh". It is that the
-         * answer does not move while people are walking in.
-         */
+        $user = User::factory()->create();
+        $user->profile()->create(['timezone' => 'UTC']);
+        $this->actingAs($user)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+
+        return $user;
+    }
+
+    public function test_a_small_room_stays_on_the_mesh(): void
+    {
+        // No server in the middle means lower latency and no bandwidth bill, so
+        // the SFU should earn its keep rather than be used by default.
         config(['livekit.mesh_up_to' => 4]);
         $meeting = $this->meeting();
 
-        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
-        $first = $this->actingAs($this->alice)
-            ->getJson("/api/v1/meetings/{$meeting->code}")->json('data.transport');
+        $this->joiner($meeting);
+        $this->joiner($meeting);
 
-        // Well past the threshold, one at a time, exactly as a real room fills.
-        foreach (range(1, 5) as $i) {
-            $user = User::factory()->create();
-            $user->profile()->create(['timezone' => 'UTC']);
-            $this->actingAs($user)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
-
-            $this->actingAs($user)
-                ->getJson("/api/v1/meetings/{$meeting->code}")
-                ->assertJsonPath('data.transport', $first);
-
-            // And the people already inside are still told the same thing, so
-            // nobody is left on a transport the room has moved off.
-            $this->actingAs($this->alice)
-                ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
-                ->assertJsonPath('data.transport', $first);
-        }
-    }
-
-    public function test_a_plan_that_cannot_outgrow_the_mesh_stays_direct(): void
-    {
-        // No server in the middle means lower latency and no bandwidth bill, so
-        // the SFU should earn its keep rather than be used by default. A host
-        // whose plan caps the room at or below the threshold can never need it.
-        $limit = app(\App\Services\SubscriptionEntitlementService::class)
-            ->meetingParticipantLimit($this->host);
-        $this->assertNotNull($limit, 'this test needs a host whose plan actually caps the room');
-
-        config(['livekit.mesh_up_to' => $limit]);
-        $meeting = $this->meeting();
         $this->actingAs($this->alice)
             ->getJson("/api/v1/meetings/{$meeting->code}")
             ->assertJsonPath('data.transport', 'mesh');
+        $this->assertNull($meeting->fresh()->transport, 'nothing should be written down until it escalates');
+    }
 
-        // One below the ceiling and the room can outgrow the mesh, so it starts
-        // on the SFU and stays there — rather than moving once it is too late.
-        config(['livekit.mesh_up_to' => $limit - 1]);
+    public function test_everybody_moves_together_when_the_room_outgrows_the_mesh(): void
+    {
+        /*
+         * The regression this exists for, and the reason the transport is
+         * written down at all.
+         *
+         * It used to be recomputed from the live headcount on every request,
+         * and each person is told which transport to use exactly once, on the
+         * way in. So a threshold of four told the first four "mesh" and the
+         * fifth "sfu": four people carried on meshing with each other, the
+         * fifth sat alone in an empty room, and nothing anywhere reported an
+         * error. Both halves were working perfectly. They were just two
+         * different meetings.
+         *
+         * So this does not assert that the fifth person gets the SFU. It
+         * asserts that the four already inside are told to move as well.
+         */
+        // Three, not five: the free plan caps a meeting at four people, and a
+        // test that needed a fifth would be testing the plan limit instead.
+        config(['livekit.mesh_up_to' => 2]);
+        $meeting = $this->meeting();
+
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+        $inside = [$this->alice, $this->joiner($meeting)];
+
+        // Two in the room, which is what the mesh was said to carry.
+        foreach ($inside as $person) {
+            $this->actingAs($person)
+                ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
+                ->assertJsonPath('data.transport', 'mesh');
+        }
+
+        $third = $this->joiner($meeting);
+
+        // The new arrival, and — the part that matters — everybody who was
+        // already sitting there.
+        foreach ([...$inside, $third] as $person) {
+            $this->actingAs($person)
+                ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
+                ->assertJsonPath('data.transport', 'sfu');
+        }
+    }
+
+    public function test_the_room_is_told_to_move_at_once_rather_than_on_the_next_beat(): void
+    {
+        /*
+         * Fifteen seconds of everybody dialling somebody who has already been
+         * told to use the SFU is not a seamless handover, so the arrival that
+         * tips the room over carries the instruction to move with it.
+         */
+        config(['livekit.mesh_up_to' => 2]);
+        $meeting = $this->meeting();
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+        $second = $this->joiner($meeting);
+
+        \Illuminate\Support\Facades\Event::fake([\App\Events\MeetingSignal::class]);
+        $this->joiner($meeting);
+
+        \Illuminate\Support\Facades\Event::assertDispatched(
+            \App\Events\MeetingSignal::class,
+            fn ($e) => $e->signalType === 'transport'
+                && ($e->payload['transport'] ?? null) === 'sfu'
+                && $e->toUserUuid === $this->alice->uuid,
+        );
+        \Illuminate\Support\Facades\Event::assertDispatched(
+            \App\Events\MeetingSignal::class,
+            fn ($e) => $e->signalType === 'transport' && $e->toUserUuid === $second->uuid,
+        );
+    }
+
+    public function test_it_only_moves_one_way(): void
+    {
+        /*
+         * A room hovering at the threshold would otherwise migrate every time
+         * anybody came or went, and a migration is disruptive in a way that
+         * forwarding four streams is not. The SFU carries a small room
+         * perfectly well; going back is not worth a meeting that flickers.
+         */
+        config(['livekit.mesh_up_to' => 2]);
+        $meeting = $this->meeting();
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+        $this->joiner($meeting);
+        $third = $this->joiner($meeting);
+
+        $this->assertSame('sfu', $meeting->fresh()->transport);
+
+        $this->actingAs($third)->postJson("/api/v1/meetings/{$meeting->code}/leave")->assertOk();
+
         $this->actingAs($this->alice)
-            ->getJson("/api/v1/meetings/{$meeting->code}")
+            ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
             ->assertJsonPath('data.transport', 'sfu');
+    }
+
+    public function test_a_server_without_livekit_is_never_recorded_as_having_escalated(): void
+    {
+        // Otherwise a meeting held while LiveKit was down would be stuck
+        // pointing at an SFU that was never there.
+        config(['livekit.enabled' => false, 'livekit.mesh_up_to' => 1]);
+        $meeting = $this->meeting();
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+        $this->joiner($meeting);
+
+        $this->actingAs($this->alice)
+            ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
+            ->assertJsonPath('data.transport', 'mesh');
+        $this->assertNull($meeting->fresh()->transport);
     }
 
     public function test_the_room_name_is_namespaced(): void

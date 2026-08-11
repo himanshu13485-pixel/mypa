@@ -30,44 +30,83 @@ class LiveKitTokenService
     }
 
     /**
-     * Should this meeting run on the SFU rather than the mesh?
+     * Which transport this meeting is on: 'mesh' or 'sfu'.
      *
-     * Small rooms are genuinely better peer-to-peer: no server in the middle
-     * means lower latency and no bandwidth to pay for. The SFU earns its keep
-     * once the mesh's per-peer upload starts to hurt.
+     * Small rooms are genuinely better peer-to-peer — no server in the middle
+     * means lower latency and no bandwidth to pay for — and the SFU earns its
+     * keep once the mesh's per-peer upload starts to hurt. So a meeting starts
+     * direct and escalates when it outgrows that.
+     *
+     * Two rules make escalation safe, and without either one it is worse than
+     * not doing it at all:
+     *
+     *   The answer is written down. It used to be recomputed from the live
+     *   headcount every time anybody asked, and each person is told which
+     *   transport to use exactly once, on the way in — so a threshold of four
+     *   told the first four "mesh" and the fifth "sfu", and the room silently
+     *   became two rooms. Recorded, everyone is told the same thing on their
+     *   next heartbeat and moves together.
+     *
+     *   And it only ever goes one way. If it could fall back when somebody
+     *   left, a room hovering at the threshold would migrate every time
+     *   anybody came or went. The SFU handles four people perfectly well; the
+     *   saving from going back is not worth a room that flickers.
      */
-    public function shouldUseFor(Meeting $meeting): bool
+    public function settleTransport(Meeting $meeting): string
     {
         if (! $this->configured()) {
-            return false;
+            // Nothing to escalate to. Not recorded either — turning LiveKit on
+            // later should find the meeting undecided rather than stuck.
+            return 'mesh';
+        }
+
+        if ($meeting->transport === 'sfu') {
+            return 'sfu';
         }
 
         $meshUpTo = config('livekit.mesh_up_to');
-        if ($meshUpTo === null) {
-            return true;
+
+        // Strictly above: mesh_up_to is the largest room the mesh may carry,
+        // so a threshold of four escalates when the fifth person is in.
+        $outgrown = $meshUpTo === null
+            || $meeting->participants()->wherePivot('status', 'joined')->count() > (int) $meshUpTo;
+
+        if (! $outgrown) {
+            return 'mesh';
         }
 
-        /*
-         * The plan's ceiling, not who is in the room right now.
-         *
-         * Counting live participants looked obviously right and split rooms in
-         * half. The transport is settled per person as they join, so with a
-         * threshold of four the first four got the mesh and the fifth got the
-         * SFU — alone, while the other four went on meshing with each other
-         * and opening peer connections to somebody who was no longer listening
-         * for them. No error anywhere: four people carried on and the fifth sat
-         * in an empty room.
-         *
-         * A ceiling cannot move underneath a meeting the way a headcount can.
-         * Everyone who joins gets the same answer from the first arrival to the
-         * last, which is the only property that matters here — a room split
-         * across two transports is not a degraded meeting, it is two meetings.
-         */
-        $ceiling = $meeting->participantLimit();
+        // forceFill, because transport is not fillable — see the note on the
+        // model. This is the only place that writes it.
+        $meeting->forceFill(['transport' => 'sfu'])->save();
 
-        // No ceiling means it can grow to any size, which is exactly what the
-        // mesh cannot do.
-        return $ceiling === null || $ceiling > $meshUpTo;
+        return 'sfu';
+    }
+
+    /**
+     * What this meeting is on, without deciding anything.
+     *
+     * Escalation belongs to the two endpoints where somebody is actually in the
+     * room — joining, and beating. Listing meetings must not trigger it: the
+     * index serialises up to fifty of them, and letting that path escalate
+     * would mean fifty headcount queries on a page that is only showing titles,
+     * and a meeting changing transport because somebody who is not in it opened
+     * a list.
+     */
+    public function transportFor(Meeting $meeting): string
+    {
+        if (! $this->configured()) {
+            return 'mesh';
+        }
+
+        // Undecided and no threshold configured means the SFU, which is what
+        // the first person to actually join will be told and record.
+        return $meeting->transport === 'sfu' || config('livekit.mesh_up_to') === null ? 'sfu' : 'mesh';
+    }
+
+    /** @deprecated Prefer transportFor(); kept for callers that only want the flag. */
+    public function shouldUseFor(Meeting $meeting): bool
+    {
+        return $this->transportFor($meeting) === 'sfu';
     }
 
     /**

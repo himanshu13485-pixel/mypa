@@ -40,21 +40,19 @@ return [
     'token_ttl_minutes' => (int) env('LIVEKIT_TOKEN_TTL_MINUTES', 10),
 
     /**
-     * The room size the mesh can carry. A meeting whose plan allows more than
-     * this uses the SFU; one that can never grow past it stays peer-to-peer,
-     * where it is genuinely better — no server in the middle means lower
-     * latency and no bandwidth bill.
+     * The largest room the mesh is asked to carry.
      *
-     * Null means "always the SFU when enabled", which is the safe setting.
+     * Up to this many people a meeting runs peer-to-peer, where it is genuinely
+     * better: no server in the middle means lower latency and no bandwidth
+     * bill. The person who arrives after it escalates the whole room to the
+     * SFU, everybody together and mid-meeting.
      *
-     * Compared against the host's plan ceiling, deliberately, and not against
-     * how many people are in the room at the moment somebody asks. A headcount
-     * moves while a meeting is being joined, and each person is told which
-     * transport to use exactly once, on the way in — so a threshold of four
-     * gave the first four the mesh and the fifth the SFU, split the room down
-     * the middle, and reported nothing to anyone. A ceiling cannot move like
-     * that, so everybody gets the same answer from the first arrival to the
-     * last.
+     * Null means "always the SFU when enabled".
+     *
+     * The escalation is one-way and written down — see settleTransport(). Both
+     * matter. Recomputing it per request split rooms in half, and letting it
+     * fall back when somebody left would make a room hovering at the threshold
+     * migrate every time anybody came or went.
      */
     'mesh_up_to' => env('LIVEKIT_MESH_UP_TO') === null
         ? null

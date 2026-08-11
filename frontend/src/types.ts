@@ -735,7 +735,7 @@ export interface MeetingSignalPayload {
   meeting_type: 'audio' | 'video'
   from_uuid: string
   from_name?: string | null
-  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat' | 'share' | 'record' | 'media' | 'rec-request' | 'rec-allow' | 'rec-deny' | 'host-mute' | 'host-ask-unmute' | 'host-stop-video' | 'removed' | 'lock' | 'role' | 'spotlight'
+  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat' | 'share' | 'record' | 'media' | 'rec-request' | 'rec-allow' | 'rec-deny' | 'host-mute' | 'host-ask-unmute' | 'host-stop-video' | 'removed' | 'lock' | 'role' | 'spotlight' | 'transport'
   payload: Record<string, unknown>
 }
 

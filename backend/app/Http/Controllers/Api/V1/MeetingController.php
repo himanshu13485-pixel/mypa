@@ -186,10 +186,29 @@ class MeetingController extends Controller
             ],
         ]);
 
+        /*
+         * Settle the transport before announcing the arrival, not after.
+         *
+         * This person may be the one who tips the room past what the mesh can
+         * carry, and the room finding that out on its next heartbeat would mean
+         * up to fifteen seconds of everybody dialling a peer who has already
+         * been told to use the SFU. Deciding first makes "somebody arrived" and
+         * "we are moving" one event instead of two, so the mesh clients start
+         * migrating in the same instant the new tile appears.
+         */
+        $wasOn = $meeting->transport;
+        $transport = app(LiveKitTokenService::class)->settleTransport($meeting);
+        $escalated = $transport === 'sfu' && $wasOn !== 'sfu';
+
         // Tell everyone already inside that a participant arrived (for the roster).
         $myName = $data['display_name'] ?? $me->name;
         foreach ($joined as $peer) {
             \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $myName, $peer->uuid, 'join'));
+            if ($escalated) {
+                \App\Support\Realtime::send(new MeetingSignal(
+                    $meeting, $me->uuid, $myName, $peer->uuid, 'transport', ['transport' => 'sfu'],
+                ));
+            }
         }
 
         $meeting = $meeting->fresh()->load('host:id,uuid,name');
@@ -267,21 +286,21 @@ class MeetingController extends Controller
             'expires_at' => $meeting->expiresAt()?->toIso8601String(),
             'participant_limit' => $meeting->participantLimit(),
             /*
-             * Repeated here, not only in the join response, so the room can
-             * notice if it ever changes underneath it.
+             * The transport, on every beat.
              *
-             * It is not supposed to change — shouldUseFor() answers from the
-             * host's plan ceiling precisely so that it cannot. But when it was
-             * answered from the live headcount instead, a room could be told
-             * "mesh" for its first four people and "sfu" for the fifth, and the
-             * only symptom was four people carrying on happily while the fifth
-             * sat in an empty room. Nothing errored, so nothing could react.
+             * A room that outgrows the mesh escalates to the SFU while people
+             * are sitting in it, so this is the instruction to move. The signal
+             * sent on the join that tipped it over is what makes that prompt;
+             * this is what makes it certain — a browser whose websocket was
+             * asleep, throttled in a background tab, or reconnecting misses the
+             * signal entirely and would otherwise be the one person left on a
+             * transport the rest of the room has abandoned. Which is not a
+             * degraded meeting. It is a person alone in an empty room while
+             * everyone else carries on without noticing.
              *
-             * Sending it every few seconds costs one string and turns any
-             * future version of that mistake into something the client can see
-             * and recover from rather than something nobody notices.
+             * One string every fifteen seconds to close that off.
              */
-            'transport' => app(LiveKitTokenService::class)->shouldUseFor($meeting) ? 'sfu' : 'mesh',
+            'transport' => app(LiveKitTokenService::class)->settleTransport($meeting),
         ]]);
     }
 
@@ -897,7 +916,7 @@ class MeetingController extends Controller
             // build a mesh or ask for an SFU token. Decided by the server so
             // everybody in one meeting agrees — half a room on each would
             // simply not see the other half.
-            'transport' => app(\App\Services\LiveKitTokenService::class)->shouldUseFor($meeting) ? 'sfu' : 'mesh',
+            'transport' => app(LiveKitTokenService::class)->transportFor($meeting),
             // The host's plan, applied to everyone in the room. Sent to all so
             // the countdown and the "x of y" count are the same for everybody.
             'participant_limit' => $meeting->participantLimit(),

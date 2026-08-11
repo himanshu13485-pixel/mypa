@@ -19,6 +19,13 @@ class Meeting extends Model
         'spotlight_uuid', 'status', 'scheduled_at', 'reminded_at', 'started_at', 'ended_at',
     ];
 
+    /**
+     * Deliberately not fillable. The transport is decided by one method in
+     * LiveKitTokenService and by nothing else — a room half on the mesh and
+     * half on the SFU is two rooms, so this is not a field any request should
+     * be able to set.
+     */
+
     protected $hidden = ['passcode'];
 
     protected function casts(): array
