@@ -1734,9 +1734,29 @@ export default function MeetingRoomPage() {
         return
       }
       if (sharing) return
+      /*
+       * Camera off means off, including while picking a different one.
+       *
+       * This opened the device to switch to it whatever the camera button
+       * said, so choosing a camera with your video off turned the light on and
+       * left it on — the picture went nowhere, and the only evidence anyone had
+       * that they were not being watched was a button claiming they were not.
+       *
+       * The choice is remembered instead. ensureLocalStream and the camera
+       * toggle both read it, so it is honoured the moment the camera is
+       * actually turned on.
+       */
+      if (cameraOff) {
+        setDeviceChoice(saveDeviceChoice({ cameraId: id }))
+        toast('Camera switched — it will be used when you turn your camera on.', 'success')
+        return
+      }
       const track = await openCamera({ deviceId: id })
       cameraTrackRef.current = track
       swapTrack(pcsRef.current.values(), localStreamRef.current, track)
+      // The mesh swaps the track inside the sender; the SFU has to be told,
+      // or switching camera changed nothing for anyone but the person doing it.
+      void republishToSfu()
       showSelf(localStreamRef.current)
       setDeviceChoice(saveDeviceChoice({ cameraId: id }))
     } catch (err) {
