@@ -24,6 +24,10 @@ WS_PORT=${WS_PORT:-7880}
 # UDP range for media. Wide on purpose: one port per participant connection.
 RTC_MIN=${RTC_MIN:-50000}
 RTC_MAX=${RTC_MAX:-60000}
+# LiveKit's ICE-over-TCP fallback, for clients whose network will not pass UDP
+# at all — corporate firewalls, a few mobile carriers. Without it those people
+# join, appear in the roster, and then see and hear nobody.
+TCP_PORT=${TCP_PORT:-7881}
 PHP=${PHP:-/opt/cpanel/ea-php84/root/usr/bin/php}
 
 command -v curl >/dev/null || { echo "!! curl is required"; exit 1; }
@@ -128,19 +132,23 @@ echo "== firewall =="
 # problem from the outside — the meeting connects, and then stays black.
 if [ -x /usr/sbin/csf ]; then
   cp -n /etc/csf/csf.conf /etc/csf/csf.conf.before-livekit 2>/dev/null || true
-  # Only the UDP range. 7880 is reached over the loopback by Apache, so opening
-  # it publicly would expose the unencrypted signalling port for nothing.
+  # The media range, and LiveKit's TCP fallback. Not 7880: Apache reaches that
+  # over the loopback, so opening it publicly would expose the unencrypted
+  # signalling port for no gain.
   grep -q "$RTC_MIN:$RTC_MAX" /etc/csf/csf.conf \
     || sed -i "s/^UDP_IN = \"\(.*\)\"/UDP_IN = \"\1,$RTC_MIN:$RTC_MAX\"/" /etc/csf/csf.conf
+  grep -q "^TCP_IN.*,$TCP_PORT" /etc/csf/csf.conf \
+    || sed -i "s/^TCP_IN = \"\(.*\)\"/TCP_IN = \"\1,$TCP_PORT\"/" /etc/csf/csf.conf
   csf -r >/dev/null 2>&1 || true
-  echo "   csf updated: $RTC_MIN-$RTC_MAX/udp (7880 stays loopback-only, behind Apache)"
+  echo "   csf updated: $RTC_MIN-$RTC_MAX/udp and $TCP_PORT/tcp (7880 stays loopback-only)"
   echo "   (previous config saved as /etc/csf/csf.conf.before-livekit)"
 elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
   firewall-cmd --permanent --add-port=$RTC_MIN-$RTC_MAX/udp >/dev/null
+  firewall-cmd --permanent --add-port=$TCP_PORT/tcp >/dev/null
   firewall-cmd --reload >/dev/null
-  echo "   firewalld updated: $RTC_MIN-$RTC_MAX/udp (7880 stays loopback-only, behind Apache)"
+  echo "   firewalld updated: $RTC_MIN-$RTC_MAX/udp and $TCP_PORT/tcp (7880 stays loopback-only)"
 else
-  echo "!! no firewall manager found — open $RTC_MIN-$RTC_MAX/udp yourself."
+  echo "!! no firewall manager found — open $RTC_MIN-$RTC_MAX/udp and $TCP_PORT/tcp yourself."
   echo "   Media is UDP; without that range the meeting connects and then stays black."
 fi
 
@@ -204,7 +212,7 @@ sudo -u $APP_USER $PHP "$APP_DIR/backend/artisan" config:cache >/dev/null
 echo
 echo "== done =="
 echo "   signalling : $SCHEME://$SFU_DOMAIN  (Apache -> 127.0.0.1:$WS_PORT)"
-echo "   media      : UDP $RTC_MIN-$RTC_MAX"
+echo "   media      : UDP $RTC_MIN-$RTC_MAX, plus TCP $TCP_PORT where UDP is blocked"
 echo "   log        : /home/$APP_USER/logs/livekit.log"
 echo
 echo "Before this works end to end — none of which WHM does for you:"
