@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Circle, Expand, Maximize2, Mic, MicOff, Minimize2, MonitorUp, MoreHorizontal, Phone, PhoneOff, Pin, PinOff,
-  Square, SwitchCamera, UserPlus, Users, Video, VideoOff, X,
+  Square, SwitchCamera, UserPlus, Users, Video, VideoOff, Volume2, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { calls } from '../api/endpoints'
@@ -24,8 +24,8 @@ import {
   enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported, onFullscreenChange,
 } from '../lib/fullscreen'
 import {
-  applySendQuality, loadDeviceChoice, nextCamera, openCamera, saveDeviceChoice, screenShareSupported, shareFailureMessage,
-  swapTrack, useDevices,
+  applySendQuality, applySpeaker, loadDeviceChoice, nextCamera, openCamera, openMic, saveDeviceChoice,
+  screenShareSupported, shareFailureMessage, speakerSelectionSupported, swapTrack, testSpeaker, useDevices,
 } from '../lib/devices'
 import { Avatar } from '../lib/avatars'
 
@@ -1134,7 +1134,96 @@ export function CallProvider({ children }: { children: ReactNode }) {
    * windowed panel that works on a laptop turned into a 320px box covering the
    * page it was floating over, with its own controls scrolling sideways.
    */
-  const { cameras } = useDevices(!!activeCall && isVideo)
+  const { cameras, mics, speakers } = useDevices(!!activeCall)
+  const [audioOpen, setAudioOpen] = useState(false)
+
+  /*
+   * Keep the chosen speaker applied as the call changes shape.
+   *
+   * setSinkId is set on each media element, so an element that appears later —
+   * somebody joining a group call, a stream arriving after the answer — starts
+   * on the system default and plays out of the wrong thing while everyone else
+   * is correct. Re-applying whenever the peer list moves catches that.
+   */
+  useEffect(() => {
+    if (!activeCall || !deviceChoice.speakerId) return
+    void applySpeaker(deviceChoice.speakerId)
+  }, [activeCall?.uuid, deviceChoice.speakerId, remotePeers.length])
+
+  /**
+   * Switch which microphone is heard or which speaker is used, mid-call.
+   *
+   * Neither needs the call renegotiated: a microphone is swapped into the
+   * senders that already exist, and a speaker is purely a local choice about
+   * where sound comes out. So this is safe at any point in a call, including
+   * while somebody is talking.
+   */
+  const changeAudioDevice = async (kind: 'mic' | 'speaker', deviceId: string) => {
+    // Empty means "whatever the system says". It has to be selectable, or
+    // picking a device once would be permanent for the rest of the call.
+    const id = deviceId || undefined
+    try {
+      if (kind === 'speaker') {
+        setDeviceChoice(saveDeviceChoice({ speakerId: id }))
+        // '' is what setSinkId defines as "back to the default".
+        await applySpeaker(id ?? '')
+        return
+      }
+      const track = await openMic(id)
+      swapTrack(peersRef.current.values(), localStreamRef.current, track)
+      setDeviceChoice(saveDeviceChoice({ micId: id }))
+      toast(muted ? 'Microphone switched — you are still muted.' : 'Microphone switched.', 'success')
+    } catch (err) {
+      toastError('Could not switch that device — it may be in use by another app.')
+      console.warn('[call] device switch failed', err)
+    }
+  }
+
+  /** The two audio pickers, shared by the phone sheet and the docked panel. */
+  const audioDevices = (
+    <div className="space-y-2 text-xs">
+      <label className="block">
+        <span className="mb-1 block font-medium opacity-60">Microphone</span>
+        <select
+          className="w-full rounded-lg border border-current/20 bg-white/10 px-2 py-1.5"
+          value={deviceChoice.micId ?? ''}
+          onChange={(e) => void changeAudioDevice('mic', e.target.value)}
+        >
+          <option value="">Default microphone</option>
+          {mics.map((m) => <option key={m.deviceId} value={m.deviceId}>{m.label}</option>)}
+        </select>
+      </label>
+      {speakerSelectionSupported() ? (
+        <label className="block">
+          <span className="mb-1 block font-medium opacity-60">Speaker</span>
+          <select
+            className="w-full rounded-lg border border-current/20 bg-white/10 px-2 py-1.5"
+            value={deviceChoice.speakerId ?? ''}
+            onChange={(e) => void changeAudioDevice('speaker', e.target.value)}
+          >
+            <option value="">Default speaker</option>
+            {speakers.map((sp) => <option key={sp.deviceId} value={sp.deviceId}>{sp.label}</option>)}
+          </select>
+          {/* Choosing an output is otherwise silent by definition — nothing
+              happens until somebody speaks, and if it was the wrong one you
+              find out by missing what they said. */}
+          <button
+            className="mt-1 flex items-center gap-1 text-[11px] opacity-60 hover:opacity-100"
+            onClick={(e) => { e.preventDefault(); void testSpeaker(deviceChoice.speakerId) }}
+          >
+            <Volume2 className="size-3" /> Play a test sound
+          </button>
+        </label>
+      ) : (
+        // Safari and Firefox have no setSinkId: the browser follows the system
+        // output and there is nothing here to offer but the truth.
+        <p className="text-[11px] leading-snug opacity-60">
+          Sound goes wherever your device is set to — this browser gives no way to choose
+          one per call. Change it in your system sound settings and it follows straight away.
+        </p>
+      )}
+    </div>
+  )
   const phone = useIsPhone()
   const landscape = useLandscapePhone()
   /*
@@ -1348,10 +1437,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
                         <Expand className="size-5" />
                       </CircleButton>
                     )}
+                    <CircleButton on={audioOpen} label="Microphone and speaker" onClick={() => setAudioOpen((o) => !o)}>
+                      <Volume2 className="size-5" />
+                    </CircleButton>
                     <CircleButton label="Minimise to the corner" onClick={() => { setMoreOpen(false); toggleExpanded() }}>
                       <Minimize2 className="size-5" />
                     </CircleButton>
                   </div>
+                  {/* Inside this sheet rather than a dropdown of its own: a
+                      floating menu over a full-bleed call has nowhere to go on
+                      a phone without covering the person you are talking to. */}
+                  {audioOpen && <div className="mt-3 text-white">{audioDevices}</div>}
                   <p className="mt-2 text-center text-[11px] text-white/40">
                     Double-tap a picture to make it the big one.
                   </p>
@@ -1573,6 +1669,29 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   <Expand className="size-3.5" />
                 </Button>
               )}
+              {/* Audio devices. Present in an audio-only call too — that is
+                  the one where getting the speaker wrong means hearing
+                  nothing at all. */}
+              <div className="relative">
+                <Button
+                  size="sm"
+                  variant={audioOpen ? 'primary' : 'secondary'}
+                  title="Microphone and speaker"
+                  onClick={() => setAudioOpen((o) => !o)}
+                >
+                  <Volume2 className="size-3.5" />
+                </Button>
+                {audioOpen && (
+                  <>
+                    {/* Catches the click away. A phone has no hover, so leaving
+                        is not a gesture it can make. */}
+                    <div className="fixed inset-0 z-20" onMouseDown={() => setAudioOpen(false)} />
+                    <div className="absolute bottom-10 right-0 z-30 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                      {audioDevices}
+                    </div>
+                  </>
+                )}
+              </div>
               <Button
                 size="sm"
                 variant={recording ? 'danger' : 'secondary'}
