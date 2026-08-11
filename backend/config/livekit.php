@@ -54,8 +54,17 @@ return [
      * fall back when somebody left would make a room hovering at the threshold
      * migrate every time anybody came or went.
      */
-    'mesh_up_to' => env('LIVEKIT_MESH_UP_TO') === null
+    /*
+     * Absent and empty both mean null.
+     *
+     * They read identically in a .env and used to behave differently: absent
+     * gave null, while `LIVEKIT_MESH_UP_TO=` gave the empty string, which
+     * casts to 0 — "the mesh carries nobody". That happened to come out as
+     * always-the-SFU, which is the same thing null means, so it worked by
+     * luck rather than by intent.
+     */
+    'mesh_up_to' => ($meshUpTo = env('LIVEKIT_MESH_UP_TO')) === null || $meshUpTo === ''
         ? null
-        : (int) env('LIVEKIT_MESH_UP_TO'),
+        : (int) $meshUpTo,
 
 ];
