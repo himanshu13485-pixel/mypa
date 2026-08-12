@@ -1613,7 +1613,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                       )}
                     </div>
                   </div>
-                  <p className="pb-5 text-center text-sm font-medium uppercase tracking-[0.35em] text-slate-500">
+                  <p className="pb-6 text-center text-2xl font-semibold uppercase tracking-[0.3em] text-slate-400">
                     Call by Netvork
                   </p>
                   <video ref={attachSelf} className="hidden" muted />
