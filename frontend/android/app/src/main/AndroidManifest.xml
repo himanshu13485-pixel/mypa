@@ -24,6 +24,24 @@
 
         </activity>
 
+        <!-- The native half of ringing. Registered here, in the app's own
+             manifest, which the merger puts ahead of library manifests — so
+             call messages reach this service rather than the Capacitor
+             plugin's. Non-call messages are handed on to the plugin's
+             handling by the subclass, and token rotation is inherited. -->
+        <service
+            android:name=".NetvorkMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- The notification's Decline button. -->
+        <receiver
+            android:name=".DeclineReceiver"
+            android:exported="false" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -57,6 +75,11 @@
     <!-- Android 13+: notifications are opt-in per app, and the web push the
          site registers rides on the shell's permission. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- An incoming call may take a locked screen, like a phone call does.
+         Newer Android grants this selectively; where refused, the heads-up
+         notification still shows and rings. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />

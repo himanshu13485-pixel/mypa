@@ -116,15 +116,16 @@ class FcmDeliveryTest extends TestCase
                 && $message['android']['ttl'] === '45s'
                 && $message['token'] === str_repeat('t', 64)
                 /*
-                 * The notification block is what rings a dead app: Android
-                 * displays it itself, on the 'calls' channel the app created
-                 * at maximum importance. A data-only message would reach
-                 * JavaScript only while the app was running — the one case
-                 * that never needed FCM.
+                 * Data-only, deliberately: the shell's native service builds
+                 * the ringing notification itself — Answer and Decline
+                 * buttons, looping ringtone — and a notification block sent
+                 * alongside would put a second, button-less copy next to it.
                  */
-                && isset($message['notification']['title'])
-                && $message['android']['notification']['channel_id'] === 'calls2'
-                && $message['data']['kind'] === 'call';
+                && ! isset($message['notification'])
+                && $message['data']['kind'] === 'call'
+                // The Decline button's authorisation: a signed URL scoped to
+                // this call and callee, since native code holds no login.
+                && str_contains($message['data']['decline_url'] ?? '', '/push/calls/');
         });
     }
 
@@ -190,6 +191,34 @@ class FcmDeliveryTest extends TestCase
 
         $this->assertSame(1, FcmToken::where('token', $token)->count());
         $this->assertSame($this->bob->id, FcmToken::where('token', $token)->first()->user_id);
+    }
+
+    public function test_the_decline_button_declines_without_a_login(): void
+    {
+        /*
+         * The button lives in native code with no auth token — the signature
+         * over call, callee and expiry IS the login. And a tampered signature
+         * must be turned away, or the bare route would let anyone decline
+         * anyone's calls by guessing uuids.
+         */
+        $this->fakeFcm();
+        $this->ring($this->bob);
+        $call = \App\Models\Call::latest('id')->firstOrFail();
+
+        $signed = \Illuminate\Support\Facades\URL::temporarySignedRoute(
+            'push.calls.decline',
+            now()->addSeconds(60),
+            ['call' => $call->uuid, 'user' => $this->bob->uuid],
+        );
+        $path = str_replace(config('app.url'), '', $signed);
+
+        // Tampered first, while the call is still ringing.
+        $this->postJson($path.'tampered')->assertForbidden();
+        $this->assertSame('ringing', $call->fresh()->status);
+
+        // The genuine article, with no Authorization header anywhere.
+        $this->postJson($path)->assertOk();
+        $this->assertSame('declined', $call->fresh()->status);
     }
 
     public function test_signing_out_stops_the_ringing(): void

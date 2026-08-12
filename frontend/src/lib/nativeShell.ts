@@ -53,6 +53,23 @@ export function installNativeShell(): void {
     else bridge()?.Plugins?.App?.minimizeApp?.()
   })
 
+  /*
+   * Deep links into the shell — including the ringing notification's Answer
+   * button, whose intent carries the full join URL. Capacitor reports the
+   * launch URL here whether the app was warm or cold; only our own host is
+   * honoured, and only its path travels into the SPA.
+   */
+  bridge()?.Plugins?.App?.addListener('appUrlOpen', (payload) => {
+    const raw = (payload as { url?: string }).url
+    if (!raw) return
+    try {
+      const target = new URL(raw)
+      if (target.hostname.endsWith('netvork.app')) {
+        window.location.assign(target.pathname + target.search)
+      }
+    } catch { /* not a URL; nothing to open */ }
+  })
+
   void installNativeRinging()
 }
 

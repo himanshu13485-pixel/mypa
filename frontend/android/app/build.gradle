@@ -36,6 +36,12 @@ dependencies {
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
+    // NetvorkMessagingService subclasses the push plugin's service, and the
+    // plugin keeps firebase-messaging as a private (implementation)
+    // dependency — invisible from here, which unresolves the superclass and
+    // cascades into "cannot be converted to Context" across the whole file.
+    // Same version the plugin resolves, so the two never disagree.
+    implementation "com.google.firebase:firebase-messaging:25.0.1"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

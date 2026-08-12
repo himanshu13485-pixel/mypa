@@ -102,6 +102,22 @@ class IncomingCallNotification extends Notification
             'kind' => 'call',
             'call_uuid' => $this->call->uuid,
             'url' => '/calls?join=' . $this->call->uuid,
+            /*
+             * How a notification button declines a call without signing in.
+             *
+             * The Android shell's Decline button runs native code with no auth
+             * token — the token lives inside the webview. A signed URL is the
+             * standing Laravel answer: the signature covers the call, the
+             * callee and the expiry, so the bare URL is the authorisation —
+             * good for one action, on one call, for one minute. Leaking it
+             * costs an attacker the power to decline this ring and nothing
+             * else.
+             */
+            'decline_url' => \Illuminate\Support\Facades\URL::temporarySignedRoute(
+                'push.calls.decline',
+                now()->addSeconds(60),
+                ['call' => $this->call->uuid, 'user' => $notifiable->uuid],
+            ),
             'actions' => [
                 ['action' => 'answer', 'title' => 'Answer'],
                 ['action' => 'decline', 'title' => 'Decline'],

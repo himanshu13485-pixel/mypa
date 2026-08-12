@@ -60,6 +60,13 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
 // The browser moved a push subscription. Open because a service worker holds
 // no session and this can fire with no tab to lend it one; the old endpoint is
 // what stands in for the session, and only the device that had it knows it.
+// The Android notification's Decline button. No sanctum here on purpose: the
+// press happens in native code that holds no token, and the URL's signature
+// (call + callee + one-minute expiry) is the entire authorisation.
+Route::post('/push/calls/{call}/decline', [\App\Http\Controllers\Api\V1\CallController::class, 'declineFromPush'])
+    ->name('push.calls.decline')
+    ->middleware('signed');
+
 Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'rotate'])
     ->middleware('throttle:20,1');
 

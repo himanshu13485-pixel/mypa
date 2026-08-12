@@ -89,10 +89,6 @@ class FcmService
 
         $message = [
             'token' => $token->token,
-            'notification' => [
-                'title' => (string) ($payload['title'] ?? 'Netvork'),
-                'body' => (string) ($payload['body'] ?? ''),
-            ],
             'data' => $data,
             'android' => [
                 /*
@@ -105,20 +101,36 @@ class FcmService
                 // Same idea as web push TTL: a ring delivered late is not a
                 // late ring, it is a wrong one.
                 'ttl' => (int) ($options['TTL'] ?? 3600).'s',
-                'notification' => [
-                    // calls2: channels are immutable once created on a device,
-                    // and the first 'calls' shipped without its ringtone. The
-                    // shell creates calls2 with the sound and retires the old
-                    // channel; a message addressed to a channel a phone does
-                    // not have is dropped silently, so these two names must
-                    // move together.
-                    'channel_id' => ($payload['kind'] ?? null) === 'call' ? 'calls2' : 'default',
-                    // One notification per call, replaced on re-ring, exactly
-                    // like the web push 'tag'.
-                    'tag' => (string) ($payload['tag'] ?? ''),
-                ],
             ],
         ];
+
+        /*
+         * Calls are data-only; everything else carries a notification block.
+         *
+         * The split is about who draws the notification when the app is dead.
+         * A notification block is drawn by Android itself — reliable, but
+         * plain: no Answer and Decline buttons, no looping ring, and the whole
+         * surface is one big tap that answers. For calls the shell now has a
+         * native handler (NetvorkMessagingService) that Android wakes for
+         * data-only messages precisely so it can build the ringing
+         * notification itself, with buttons. Sending a notification block too
+         * would put a second, button-less copy beside it.
+         *
+         * Everything else keeps the block: those notifications are fine plain,
+         * and the block needs no native code to show.
+         */
+        if (($payload['kind'] ?? null) !== 'call') {
+            $message['notification'] = [
+                'title' => (string) ($payload['title'] ?? 'Netvork'),
+                'body' => (string) ($payload['body'] ?? ''),
+            ];
+            $message['android']['notification'] = [
+                'channel_id' => 'default',
+                // One notification per subject, replaced on re-send, exactly
+                // like the web push 'tag'.
+                'tag' => (string) ($payload['tag'] ?? ''),
+            ];
+        }
 
         try {
             /*

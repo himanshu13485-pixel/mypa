@@ -109,6 +109,47 @@ class CallController extends Controller
         ], 201);
     }
 
+    /**
+     * Decline pressed on the Android notification.
+     *
+     * The 'signed' middleware has already proven this URL came from us,
+     * unaltered and unexpired; the callee's uuid rides in the signature, which
+     * is what stands in for a login here — the button lives in native code
+     * that has no token to offer. Everything is tolerant of staleness: a
+     * notification can be pressed seconds after the caller hung up, and that
+     * deserves a shrug, not an error page on somebody's phone.
+     */
+    public function declineFromPush(Request $request, Call $call): JsonResponse
+    {
+        $me = \App\Models\User::where('uuid', (string) $request->query('user'))->first();
+        if (! $me || ! $call->participants()->where('users.id', $me->id)->exists()) {
+            return response()->json(['message' => 'ok']);
+        }
+
+        if ($call->status !== 'ringing') {
+            // Already answered, already dead, or a group call in progress —
+            // nothing here for a decline to do.
+            return response()->json(['message' => 'ok']);
+        }
+
+        $isGroup = $call->conversation->type !== 'direct';
+        $call->participants()->updateExistingPivot($me->id, ['status' => 'declined']);
+        if (! $isGroup) {
+            $call->update(['status' => 'declined', 'ended_at' => now()]);
+            $this->logCallToChat($call->fresh(['conversation']));
+        }
+        \App\Support\Realtime::send(new CallSignal(
+            $call->load(['conversation', 'caller']),
+            $me->uuid,
+            $me->name,
+            $call->caller->uuid,
+            'decline',
+            ['decliner_uuid' => $me->uuid, 'is_group' => $isGroup],
+        ));
+
+        return response()->json(['message' => 'Call declined.']);
+    }
+
     /** Callee accepts or declines a ringing call. */
     public function respond(Request $request, Call $call): JsonResponse
     {
