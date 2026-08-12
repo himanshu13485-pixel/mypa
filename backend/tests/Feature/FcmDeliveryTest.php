@@ -123,7 +123,7 @@ class FcmDeliveryTest extends TestCase
                  * that never needed FCM.
                  */
                 && isset($message['notification']['title'])
-                && $message['android']['notification']['channel_id'] === 'calls'
+                && $message['android']['notification']['channel_id'] === 'calls2'
                 && $message['data']['kind'] === 'call';
         });
     }

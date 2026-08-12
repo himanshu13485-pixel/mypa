@@ -106,7 +106,13 @@ class FcmService
                 // late ring, it is a wrong one.
                 'ttl' => (int) ($options['TTL'] ?? 3600).'s',
                 'notification' => [
-                    'channel_id' => ($payload['kind'] ?? null) === 'call' ? 'calls' : 'default',
+                    // calls2: channels are immutable once created on a device,
+                    // and the first 'calls' shipped without its ringtone. The
+                    // shell creates calls2 with the sound and retires the old
+                    // channel; a message addressed to a channel a phone does
+                    // not have is dropped silently, so these two names must
+                    // move together.
+                    'channel_id' => ($payload['kind'] ?? null) === 'call' ? 'calls2' : 'default',
                     // One notification per call, replaced on re-ring, exactly
                     // like the web push 'tag'.
                     'tag' => (string) ($payload['tag'] ?? ''),

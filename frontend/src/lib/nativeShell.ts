@@ -23,6 +23,8 @@ type BridgePlugin = {
     importance: number
     visibility?: number
     vibration?: boolean
+    /** Filename in the shell's res/raw, extension included. */
+    sound?: string
   }) => Promise<void>
 }
 type Bridge = {
@@ -74,13 +76,30 @@ async function installNativeRinging(): Promise<void> {
   if (!push) return
 
   try {
+    /*
+     * calls2, because Android notification channels are immutable: the first
+     * build shipped 'calls' without a sound, and once a channel exists its
+     * settings belong to the device — recreating it with a ringtone changes
+     * nothing. A new id starts fresh on every phone, the old channel is
+     * removed so Settings does not show a dead duplicate, and the server
+     * addresses rings to the new name.
+     *
+     * The sound is res/raw/ringtone.wav in the shell — a 20-second dual-tone
+     * telephone ring, synthesized (no licence to carry). Android plays a
+     * channel sound in full, so a closed-app call rings like a phone rather
+     * than dinging like a text. It still will not loop until answered or
+     * take over the lock screen; that is ConnectionService work, still ahead.
+     */
+    await (push as unknown as { deleteChannel?: (c: { id: string }) => Promise<void> })
+      .deleteChannel?.({ id: 'calls' })?.catch(() => undefined)
     await push.createChannel?.({
-      id: 'calls',
+      id: 'calls2',
       name: 'Incoming calls',
       description: 'Rings when somebody calls you',
       importance: 5,
       visibility: 1,
       vibration: true,
+      sound: 'ringtone.wav',
     })
     await push.createChannel?.({
       id: 'default',
