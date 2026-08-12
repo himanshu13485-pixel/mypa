@@ -19,6 +19,7 @@ import {
   AUDIO_CONSTRAINTS, VIDEO_CONSTRAINTS, applySpeaker, loadDeviceChoice, nextCamera, openCamera, openMic,
   applySendQuality, saveDeviceChoice, screenShareSupported, senderFor, shareFailureMessage, speakerSelectionSupported,
   swapTrack, testSpeaker, useDevices, useMicLevel, type DeviceChoice,
+  openMedia,
 } from '../lib/devices'
 import { mergeForHandover, readyToRetire } from '../lib/handover'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
@@ -429,21 +430,11 @@ export default function MeetingRoomPage() {
      */
     let stream: MediaStream | null = null
     let lastErr: unknown
-    for (const wait of [0, 300, 600]) {
-      if (wait) await new Promise((r) => setTimeout(r, wait))
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio,
-          video: wantVideo ? video : false,
-        })
-        break
-      } catch (err) {
-        lastErr = err
-        // Only worth retrying the busy case. No camera at all, or permission
-        // refused, will say the same thing however many times it is asked.
-        if (!wantVideo || (err as Error)?.name !== 'NotReadableError') break
-        console.warn('[meeting] camera not ready, retrying', err)
-      }
+    try {
+      stream = await openMedia({ audio, video: wantVideo ? video : false })
+    } catch (err) {
+      lastErr = err
+      console.warn('[meeting] could not open camera and mic', err)
     }
 
     if (!stream) {
@@ -1557,10 +1548,20 @@ export default function MeetingRoomPage() {
     if (on && !localStreamRef.current?.getVideoTracks().length) {
       void (async () => {
         try {
-          const track = await openCamera({
-            deviceId: deviceChoice.cameraId,
-            facing: deviceChoice.facing,
+          // Through openMedia, so turning the camera back on gets the same
+          // retries and the same fall back to any camera. Without it this was
+          // a single attempt against a possibly-stale saved deviceId.
+          const camStream = await openMedia({
+            video: {
+              ...VIDEO_CONSTRAINTS,
+              ...(deviceChoice.cameraId
+                ? { deviceId: { exact: deviceChoice.cameraId } }
+                : deviceChoice.facing
+                  ? { facingMode: { ideal: deviceChoice.facing } }
+                  : {}),
+            },
           })
+          const track = camStream.getVideoTracks()[0]
           cameraTrackRef.current = track
           swapTrack(pcsRef.current.values(), localStreamRef.current, track)
           track.enabled = true

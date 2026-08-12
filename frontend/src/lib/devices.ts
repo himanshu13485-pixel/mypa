@@ -57,6 +57,58 @@ export async function listDevices(): Promise<DeviceOption[]> {
     }))
 }
 
+/**
+ * getUserMedia, with the two retreats a real machine needs.
+ *
+ * A camera on Windows is usually exclusive: while one page holds it, a second
+ * request for the same device fails outright. And stopping a track returns
+ * long before the operating system has actually let the device go, so the very
+ * next request lands in that gap. Both surface as NotReadableError, worded by
+ * the browser as "could not start video source" — which reads to everyone as
+ * "some other app has my camera" even when the other app was this page a
+ * moment ago.
+ *
+ * So: try again a few times, then, if the trouble is the exact camera asked
+ * for, drop the constraint and take whatever camera there is. A saved
+ * deviceId goes stale whenever the device list changes — unplug a webcam, use
+ * a different dock — and `exact` turns that into a hard failure. That is why
+ * pressing the flip-camera button "fixed" it: flipping asks for a different
+ * device.
+ *
+ * Throws only if every retreat fails, which is then genuinely worth telling
+ * somebody about.
+ */
+export async function openMedia(want: MediaStreamConstraints): Promise<MediaStream> {
+  const retryable = ['NotReadableError', 'AbortError']
+  let lastErr: unknown
+
+  for (const wait of [0, 250, 500]) {
+    if (wait) await new Promise((r) => setTimeout(r, wait))
+    try {
+      return await navigator.mediaDevices.getUserMedia(want)
+    } catch (err) {
+      lastErr = err
+      if (!retryable.includes((err as Error)?.name)) break
+    }
+  }
+
+  // Last resort: the same request without pinning a particular device.
+  const loosened = (c: boolean | MediaTrackConstraints | undefined) =>
+    (c && typeof c === 'object' && 'deviceId' in c ? { ...c, deviceId: undefined } : c)
+  const relaxed: MediaStreamConstraints = {
+    audio: loosened(want.audio as MediaTrackConstraints),
+    video: loosened(want.video as MediaTrackConstraints),
+  }
+
+  if (JSON.stringify(relaxed) !== JSON.stringify(want)) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(relaxed)
+    } catch { /* fall through to the original error, which is the honest one */ }
+  }
+
+  throw lastErr
+}
+
 /** Live list that refreshes when something is plugged in or unplugged. */
 export function useDevices(enabled = true) {
   const [devices, setDevices] = useState<DeviceOption[]>([])

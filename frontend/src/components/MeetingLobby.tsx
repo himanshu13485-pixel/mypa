@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Mic, MicOff, RefreshCw, SwitchCamera, Video, VideoOff } from 'lucide-react'
 import { clsx } from 'clsx'
 import {
+  openMedia,
   AUDIO_CONSTRAINTS, VIDEO_CONSTRAINTS, loadDeviceChoice, nextCamera, saveDeviceChoice,
   speakerSelectionSupported, useDevices, useMicLevel, type DeviceChoice,
 } from '../lib/devices'
@@ -91,7 +92,18 @@ export default function MeetingLobby({
       }
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
+        /*
+         * Let the old preview go before asking for a new one.
+         *
+         * This used to acquire first and release after, to avoid a gap in the
+         * picture — but a camera on Windows is usually exclusive, so asking
+         * for the device this page is already holding fails outright, and the
+         * lobby reported "Camera or microphone is busy" about itself. openMedia
+         * covers the other side of that trade: the device is not free the
+         * instant stop() returns, so it retries.
+         */
+        streamRef.current?.getTracks().forEach((t) => t.stop())
+        const stream = await openMedia({
           audio: micOnRef.current
             ? { ...AUDIO_CONSTRAINTS, ...(choice.micId ? { deviceId: { exact: choice.micId } } : {}) }
             : false,
@@ -112,7 +124,6 @@ export default function MeetingLobby({
           stream.getTracks().forEach((t) => t.stop())
           return
         }
-        streamRef.current?.getTracks().forEach((t) => t.stop())
         streamRef.current = stream
         setPreview(stream)
         if (videoRef.current) videoRef.current.srcObject = stream
