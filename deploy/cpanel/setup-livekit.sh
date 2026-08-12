@@ -24,15 +24,24 @@ WS_PORT=${WS_PORT:-7880}
 # One UDP port for all media, rather than a port per connection.
 #
 # This started as a 50000-60000 range, which is what "one port per participant"
-# suggests and is LiveKit's older shape. Two things are wrong with it here.
-# Ten thousand ports have to be open and stay open through CSF, firewalld and
-# whatever the host does above that; and because a port in the range is only
-# bound while a call is using it, there is nothing to test from outside — a
-# room where the media never arrives looks exactly like a room where the
-# firewall is fine, and neither can be told apart from the other end.
+# suggests and is LiveKit's older shape. A range cannot be tested: a port in it
+# is only bound while a call is using it, so a room where media never arrives
+# looks exactly like a room where the firewall is fine. One port is open or it
+# is not, and can be answered in a second from anywhere.
 #
-# One port is open or it is not, and can be answered in a second from anywhere.
-UDP_PORT=${UDP_PORT:-7882}
+# WHY 50000 AND NOT SOMETHING TIDY LIKE 7882: the machine sits behind the
+# provider's NAT (its own address is a 10.x), and the provider's edge forwards
+# a fixed list of ports. That list is upstream of this box — packets to a port
+# not on it never arrive at all, which tcpdump proved for 7882: a steady
+# stream sent from outside, zero packets captured, while the box's own
+# firewall stood wide open. No firewall-cmd here can change that list. What
+# is demonstrably ON the list is the old media range — the LiveKit log shows
+# a working connection on 50000-60000 — so the mux port lives inside it.
+#
+# (Also: firewalld on this box puts its default-zone rules in 'public' while
+# the real interface sits in the 'docker' zone, so the rules this script adds
+# are belt-and-braces at best. The provider's edge is the gate that counts.)
+UDP_PORT=${UDP_PORT:-50000}
 # LiveKit's ICE-over-TCP fallback, for clients whose network will not pass UDP
 # at all — corporate firewalls, a few mobile carriers. Without it those people
 # join, appear in the roster, and then see and hear nobody.
