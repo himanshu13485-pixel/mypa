@@ -2182,6 +2182,19 @@ export default function MeetingRoomPage() {
     }),
     [peers, spotlight, pinned, activeSpeaker, recentSpeakers],
   )
+  /*
+   * Tell the server which tiles are worth full quality.
+   *
+   * visiblePeers is already ranked — pinned first, then spotlit, then whoever
+   * is speaking — so this asks for the best picture exactly where it will be
+   * seen large, and the small layer for everyone being drawn small anyway.
+   * On the mesh there is nothing to ask: every peer sends us one stream and
+   * the quality was settled when they published it.
+   */
+  useEffect(() => {
+    sfuRef.current?.setFocus(visiblePeers.map((p) => p.uuid))
+  }, [visiblePeers])
+
   const stripSide = layout === 'sidebar'
 
   const selfTile = showSelfTile ? (

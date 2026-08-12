@@ -39,6 +39,11 @@ export interface SfuSession {
   publish: (stream: MediaStream) => Promise<void>
   setMicEnabled: (on: boolean) => Promise<void>
   setCameraEnabled: (on: boolean) => Promise<void>
+  /**
+   * Who is on screen large, best first — from the room's own tile ranking, so
+   * the server is asked for full quality exactly where it will be seen.
+   */
+  setFocus: (uuids: string[]) => void
   disconnect: () => void
 }
 
@@ -133,32 +138,73 @@ function publishBudget(mobile: boolean) {
 
 export type ReceiveQuality = 'high' | 'medium' | 'low'
 
-/**
- * What to ask the server to send us, given how many people are in the room.
- *
- * This is the job LiveKit's adaptiveStream does, done from the room's size
- * instead of from how large each video element happens to render. Element size
- * is the more precise signal and it is the reason the picture flickered:
- * switching layer needs a fresh keyframe, adaptiveStream re-decides whenever an
- * element resizes, and a tile sitting near one of its thresholds flips back and
- * forth for ever. Dragging a window, opening devtools and certain phones all
- * did it, because all of them change how big a tile renders.
- *
- * A headcount does not wobble. It changes when somebody joins or leaves, which
- * is exactly when the amount of video worth carrying really has changed.
- *
- * The bands overlap on purpose. Stepping down at five and back up at three
- * means a meeting hovering around four is not renegotiating every time somebody
- * comes and goes — the same reason a thermostat does not switch on and off at a
- * single temperature.
- */
-export function nextQuality(current: ReceiveQuality, peers: number): ReceiveQuality {
-  if (current === 'high' && peers >= 5) return 'medium'
-  if (current === 'medium' && peers >= 8) return 'low'
-  if (current === 'low' && peers <= 6) return 'medium'
-  if (current === 'medium' && peers <= 3) return 'high'
+/** How many tiles are worth full quality at once. */
+export const FOCUS_LIMIT = 4
 
-  return current
+/**
+ * How long somebody keeps full quality after dropping out of the focus.
+ *
+ * The focus is ranked by who is speaking, so without this a conversation
+ * between three people would re-request layers every time the speaker changed
+ * — and every layer change costs a keyframe, which is the flicker. Holding the
+ * old quality briefly means a normal back-and-forth costs nothing at all.
+ */
+export const DEMOTE_AFTER_MS = 12_000
+
+/**
+ * What to ask the server for, per participant.
+ *
+ * This is the job LiveKit's adaptiveStream does, driven by something that does
+ * not wobble. Element size is the more precise signal and it is why the picture
+ * flickered: adaptiveStream re-decides whenever an element resizes, switching
+ * layer needs a fresh keyframe, and a tile sitting near one of its thresholds
+ * flips back and forth for ever. Dragging a window, opening devtools and
+ * certain phones all set it off, because all of them change how large a tile
+ * renders.
+ *
+ * The room's own ranking does not wobble like that. It already decides who is
+ * shown large — pinned first, then spotlit, then whoever is speaking — so the
+ * top few get everything and the rest get the small layer they are being drawn
+ * at anyway.
+ *
+ * @param order    from rankTiles, best first.
+ * @param present  everyone the server has for us.
+ * @param highSince when each participant last became full quality. Mutated:
+ *   it is the memory that makes the hold above work across calls.
+ */
+export function focusQualities(
+  order: string[],
+  present: string[],
+  highSince: Map<string, number>,
+  now: number,
+): Map<string, ReceiveQuality> {
+  const focused = new Set(order.slice(0, FOCUS_LIMIT))
+  const out = new Map<string, ReceiveQuality>()
+
+  for (const uuid of present) {
+    if (focused.has(uuid)) {
+      if (!highSince.has(uuid)) highSince.set(uuid, now)
+      out.set(uuid, 'high')
+      continue
+    }
+
+    const since = highSince.get(uuid)
+    if (since !== undefined && now - since < DEMOTE_AFTER_MS) {
+      out.set(uuid, 'high')
+      continue
+    }
+
+    highSince.delete(uuid)
+    out.set(uuid, 'low')
+  }
+
+  // Anyone gone is gone; leaving them here would hold a seat in the map for
+  // the rest of the meeting and give them full quality if they came back.
+  for (const uuid of [...highSince.keys()]) {
+    if (!present.includes(uuid)) highSince.delete(uuid)
+  }
+
+  return out
 }
 
 export async function joinSfu(
@@ -217,35 +263,47 @@ export async function joinSfu(
   const room = new LiveKitRoom(options)
 
   /*
-   * Ask for the quality the room size warrants, and only when it changes.
+   * Ask for each participant's quality, and only where it has changed.
    *
-   * Re-requesting the layer we are already on is not free — the server sends a
-   * keyframe — so a room that asked on every event would reintroduce the
-   * flicker this replaced.
+   * Re-requesting the layer we are already receiving is not free — the server
+   * answers with a keyframe — so asking for everything on every event would
+   * reintroduce the flicker this replaced.
    */
-  let quality: ReceiveQuality = 'high'
+  let order: string[] = []
+  const highSince = new Map<string, number>()
+  const applied = new Map<string, ReceiveQuality>()
+
   const applyQuality = async () => {
-    const want = nextQuality(quality, room.remoteParticipants.size)
-    if (want === quality) return
-    quality = want
+    const present = [...room.remoteParticipants.keys()]
+    const want = focusQualities(order, present, highSince, Date.now())
+    const changed = [...want].filter(([uuid, q]) => applied.get(uuid) !== q)
+    if (!changed.length) return
 
     const { VideoQuality } = await import('livekit-client')
-    const level = want === 'high' ? VideoQuality.HIGH
-      : want === 'medium' ? VideoQuality.MEDIUM
-        : VideoQuality.LOW
-
-    for (const p of room.remoteParticipants.values()) {
-      for (const pub of p.trackPublications.values()) {
-        if (pub.kind === 'video') pub.setVideoQuality(level)
+    for (const [uuid, q] of changed) {
+      const participant = room.remoteParticipants.get(uuid)
+      if (!participant) continue
+      for (const pub of participant.trackPublications.values()) {
+        if (pub.kind === 'video') pub.setVideoQuality(q === 'high' ? VideoQuality.HIGH : VideoQuality.LOW)
       }
+      applied.set(uuid, q)
     }
-    console.info('[meeting] receiving', want, 'from', room.remoteParticipants.size, 'peer(s)')
+    for (const uuid of [...applied.keys()]) if (!want.has(uuid)) applied.delete(uuid)
+    console.info('[meeting] quality', changed.map(([u, q]) => `${u.slice(0, 8)}:${q}`).join(' '))
   }
 
   const announce = () => {
     void applyQuality()
     callbacks.onPeers(peersFrom(room))
   }
+
+  /*
+   * Nothing may happen for a while after somebody stops speaking, and a
+   * demotion that is waiting out its hold needs something to come back and
+   * carry it out. Cheap: it does nothing unless an answer has actually
+   * changed.
+   */
+  const sweep = window.setInterval(() => void applyQuality(), 5_000)
 
   room
     .on(RoomEvent.ParticipantConnected, announce)
@@ -294,7 +352,14 @@ export async function joinSfu(
     publish,
     setMicEnabled: (on) => room.localParticipant.setMicrophoneEnabled(on).then(() => undefined),
     setCameraEnabled: (on) => room.localParticipant.setCameraEnabled(on).then(() => undefined),
+    setFocus: (uuids) => {
+      // Cheap enough to call on every render of the tile grid: applyQuality
+      // does nothing unless an answer has actually moved.
+      order = uuids
+      void applyQuality()
+    },
     disconnect: () => {
+      window.clearInterval(sweep)
       room.removeAllListeners()
       void room.disconnect()
     },
