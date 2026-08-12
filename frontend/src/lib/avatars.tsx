@@ -39,18 +39,44 @@ import m3 from '../assets/avatars/m3.svg'
 import m4 from '../assets/avatars/m4.svg'
 import m5 from '../assets/avatars/m5.svg'
 import m6 from '../assets/avatars/m6.svg'
+import p1 from '../assets/avatars/p1.svg'
+import p2 from '../assets/avatars/p2.svg'
+import p3 from '../assets/avatars/p3.svg'
+import p4 from '../assets/avatars/p4.svg'
+import p5 from '../assets/avatars/p5.svg'
+import p6 from '../assets/avatars/p6.svg'
+import p7 from '../assets/avatars/p7.svg'
+import p8 from '../assets/avatars/p8.svg'
+import p9 from '../assets/avatars/p9.svg'
+import p10 from '../assets/avatars/p10.svg'
+import p11 from '../assets/avatars/p11.svg'
+import p12 from '../assets/avatars/p12.svg'
 
-/** Key format: f/m + 1-6. Stored on profiles, so these names are permanent. */
+/**
+ * Key format: f/m + 1-6 for the illustrated set, p + 1-12 for the professional
+ * one. Stored on profiles, so these names are permanent.
+ */
 export type AvatarKey = string
 
 /** Every illustration on offer, by the key kept on the profile. */
 export const AVATARS: Record<AvatarKey, string> = {
   f1, f2, f3, f4, f5, f6,
   m1, m2, m3, m4, m5, m6,
+  p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11, p12,
 }
 
 /** Grouped for the picker, in the order they are offered. */
 export const AVATAR_GROUPS: { label: string; keys: AvatarKey[] }[] = [
+  /*
+   * Professional first, because it is what most people want next to their
+   * name at work — the illustrated set is the one you go looking for.
+   *
+   * Not split by gender. These are drawn in a style where the difference is
+   * hair and clothing rather than anything the picker should be sorting
+   * people into, and offering one list avoids asking somebody to file
+   * themselves under a heading before they can choose a picture.
+   */
+  { label: 'Professional', keys: ['p1', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9', 'p10', 'p11', 'p12'] },
   { label: 'Female', keys: ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'] },
   { label: 'Male', keys: ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'] },
 ]

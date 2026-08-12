@@ -42,9 +42,11 @@ describe('the avatar set', () => {
   it('keeps the keys that are already stored on profiles', () => {
     // These are saved against people. Renaming one does not migrate anything —
     // it silently blanks that person's avatar back to an initial.
-    expect(Object.keys(AVATARS).sort()).toEqual(
-      ['f1', 'f2', 'f3', 'f4', 'f5', 'f6', 'm1', 'm2', 'm3', 'm4', 'm5', 'm6'],
-    )
+    expect(Object.keys(AVATARS).sort()).toEqual([
+      'f1', 'f2', 'f3', 'f4', 'f5', 'f6',
+      'm1', 'm2', 'm3', 'm4', 'm5', 'm6',
+      'p1', 'p10', 'p11', 'p12', 'p2', 'p3', 'p4', 'p5', 'p6', 'p7', 'p8', 'p9',
+    ])
   })
 })
 

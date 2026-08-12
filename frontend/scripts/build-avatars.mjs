@@ -22,7 +22,7 @@
  * avatar.
  */
 import { createAvatar } from '@dicebear/core'
-import { openPeeps } from '@dicebear/collection'
+import { avataaars, openPeeps } from '@dicebear/collection'
 import fs from 'node:fs'
 import path from 'node:path'
 
@@ -52,24 +52,75 @@ const SET = [
   ['m6', 'hatHip', '#d1fae5', { face: ['cheeky'] }],
 ]
 
+/*
+ * The professional set: working adults, dressed for work.
+ *
+ * Avataaars rather than Notionists, and every feature named rather than left
+ * to a seed. The first attempt seeded Notionists and got twelve people who
+ * looked like sixth-formers, because a seed is free to choose a hoodie, and
+ * free to choose `hearts` for the eyes or `vomit` for the mouth. Nothing about
+ * "pick a random valid combination" knows this is going next to somebody's
+ * name at work.
+ *
+ * So the clothing here is only ever a blazer or a collar, the expressions are
+ * only ever neutral or a plain smile, and the colours are office colours —
+ * navy, charcoal, slate — rather than the pinks and yellows in the palette.
+ * Facial hair and glasses are placed deliberately: they are most of what
+ * separates a drawn adult from a drawn teenager.
+ *
+ * Licence: free for personal and commercial use (avataaars.com), with no
+ * attribution required. The illustrated set stays CC0; this one is the same
+ * bargain in practice — nothing owed, nothing to carry in the app — but it is
+ * a different licence and worth knowing that.
+ */
+const PROFESSIONAL = [
+  // key, hair/head, clothing, facial hair, glasses, skin, clothes colour
+  ['p1', 'shortFlat', 'blazerAndShirt', null, null, 'edb98a', '262e33'],
+  ['p2', 'bun', 'collarAndSweater', null, 'prescription02', 'f8d25c', '3c4f5c'],
+  ['p3', 'shortWaved', 'blazerAndSweater', 'beardLight', null, 'd08b5b', '25557c'],
+  ['p4', 'hijab', 'blazerAndShirt', null, null, 'd08b5b', '3c4f5c'],
+  ['p5', 'shortRound', 'collarAndSweater', null, 'prescription01', 'ae5d29', '929598'],
+  ['p6', 'straight02', 'blazerAndShirt', null, null, 'edb98a', '262e33'],
+  ['p7', 'turban', 'blazerAndSweater', 'beardMedium', null, 'd08b5b', '25557c'],
+  ['p8', 'bob', 'blazerAndShirt', null, 'round', 'ffdbb4', '3c4f5c'],
+  ['p9', 'theCaesar', 'collarAndSweater', 'moustacheFancy', null, 'ae5d29', '929598'],
+  ['p10', 'longButNotTooLong', 'blazerAndSweater', null, null, '614335', '25557c'],
+  ['p11', 'sides', 'blazerAndShirt', 'beardMedium', 'wayfarers', '614335', '262e33'],
+  ['p12', 'curvy', 'collarAndSweater', null, null, 'ffdbb4', '3c4f5c'],
+]
+
+const DESK_BACKGROUNDS = ['dbeafe', 'e0e7ff', 'e2e8f0', 'ede9fe']
+
 fs.mkdirSync(OUT, { recursive: true })
 
-for (const [key, head, background, extra] of SET) {
-  const svg = createAvatar(openPeeps, {
+PROFESSIONAL.forEach(([key, top, clothing, facialHair, accessories, skinColor, clothesColor], i) => {
+  const svg = createAvatar(avataaars, {
+    // Still needs one, for anything not pinned below.
     seed: key,
-    head: [head],
-    backgroundColor: [background.replace('#', '')],
+    top: [top],
+    clothing: [clothing],
+    clothesColor: [clothesColor],
+    skinColor: [skinColor],
+    backgroundColor: [DESK_BACKGROUNDS[i % DESK_BACKGROUNDS.length]],
     radius: 50,
-    // A touch of room inside the circle: at 100 the hair clips the edge.
     scale: 90,
-    // A profile picture is not a pandemic photo, and blushes read as dirt at
-    // list size.
-    maskProbability: 0,
-    blushesProbability: 0,
-    ...extra,
+
+    /*
+     * Pinned, because the alternatives are unusable here. The eye list
+     * includes hearts, cry and xDizzy; the mouth list includes vomit and
+     * screamOpen. A seed picks from all of them.
+     */
+    eyes: ['default'],
+    eyebrows: ['defaultNatural'],
+    mouth: i % 2 ? ['smile'] : ['default'],
+
+    facialHair: facialHair ? [facialHair] : [],
+    facialHairProbability: facialHair ? 100 : 0,
+    accessories: accessories ? [accessories] : [],
+    accessoriesProbability: accessories ? 100 : 0,
   }).toString()
 
   fs.writeFileSync(path.join(OUT, `${key}.svg`), svg)
-}
+})
 
-console.log(`wrote ${SET.length} avatars to src/assets/avatars/`)
+console.log(`wrote ${SET.length + PROFESSIONAL.length} avatars to src/assets/avatars/`)
