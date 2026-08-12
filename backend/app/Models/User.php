@@ -135,6 +135,12 @@ class User extends Authenticatable implements MustVerifyEmail
         return $this->hasMany(PushSubscription::class);
     }
 
+    /** Installed Android apps that can be rung. The native twin of the above. */
+    public function fcmTokens(): HasMany
+    {
+        return $this->hasMany(FcmToken::class);
+    }
+
     public function loginHistories(): HasMany
     {
         return $this->hasMany(LoginHistory::class);

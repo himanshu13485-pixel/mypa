@@ -82,4 +82,42 @@ class PushSubscriptionController extends Controller
 
         return response()->json(['message' => 'Push notifications disabled on this device.']);
     }
+
+    /**
+     * The Android app registering itself to be rung.
+     *
+     * The native twin of subscribe(): the shell's WebView has no Push API, so
+     * instead of a browser endpoint it brings a Firebase token. Claimed for
+     * whoever is signed in *now*, taking it from any previous owner — the same
+     * physical phone logging into a second account must ring for that account,
+     * not for both.
+     */
+    public function registerFcm(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'token' => ['required', 'string', 'min:32', 'max:512'],
+            'platform' => ['sometimes', 'in:android,ios'],
+        ]);
+
+        \App\Models\FcmToken::updateOrCreate(
+            ['token' => $data['token']],
+            [
+                'user_id' => $request->user()->id,
+                'platform' => $data['platform'] ?? 'android',
+                'last_seen_at' => now(),
+            ],
+        );
+
+        return response()->json(['message' => 'This device will ring.']);
+    }
+
+    /** Signing out of the app: this phone stops ringing for this account. */
+    public function unregisterFcm(Request $request): JsonResponse
+    {
+        $data = $request->validate(['token' => ['required', 'string', 'max:512']]);
+
+        $request->user()->fcmTokens()->where('token', $data['token'])->delete();
+
+        return response()->json(['message' => 'This device will no longer ring.']);
+    }
 }

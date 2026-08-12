@@ -24,6 +24,7 @@ class BillDueNotification extends Notification implements ShouldQueue
         }
         if (SocialNotification::wantsPush($notifiable)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;
+            $via[] = \App\Notifications\Channels\FcmChannel::class;
         }
 
         return $via;

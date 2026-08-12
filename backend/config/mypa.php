@@ -48,6 +48,17 @@ return [
             : 'https://sandbox.cashfree.com/pg',
     ],
 
+    /*
+     * Firebase Cloud Messaging, which is how the Android app rings — the
+     * shell's WebView has no Push API, so web push cannot reach it. The
+     * credentials value is the path to a Google service-account JSON: on the
+     * server, out of git, chmod 600, exactly like the LiveKit secret and for
+     * the same reason. Absent means FCM is off and every send quietly no-ops.
+     */
+    'fcm' => [
+        'credentials' => env('FCM_CREDENTIALS'),
+    ],
+
     'webpush' => [
         'public_key' => env('VAPID_PUBLIC_KEY'),
         'private_key' => env('VAPID_PRIVATE_KEY'),

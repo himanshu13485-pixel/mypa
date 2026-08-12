@@ -7,8 +7,24 @@
  * bridge onto `window` at load, and its absence is the signal that this is an
  * ordinary tab. Everything below is a no-op outside the app.
  */
+import { api } from '../api/client'
+import { useAuthStore } from '../stores/auth'
 
-type BridgePlugin = { addListener: (event: string, cb: () => void) => void; minimizeApp?: () => void }
+type Listener = (payload: { value?: string; notification?: { data?: Record<string, string> } }) => void
+type BridgePlugin = {
+  addListener: (event: string, cb: Listener) => void
+  minimizeApp?: () => void
+  requestPermissions?: () => Promise<{ receive?: string }>
+  register?: () => Promise<void>
+  createChannel?: (channel: {
+    id: string
+    name: string
+    description?: string
+    importance: number
+    visibility?: number
+    vibration?: boolean
+  }) => Promise<void>
+}
 type Bridge = {
   isNativePlatform?: () => boolean
   Plugins?: Record<string, BridgePlugin>
@@ -34,4 +50,84 @@ export function installNativeShell(): void {
     if (window.history.length > 1) window.history.back()
     else bridge()?.Plugins?.App?.minimizeApp?.()
   })
+
+  void installNativeRinging()
+}
+
+/**
+ * How the app rings when it is closed.
+ *
+ * The WebView has no Push API — that is a Chrome feature, not a WebView one —
+ * so the web push every browser tab uses simply does not exist in here.
+ * Instead the shell registers with Firebase, hands the token to the server,
+ * and the server rings this device over FCM alongside every web push it sends.
+ *
+ * The 'calls' channel is created here, by the app, at maximum importance:
+ * Android displays incoming-call notifications on it even when the app
+ * process is dead, which is the entire point. Note the sound is the system
+ * notification sound, loud and heads-up but once — a rolling 30-second
+ * ringtone with Answer/Decline on the lock screen needs a native
+ * ConnectionService, which is future work, not this.
+ */
+async function installNativeRinging(): Promise<void> {
+  const push = bridge()?.Plugins?.PushNotifications
+  if (!push) return
+
+  try {
+    await push.createChannel?.({
+      id: 'calls',
+      name: 'Incoming calls',
+      description: 'Rings when somebody calls you',
+      importance: 5,
+      visibility: 1,
+      vibration: true,
+    })
+    await push.createChannel?.({
+      id: 'default',
+      name: 'Notifications',
+      importance: 4,
+    })
+  } catch (err) {
+    console.warn('[shell] could not create notification channels', err)
+  }
+
+  /*
+   * The token arrives whenever Firebase pleases, and signing in happens
+   * whenever the user pleases — the registration POST needs both. Whichever
+   * comes second triggers the send.
+   */
+  let token: string | null = null
+  let sent: string | null = null
+
+  const flush = () => {
+    if (!token || token === sent || !useAuthStore.getState().token) return
+    const current = token
+    api.post('/push/fcm-token', { token: current, platform: 'android' })
+      .then(() => { sent = current })
+      .catch((err) => console.warn('[shell] could not register for ringing', err))
+  }
+
+  push.addListener('registration', (payload) => {
+    token = payload.value ?? null
+    flush()
+  })
+  push.addListener('registrationError', (err) => console.warn('[shell] push registration failed', err))
+  useAuthStore.subscribe(flush)
+
+  /*
+   * A tapped notification is a person answering: take them straight to what
+   * rang. The url is the same one the web push carries, so both transports
+   * land in the same place.
+   */
+  push.addListener('pushNotificationActionPerformed', (payload) => {
+    const url = payload.notification?.data?.url
+    if (url && url.startsWith('/')) window.location.assign(url)
+  })
+
+  try {
+    const status = await push.requestPermissions?.()
+    if (status?.receive === 'granted') await push.register?.()
+  } catch (err) {
+    console.warn('[shell] push permission request failed', err)
+  }
 }

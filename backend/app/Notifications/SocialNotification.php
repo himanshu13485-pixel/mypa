@@ -38,8 +38,11 @@ class SocialNotification extends Notification implements ShouldQueue
     {
         $prefs = $notifiable->settings?->notification_preferences ?? [];
 
+        // A browser subscription or an installed Android app — either is a
+        // device that can be pushed to. The channels sort out which is which:
+        // each quietly skips a user with no devices of its kind.
         return ($prefs['push'] ?? true)
-            && $notifiable->pushSubscriptions()->exists();
+            && ($notifiable->pushSubscriptions()->exists() || $notifiable->fcmTokens()->exists());
     }
 
     public function via(object $notifiable): array
@@ -48,6 +51,7 @@ class SocialNotification extends Notification implements ShouldQueue
 
         if (self::wantsPush($notifiable)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;
+            $via[] = \App\Notifications\Channels\FcmChannel::class;
         }
 
         return $via;

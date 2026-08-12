@@ -35,11 +35,23 @@ class IncomingCallNotification extends Notification
 
         // A call is the one thing worth waking someone for, but "no push"
         // still means no push.
-        if (! ($prefs['push'] ?? true) || ! $notifiable->pushSubscriptions()->exists()) {
+        if (! ($prefs['push'] ?? true)) {
             return [];
         }
 
-        return [WebPushChannel::class];
+        // Browsers and the Android app are different transports for the same
+        // ring: web push cannot reach the app (its WebView has no Push API),
+        // and FCM cannot reach a browser. Each is skipped for a user with no
+        // devices of its kind.
+        $via = [];
+        if ($notifiable->pushSubscriptions()->exists()) {
+            $via[] = WebPushChannel::class;
+        }
+        if ($notifiable->fcmTokens()->exists()) {
+            $via[] = \App\Notifications\Channels\FcmChannel::class;
+        }
+
+        return $via;
     }
 
     /**

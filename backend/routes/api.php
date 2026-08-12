@@ -182,6 +182,9 @@ Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionContro
         Route::get('/push/public-key', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'publicKey']);
         Route::post('/push/subscribe', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'subscribe']);
         Route::post('/push/unsubscribe', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'unsubscribe']);
+        // The Android app's ring channel — see registerFcm for why it exists.
+        Route::post('/push/fcm-token', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'registerFcm']);
+        Route::delete('/push/fcm-token', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'unregisterFcm']);
 
         // Identity change requests (approval-based)
         Route::get('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'index']);
