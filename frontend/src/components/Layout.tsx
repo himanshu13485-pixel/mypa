@@ -13,6 +13,7 @@ import { isStaff, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
 import NetvorkMark from './Logo'
 import { CallProvider } from './CallManager'
+import { MeetingHost, MeetingSlot } from './MeetingHost'
 import VoiceAssistant from './VoiceAssistant'
 import MobileVerifyBanner from './MobileVerifyBanner'
 import { Avatar } from '../lib/avatars'
@@ -188,6 +189,7 @@ export default function Layout() {
 
   return (
     <CallProvider>
+    <MeetingHost>
     {/* h-dvh, not h-screen: 100vh on a phone is the height with the URL bar
         hidden, so a plain h-screen shell hides its own footer until you
         scroll, then jumps when the bar retracts. */}
@@ -311,6 +313,7 @@ export default function Layout() {
           bare ? 'p-0' : immersive ? 'p-2 sm:p-4' : 'p-4 sm:p-6',
         )}>
           <Outlet />
+          <MeetingSlot />
         </main>
 
         {/* Mobile bottom bar. Four destinations plus the drawer — the same
@@ -379,6 +382,7 @@ export default function Layout() {
       */}
       {!immersive && !chatOpen && <VoiceAssistant />}
     </div>
+    </MeetingHost>
     </CallProvider>
   )
 }

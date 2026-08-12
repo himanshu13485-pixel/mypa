@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import ErrorBoundary from './components/ErrorBoundary'
 import { lazyRoute } from './lib/lazyRoute'
+import { MeetingRoomRoute } from './components/MeetingHost'
 import Layout from './components/Layout'
 import { RequireAdmin, RequireAuth, RequireGuestPass } from './components/Protected'
 import { ToastProvider } from './components/Toast'
@@ -119,7 +120,7 @@ export default function App() {
             <Route path="/bills" element={<BillsPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/meetings" element={<MeetingsPage />} />
-            <Route path="/meetings/room/:code" element={<MeetingRoomPage />} />
+            <Route path="/meetings/room/:code" element={<MeetingRoomRoute />} />
             <Route path="/screen" element={<ScreenPage />} />
             <Route path="/screen/session/:code" element={<ScreenSessionPage />} />
             <Route path="/reports" element={<ReportsPage />} />

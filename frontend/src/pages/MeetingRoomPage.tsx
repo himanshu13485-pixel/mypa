@@ -35,6 +35,7 @@ import { readGuestPass } from '../lib/guestPass'
 import { useToast } from '../components/Toast'
 import { Button, Card } from '../components/ui'
 import { NEW_MEETING, meetingLink } from './MeetingsPage'
+import { useMeetingSession } from '../components/MeetingHost'
 import type { MeetingHostAction, MeetingParticipant, MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
 import { Avatar } from '../lib/avatars'
@@ -155,6 +156,13 @@ function PeerTile({
  */
 export default function MeetingRoomPage() {
   const { code: routeCode = '' } = useParams()
+  /*
+   * MeetingHost keeps the room alive while you walk around the app, so the
+   * meeting being held and whether it is currently a floating tile come from
+   * there rather than from the URL. On the guest route there is no host, the
+   * defaults apply, and everything below behaves exactly as it always did.
+   */
+  const { code: hostedCode, minimised, close: onClosed } = useMeetingSession()
   /**
    * A meeting that does not exist yet.
    *
@@ -168,7 +176,7 @@ export default function MeetingRoomPage() {
    * out as the placeholder and becomes the real code on join.
    */
   const [createdCode, setCreatedCode] = useState<string | null>(null)
-  const code = createdCode ?? routeCode
+  const code = createdCode ?? hostedCode ?? routeCode
   const unborn = code === NEW_MEETING
   const navigate = useNavigate()
   const account = useAuthStore((s) => s.user)
@@ -1943,6 +1951,10 @@ export default function MeetingRoomPage() {
     teardown()
     joinedRef.current = false
     await meetingsApi.leave(code).catch(() => undefined)
+    // Before navigating: the host renders this component, so leaving it
+    // mounted would put a floating tile for a meeting nobody is in on top of
+    // the meetings list.
+    onClosed()
     navigate('/meetings')
   }
 
@@ -2496,7 +2508,7 @@ export default function MeetingRoomPage() {
           setLobbyError(null)
           void joinRoom(result)
         }}
-        onCancel={() => navigate('/meetings')}
+        onCancel={() => { onClosed(); navigate('/meetings') }}
       />
     )
   }
@@ -2509,7 +2521,7 @@ export default function MeetingRoomPage() {
           The host has a waiting room on. You will join automatically the moment they admit you —
           keep this page open.
         </p>
-        <Button className="mt-4" variant="secondary" onClick={() => navigate('/meetings')}>Cancel</Button>
+        <Button className="mt-4" variant="secondary" onClick={() => { onClosed(); navigate('/meetings') }}>Cancel</Button>
       </Card>
     )
   }
@@ -2520,7 +2532,7 @@ export default function MeetingRoomPage() {
         <p className="text-sm font-semibold">
           {phase === 'removed' ? 'You were removed from this meeting' : 'The host did not admit you'}
         </p>
-        <Button className="mt-4" onClick={() => navigate('/meetings')}>Back to Meetings</Button>
+        <Button className="mt-4" onClick={() => { onClosed(); navigate('/meetings') }}>Back to Meetings</Button>
       </Card>
     )
   }
@@ -2541,8 +2553,82 @@ export default function MeetingRoomPage() {
                 + 'Starting another one carries on from where you left off.'
               : 'Everyone has left, or the host ended it.'}
         </p>
-        <Button className="mt-4" onClick={() => navigate('/meetings')}>Back to Meetings</Button>
+        <Button className="mt-4" onClick={() => { onClosed(); navigate('/meetings') }}>Back to Meetings</Button>
       </Card>
+    )
+  }
+
+  /*
+   * Navigated away, but still in the meeting.
+   *
+   * Every hook above has already run, so the connection, the heartbeat and
+   * the media are exactly as they were — only the markup is different. That
+   * is the whole reason the room is rendered by MeetingHost rather than by a
+   * route: a route unmounts, and an unmounted meeting is a meeting you have
+   * left.
+   *
+   * Deliberately small and nearly featureless. It is a reminder that you are
+   * in a meeting and a way back into it, not a second control panel to keep
+   * in step with the real one.
+   */
+  if (minimised) {
+    const speaker = visiblePeers[0]
+
+    return (
+      <div className="fixed bottom-20 right-3 z-50 w-44 overflow-hidden rounded-xl bg-slate-900 shadow-xl ring-1 ring-white/10 sm:bottom-4 sm:w-56">
+        <button
+          type="button"
+          onClick={() => navigate(`/meetings/room/${code}`)}
+          className="block w-full text-left"
+          title="Back to the meeting"
+        >
+          <div className="relative aspect-video bg-slate-950">
+            {speaker?.stream && !speaker.camOff ? (
+              <video
+                ref={(el) => { if (el && el.srcObject !== speaker.stream) { el.srcObject = speaker.stream; void el.play().catch(() => undefined) } }}
+                autoPlay
+                playsInline
+                muted
+                className={VIDEO_FIT}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <Avatar name={speaker?.name ?? myName} avatar={speaker?.avatar} size={40} />
+              </div>
+            )}
+            <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+              {phase === 'in' ? fmt(elapsed) : 'Connecting…'}
+              <Users className="size-3" />
+              {peers.length + 1}
+            </span>
+          </div>
+        </button>
+        <div className="flex items-center justify-between gap-1 px-2 py-1.5">
+          <button
+            type="button"
+            onClick={() => setMicEnabled(muted)}
+            className={clsx('rounded-full p-1.5', muted ? 'bg-red-600 text-white' : 'bg-slate-700 text-white')}
+            title={muted ? 'Unmute' : 'Mute'}
+          >
+            {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/meetings/room/${code}`)}
+            className="flex-1 truncate rounded-full bg-slate-700 px-2 py-1 text-[11px] text-white"
+          >
+            Back to meeting
+          </button>
+          <button
+            type="button"
+            onClick={leave}
+            className="rounded-full bg-red-600 p-1.5 text-white"
+            title="Leave"
+          >
+            <PhoneOff className="size-4" />
+          </button>
+        </div>
+      </div>
     )
   }
 
