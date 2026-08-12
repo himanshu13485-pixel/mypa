@@ -2,6 +2,16 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <script>
+    // Inside the installed Android app there is no audience for a brochure:
+    // whoever is here has installed the product. The shell injects its bridge
+    // into every page on this origin, so its presence is a reliable signal —
+    // and a full logout/login cycle or a stray link to "/" can land the app
+    // here even though its start URL points elsewhere.
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+      window.location.replace('/dashboard')
+    }
+  </script>
   <title>Netvork — Client Operations Platform</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }

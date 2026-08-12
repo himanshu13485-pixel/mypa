@@ -18,7 +18,16 @@ const config: CapacitorConfig = {
   appName: 'Netvork',
   webDir: 'dist',
   server: {
-    url: 'https://netvork.app',
+    /*
+     * /dashboard, not the root. In production the root is rewritten by Apache
+     * to the static brand landing — the page whose job is persuading somebody
+     * to try the product. A person opening the installed app has been
+     * persuaded; starting them on the brochure meant every launch began with
+     * marketing and a Sign in hunt. /dashboard sits behind the auth guard, so
+     * it lands signed-in people on their dashboard and everyone else on the
+     * login form, which are the only two right answers.
+     */
+    url: 'https://netvork.app/dashboard',
     // Everything of ours stays inside the shell; anything else (payment
     // pages, OAuth) opens where the system browser can vouch for it.
     allowNavigation: ['netvork.app', '*.netvork.app'],
