@@ -8,6 +8,7 @@ import { calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
+import { holdMicrophoneInBackground, releaseMicrophoneHold } from '../lib/nativeShell'
 import { PickUserModal } from './UserSuggest'
 import { useToast } from './Toast'
 import { Button } from './ui'
@@ -1003,6 +1004,21 @@ export function CallProvider({ children }: { children: ReactNode }) {
     window.addEventListener('pagehide', bye)
     return () => window.removeEventListener('pagehide', bye)
   }, [])
+
+  /*
+   * The foreground service, for as long as there is a call. Without it Android
+   * takes the microphone the moment the app is backgrounded — the reason a
+   * call went silent on pressing home. Keyed on the call's identity so that
+   * the notification names whoever is on the other end, and stopped on the way
+   * out of the effect, which covers hanging up, being hung up on, and the
+   * component going away.
+   */
+  useEffect(() => {
+    if (!activeCall) return
+    holdMicrophoneInBackground(activeCall.peerName || 'Ongoing call')
+
+    return () => releaseMicrophoneHold()
+  }, [activeCall?.uuid, activeCall?.peerName])
 
   // Call duration ticker
   useEffect(() => {

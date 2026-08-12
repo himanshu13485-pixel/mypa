@@ -13,6 +13,8 @@ import { useAuthStore } from '../stores/auth'
 type Listener = (payload: { value?: string; notification?: { data?: Record<string, string> } }) => void
 type BridgePlugin = {
   addListener: (event: string, cb: Listener) => void
+  start?: (options: { label?: string }) => Promise<void>
+  stop?: () => Promise<void>
   minimizeApp?: () => void
   requestPermissions?: () => Promise<{ receive?: string }>
   register?: () => Promise<void>
@@ -166,4 +168,27 @@ async function installNativeRinging(): Promise<void> {
   } catch (err) {
     console.warn('[shell] push permission request failed', err)
   }
+}
+
+/**
+ * Hold the microphone while the app is in the background.
+ *
+ * Since Android 9 the operating system takes the microphone from any app that
+ * is not in the foreground, so pressing home mid-call muted you — and no
+ * amount of web code could stop it, because it is not web code doing it. A
+ * foreground service is the sanctioned exemption; its ongoing notification is
+ * the price, and is the same one every calling app shows.
+ *
+ * Both are no-ops in a browser, and both are safe to call repeatedly: they are
+ * driven from effects, where "exactly once" is a promise React does not make.
+ * Failures are swallowed on purpose — Android can refuse to start a service
+ * from the background, and a call without the exemption is worse than it was
+ * but is a great deal better than no call.
+ */
+export function holdMicrophoneInBackground(label: string): void {
+  void bridge()?.Plugins?.CallService?.start?.({ label })?.catch(() => undefined)
+}
+
+export function releaseMicrophoneHold(): void {
+  void bridge()?.Plugins?.CallService?.stop?.()?.catch(() => undefined)
 }

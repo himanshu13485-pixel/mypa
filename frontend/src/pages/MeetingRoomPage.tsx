@@ -37,6 +37,7 @@ import { useToast } from '../components/Toast'
 import { Button, Card } from '../components/ui'
 import { NEW_MEETING, meetingLink } from './MeetingsPage'
 import { useMeetingSession } from '../components/MeetingHost'
+import { holdMicrophoneInBackground, releaseMicrophoneHold } from '../lib/nativeShell'
 import type { MeetingHostAction, MeetingParticipant, MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
 import { Avatar } from '../lib/avatars'
@@ -1501,6 +1502,17 @@ export default function MeetingRoomPage() {
     document.addEventListener('click', resume)
     return () => document.removeEventListener('click', resume)
   }, [])
+
+  /*
+   * The same microphone hold a call takes — a meeting left in the background
+   * is muted by Android for exactly the same reason. See nativeShell.
+   */
+  useEffect(() => {
+    if (phase !== 'in') return
+    holdMicrophoneInBackground(meeting?.title || 'Netvork meeting')
+
+    return () => releaseMicrophoneHold()
+  }, [phase, meeting?.title])
 
   // Keep the speaker applied as tiles come and go.
   useEffect(() => {

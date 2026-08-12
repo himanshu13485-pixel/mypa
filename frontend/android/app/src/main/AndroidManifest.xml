@@ -37,6 +37,12 @@
             </intent-filter>
         </service>
 
+        <!-- Keeps the microphone alive while the app is in the background. -->
+        <service
+            android:name=".CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <!-- The notification's Decline button. -->
         <receiver
             android:name=".DeclineReceiver"
@@ -75,6 +81,15 @@
     <!-- Android 13+: notifications are opt-in per app, and the web push the
          site registers rides on the shell's permission. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Since Android 9 the microphone is cut off to background apps, so a
+         call died the moment somebody pressed home. A foreground service is
+         the sanctioned exemption and from Android 10 it must name its reason;
+         from 14 the matching permission is required too. This is the same
+         bargain every calling app strikes, and its ongoing notification is
+         the same one WhatsApp shows during a call. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <!-- An incoming call may take a locked screen, like a phone call does.
          Newer Android grants this selectively; where refused, the heads-up

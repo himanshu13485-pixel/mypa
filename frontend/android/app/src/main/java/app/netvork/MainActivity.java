@@ -23,6 +23,9 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Before super: the bridge is built there, and a plugin registered
+        // afterwards is not in it.
+        registerPlugin(CallServicePlugin.class);
         super.onCreate(savedInstanceState);
         cancelNamedNotification(getIntent());
     }
