@@ -77,11 +77,11 @@ public class NetvorkMessagingService extends com.capacitorjs.plugins.pushnotific
             .setAutoCancel(true);
 
         // Body tap: look at the call, decide there. Deliberately NOT answer.
-        builder.setContentIntent(openApp(id, "/calls"));
+        builder.setContentIntent(openApp(id, "/calls", id));
 
         String joinUrl = data.get("url");
         if (joinUrl != null) {
-            builder.addAction(0, "Answer", openApp(id + 1, joinUrl));
+            builder.addAction(0, "Answer", openApp(id + 1, joinUrl, id));
         }
 
         String declineUrl = data.get("decline_url");
@@ -96,7 +96,7 @@ public class NetvorkMessagingService extends com.capacitorjs.plugins.pushnotific
 
         // A locked phone gets the call over the lock screen, where the
         // platform allows it.
-        builder.setFullScreenIntent(openApp(id + 3, "/calls"), true);
+        builder.setFullScreenIntent(openApp(id + 3, "/calls", id), true);
 
         Notification notification = builder.build();
         // Loop the ringtone until answered, declined, dismissed or timed out —
@@ -109,11 +109,21 @@ public class NetvorkMessagingService extends com.capacitorjs.plugins.pushnotific
         }
     }
 
-    /** An intent into the webview at a path, cold start included. */
-    private PendingIntent openApp(int requestCode, String path) {
+    /**
+     * An intent into the webview at a path, cold start included.
+     *
+     * It carries the notification id because an action button's tap does not
+     * auto-cancel the way a body tap does — Answer opened the call with the
+     * notification still up and, thanks to FLAG_INSISTENT, still ringing over
+     * the conversation it had just started. The sanctioned route since the
+     * trampoline ban is for the opened activity itself to clear it, so
+     * MainActivity cancels whatever id its intent names.
+     */
+    private PendingIntent openApp(int requestCode, String path, int notificationId) {
         Intent intent = new Intent(Intent.ACTION_VIEW,
             Uri.parse("https://netvork.app" + path), this, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra(MainActivity.EXTRA_CANCEL_NOTIFICATION, notificationId);
 
         return PendingIntent.getActivity(this, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

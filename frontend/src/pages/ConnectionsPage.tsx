@@ -249,7 +249,14 @@ export default function ConnectionsPage() {
               <div className="space-y-2">
                 {shown.map((c) => (
                   <div key={c.uuid} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                    {/* flex-basis 11rem, not plain flex-1. The row wraps, but
+                        wrapping only happens once something refuses to shrink —
+                        and flex-1 shrinks to nothing first, so on a phone the
+                        buttons stayed on one line and the name was the thing
+                        that gave, squeezed to two letters beside the avatar.
+                        A basis the name can insist on flips the outcome: the
+                        name keeps its line and the buttons wrap below it. */}
+                    <div className="flex min-w-0 flex-[1_1_11rem] items-center gap-3">
                       <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{c.user?.name}</p>

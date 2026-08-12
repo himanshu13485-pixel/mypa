@@ -1572,20 +1572,60 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 />
               </>
             ) : (
-              <div className="flex h-24 items-center justify-center gap-2">
-                {remotePeers.map((p) => (
-                  <RemoteTile key={p.uuid} peer={p} video={false} />
-                ))}
-                <video ref={attachSelf} className="hidden" muted />
-                {activeCall.isGroup ? (
-                  <Users className="size-8 text-slate-500" />
-                ) : (
-                  <Phone className="size-8 text-slate-500" />
-                )}
-                {activeCall.isGroup && (
-                  <span className="text-xs text-slate-400">{tiles + 1} in call</span>
-                )}
-              </div>
+              /*
+               * The audio-call face. In the pill this stays a compact strip;
+               * expanded or fullscreen it is the whole screen, and a lone
+               * grey handset icon on a black page looked like something had
+               * failed to load rather than like a call. A phone call's screen
+               * is a person: their face, their name, and how long you have
+               * been talking — plus a quiet wordmark, since this screen is
+               * stared at for the whole call and says nothing else.
+               */
+              (isFs || expanded) ? (
+                <div className="flex min-h-0 flex-1 flex-col">
+                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6">
+                    <Avatar name={activeCall.peerName} size={96} />
+                    <div className="text-center">
+                      <p className="text-2xl font-semibold">{activeCall.peerName}</p>
+                      <p className="mt-1 text-sm text-slate-400">
+                        {activeCall.status === 'ringing' && 'Ringing…'}
+                        {activeCall.status === 'connecting' && 'Connecting…'}
+                        {activeCall.status === 'ongoing' && fmt(elapsed)}
+                      </p>
+                    </div>
+                    {/* The audio elements live in these tiles — they are the
+                        sound of the call, not decoration — and in a group
+                        they double as the roster. */}
+                    <div className="flex max-w-full flex-wrap items-center justify-center gap-2">
+                      {remotePeers.map((p) => (
+                        <RemoteTile key={p.uuid} peer={p} video={false} />
+                      ))}
+                      {activeCall.isGroup && (
+                        <span className="text-xs text-slate-400">{tiles + 1} in call</span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="pb-3 text-center text-[10px] font-medium uppercase tracking-[0.3em] text-slate-400 dark:text-slate-600">
+                    Call by Netvork
+                  </p>
+                  <video ref={attachSelf} className="hidden" muted />
+                </div>
+              ) : (
+                <div className="flex h-24 items-center justify-center gap-2">
+                  {remotePeers.map((p) => (
+                    <RemoteTile key={p.uuid} peer={p} video={false} />
+                  ))}
+                  <video ref={attachSelf} className="hidden" muted />
+                  {activeCall.isGroup ? (
+                    <Users className="size-8 text-slate-500" />
+                  ) : (
+                    <Phone className="size-8 text-slate-500" />
+                  )}
+                  {activeCall.isGroup && (
+                    <span className="text-xs text-slate-400">{tiles + 1} in call</span>
+                  )}
+                </div>
+              )
             )}
           </div>
           {/* overflow-visible, not auto: the background picker opens upward out

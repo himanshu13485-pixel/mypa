@@ -1,8 +1,15 @@
 package app.netvork;
 
+import android.app.NotificationManager;
+import android.content.Intent;
+import android.os.Bundle;
+
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
+
+    /** See NetvorkMessagingService.openApp for why arrival cancels a notification. */
+    public static final String EXTRA_CANCEL_NOTIFICATION = "netvork_cancel_notification";
 
     /**
      * Whether the app is on screen right now.
@@ -13,6 +20,35 @@ public class MainActivity extends BridgeActivity {
      * a person twice for one call.
      */
     public static volatile boolean inForeground = false;
+
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        cancelNamedNotification(getIntent());
+    }
+
+    @Override
+    public void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        cancelNamedNotification(intent);
+    }
+
+    /**
+     * Answer was pressed, or the body tapped: the ringing notification's job
+     * is done, but an action button's tap does not auto-cancel and the ring
+     * is FLAG_INSISTENT — left alone it would go on ringing over the call it
+     * just opened. The trampoline ban rules out cancelling en route, so the
+     * destination does it.
+     */
+    private void cancelNamedNotification(Intent intent) {
+        int id = intent == null ? 0 : intent.getIntExtra(EXTRA_CANCEL_NOTIFICATION, 0);
+        if (id != 0) {
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.cancel(id);
+            }
+        }
+    }
 
     @Override
     public void onResume() {
