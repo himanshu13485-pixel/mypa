@@ -405,21 +405,53 @@ export default function MeetingRoomPage() {
      */
     const wantVideo = meeting?.type !== 'audio' && lobbyRef.current?.camOn !== false
 
-    let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio,
-        video: wantVideo ? video : false,
-      })
-    } catch (err) {
+    /*
+     * The camera is usually still being let go of, not in use by anything.
+     *
+     * The lobby stops its preview and hands straight over to this, and
+     * track.stop() returns long before the operating system has actually
+     * released the device — so the very next getUserMedia lands in the gap and
+     * fails with NotReadableError, which reads as "your camera is in use by
+     * another application". It was in use by this page, a moment ago.
+     *
+     * The fallback below then joined with audio only, silently. That is the
+     * whole bug behind "my video only starts if I refresh or switch camera":
+     * refreshing takes long enough that the device is free, and switching
+     * camera opens it again later, by which time it also is.
+     *
+     * Three tries over about a second. A camera genuinely held by Zoom or
+     * another tab will still fail all three and still fall back, which is
+     * right — that one is not a race and waiting longer will not help.
+     */
+    let stream: MediaStream | null = null
+    let lastErr: unknown
+    for (const wait of [0, 300, 600]) {
+      if (wait) await new Promise((r) => setTimeout(r, wait))
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio,
+          video: wantVideo ? video : false,
+        })
+        break
+      } catch (err) {
+        lastErr = err
+        // Only worth retrying the busy case. No camera at all, or permission
+        // refused, will say the same thing however many times it is asked.
+        if (!wantVideo || (err as Error)?.name !== 'NotReadableError') break
+        console.warn('[meeting] camera not ready, retrying', err)
+      }
+    }
+
+    if (!stream) {
       // Camera busy (another app/browser window) or missing: join with mic
       // only instead of failing the whole meeting.
       if (meeting?.type !== 'audio') {
-        console.warn('[meeting] camera unavailable, falling back to audio-only', err)
+        console.warn('[meeting] camera unavailable, falling back to audio-only', lastErr)
+        toastError('Could not open your camera — joining with audio only.')
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         setCameraOff(true)
       } else {
-        throw err
+        throw lastErr
       }
     }
 
@@ -435,7 +467,7 @@ export default function MeetingRoomPage() {
     cameraTrackRef.current = stream.getVideoTracks()[0] ?? null
     showSelf(stream)
     return stream
-  }, [meeting?.type, showSelf])
+  }, [meeting?.type, showSelf, toastError])
 
   const flushPendingIce = useCallback((peerUuid: string) => {
     const pc = pcsRef.current.get(peerUuid)
