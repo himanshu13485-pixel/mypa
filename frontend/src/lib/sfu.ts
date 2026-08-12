@@ -125,7 +125,40 @@ function peersFrom(room: Room): SfuPeer[] {
 function publishBudget(mobile: boolean) {
   return mobile
     ? { maxBitrate: 600_000, maxFramerate: 24 }
-    : { maxBitrate: 1_500_000, maxFramerate: 30 }
+    // 2 Mbps rather than 1.5: this is the top simulcast layer, so it is what a
+    // room small enough to ask for full quality actually receives, and 720p at
+    // 1.5 was visibly soft on a large tile.
+    : { maxBitrate: 2_000_000, maxFramerate: 30 }
+}
+
+export type ReceiveQuality = 'high' | 'medium' | 'low'
+
+/**
+ * What to ask the server to send us, given how many people are in the room.
+ *
+ * This is the job LiveKit's adaptiveStream does, done from the room's size
+ * instead of from how large each video element happens to render. Element size
+ * is the more precise signal and it is the reason the picture flickered:
+ * switching layer needs a fresh keyframe, adaptiveStream re-decides whenever an
+ * element resizes, and a tile sitting near one of its thresholds flips back and
+ * forth for ever. Dragging a window, opening devtools and certain phones all
+ * did it, because all of them change how big a tile renders.
+ *
+ * A headcount does not wobble. It changes when somebody joins or leaves, which
+ * is exactly when the amount of video worth carrying really has changed.
+ *
+ * The bands overlap on purpose. Stepping down at five and back up at three
+ * means a meeting hovering around four is not renegotiating every time somebody
+ * comes and goes — the same reason a thermostat does not switch on and off at a
+ * single temperature.
+ */
+export function nextQuality(current: ReceiveQuality, peers: number): ReceiveQuality {
+  if (current === 'high' && peers >= 5) return 'medium'
+  if (current === 'medium' && peers >= 8) return 'low'
+  if (current === 'low' && peers <= 6) return 'medium'
+  if (current === 'medium' && peers <= 3) return 'high'
+
+  return current
 }
 
 export async function joinSfu(
@@ -182,7 +215,37 @@ export async function joinSfu(
   }
 
   const room = new LiveKitRoom(options)
-  const announce = () => callbacks.onPeers(peersFrom(room))
+
+  /*
+   * Ask for the quality the room size warrants, and only when it changes.
+   *
+   * Re-requesting the layer we are already on is not free — the server sends a
+   * keyframe — so a room that asked on every event would reintroduce the
+   * flicker this replaced.
+   */
+  let quality: ReceiveQuality = 'high'
+  const applyQuality = async () => {
+    const want = nextQuality(quality, room.remoteParticipants.size)
+    if (want === quality) return
+    quality = want
+
+    const { VideoQuality } = await import('livekit-client')
+    const level = want === 'high' ? VideoQuality.HIGH
+      : want === 'medium' ? VideoQuality.MEDIUM
+        : VideoQuality.LOW
+
+    for (const p of room.remoteParticipants.values()) {
+      for (const pub of p.trackPublications.values()) {
+        if (pub.kind === 'video') pub.setVideoQuality(level)
+      }
+    }
+    console.info('[meeting] receiving', want, 'from', room.remoteParticipants.size, 'peer(s)')
+  }
+
+  const announce = () => {
+    void applyQuality()
+    callbacks.onPeers(peersFrom(room))
+  }
 
   room
     .on(RoomEvent.ParticipantConnected, announce)
