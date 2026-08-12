@@ -160,6 +160,59 @@ class LiveKitTokenService
         return 'meeting-'.$meeting->code;
     }
 
+    /**
+     * Tear the room down on the LiveKit side.
+     *
+     * Nothing did this, and the cost was invisible until WHM showed
+     * livekit-server at twenty percent CPU a quarter of an hour after the
+     * meeting had ended. Our "ended" is a row in our database and a signal to
+     * whoever is listening — but a phone that is asleep, a tab left in the
+     * recents screen, a browser that crashed mid-meeting: none of those hear
+     * it, and every one of them keeps its WebRTC session up and publishing to
+     * a room the app considers finished. LiveKit will happily carry that for
+     * ever.
+     *
+     * Deleting the room disconnects every straggler at once, server-side,
+     * with no cooperation needed from any client.
+     *
+     * Best-effort by design: ending a meeting must never fail because the SFU
+     * is down — a meeting that cannot end is worse than a room that leaks.
+     */
+    public function closeRoom(Meeting $meeting): void
+    {
+        if (! $this->configured()) {
+            return;
+        }
+
+        $now = time();
+        $token = $this->sign([
+            'iss' => config('livekit.api_key'),
+            'sub' => 'netvork-server',
+            'nbf' => $now - 10,
+            'exp' => $now + 60,
+            // DeleteRoom is gated on roomCreate — the create/destroy pair is
+            // one permission in LiveKit's model.
+            'video' => ['roomCreate' => true],
+        ]);
+
+        try {
+            \Illuminate\Support\Facades\Http::withToken($token)
+                ->timeout(2)
+                // The loopback, not the public wss:// URL: this is
+                // server-to-server on the same box, and Apache need not be in
+                // the middle of it.
+                ->post(rtrim(config('livekit.api_url'), '/').'/twirp/livekit.RoomService/DeleteRoom', [
+                    'room' => $this->roomFor($meeting),
+                ]);
+        } catch (\Throwable $e) {
+            // Including "no such room", which is the normal case for a meeting
+            // nobody ever joined.
+            \Illuminate\Support\Facades\Log::info('livekit: could not close room', [
+                'room' => $this->roomFor($meeting), 'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
     /** HS256, by hand — see the class note. */
     protected function sign(array $claims): string
     {

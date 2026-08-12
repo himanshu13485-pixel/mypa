@@ -332,6 +332,46 @@ class LiveKitTokenTest extends TestCase
         $this->assertNull($meeting->fresh()->transport);
     }
 
+    public function test_ending_a_meeting_tears_the_room_down_on_the_sfu(): void
+    {
+        /*
+         * Our "ended" is a row in our database; LiveKit was never told. Any
+         * client that missed the end signal — a sleeping phone, a tab left in
+         * the recents screen — kept publishing to the room indefinitely, which
+         * is how the SFU came to be at twenty percent CPU fifteen minutes
+         * after the meeting was over. Deleting the room server-side kicks
+         * every straggler at once.
+         */
+        \Illuminate\Support\Facades\Http::fake();
+
+        $meeting = $this->meeting();
+        $this->actingAs($this->host)
+            ->postJson("/api/v1/meetings/{$meeting->code}/end")
+            ->assertOk();
+
+        \Illuminate\Support\Facades\Http::assertSent(function ($request) use ($meeting) {
+            return str_contains($request->url(), '/twirp/livekit.RoomService/DeleteRoom')
+                && $request['room'] === 'meeting-'.$meeting->code
+                // The loopback: server-to-server on the same box, not a trip
+                // out through Apache and back.
+                && str_starts_with($request->url(), 'http://127.0.0.1:7880');
+        });
+    }
+
+    public function test_a_meeting_on_a_server_without_livekit_ends_without_calling_anyone(): void
+    {
+        // Ending a meeting must never depend on an SFU that is not there.
+        config(['livekit.enabled' => false]);
+        \Illuminate\Support\Facades\Http::fake();
+
+        $meeting = $this->meeting();
+        $this->actingAs($this->host)
+            ->postJson("/api/v1/meetings/{$meeting->code}/end")
+            ->assertOk();
+
+        \Illuminate\Support\Facades\Http::assertNothingSent();
+    }
+
     public function test_the_room_name_is_namespaced(): void
     {
         // A LiveKit server shared with anything else must not have its rooms

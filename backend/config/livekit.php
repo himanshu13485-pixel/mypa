@@ -40,6 +40,13 @@ return [
     'token_ttl_minutes' => (int) env('LIVEKIT_TOKEN_TTL_MINUTES', 10),
 
     /**
+     * Where the server itself talks to LiveKit — room admin, not media.
+     * The loopback by default: both processes live on one box, and the
+     * public URL would route a local call out through Apache for nothing.
+     */
+    'api_url' => env('LIVEKIT_API_URL', 'http://127.0.0.1:7880'),
+
+    /**
      * The largest room the mesh is asked to carry.
      *
      * Up to this many people a meeting runs peer-to-peer, where it is genuinely

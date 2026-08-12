@@ -41,6 +41,27 @@ class Meeting extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        /*
+         * On the model event, not in the controllers. Three separate paths
+         * end a meeting — the host's button, the last person leaving, the
+         * time-limit reaper — and each sets status itself. A hook here cannot
+         * be forgotten by the next path somebody adds.
+         *
+         * Without this, "ended" was a fact about our database that LiveKit
+         * never heard: any client that missed the end signal (a sleeping
+         * phone, a tab in the recents screen) kept publishing to the room
+         * indefinitely, which is how the SFU came to be at twenty percent CPU
+         * fifteen minutes after everyone thought the meeting was over.
+         */
+        static::updated(function (Meeting $meeting) {
+            if ($meeting->wasChanged('status') && $meeting->status === 'ended') {
+                app(\App\Services\LiveKitTokenService::class)->closeRoom($meeting);
+            }
+        });
+    }
+
     public function uniqueIds(): array
     {
         return ['uuid'];
