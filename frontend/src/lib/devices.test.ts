@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { openMedia } from './devices'
+import { openMedia, preferredSpeaker } from './devices'
 
 /*
  * Opening a camera is not one call that works or does not. A camera is often
@@ -57,5 +57,50 @@ describe('openMedia', () => {
       name: 'NotReadableError',
     })
     expect(calls.length).toBeGreaterThan(1)
+  })
+})
+
+describe('preferredSpeaker', () => {
+  const out = (label: string, deviceId = label) => ({ deviceId, label, kind: 'audiooutput' as const })
+
+  it('always prefers a headset, in either context', () => {
+    // Pairing a headset is itself the instruction; nothing outranks it.
+    const devices = [out('Speakerphone'), out('Earpiece'), out('Galaxy Buds (Bluetooth)')]
+    expect(preferredSpeaker(devices, 'call')).toBe('Galaxy Buds (Bluetooth)')
+    expect(preferredSpeaker(devices, 'meeting')).toBe('Galaxy Buds (Bluetooth)')
+  })
+
+  it('puts the earpiece above the loudspeaker on a call', () => {
+    // A call is held to the head.
+    const devices = [out('Speakerphone'), out('Earpiece')]
+    expect(preferredSpeaker(devices, 'call')).toBe('Earpiece')
+  })
+
+  it('puts the loudspeaker above the earpiece in a meeting', () => {
+    // A meeting is watched at arm's length — the one deliberate difference.
+    const devices = [out('Earpiece'), out('Speakerphone')]
+    expect(preferredSpeaker(devices, 'meeting')).toBe('Speakerphone')
+  })
+
+  it('ignores microphones and cameras', () => {
+    const devices = [
+      { deviceId: 'mic', label: 'Headset microphone', kind: 'audioinput' as const },
+      out('Earpiece'),
+    ]
+    expect(preferredSpeaker(devices, 'call')).toBe('Earpiece')
+  })
+
+  it('prefers an unlabelled device to the wrong known one', () => {
+    // Labels are empty until permission is granted. Something unrecognised is
+    // likelier to be a real output than the earpiece is to be right here.
+    const devices = [out('Earpiece'), out('Speaker 2', 'unknown-id')]
+    expect(preferredSpeaker(devices, 'meeting')).toBe('unknown-id')
+  })
+
+  it('says nothing when there is nothing to say', () => {
+    // No devices, or none with an id — the caller leaves the browser's own
+    // default alone rather than applying a guess.
+    expect(preferredSpeaker([], 'call')).toBeNull()
+    expect(preferredSpeaker([out('Earpiece', '')], 'call')).toBeNull()
   })
 })

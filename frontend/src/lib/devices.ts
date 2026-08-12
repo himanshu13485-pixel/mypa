@@ -351,6 +351,51 @@ export function speakerSelectionSupported(): boolean {
 }
 
 /**
+ * Which speaker to use when nobody has chosen one.
+ *
+ * The browser's own default is "whatever the system says", which on a phone
+ * is the earpiece — right for a call held to your ear, wrong for a meeting
+ * on a desk, and wrong for both when a headset is paired and being ignored.
+ *
+ * A headset always wins: pairing one is itself the instruction. Below that
+ * the two differ on purpose. A call is a conversation held to the head, so
+ * the earpiece comes next and the loudspeaker last. A meeting is watched at
+ * arm's length, so the loudspeaker comes next and the earpiece last.
+ *
+ * Matched on labels, which is all the Web Audio API offers — and only when
+ * permission has been granted, since labels are empty before that. An unknown
+ * device sorts mid-table rather than last: something unrecognised is more
+ * likely a real output than the earpiece is to be the right one.
+ */
+/** Named for the two, since AudioContext is the browser's own — and is used
+    a few lines below by testSpeaker, which my shadowing quietly broke. */
+export type ListeningContext = 'call' | 'meeting'
+
+export function preferredSpeaker(devices: DeviceOption[], context: ListeningContext): string | null {
+  const rank = (label: string): number => {
+    const l = label.toLowerCase()
+    if (/bluetooth|headset|airpod|buds|headphone|wireless/.test(l)) return 0
+    const earpiece = /earpiece|receiver|handset|phone speaker/.test(l)
+    const loud = /speakerphone|loudspeaker|^speaker\b|speaker$/.test(l)
+    if (context === 'call') {
+      if (earpiece) return 1
+      if (loud) return 3
+    } else {
+      if (loud) return 1
+      if (earpiece) return 3
+    }
+
+    return 2
+  }
+
+  const best = [...devices]
+    .filter((d) => d.kind === 'audiooutput' && d.deviceId)
+    .sort((a, b) => rank(a.label) - rank(b.label))[0]
+
+  return best?.deviceId ?? null
+}
+
+/**
  * Can this browser share a screen at all?
  *
  * The room used to decide this from the window width, which is a guess about

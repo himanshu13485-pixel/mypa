@@ -20,6 +20,7 @@ import {
   applySendQuality, saveDeviceChoice, screenShareSupported, senderFor, shareFailureMessage, speakerSelectionSupported,
   swapTrack, testSpeaker, useDevices, useMicLevel, type DeviceChoice,
   openMedia,
+  preferredSpeaker,
 } from '../lib/devices'
 import { mergeForHandover, readyToRetire } from '../lib/handover'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
@@ -375,7 +376,7 @@ export default function MeetingRoomPage() {
   const canFullscreen = useMemo(fullscreenSupported, [])
   /** Sideways on a phone: the picture gets the room's own chrome as well. */
   const landscape = useLandscapePhone()
-  const { cameras } = useDevices(phase === 'in')
+  const { cameras, speakers } = useDevices(phase === 'in')
   const quality = usePeerQuality(useCallback(() => pcsRef.current, []), phase === 'in')
   const activeSpeaker = useActiveSpeaker([
     { uuid: 'me', stream: localStreamRef.current },
@@ -1491,11 +1492,17 @@ export default function MeetingRoomPage() {
     return () => document.removeEventListener('click', resume)
   }, [])
 
-  // Keep chosen speaker applied as tiles come and go.
+  // Keep the speaker applied as tiles come and go.
   useEffect(() => {
-    if (!deviceChoice.speakerId || phase !== 'in') return
-    void applySpeaker(deviceChoice.speakerId)
-  }, [deviceChoice.speakerId, peers, phase])
+    if (phase !== 'in') return
+    /*
+     * A meeting is watched at arm's length, so with nothing chosen the order
+     * is headset, loudspeaker, earpiece — the middle two swapped from a call,
+     * which is held to the head. Chosen always wins.
+     */
+    const speaker = deviceChoice.speakerId ?? preferredSpeaker(speakers, 'meeting')
+    if (speaker) void applySpeaker(speaker)
+  }, [deviceChoice.speakerId, peers, phase, speakers])
 
   // Track fullscreen so the layout can switch to the split/speaker view.
   useEffect(() => {

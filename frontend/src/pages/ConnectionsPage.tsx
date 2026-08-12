@@ -28,6 +28,14 @@ export default function ConnectionsPage() {
   const { data: list, isLoading } = useQuery({
     queryKey: ['connections'],
     queryFn: () => connectionsApi.list(),
+    /*
+     * Presence goes stale on its own — somebody closing their laptop sends
+     * nothing — so the dots need re-asking rather than invalidating. A minute
+     * against the server's two-minute window means a dot is wrong for well
+     * under a minute, and only while this page is open: refetchInterval stops
+     * when the tab is in the background.
+     */
+    refetchInterval: 60_000,
   })
   const { data: qr } = useQuery({ queryKey: ['my-qr'], queryFn: profile.myQr })
 
@@ -257,10 +265,24 @@ export default function ConnectionsPage() {
                         A basis the name can insist on flips the outcome: the
                         name keeps its line and the buttons wrap below it. */}
                     <div className="flex min-w-0 flex-[1_1_11rem] items-center gap-3">
-                      <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
+                      {/* The dot rides on the avatar rather than sitting beside
+                          the name, so it stays put however the row wraps. */}
+                      <div className="relative shrink-0">
+                        <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
+                        {c.user?.is_online && (
+                          <span
+                            title="Online now"
+                            className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900"
+                          />
+                        )}
+                      </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{c.user?.name}</p>
-                        <p className="truncate text-xs text-slate-400">{c.user?.app_id}</p>
+                        <p className="truncate text-xs">
+                          {c.user?.is_online
+                            ? <span className="font-medium text-emerald-600 dark:text-emerald-400">Online</span>
+                            : <span className="text-slate-400">{c.user?.app_id}</span>}
+                        </p>
                       </div>
                     </div>
                     {c.user?.app_id && (

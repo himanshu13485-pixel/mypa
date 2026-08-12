@@ -218,7 +218,15 @@ export interface Connection {
   status: 'pending' | 'accepted' | 'declined'
   message?: string | null
   direction: 'sent' | 'received'
-  user: { uuid: string; name: string; app_id?: string; photo_path?: string | null; avatar?: string | null } | null
+  user: {
+    uuid: string
+    name: string
+    app_id?: string
+    photo_path?: string | null
+    avatar?: string | null
+    /** Using the app now — already filtered by their privacy setting server-side. */
+    is_online?: boolean
+  } | null
   responded_at?: string | null
   created_at: string
 }

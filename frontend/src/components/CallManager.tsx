@@ -26,6 +26,7 @@ import {
 import {
   applySendQuality, applySpeaker, loadDeviceChoice, nextCamera, openCamera, openMic, saveDeviceChoice,
   screenShareSupported, shareFailureMessage, speakerSelectionSupported, swapTrack, testSpeaker, useDevices,
+  preferredSpeaker,
 } from '../lib/devices'
 import { Avatar } from '../lib/avatars'
 
@@ -1146,9 +1147,17 @@ export function CallProvider({ children }: { children: ReactNode }) {
    * is correct. Re-applying whenever the peer list moves catches that.
    */
   useEffect(() => {
-    if (!activeCall || !deviceChoice.speakerId) return
-    void applySpeaker(deviceChoice.speakerId)
-  }, [activeCall?.uuid, deviceChoice.speakerId, remotePeers.length])
+    if (!activeCall) return
+    /*
+     * A call is held to the head, so with nothing chosen the order is
+     * headset, earpiece, loudspeaker — see preferredSpeaker. Chosen wins over
+     * everything: picking a speaker is a decision, and re-deciding for
+     * somebody who has already decided is the bug this replaces, not a
+     * feature.
+     */
+    const speaker = deviceChoice.speakerId ?? preferredSpeaker(speakers, 'call')
+    if (speaker) void applySpeaker(speaker)
+  }, [activeCall?.uuid, deviceChoice.speakerId, remotePeers.length, speakers])
 
   /**
    * Switch which microphone is heard or which speaker is used, mid-call.

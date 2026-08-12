@@ -84,6 +84,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'username_changed_at' => 'datetime',
             'password' => 'hashed',
             'guest_expires_at' => 'datetime',
+            'last_active_at' => 'datetime',
         ];
     }
 
@@ -133,6 +134,33 @@ class User extends Authenticatable implements MustVerifyEmail
     public function pushSubscriptions(): HasMany
     {
         return $this->hasMany(PushSubscription::class);
+    }
+
+    /** Long enough to ride out a poll gap, short enough to mean "now". */
+    public const ONLINE_WITHIN_SECONDS = 120;
+
+    /**
+     * Is this person using the app right now, as far as $viewer may know?
+     *
+     * Two questions in one, deliberately — asking "are they online" without
+     * asking "may this person see that" is how a privacy setting ends up
+     * being decorative. 'nobody' hides it from everyone; 'connections' from
+     * strangers; 'everyone' from no one.
+     */
+    public function isOnlineFor(?self $viewer): bool
+    {
+        if (! $this->last_active_at || $this->last_active_at->lt(now()->subSeconds(self::ONLINE_WITHIN_SECONDS))) {
+            return false;
+        }
+        if (! $viewer || $viewer->id === $this->id) {
+            return (bool) $viewer;
+        }
+
+        return match ($this->settings?->privacyValue('online_status_visibility') ?? 'connections') {
+            'nobody' => false,
+            'connections' => app(\App\Services\AppIdService::class)->areConnected($viewer, $this),
+            default => true,
+        };
     }
 
     /** Installed Android apps that can be rung. The native twin of the above. */

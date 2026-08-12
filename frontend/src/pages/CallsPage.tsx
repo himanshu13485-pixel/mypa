@@ -98,7 +98,15 @@ export default function CallsPage() {
             const inThisCall = activeCall?.uuid === call.uuid
 
             return (
-              <Card key={call.uuid} className="flex items-center gap-3 p-3">
+              /*
+               * Wrapping, with a floor under the name. The row was a rigid
+               * line: four fixed-width controls that never shrink and a name
+               * column with plain flex-1, so the name was the only thing that
+               * could give — and on a phone it gave everything, down to "L…".
+               * A basis it can insist on, plus permission for the row to wrap,
+               * puts the controls on a second line instead.
+               */
+              <Card key={call.uuid} className="flex flex-wrap items-center gap-3 p-3">
                 <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
                   {call.is_missed ? (
                     <PhoneMissed className="size-4 text-red-500" />
@@ -111,7 +119,7 @@ export default function CallsPage() {
                   )}
                 </div>
 
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 flex-[1_1_11rem]">
                   <p className="flex items-center gap-2 text-sm font-medium">
                     <span className="truncate">
                       {call.group_name ?? call.other_user?.name ?? 'Unknown'}
