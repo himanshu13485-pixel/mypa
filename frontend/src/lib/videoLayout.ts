@@ -176,7 +176,7 @@ export function bestGalleryFit(w: number, h: number, count: number, gap = 8): Ga
  * Whoever is talking is swapped in, which is what makes a small grid feel like
  * the whole room.
  */
-export const MAX_VIDEO_TILES = 9
+export const MAX_VIDEO_TILES = 4
 
 /**
  * Which peers get a tile, in order, and who is left over.

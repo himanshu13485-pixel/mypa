@@ -1308,16 +1308,33 @@ export default function MeetingRoomPage() {
          */
         setPeers((ps) => {
           const roster = new Map(others.map((p) => [p.uuid, p]))
+          /*
+           * And the authority on who is in the room at all.
+           *
+           * A tile used to be removed only when its own transport said so, and
+           * a browser that closes without a clean goodbye says nothing — so the
+           * SFU held the participant until its own timeout and the room went on
+           * showing a live-looking still of somebody who had left. The
+           * participants panel, which reads this roster, said six while seven
+           * tiles were on screen, and the extra one was the most convincing of
+           * them because its last frame never went away.
+           *
+           * Anyone we still hold a peer connection to is kept regardless: on
+           * the mesh they are reachable whatever the roster believes.
+           */
+          const gone = ps.filter((x) => !roster.has(x.uuid) && !pcsRef.current.has(x.uuid))
           const stale = ps.some((x) => {
             const row = roster.get(x.uuid)
             return row && (row.name !== x.name || (row.avatar ?? null) !== (x.avatar ?? null))
           })
-          return stale
-            ? ps.map((x) => {
-                const row = roster.get(x.uuid)
-                return row ? { ...x, name: row.name, avatar: row.avatar ?? null } : x
-              })
-            : ps
+          if (!gone.length && !stale) return ps
+
+          return ps
+            .filter((x) => roster.has(x.uuid) || pcsRef.current.has(x.uuid))
+            .map((x) => {
+              const row = roster.get(x.uuid)
+              return row ? { ...x, name: row.name, avatar: row.avatar ?? null } : x
+            })
         })
         /*
          * Anyone we ought to be talking to but are not.

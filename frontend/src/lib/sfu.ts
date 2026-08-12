@@ -103,6 +103,13 @@ function streamFor(room: Room, uuid: string, tracks: MediaStreamTrack[]): MediaS
 function peersFrom(room: Room): SfuPeer[] {
   return [...room.remoteParticipants.values()].map((p) => {
     const tracks = [...p.trackPublications.values()]
+      /*
+       * Not muted ones. A muted publication keeps its track, and the track
+       * keeps its last frame — so turning your camera off left everybody else
+       * staring at a still of you rather than at your avatar, and it looked
+       * exactly like your video had frozen.
+       */
+      .filter((pub) => !pub.isMuted)
       .map((pub) => pub.track?.mediaStreamTrack)
       .filter((t): t is MediaStreamTrack => !!t)
 
@@ -243,7 +250,20 @@ export async function joinSfu(
        * their screen — so the person watching you full-screen gets the sharp
        * layer while the gallery gets a thumbnail, at the same time.
        */
-      simulcast: true,
+      /*
+       * Not on a phone.
+       *
+       * Simulcast means encoding the picture three times over, at three sizes,
+       * in software, continuously — which is why phones in a meeting got hot
+       * enough to notice. A laptop absorbs it; a phone spends its thermal
+       * budget on it and then throttles, which costs more quality than
+       * simulcast was buying.
+       *
+       * The cost of turning it off is that the server can only forward a
+       * phone's stream at the one size it was sent. With four tiles on screen
+       * that is a fair trade; with forty it would not be.
+       */
+      simulcast: !mobile,
       // Named rather than left to the SDK's default, so what a participant
       // uploads is a number we chose and can be held to.
       videoEncoding: publishBudget(mobile),
