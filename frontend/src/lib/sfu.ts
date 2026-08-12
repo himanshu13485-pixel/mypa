@@ -129,7 +129,19 @@ function peersFrom(room: Room): SfuPeer[] {
  */
 function publishBudget(mobile: boolean) {
   return mobile
-    ? { maxBitrate: 600_000, maxFramerate: 24 }
+    /*
+     * 1.2 Mbps, not 600 kbps.
+     *
+     * 600 was picked as a cautious number for a phone and it is the reason
+     * phones looked bad. The server's own log spelled it out: the top layer a
+     * phone published was 720x1280 at 600 kbps, so a viewer asking for full
+     * quality got 720p carrying half the bitrate it needs. Asking for the high
+     * layer cannot help when the high layer is the problem.
+     *
+     * Still well under the desktop budget, because a phone is usually on a
+     * single-digit-megabit uplink and encodes every layer itself.
+     */
+    ? { maxBitrate: 1_200_000, maxFramerate: 24 }
     // 2 Mbps rather than 1.5: this is the top simulcast layer, so it is what a
     // room small enough to ask for full quality actually receives, and 720p at
     // 1.5 was visibly soft on a large tile.

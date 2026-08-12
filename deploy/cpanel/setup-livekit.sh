@@ -201,7 +201,16 @@ UNIT
 mkdir -p /home/$APP_USER/logs
 chown $APP_USER:$APP_USER /home/$APP_USER/logs
 systemctl daemon-reload
-systemctl enable --now livekit >/dev/null 2>&1 || systemctl restart livekit
+systemctl enable livekit >/dev/null 2>&1 || true
+# restart, not `enable --now`.
+#
+# `enable --now` starts a stopped service and does nothing at all to a running
+# one — it succeeds, so the `|| restart` after it never fired. Re-running this
+# script therefore rewrote the config and left the old one running, and every
+# check afterwards passed: the service was active, the file on disk was right,
+# and the process had never read it. That cost an evening, with LiveKit still
+# answering on a port range the config had not mentioned for an hour.
+systemctl restart livekit
 
 # is-active exits non-zero for anything but "active", including the perfectly
 # ordinary "activating" of a service two seconds old — and under set -e that
