@@ -115,8 +115,21 @@ class FcmService
         ];
 
         try {
+            /*
+             * Retries are not optional politeness here; they are the fix for
+             * a measured pathology of this host. fcm.googleapis.com resolves
+             * to several addresses and, from this box, some of Google's IPs
+             * are reachable and some are blackholed — the same curl succeeded
+             * in 130ms or hung for the full timeout depending on nothing but
+             * which address the resolver dealt. Each retry opens a fresh
+             * connection and re-rolls that draw; the short connect timeout
+             * makes a dead address fail fast enough to matter. Three draws at
+             * these odds has yet to lose.
+             */
             $res = Http::withToken($bearer)
-                ->timeout(5)
+                ->connectTimeout(3)
+                ->timeout(10)
+                ->retry(2, 200, throw: false)
                 ->post("https://fcm.googleapis.com/v1/projects/{$project}/messages:send", [
                     'message' => $message,
                 ]);
@@ -175,7 +188,8 @@ class FcmService
             }
             $jwt = $body.'.'.rtrim(strtr(base64_encode($signature), '+/', '-_'), '=');
 
-            $res = Http::asForm()->timeout(5)->post($creds['token_uri'], [
+            // Same lottery, same tickets — see the note on the send call.
+            $res = Http::asForm()->connectTimeout(3)->timeout(10)->retry(2, 200, throw: false)->post($creds['token_uri'], [
                 'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
                 'assertion' => $jwt,
             ]);
