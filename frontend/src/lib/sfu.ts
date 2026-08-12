@@ -36,9 +36,16 @@ export interface SfuPeer {
 
 export interface SfuCallbacks {
   onPeers: (peers: SfuPeer[]) => void
-  /** Connecting, reconnecting, or gone — the room shows this the same way it
-      shows a mesh connection going bad. */
-  onState: (state: 'connecting' | 'connected' | 'reconnecting' | 'closed') => void
+  /**
+   * Connecting, reconnecting, or gone — the room shows this the same way it
+   * shows a mesh connection going bad.
+   *
+   * `replaced` is a close with a cause worth naming: this account connected
+   * from somewhere else and LiveKit handed the room to the newcomer. It is not
+   * a fault, and it is how reloading the page works — the fresh connection
+   * displaces the stale one rather than waiting for it to time out.
+   */
+  onState: (state: 'connecting' | 'connected' | 'reconnecting' | 'closed' | 'replaced') => void
   onError: (message: string) => void
 }
 
@@ -279,7 +286,7 @@ export async function joinSfu(
 ): Promise<SfuSession> {
   // Imported here rather than at module scope so the mesh path never pays for
   // the SDK's weight.
-  const { Room: LiveKitRoom, RoomEvent, ConnectionState } = await import('livekit-client')
+  const { Room: LiveKitRoom, RoomEvent, ConnectionState, DisconnectReason } = await import('livekit-client')
 
   const options: RoomOptions = {
     publishDefaults: {
@@ -391,9 +398,19 @@ export async function joinSfu(
     .on(RoomEvent.ConnectionStateChanged, (state: unknown) => {
       if (state === ConnectionState.Connected) callbacks.onState('connected')
       else if (state === ConnectionState.Reconnecting) callbacks.onState('reconnecting')
-      else if (state === ConnectionState.Disconnected) callbacks.onState('closed')
+      // Disconnected is reported by RoomEvent.Disconnected below, which is the
+      // one that carries the reason.
     })
-    .on(RoomEvent.Disconnected, () => callbacks.onState('closed'))
+    /*
+     * The reason matters. An identity may be in a room once, so a second
+     * connection from the same account displaces the first — which is exactly
+     * what makes reloading the page work, and which reported itself as "Lost
+     * the connection to the meeting", as though something had gone wrong.
+     */
+    .on(RoomEvent.Disconnected, (reason?: unknown) => {
+      const duplicate = String((DisconnectReason as Record<number, string>)[reason as number] ?? '')
+      callbacks.onState(duplicate === 'DUPLICATE_IDENTITY' ? 'replaced' : 'closed')
+    })
 
   callbacks.onState('connecting')
   try {

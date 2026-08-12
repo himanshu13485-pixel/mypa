@@ -223,6 +223,8 @@ export default function MeetingRoomPage() {
 
   // Room state mirrored from the server (heartbeat + signals).
   const [roster, setRoster] = useState<MeetingParticipant[]>([])
+  /** Turned out of the room by this same account joining elsewhere — not a fault. */
+  const [wasReplaced, setWasReplaced] = useState(false)
   // Mirrored for long-lived closures (broadcastMedia): state reads there are
   // frozen at bind time, and announcing mute to last beat's roster would skip
   // whoever joined since.
@@ -878,6 +880,24 @@ export default function MeetingRoomPage() {
     return joinSfu(grant.url, grant.token, publishing, {
       onPeers,
       onState: (state) => {
+        /*
+         * Displaced, not disconnected. This account opened the meeting
+         * somewhere else — another device, or this page reloaded — and only
+         * one connection per identity may hold the room. Saying "lost the
+         * connection" for that sent people hunting a network fault that was
+         * really their own second tab.
+         */
+        if (state === 'replaced') {
+          teardown()
+          joinedRef.current = false
+          setWasReplaced(true)
+          setErrorMsg(
+            'This account opened the meeting somewhere else — another device, or this page in another tab. '
+            + 'One device at a time can be in a meeting with the same account.',
+          )
+          setPhase('error')
+          return
+        }
         if (state === 'closed' && joinedRef.current) toastError('Lost the connection to the meeting.')
       },
       onError: (message) => toastError(message),
@@ -2509,7 +2529,9 @@ export default function MeetingRoomPage() {
     return (
       <Card className="mx-auto mt-10 max-w-md text-center">
         <p className="text-sm font-semibold">
-          {phase !== 'ended' ? 'Could not join' : endedReason === 'time_limit' ? 'Time is up' : 'Meeting ended'}
+          {phase !== 'ended'
+            ? (wasReplaced ? 'Opened somewhere else' : 'Could not join')
+            : endedReason === 'time_limit' ? 'Time is up' : 'Meeting ended'}
         </p>
         <p className="mt-1 text-xs text-slate-400">
           {phase !== 'ended'
