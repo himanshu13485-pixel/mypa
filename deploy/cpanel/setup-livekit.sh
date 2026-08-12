@@ -21,9 +21,18 @@ SFU_DOMAIN=${SFU_DOMAIN:-sfu.$DOMAIN}
 SSLDIR=/home/$APP_USER/ssl-netvork
 # The signalling port the browser connects to over wss://.
 WS_PORT=${WS_PORT:-7880}
-# UDP range for media. Wide on purpose: one port per participant connection.
-RTC_MIN=${RTC_MIN:-50000}
-RTC_MAX=${RTC_MAX:-60000}
+# One UDP port for all media, rather than a port per connection.
+#
+# This started as a 50000-60000 range, which is what "one port per participant"
+# suggests and is LiveKit's older shape. Two things are wrong with it here.
+# Ten thousand ports have to be open and stay open through CSF, firewalld and
+# whatever the host does above that; and because a port in the range is only
+# bound while a call is using it, there is nothing to test from outside — a
+# room where the media never arrives looks exactly like a room where the
+# firewall is fine, and neither can be told apart from the other end.
+#
+# One port is open or it is not, and can be answered in a second from anywhere.
+UDP_PORT=${UDP_PORT:-7882}
 # LiveKit's ICE-over-TCP fallback, for clients whose network will not pass UDP
 # at all — corporate firewalls, a few mobile carriers. Without it those people
 # join, appear in the roster, and then see and hear nobody.
@@ -63,10 +72,12 @@ cat > "$CONFIG" <<YAML
 # Managed by deploy/cpanel/setup-livekit.sh — re-running rewrites this file.
 port: $WS_PORT
 rtc:
-  # A range, not udp_port — those are alternatives. Setting both said "one
-  # port" and "ten thousand ports" in the same breath.
-  port_range_start: $RTC_MIN
-  port_range_end: $RTC_MAX
+  # udp_port, not a port range — those are alternatives, and setting both said
+  # "one port" and "ten thousand ports" in the same breath. Everything is
+  # multiplexed over this one, which is the whole reason it can be checked.
+  udp_port: $UDP_PORT
+  # ICE over TCP, for networks that will not pass UDP at all.
+  tcp_port: $TCP_PORT
   # Discovers the public address itself, so ICE candidates point somewhere
   # reachable rather than at a private interface nobody outside can route to.
   # Also an alternative to node_ip rather than a companion; this one needs no
@@ -88,7 +99,7 @@ chmod 600 "$CONFIG"
 echo "== apache in front (TLS) =="
 # LiveKit stays on plain HTTP on the loopback side; Apache does the certificate
 # on 443 for $SFU_DOMAIN. Only signalling goes through here — the media is UDP
-# straight to the box on the range above and never touches Apache.
+# straight to the box on the port above and never touches Apache.
 if [ ! -d /etc/apache2/conf.d/userdata ]; then
   echo "!! no cPanel Apache userdata directory — set up a proxy for"
   echo "   https://$SFU_DOMAIN -> http://127.0.0.1:$WS_PORT yourself."
@@ -143,24 +154,29 @@ echo "== firewall =="
 # problem from the outside — the meeting connects, and then stays black.
 if [ -x /usr/sbin/csf ]; then
   cp -n /etc/csf/csf.conf /etc/csf/csf.conf.before-livekit 2>/dev/null || true
-  # The media range, and LiveKit's TCP fallback. Not 7880: Apache reaches that
+  # The media port and LiveKit's TCP fallback. Not 7880: Apache reaches that
   # over the loopback, so opening it publicly would expose the unencrypted
   # signalling port for no gain.
-  grep -q "$RTC_MIN:$RTC_MAX" /etc/csf/csf.conf \
-    || sed -i "s/^UDP_IN = \"\(.*\)\"/UDP_IN = \"\1,$RTC_MIN:$RTC_MAX\"/" /etc/csf/csf.conf
+  # Anchored to the UDP_IN line: a bare grep for the number matches it
+  # anywhere in the file and would decide the rule was already there.
+  grep -q "^UDP_IN.*,$UDP_PORT" /etc/csf/csf.conf \
+    || sed -i "s/^UDP_IN = \"\(.*\)\"/UDP_IN = \"\1,$UDP_PORT\"/" /etc/csf/csf.conf
   grep -q "^TCP_IN.*,$TCP_PORT" /etc/csf/csf.conf \
     || sed -i "s/^TCP_IN = \"\(.*\)\"/TCP_IN = \"\1,$TCP_PORT\"/" /etc/csf/csf.conf
   csf -r >/dev/null 2>&1 || true
-  echo "   csf updated: $RTC_MIN-$RTC_MAX/udp and $TCP_PORT/tcp (7880 stays loopback-only)"
+  echo "   csf updated: $UDP_PORT/udp and $TCP_PORT/tcp (7880 stays loopback-only)"
   echo "   (previous config saved as /etc/csf/csf.conf.before-livekit)"
 elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
-  firewall-cmd --permanent --add-port=$RTC_MIN-$RTC_MAX/udp >/dev/null
+  firewall-cmd --permanent --add-port=$UDP_PORT/udp >/dev/null
+  # The old 50000-60000 range is no longer used; leaving it open would be ten
+  # thousand ports held for nothing.
+  firewall-cmd --permanent --remove-port=50000-60000/udp >/dev/null 2>&1 || true
   firewall-cmd --permanent --add-port=$TCP_PORT/tcp >/dev/null
   firewall-cmd --reload >/dev/null
-  echo "   firewalld updated: $RTC_MIN-$RTC_MAX/udp and $TCP_PORT/tcp (7880 stays loopback-only)"
+  echo "   firewalld updated: $UDP_PORT/udp and $TCP_PORT/tcp (7880 stays loopback-only)"
 else
-  echo "!! no firewall manager found — open $RTC_MIN-$RTC_MAX/udp and $TCP_PORT/tcp yourself."
-  echo "   Media is UDP; without that range the meeting connects and then stays black."
+  echo "!! no firewall manager found — open $UDP_PORT/udp and $TCP_PORT/tcp yourself."
+  echo "   Media is UDP; without that port the meeting connects and then stays black."
 fi
 
 echo "== service =="
@@ -223,7 +239,7 @@ sudo -u $APP_USER $PHP "$APP_DIR/backend/artisan" config:cache >/dev/null
 echo
 echo "== done =="
 echo "   signalling : $SCHEME://$SFU_DOMAIN  (Apache -> 127.0.0.1:$WS_PORT)"
-echo "   media      : UDP $RTC_MIN-$RTC_MAX, plus TCP $TCP_PORT where UDP is blocked"
+echo "   media      : UDP $UDP_PORT (one port, all of it), TCP $TCP_PORT as fallback"
 echo "   log        : /home/$APP_USER/logs/livekit.log"
 echo
 echo "Before this works end to end — none of which WHM does for you:"
