@@ -1457,9 +1457,19 @@ export default function MeetingRoomPage() {
    * Closing the tab or navigating away never runs a normal request, so the
    * leave has to go out with keepalive — otherwise the browser cancels it and
    * we become the ghost the reaper has to clean up 45 seconds later.
+   *
+   * Only when the page is genuinely going away, though. pagehide fires when a
+   * page is HIDDEN, which on a phone includes switching tabs or backgrounding
+   * the app — so this used to walk people out of meetings for looking at
+   * something else. event.persisted true means frozen and possibly returning;
+   * the heartbeat stopping and the reaper collecting is the right answer for
+   * the tabs that never do come back.
    */
   useEffect(() => {
-    const bye = () => {
+    // Only a page that is really being discarded — see the note above, and
+    // the identical guard on the call's goodbye in CallManager.
+    const bye = (event: PageTransitionEvent) => {
+      if (event.persisted) return
       if (!joinedRef.current) return
       // Raw fetch, so the api client's interceptor is not here to swap a guest
       // onto their own routes: without this a guest left on `Bearer null` and

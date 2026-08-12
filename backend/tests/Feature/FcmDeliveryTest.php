@@ -221,6 +221,49 @@ class FcmDeliveryTest extends TestCase
         $this->assertSame('declined', $call->fresh()->status);
     }
 
+    public function test_using_the_app_marks_you_online_to_a_connection(): void
+    {
+        /*
+         * Presence is taken from ordinary traffic, and the middleware that
+         * records it runs in terminate() — because global middleware runs
+         * BEFORE route middleware, so during handle() the route's auth has not
+         * happened and there is nobody to record. That bug recorded nothing at
+         * all, for every request, silently. This is the test that would have
+         * caught it.
+         */
+        $this->actingAs($this->bob)->getJson('/api/v1/connections')->assertOk();
+
+        $this->assertNotNull($this->bob->fresh()->last_active_at, 'the request should have marked bob active');
+
+        $connection = $this->actingAs($this->alice)
+            ->getJson('/api/v1/connections')
+            ->assertOk()
+            ->json('data.0.user');
+        $this->assertTrue($connection['is_online'], 'alice is connected to bob and should see the dot');
+    }
+
+    public function test_going_quiet_takes_the_dot_away(): void
+    {
+        User::withoutGlobalScopes()->whereKey($this->bob->id)
+            ->update(['last_active_at' => now()->subSeconds(User::ONLINE_WITHIN_SECONDS + 30)]);
+
+        $connection = $this->actingAs($this->alice)
+            ->getJson('/api/v1/connections')->json('data.0.user');
+        $this->assertFalse($connection['is_online']);
+    }
+
+    public function test_nobody_means_nobody(): void
+    {
+        // A privacy setting that nothing consults is not a setting. Bob is
+        // online and has asked not to be seen to be.
+        $this->bob->settings->update(['privacy' => ['online_status_visibility' => 'nobody']]);
+        User::withoutGlobalScopes()->whereKey($this->bob->id)->update(['last_active_at' => now()]);
+
+        $connection = $this->actingAs($this->alice)
+            ->getJson('/api/v1/connections')->json('data.0.user');
+        $this->assertFalse($connection['is_online']);
+    }
+
     public function test_signing_out_stops_the_ringing(): void
     {
         $token = str_repeat('y', 64);

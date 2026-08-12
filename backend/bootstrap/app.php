@@ -22,8 +22,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
-        // Presence, taken from the traffic an open app already makes. Appended
-        // so it runs after authentication has resolved who is asking.
+        // Presence, taken from the traffic an open app already makes. It does
+        // its work in terminate() — see the class — because global middleware
+        // runs before route middleware, so during handle() the auth on these
+        // routes has not happened and there is nobody to record yet.
         $middleware->append(\App\Http\Middleware\TrackActivity::class);
         // Session descriptions are CRLF-delimited and must keep their trailing
         // terminator: trimming it makes Chrome reject the whole offer with

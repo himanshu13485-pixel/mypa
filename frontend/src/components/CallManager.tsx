@@ -971,12 +971,26 @@ export function CallProvider({ children }: { children: ReactNode }) {
   }, [activeCall?.status, activeCall?.uuid, cleanup])
 
   /**
-   * Closing the tab never runs a normal request, so the hang-up has to go out
+   * Closing the tab never runs a normal request, so the goodbye has to go out
    * with keepalive — otherwise the browser cancels it and we become the ghost
    * the reaper cleans up 45 seconds later.
+   *
+   * But only when the page is genuinely being discarded. pagehide fires when a
+   * page is HIDDEN, not only when it is going away, and on a phone that
+   * includes switching tabs or backgrounding the app — so this hung up on
+   * anybody who glanced at another tab mid-call, which is not a thing any
+   * phone has ever done. event.persisted tells the two apart: true means the
+   * page is being frozen and may well come back, and the right response to
+   * that is to do nothing at all.
+   *
+   * A frozen page that never comes back is not lost — its heartbeat simply
+   * stops, and the reaper that exists for crashed tabs collects it. Late
+   * cleanup for a rare case is a far better trade than ending live calls for
+   * a common one.
    */
   useEffect(() => {
-    const bye = () => {
+    const bye = (event: PageTransitionEvent) => {
+      if (event.persisted) return
       const uuid = callRef.current?.uuid
       if (!uuid) return
       const token = useAuthStore.getState().token
