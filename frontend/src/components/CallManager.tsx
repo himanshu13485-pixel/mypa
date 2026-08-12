@@ -1501,7 +1501,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
               : expanded
                 // Big centred window — the old panel was a fixed 20rem box with
                 // no way to make the other person any larger.
-                ? 'fixed inset-4 rounded-xl sm:inset-8 lg:inset-x-[12%] lg:inset-y-10'
+                // Full-screen on a phone: the 1rem inset that frames a window
+                // nicely on a desktop is just sixteen wasted pixels on every
+                // edge of a phone, with the page scrolling visibly behind it.
+                ? 'fixed inset-0 rounded-none sm:inset-8 sm:rounded-xl lg:inset-x-[12%] lg:inset-y-10'
                 : clsx(
                     // Above the bottom tab bar on a phone, which the panel
                     // otherwise covers along with its call and chat buttons.
@@ -1686,7 +1689,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     {/* Catches the click away. A phone has no hover, so leaving
                         is not a gesture it can make. */}
                     <div className="fixed inset-0 z-20" onMouseDown={() => setAudioOpen(false)} />
-                    <div className="absolute bottom-10 right-0 z-30 w-56 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                    {/* A strip above the controls on a phone. Anchored to the
+                        button's right edge, this panel extended 14rem to the
+                        left of a button that sits at the bar's left end —
+                        which put most of it, mid-sentence, off the screen. */}
+                    <div className="fixed inset-x-3 bottom-24 z-30 rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:bottom-10 sm:right-0 sm:w-56 sm:max-w-[calc(100vw-2rem)]">
                       {audioDevices}
                     </div>
                   </>

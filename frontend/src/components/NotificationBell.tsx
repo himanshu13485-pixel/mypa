@@ -90,7 +90,12 @@ export default function NotificationBell() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-2 w-96 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
+          {/* On a phone this is a viewport strip, not a button-anchored panel:
+              the bell sits left of the theme and sign-out buttons, so a 24rem
+              panel hung from its right edge ran clean off the left of the
+              screen, headers truncated to "…ions". Anchoring is a desktop
+              luxury; a phone gets the width the screen actually has. */}
+          <div className="fixed inset-x-2 top-16 z-50 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96 sm:max-w-[calc(100vw-2rem)]">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
               <h3 className="text-sm font-semibold">Notifications</h3>
               {count > 0 && (

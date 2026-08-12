@@ -3159,8 +3159,12 @@ function DeviceMenu({
     // catches the click-away.
     <>
       <div className="fixed inset-0 z-20" onMouseDown={onClose} />
+      {/* A viewport strip on a phone, an anchored panel from sm up — the same
+          repair as the call window's device picker: hung from the right edge
+          of a button near the bar's left end, most of a 16rem panel sat off
+          the left of the screen. */}
       <div
-        className="absolute bottom-11 right-0 z-30 max-h-[70vh] w-64 max-w-[calc(100vw-2rem)] space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        className="fixed inset-x-3 bottom-24 z-30 max-h-[70vh] space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:bottom-11 sm:right-0 sm:w-64 sm:max-w-[calc(100vw-2rem)]"
       >
         {!audioOnly && (
           <label className="block">
