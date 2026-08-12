@@ -23,6 +23,15 @@ export interface SfuPeer {
   uuid: string
   name: string
   stream: MediaStream | null
+  /**
+   * From the transport itself, not from signalling. The mesh announces mute
+   * with 'media' signals; on the SFU the authoritative record is the
+   * publication's own muted flag, which LiveKit updates for every listener the
+   * moment the publisher's track goes quiet. Deriving it here means a room on
+   * the SFU needs no signalling at all to draw avatars and mic icons.
+   */
+  micOff: boolean
+  camOff: boolean
 }
 
 export interface SfuCallbacks {
@@ -113,10 +122,17 @@ function peersFrom(room: Room): SfuPeer[] {
       .map((pub) => pub.track?.mediaStreamTrack)
       .filter((t): t is MediaStreamTrack => !!t)
 
+    const pubs = [...p.trackPublications.values()]
+
     return {
       uuid: p.identity,
       name: p.name || p.identity,
       stream: streamFor(room, p.identity, tracks),
+      // "Live" means an unmuted publication whose track has actually arrived —
+      // the same condition that put it in the stream above, so the icon and
+      // the picture can never disagree.
+      micOff: !pubs.some((pub) => pub.kind === 'audio' && !pub.isMuted && pub.track),
+      camOff: !pubs.some((pub) => pub.kind === 'video' && !pub.isMuted && pub.track),
     }
   })
 }
@@ -224,6 +240,34 @@ export function focusQualities(
   }
 
   return out
+}
+
+/**
+ * Mute or unmute what we actually published, by kind.
+ *
+ * Not setMicrophoneEnabled / setCameraEnabled. Those act on the publication
+ * whose source is Microphone or Camera — and tracks handed to publishTrack
+ * without a source are recorded as UNKNOWN, which the server log confirms. So
+ * both calls searched for a publication that did not exist, found nothing,
+ * and succeeded. Every mute the room asked this session for was a no-op, and
+ * nobody noticed because the room also disables the underlying track, which
+ * LiveKit detects and relays. That covers the original tracks only: an
+ * escalated session publishes clones, and a clone does not follow its
+ * original's enabled flag — so after a mesh-to-SFU handover, mute would have
+ * simply stopped working.
+ *
+ * Acting on the publications themselves needs no source label, and setting
+ * the track's own enabled flag as well covers the clone.
+ */
+async function setPublished(room: Room, kind: 'audio' | 'video', on: boolean): Promise<void> {
+  for (const pub of room.localParticipant.trackPublications.values()) {
+    if (pub.kind !== kind) continue
+    const track = pub.track
+    if (!track) continue
+    track.mediaStreamTrack.enabled = on
+    if (on) await pub.unmute()
+    else await pub.mute()
+  }
 }
 
 export async function joinSfu(
@@ -382,8 +426,8 @@ export async function joinSfu(
   return {
     room,
     publish,
-    setMicEnabled: (on) => room.localParticipant.setMicrophoneEnabled(on).then(() => undefined),
-    setCameraEnabled: (on) => room.localParticipant.setCameraEnabled(on).then(() => undefined),
+    setMicEnabled: (on) => setPublished(room, 'audio', on),
+    setCameraEnabled: (on) => setPublished(room, 'video', on),
     setFocus: (uuids) => {
       // Cheap enough to call on every render of the tile grid: applyQuality
       // does nothing unless an answer has actually moved.

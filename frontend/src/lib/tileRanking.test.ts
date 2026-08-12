@@ -12,15 +12,18 @@ const people = (n: number) => Array.from({ length: n }, (_, i) => ({ uuid: `u${i
 
 describe('rankTiles', () => {
   it('shows everybody when they fit', () => {
-    const { visible, overflow } = rankTiles(people(6))
-    expect(visible).toHaveLength(6)
+    const { visible, overflow } = rankTiles(people(MAX_VIDEO_TILES))
+    expect(visible).toHaveLength(MAX_VIDEO_TILES)
     expect(overflow).toHaveLength(0)
   })
 
-  it('caps at nine and leaves the rest over', () => {
+  it('caps at the limit and leaves the rest over', () => {
+    // Derived from the constant, not restated: these asserted "caps at nine"
+    // with literal nines, so lowering the cap to four broke three tests that
+    // were all making the same true claim.
     const { visible, overflow } = rankTiles(people(20))
     expect(visible).toHaveLength(MAX_VIDEO_TILES)
-    expect(overflow).toHaveLength(11)
+    expect(overflow).toHaveLength(20 - MAX_VIDEO_TILES)
   })
 
   it('brings whoever is talking on screen, however late they joined', () => {
@@ -68,7 +71,7 @@ describe('rankTiles', () => {
     const first = rankTiles(people(20)).visible.map((p) => p.uuid)
     const second = rankTiles(people(20)).visible.map((p) => p.uuid)
     expect(second).toEqual(first)
-    expect(first).toEqual(['u0', 'u1', 'u2', 'u3', 'u4', 'u5', 'u6', 'u7', 'u8'])
+    expect(first).toEqual(people(MAX_VIDEO_TILES).map((p) => p.uuid))
   })
 
   it('loses nobody — everyone is either shown or counted', () => {

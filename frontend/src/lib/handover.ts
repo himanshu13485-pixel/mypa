@@ -52,9 +52,16 @@ export function mergeForHandover<T extends HandoverTile>(
 
   for (const incoming of fromSfu) {
     const existing = merged.get(incoming.uuid)
-    // No stream from the server yet: keep whatever the mesh is still giving
-    // us rather than blanking the tile.
-    if (!incoming.stream && existing) continue
+    /*
+     * The stream falls back to the mesh's; everything else is taken fresh.
+     *
+     * This used to skip the whole entry when the server had no stream yet,
+     * to avoid blanking a tile the mesh was still carrying. The fallback
+     * below already guarantees that — and the skip meant a person with both
+     * camera and microphone off never had their entry merged at all, so the
+     * mute flags the SFU reports for them were thrown away and their tile
+     * kept whatever state it last had.
+     */
     merged.set(incoming.uuid, {
       ...(existing ?? {}),
       ...incoming,

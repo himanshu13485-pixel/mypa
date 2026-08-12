@@ -222,6 +222,10 @@ export default function MeetingRoomPage() {
 
   // Room state mirrored from the server (heartbeat + signals).
   const [roster, setRoster] = useState<MeetingParticipant[]>([])
+  // Mirrored for long-lived closures (broadcastMedia): state reads there are
+  // frozen at bind time, and announcing mute to last beat's roster would skip
+  // whoever joined since.
+  const rosterRef = useRef<MeetingParticipant[]>([])
   const [myRole, setMyRole] = useState<'host' | 'cohost' | 'participant'>('participant')
   const [isLocked, setIsLocked] = useState(false)
   const [spotlight, setSpotlight] = useState<string | null>(null)
@@ -835,9 +839,21 @@ export default function MeetingRoomPage() {
 
     setPeers((prev) => mergeForHandover(
       prev,
-      // The roster is the authority on names, so an established tile keeps the
-      // one it has; the SFU's identity is only a fallback for a stranger.
-      list.map((p) => ({ ...p, name: prev.find((x) => x.uuid === p.uuid)?.name ?? p.name })),
+      list.map((p) => {
+        /*
+         * The roster is the authority on names, so an established tile keeps
+         * the one it has; the SFU's identity is only a fallback for a
+         * stranger. And while a mesh connection to somebody is still alive,
+         * their mute flags stay the mesh's too: a person mid-handover who has
+         * connected to the SFU but not yet published anything reports "no
+         * live tracks", which read as camera-off would paint an avatar over
+         * a mesh video that is still playing underneath.
+         */
+        const { micOff, camOff, ...rest } = p
+        const named = { ...rest, name: prev.find((x) => x.uuid === p.uuid)?.name ?? p.name }
+
+        return pcsRef.current.has(p.uuid) ? named : { ...named, micOff, camOff }
+      }),
       (uuid) => pcsRef.current.has(uuid),
     ))
   }, [retireMeshPeer])
@@ -945,6 +961,10 @@ export default function MeetingRoomPage() {
       console.warn('[meeting] could not escalate to the SFU', err)
     }
   }, [openSfu, adoptSfuPeers, retireMeshPeer])
+
+  useEffect(() => {
+    rosterRef.current = roster
+  }, [roster])
 
   const joinRoom = useCallback(async (lobby?: LobbyResult) => {
     if (lobby) lobbyRef.current = lobby
@@ -1503,8 +1523,17 @@ export default function MeetingRoomPage() {
    * broadcasting a stale value for whichever of the two it didn't change.
    */
   const broadcastMedia = useCallback(() => {
-    pcsRef.current.forEach((_, uuid) => {
-      meetingsApi.signal(code, 'media', myMediaRef.current, uuid).catch(() => undefined)
+    /*
+     * To the roster, not to the peer connections. On the SFU there are no
+     * peer connections, so announcing to pcsRef told nobody — mute state
+     * stopped being persisted to the server the moment a meeting was not on
+     * the mesh, and the People panel showed whatever everyone joined with.
+     * (Tiles are unaffected either way: on the SFU they read mute from the
+     * publications themselves.) The roster is the same set of people on the
+     * mesh, so nothing changes there.
+     */
+    rosterRef.current.forEach((peer) => {
+      meetingsApi.signal(code, 'media', myMediaRef.current, peer.uuid).catch(() => undefined)
     })
   }, [code])
 
