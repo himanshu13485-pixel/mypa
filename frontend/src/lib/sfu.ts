@@ -157,12 +157,28 @@ export async function joinSfu(
       // uploads is a number we chose and can be held to.
       videoEncoding: publishBudget(mobile),
     },
-    // Subscribe only to what is actually on screen, at the size it is being
-    // shown. A gallery of thirty tiles has no use for thirty full streams.
-    adaptiveStream: true,
-    // And tell the server to stop sending layers nobody is currently watching,
-    // rather than paying to forward them into a void.
-    dynacast: true,
+    /*
+     * Both off, deliberately, and both would be worth having in a bigger room.
+     *
+     * adaptiveStream picks a simulcast layer from how large each video element
+     * renders, so a gallery of thirty tiles need not carry thirty full
+     * streams. The catch is that it re-decides whenever an element resizes,
+     * and switching layer needs a fresh keyframe — visible as a flicker. A
+     * tile whose size sits near one of its thresholds flips back and forth and
+     * flickers continuously, which is what happens when the window is not
+     * maximised, when devtools open, and on some phones and not others,
+     * because all of those change how big a tile renders.
+     *
+     * dynacast stops forwarding layers nobody is watching, and pays for it
+     * with the same keyframe stall when somebody starts watching again.
+     *
+     * This app shows at most nine tiles (see videoLayout), so the saving is
+     * bounded and the flicker is not. If rooms ever get much larger these
+     * should come back — the flicker is a real cost, but so is a phone
+     * decoding thirty streams.
+     */
+    adaptiveStream: false,
+    dynacast: false,
   }
 
   const room = new LiveKitRoom(options)
