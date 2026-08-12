@@ -1582,12 +1582,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
                * stared at for the whole call and says nothing else.
                */
               (isFs || expanded) ? (
-                <div className="flex min-h-0 flex-1 flex-col">
-                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4 px-6">
-                    <Avatar name={activeCall.peerName} size={96} />
+                /*
+                 * h-full, not flex-1: the wrapper above is a flex CHILD (it
+                 * carries flex-1 in the panel's column) but is not itself a
+                 * flex container — so a flex-1 in here had nothing to fill,
+                 * the face collapsed to content height at the top of the
+                 * screen, and the name that was meant to own the page looked
+                 * like a caption that had lost its picture.
+                 */
+                <div className="flex h-full min-h-0 flex-col text-white">
+                  <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 px-6">
+                    <Avatar name={activeCall.peerName} size={132} />
                     <div className="text-center">
-                      <p className="text-2xl font-semibold">{activeCall.peerName}</p>
-                      <p className="mt-1 text-sm text-slate-400">
+                      <p className="text-4xl font-semibold">{activeCall.peerName}</p>
+                      <p className="mt-2 text-lg text-slate-400">
                         {activeCall.status === 'ringing' && 'Ringing…'}
                         {activeCall.status === 'connecting' && 'Connecting…'}
                         {activeCall.status === 'ongoing' && fmt(elapsed)}
@@ -1605,7 +1613,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
                       )}
                     </div>
                   </div>
-                  <p className="pb-3 text-center text-[10px] font-medium uppercase tracking-[0.3em] text-slate-400 dark:text-slate-600">
+                  <p className="pb-5 text-center text-sm font-medium uppercase tracking-[0.35em] text-slate-500">
                     Call by Netvork
                   </p>
                   <video ref={attachSelf} className="hidden" muted />
