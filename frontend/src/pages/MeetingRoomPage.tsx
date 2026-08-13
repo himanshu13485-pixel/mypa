@@ -37,7 +37,7 @@ import { useToast } from '../components/Toast'
 import { Button, Card } from '../components/ui'
 import { NEW_MEETING, meetingLink } from './MeetingsPage'
 import { useMeetingSession } from '../components/MeetingHost'
-import { holdMicrophoneInBackground, releaseMicrophoneHold } from '../lib/nativeShell'
+import { holdMicrophoneInBackground, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
 import type { MeetingHostAction, MeetingParticipant, MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
 import { Avatar } from '../lib/avatars'
@@ -1510,8 +1510,14 @@ export default function MeetingRoomPage() {
   useEffect(() => {
     if (phase !== 'in') return
     holdMicrophoneInBackground(meeting?.title || 'Netvork meeting')
+    // A meeting is watched at arm's length, so the loudspeaker — the opposite
+    // of a call, and the same split preferredSpeaker makes on a desktop.
+    routeAudioToSpeaker(true)
 
-    return () => releaseMicrophoneHold()
+    return () => {
+      releaseMicrophoneHold()
+      releaseAudioRoute()
+    }
   }, [phase, meeting?.title])
 
   // Keep the speaker applied as tiles come and go.

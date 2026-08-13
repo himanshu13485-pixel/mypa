@@ -8,7 +8,7 @@ import { calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
-import { holdMicrophoneInBackground, releaseMicrophoneHold } from '../lib/nativeShell'
+import { holdMicrophoneInBackground, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
 import { PickUserModal } from './UserSuggest'
 import { useToast } from './Toast'
 import { Button } from './ui'
@@ -1016,8 +1016,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!activeCall) return
     holdMicrophoneInBackground(activeCall.peerName || 'Ongoing call')
+    // A call is held to the head, so the earpiece — and on Android only this
+    // native route can say so; see routeAudioToSpeaker.
+    routeAudioToSpeaker(false)
 
-    return () => releaseMicrophoneHold()
+    return () => {
+      releaseMicrophoneHold()
+      releaseAudioRoute()
+    }
   }, [activeCall?.uuid, activeCall?.peerName])
 
   // Call duration ticker
@@ -1678,7 +1684,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
           {/* overflow-visible, not auto: the background picker opens upward out
               of this row, and an `overflow` of any kind on the row cut it off —
               which is what "the settings hide behind the video" was. */}
-          <div className="shrink-0 overflow-visible p-3">
+          {/* pb-safe: full-screen means full screen, gesture bar included, and
+              the End button sat underneath it. Only the bottom needs it — the
+              sides are only inset in landscape, which this row does not reach. */}
+          <div className="shrink-0 overflow-visible p-3 pb-safe">
             {recRequest && activeCall.direction === 'outgoing' && (
               <div className="mb-1.5 flex items-center gap-1.5 rounded bg-red-50 px-2 py-1 text-[11px] dark:bg-red-950">
                 <span className="font-medium">{recRequest.name}</span> wants to record
@@ -1707,13 +1716,20 @@ export function CallProvider({ children }: { children: ReactNode }) {
                 Recording in progress{recording && ' — you'}{peerRecording && ` — ${peerRecording}`}
               </div>
             )}
-            <p className="text-sm font-semibold">{activeCall.peerName}</p>
-            <p className="text-xs text-slate-400">
-              {activeCall.status === 'ringing' && 'Ringing…'}
-              {activeCall.status === 'connecting' && 'Connecting…'}
-              {activeCall.status === 'ongoing' && fmt(elapsed)}
-              {activeCall.isGroup && activeCall.status === 'ongoing' && ` · ${tiles + 1} participants`}
-            </p>
+            {/* Not when the face above is already saying it, twice the size —
+                the same name and timer appeared again immediately under it. The
+                pill has no face, so there it is the only label there is. */}
+            {!(isFs || expanded) && (
+              <>
+                <p className="text-sm font-semibold">{activeCall.peerName}</p>
+                <p className="text-xs text-slate-400">
+                  {activeCall.status === 'ringing' && 'Ringing…'}
+                  {activeCall.status === 'connecting' && 'Connecting…'}
+                  {activeCall.status === 'ongoing' && fmt(elapsed)}
+                  {activeCall.isGroup && activeCall.status === 'ongoing' && ` · ${tiles + 1} participants`}
+                </p>
+              </>
+            )}
             {/* Wrapping, not scrolling. Nine controls do not fit across a
                 20rem panel, and the panel clips what overhangs — so the last
                 of them — End among them — were simply not there, with no way

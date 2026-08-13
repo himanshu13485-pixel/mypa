@@ -33,11 +33,20 @@ import androidx.core.app.NotificationCompat;
 public class CallForegroundService extends Service {
 
     public static final String EXTRA_LABEL = "label";
+
+    /**
+     * Whether a call or meeting is running, for MainActivity to consult when
+     * the person leaves the app — the moment to float rather than vanish.
+     * The web app is still the only thing that decides; this is the flag it
+     * sets by starting and stopping the service.
+     */
+    public static volatile boolean callActive = false;
     private static final String CHANNEL = "ongoing_call";
     private static final int NOTIFICATION_ID = 4242;
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        callActive = true;
         String label = intent != null ? intent.getStringExtra(EXTRA_LABEL) : null;
         ensureChannel();
 
@@ -85,6 +94,12 @@ public class CallForegroundService extends Service {
         channel.setDescription("Shown while a call or meeting is running");
         channel.setShowBadge(false);
         manager.createNotificationChannel(channel);
+    }
+
+    @Override
+    public void onDestroy() {
+        callActive = false;
+        super.onDestroy();
     }
 
     @Override

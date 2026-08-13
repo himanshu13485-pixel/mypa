@@ -15,6 +15,8 @@ type BridgePlugin = {
   addListener: (event: string, cb: Listener) => void
   start?: (options: { label?: string }) => Promise<void>
   stop?: () => Promise<void>
+  setSpeakerphone?: (options: { on: boolean }) => Promise<void>
+  resetAudio?: () => Promise<void>
   minimizeApp?: () => void
   requestPermissions?: () => Promise<{ receive?: string }>
   register?: () => Promise<void>
@@ -191,4 +193,25 @@ export function holdMicrophoneInBackground(label: string): void {
 
 export function releaseMicrophoneHold(): void {
   void bridge()?.Plugins?.CallService?.stop?.()?.catch(() => undefined)
+}
+
+/**
+ * Earpiece or loudspeaker, inside the Android app.
+ *
+ * The web way — enumerate outputs, pick one, setSinkId — does not exist on
+ * Chrome for Android: no outputs are listed and setSinkId is not implemented.
+ * So preferredSpeaker had nothing to match and every call came out of the
+ * loudspeaker, which is the WebView's default and wrong for something held to
+ * the ear. AudioManager is the only switch that works there, and reaching it
+ * needs native code.
+ *
+ * A no-op everywhere else, where setSinkId does the job properly.
+ */
+export function routeAudioToSpeaker(loud: boolean): void {
+  void bridge()?.Plugins?.CallService?.setSpeakerphone?.({ on: loud })?.catch(() => undefined)
+}
+
+/** Give the routing back to the system. */
+export function releaseAudioRoute(): void {
+  void bridge()?.Plugins?.CallService?.resetAudio?.()?.catch(() => undefined)
 }

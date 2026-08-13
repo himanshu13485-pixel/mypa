@@ -1,6 +1,8 @@
 package app.netvork;
 
+import android.content.Context;
 import android.content.Intent;
+import android.media.AudioManager;
 import android.os.Build;
 
 import com.getcapacitor.Plugin;
@@ -41,6 +43,52 @@ public class CallServicePlugin extends Plugin {
              */
             call.reject("could not start the call service: " + e.getMessage());
         }
+    }
+
+    /**
+     * Earpiece or loudspeaker, which on Android only native code can decide.
+     *
+     * setSinkId — the web API the app uses on a desktop to pick an output —
+     * is not implemented in Chrome on Android at all, and enumerateDevices
+     * lists no audio outputs there either. So the careful label-matching that
+     * chooses an earpiece for calls and a loudspeaker for meetings had nothing
+     * to match on and silently changed nothing: every call came out of the
+     * loudspeaker because that is the WebView's default.
+     *
+     * AudioManager is the real switch. MODE_IN_COMMUNICATION is what tells
+     * Android this is a voice call rather than media playback — without it
+     * the routing choice below is ignored, and the volume keys would go on
+     * adjusting the ringtone instead of the call.
+     */
+    @PluginMethod
+    public void setSpeakerphone(PluginCall call) {
+        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        try {
+            AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            if (audio != null) {
+                audio.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                audio.setSpeakerphoneOn(on);
+            }
+            call.resolve();
+        } catch (Exception e) {
+            call.reject("could not route audio: " + e.getMessage());
+        }
+    }
+
+    /** Hands the routing back to the system when the call is over. */
+    @PluginMethod
+    public void resetAudio(PluginCall call) {
+        try {
+            AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            if (audio != null) {
+                audio.setSpeakerphoneOn(false);
+                audio.setMode(AudioManager.MODE_NORMAL);
+            }
+        } catch (Exception e) {
+            // Leaving the phone in communication mode would be rude, but
+            // there is nothing to be done if the system refuses.
+        }
+        call.resolve();
     }
 
     @PluginMethod

@@ -9,12 +9,16 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
+        <!-- supportsPictureInPicture floats a call when somebody presses home
+             rather than hiding it; resizeableActivity is its precondition. -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
             android:exported="true">
 
             <intent-filter>
