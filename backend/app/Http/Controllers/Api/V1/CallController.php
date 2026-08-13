@@ -138,11 +138,31 @@ class CallController extends Controller
             $call->update(['status' => 'declined', 'ended_at' => now()]);
             $this->logCallToChat($call->fresh(['conversation']));
         }
+        $loaded = $call->load(['conversation', 'caller']);
         \App\Support\Realtime::send(new CallSignal(
-            $call->load(['conversation', 'caller']),
+            $loaded,
             $me->uuid,
             $me->name,
             $call->caller->uuid,
+            'decline',
+            ['decliner_uuid' => $me->uuid, 'is_group' => $isGroup],
+        ));
+
+        /*
+         * And to the decliner themselves.
+         *
+         * This decline came from the Android notification — native code,
+         * outside the webview — so the app may still be sitting there ringing
+         * behind a notification that has just vanished. Nothing else would
+         * ever tell it: the ordinary decline is pressed inside the app, which
+         * therefore already knows. That is the "notification disappears but it
+         * still rings".
+         */
+        \App\Support\Realtime::send(new CallSignal(
+            $loaded,
+            $me->uuid,
+            $me->name,
+            $me->uuid,
             'decline',
             ['decliner_uuid' => $me->uuid, 'is_group' => $isGroup],
         ));

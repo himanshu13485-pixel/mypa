@@ -67,12 +67,36 @@ public class CallForegroundService extends Service {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE))
             .build();
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            // Naming the type is what actually keeps the microphone; from
-            // Android 14 starting without it is an outright crash.
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
+        /*
+         * Every one of these can throw, and an uncaught throw here takes the
+         * whole app down — which is what "the app crashes when I call, but
+         * the other person's phone still rings" was: the caller starts a call,
+         * this service starts before the microphone is actually in use, and
+         * Android 14 refuses a microphone-type service when RECORD_AUDIO is
+         * not already granted. The receiver never saw it because by the time
+         * they answer, the permission is long since granted.
+         *
+         * A refusal must cost the exemption and nothing else. Without the
+         * service the microphone is lost on backgrounding — worse than it was,
+         * far better than a crash — so it steps down quietly and the call goes
+         * on. Falling back to a plain foreground service first, since a
+         * typeless one is allowed where a microphone one is not.
+         */
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+            } else {
+                startForeground(NOTIFICATION_ID, notification);
+            }
+        } catch (Throwable typed) {
+            try {
+                startForeground(NOTIFICATION_ID, notification);
+            } catch (Throwable plain) {
+                callActive = false;
+                stopSelf();
+
+                return START_NOT_STICKY;
+            }
         }
 
         // Not sticky: if Android kills this, the call is gone with it and

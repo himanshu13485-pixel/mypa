@@ -799,6 +799,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
           removePeer((signal.payload.left_uuid as string) ?? signal.from_uuid)
           break
         case 'decline':
+          /*
+           * Also sent to the decliner's own sessions, because Decline can now
+           * be pressed on the Android notification — native code, outside the
+           * webview, which cancels the notification and knows nothing about
+           * the app still ringing in the background behind it. That is the
+           * "notification went away but it kept ringing": two things were
+           * ringing and only one was told.
+           */
+          setIncoming((cur) => (cur?.call_uuid === signal.call_uuid ? null : cur))
           // In a group call a single decline doesn't end anything.
           if (call?.isGroup) return
           cleanup()
@@ -1014,7 +1023,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
    * component going away.
    */
   useEffect(() => {
-    if (!activeCall) return
+    /*
+     * Only once the call is genuinely up. Asking while an outgoing call is
+     * still ringing meant asking before the microphone was in use — and
+     * Android 14 refuses a microphone foreground service in that state, which
+     * crashed the caller while the callee's phone rang on regardless. The
+     * service is crash-proof now either way; this simply stops asking for
+     * something the system was always going to refuse.
+     */
+    if (!activeCall || activeCall.status !== 'ongoing') return
     holdMicrophoneInBackground(activeCall.peerName || 'Ongoing call')
     // A call is held to the head, so the earpiece — and on Android only this
     // native route can say so; see routeAudioToSpeaker.
@@ -1024,7 +1041,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       releaseMicrophoneHold()
       releaseAudioRoute()
     }
-  }, [activeCall?.uuid, activeCall?.peerName])
+  }, [activeCall?.uuid, activeCall?.status, activeCall?.peerName])
 
   // Call duration ticker
   useEffect(() => {
