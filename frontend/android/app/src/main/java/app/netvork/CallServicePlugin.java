@@ -2,8 +2,11 @@ package app.netvork;
 
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
 import android.os.Build;
+
+import java.util.List;
 
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -62,13 +65,62 @@ public class CallServicePlugin extends Plugin {
      */
     @PluginMethod
     public void setSpeakerphone(PluginCall call) {
-        boolean on = Boolean.TRUE.equals(call.getBoolean("on", false));
+        boolean loud = Boolean.TRUE.equals(call.getBoolean("on", false));
         try {
             AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
-            if (audio != null) {
-                audio.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                audio.setSpeakerphoneOn(on);
+            if (audio == null) {
+                call.resolve();
+
+                return;
             }
+
+            // Without this the routing below is ignored outright, and the
+            // volume keys go on adjusting the ringtone rather than the call.
+            audio.setMode(AudioManager.MODE_IN_COMMUNICATION);
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                /*
+                 * setCommunicationDevice, not setSpeakerphoneOn.
+                 *
+                 * setSpeakerphoneOn was deprecated in Android 12 and is widely
+                 * ignored on 12 and later — which is why calls went on coming
+                 * out of the loudspeaker after being told not to, on exactly
+                 * the modern phones most people are holding. The replacement
+                 * names the output rather than toggling a flag.
+                 *
+                 * A headset outranks both, in either direction: pairing one is
+                 * itself the instruction. Below that a call takes the earpiece
+                 * and a meeting the loudspeaker, the same split the desktop
+                 * makes with setSinkId.
+                 */
+                int[] wanted = loud
+                    ? new int[] {
+                        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                        AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER,
+                    }
+                    : new int[] {
+                        AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+                        AudioDeviceInfo.TYPE_WIRED_HEADSET,
+                        AudioDeviceInfo.TYPE_BUILTIN_EARPIECE,
+                    };
+
+                List<AudioDeviceInfo> available = audio.getAvailableCommunicationDevices();
+                for (int type : wanted) {
+                    for (AudioDeviceInfo device : available) {
+                        if (device.getType() == type) {
+                            audio.setCommunicationDevice(device);
+                            call.resolve();
+
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Android 11 and below, and anything the loop above could not
+            // satisfy — the old flag still works there.
+            audio.setSpeakerphoneOn(loud);
             call.resolve();
         } catch (Exception e) {
             call.reject("could not route audio: " + e.getMessage());
@@ -81,6 +133,12 @@ public class CallServicePlugin extends Plugin {
         try {
             AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
             if (audio != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    // The counterpart of setCommunicationDevice: without it the
+                    // choice outlives the call and the next thing the phone
+                    // plays comes out of the earpiece.
+                    audio.clearCommunicationDevice();
+                }
                 audio.setSpeakerphoneOn(false);
                 audio.setMode(AudioManager.MODE_NORMAL);
             }
