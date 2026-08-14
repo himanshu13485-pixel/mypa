@@ -8,7 +8,7 @@ import { calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
-import { holdMicrophoneInBackground, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
+import { holdMicrophoneInBackground, nativeAudioDevices, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
 import { PickUserModal } from './UserSuggest'
 import { useToast } from './Toast'
 import { Button } from './ui'
@@ -188,6 +188,14 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const [showInvite, setShowInvite] = useState(false)
   const [activeCall, setActiveCall] = useState<ActiveCall | null>(null)
   const [incoming, setIncoming] = useState<CallSignalPayload | null>(null)
+  /*
+   * The phone's own outputs, and whether we are currently on the loud one.
+   *
+   * Only ever populated inside the Android app: a browser has setSinkId and a
+   * device list of its own, and needs none of this.
+   */
+  const [phoneOutputs, setPhoneOutputs] = useState<{ kind: string; label: string }[]>([])
+  const [onLoudspeaker, setOnLoudspeaker] = useState(false)
   const [remotePeers, setRemotePeers] = useState<RemotePeer[]>([])
   const [muted, setMuted] = useState(false)
   const [cameraOff, setCameraOff] = useState(false)
@@ -1036,6 +1044,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
     // A call is held to the head, so the earpiece — and on Android only this
     // native route can say so; see routeAudioToSpeaker.
     routeAudioToSpeaker(false)
+    setOnLoudspeaker(false)
+    // Asked once the call is up, when a headset paired mid-ring is already in
+    // the list and the answer will not change again without a device change.
+    void nativeAudioDevices().then(setPhoneOutputs)
 
     return () => {
       releaseMicrophoneHold()
@@ -1796,11 +1808,32 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   the one where getting the speaker wrong means hearing
                   nothing at all. */}
               <div className="relative">
+                {/*
+                  * A toggle on a plain phone, a menu on a furnished one.
+                  *
+                  * With only an earpiece and a loudspeaker there is nothing to
+                  * choose between — a list of two is a menu asking which of
+                  * two things you want, when tapping the button already said.
+                  * Pair a headset and there are three, at which point the
+                  * question is real and the picker earns its place. Which is
+                  * what a phone's own call screen does, and WhatsApp's.
+                  */}
                 <Button
                   size="sm"
-                  variant={audioOpen ? 'primary' : 'secondary'}
-                  title="Microphone and speaker"
-                  onClick={() => setAudioOpen((o) => !o)}
+                  variant={audioOpen || onLoudspeaker ? 'primary' : 'secondary'}
+                  title={phoneOutputs.length === 2
+                    ? (onLoudspeaker ? 'Switch to earpiece' : 'Switch to speaker')
+                    : 'Microphone and speaker'}
+                  onClick={() => {
+                    if (phoneOutputs.length === 2) {
+                      const loud = !onLoudspeaker
+                      setOnLoudspeaker(loud)
+                      routeAudioToSpeaker(loud)
+
+                      return
+                    }
+                    setAudioOpen((o) => !o)
+                  }}
                 >
                   <Volume2 className="size-3.5" />
                 </Button>

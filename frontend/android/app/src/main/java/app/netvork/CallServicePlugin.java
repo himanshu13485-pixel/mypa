@@ -8,6 +8,8 @@ import android.os.Build;
 
 import java.util.List;
 
+import com.getcapacitor.JSArray;
+import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -125,6 +127,50 @@ public class CallServicePlugin extends Plugin {
         } catch (Exception e) {
             call.reject("could not route audio: " + e.getMessage());
         }
+    }
+
+    /**
+     * What this phone can play a call through.
+     *
+     * enumerateDevices lists no audio outputs on Chrome for Android, so the
+     * web app cannot tell an earpiece-and-loudspeaker phone from one with a
+     * headset paired — and that is the difference between a speaker button
+     * that should toggle and one that should offer a choice.
+     */
+    @PluginMethod
+    public void listAudioDevices(PluginCall call) {
+        JSArray out = new JSArray();
+        try {
+            AudioManager audio = (AudioManager) getContext().getSystemService(Context.AUDIO_SERVICE);
+            if (audio != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                for (AudioDeviceInfo device : audio.getAvailableCommunicationDevices()) {
+                    String kind = kindOf(device.getType());
+                    if (kind == null) {
+                        continue;
+                    }
+                    JSObject entry = new JSObject();
+                    entry.put("kind", kind);
+                    entry.put("label", device.getProductName() == null ? kind : device.getProductName().toString());
+                    out.put(entry);
+                }
+            }
+        } catch (Exception e) {
+            // An empty list reads as "we cannot tell", and the caller falls
+            // back to its ordinary picker — which is the safe direction.
+        }
+        JSObject result = new JSObject();
+        result.put("devices", out);
+        call.resolve(result);
+    }
+
+    /** Only the outputs a person would recognise; anything else is noise. */
+    private static String kindOf(int type) {
+        if (type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) return "earpiece";
+        if (type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) return "speaker";
+        if (type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) return "bluetooth";
+        if (type == AudioDeviceInfo.TYPE_WIRED_HEADSET || type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES) return "wired";
+
+        return null;
     }
 
     /** Hands the routing back to the system when the call is over. */

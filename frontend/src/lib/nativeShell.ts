@@ -16,6 +16,7 @@ type BridgePlugin = {
   start?: (options: { label?: string }) => Promise<void>
   stop?: () => Promise<void>
   setSpeakerphone?: (options: { on: boolean }) => Promise<void>
+  listAudioDevices?: () => Promise<{ devices: { kind: string; label: string }[] }>
   resetAudio?: () => Promise<void>
   minimizeApp?: () => void
   requestPermissions?: () => Promise<{ receive?: string }>
@@ -214,4 +215,20 @@ export function routeAudioToSpeaker(loud: boolean): void {
 /** Give the routing back to the system. */
 export function releaseAudioRoute(): void {
   void bridge()?.Plugins?.CallService?.resetAudio?.()?.catch(() => undefined)
+}
+
+/**
+ * The phone's call outputs, which the web cannot see for itself on Android.
+ *
+ * An empty list means "not in the app, or could not tell" — and the caller
+ * should then fall back to its ordinary picker rather than assume anything.
+ */
+export async function nativeAudioDevices(): Promise<{ kind: string; label: string }[]> {
+  try {
+    const result = await bridge()?.Plugins?.CallService?.listAudioDevices?.()
+
+    return result?.devices ?? []
+  } catch {
+    return []
+  }
 }
