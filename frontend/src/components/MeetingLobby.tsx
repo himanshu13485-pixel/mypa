@@ -16,6 +16,13 @@ export interface LobbyResult {
   micOn: boolean
   camOn: boolean
   devices: DeviceChoice
+  /**
+   * How the media should travel, if this lobby is the one that creates the
+   * meeting. Null means no opinion, which is both the default and what an
+   * existing meeting always sends — its transport was settled by whoever made
+   * it, and the person joining is in no position to change it.
+   */
+  transport: 'mesh' | 'sfu' | null
 }
 
 /**
@@ -30,6 +37,7 @@ export default function MeetingLobby({
   audioOnly,
   busy,
   error,
+  choosesTransport,
   onJoin,
   onCancel,
 }: {
@@ -39,6 +47,13 @@ export default function MeetingLobby({
   audioOnly?: boolean
   busy?: boolean
   error?: string | null
+  /**
+   * Whether walking in from here is what creates the meeting — "New meeting"
+   * opens a lobby for a room that does not exist yet. Only then is there a
+   * transport to choose: for a meeting that already exists the question was
+   * answered when it was made, and the answer is not the joiner's to revisit.
+   */
+  choosesTransport?: boolean
   onJoin: (result: LobbyResult) => void
   onCancel: () => void
 }) {
@@ -50,6 +65,9 @@ export default function MeetingLobby({
   const [micOn, setMicOn] = useState(true)
   const [camOn, setCamOn] = useState(!audioOnly)
   const [choice, setChoice] = useState<DeviceChoice>(stored)
+  // '' is the absence of a choice rather than a third mode — most people
+  // should not have to have an opinion about how their video gets there.
+  const [transport, setTransport] = useState<'' | 'mesh' | 'sfu'>('')
   const [preview, setPreview] = useState<MediaStream | null>(null)
   const [mediaError, setMediaError] = useState<string | null>(null)
 
@@ -223,7 +241,13 @@ export default function MeetingLobby({
     // Hand the preview back so the room doesn't reopen the camera and make
     // the user watch it blink off and on again.
     streamRef.current?.getTracks().forEach((t) => t.stop())
-    onJoin({ displayName: displayName.trim() || defaultName, micOn, camOn, devices: choice })
+    onJoin({
+      displayName: displayName.trim() || defaultName,
+      micOn,
+      camOn,
+      devices: choice,
+      transport: choosesTransport ? (transport || null) : null,
+    })
   }
 
   return (
@@ -346,6 +370,54 @@ export default function MeetingLobby({
                   <option key={s.deviceId} value={s.deviceId}>{s.label}</option>
                 ))}
               </Select>
+            </div>
+          )}
+
+          {/*
+            * Only when walking in from here is what creates the meeting.
+            * Named for what it does to the person choosing rather than for the
+            * architecture: nobody outside the codebase knows what an SFU is,
+            * and "direct" versus "through the server" is the whole difference.
+            */}
+          {choosesTransport && (
+            <div>
+              <Label>How it connects</Label>
+              <div className="mt-1 grid grid-cols-3 gap-1">
+                {([
+                  { value: '', label: 'Auto' },
+                  { value: 'mesh', label: 'Direct' },
+                  { value: 'sfu', label: 'Server' },
+                ] as const).map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setTransport(option.value)}
+                    className={clsx(
+                      'rounded-lg border px-2 py-1.5 text-xs font-medium transition',
+                      transport === option.value
+                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                        : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600',
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              {/*
+                * The Direct warning is the one thing a person cannot work out
+                * for themselves: everybody sends their own picture to everybody
+                * else, so each person's upload grows with the room. That is
+                * invisible until it is six people and somebody's phone is hot.
+                * Nothing stops the meeting growing — so this has to be said
+                * beforehand rather than enforced afterwards.
+                */}
+              <p className="mt-1 text-[11px] text-slate-400">
+                {transport === 'mesh'
+                  ? 'Straight between everyone, no server. Best up to about 6 — bigger meetings strain phones.'
+                  : transport === 'sfu'
+                    ? 'Everything through the server. Steady at any size.'
+                    : 'Direct while the meeting is small, through the server once it grows.'}
+              </p>
             </div>
           )}
 

@@ -999,7 +999,9 @@ export default function MeetingRoomPage() {
       // in this call needs the real code before the re-render delivers it.
       let live = code
       if (live === NEW_MEETING) {
-        const made = await meetingsApi.create({ type: 'video' })
+        // The lobby's transport choice, and the only moment it can be applied:
+        // the meeting is being created right here.
+        const made = await meetingsApi.create({ type: 'video', transport: opts?.transport ?? null })
         live = made.code
         setCreatedCode(made.code)
         // Replace rather than push: Back should return to the meetings list,
@@ -2539,6 +2541,8 @@ export default function MeetingRoomPage() {
         defaultName={user?.name ?? 'Guest'}
         audioOnly={!isVideo}
         error={lobbyError}
+        // Only a room that does not exist yet has a transport left to choose.
+        choosesTransport={unborn}
         onJoin={(result) => {
           setLobbyError(null)
           void joinRoom(result)
