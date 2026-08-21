@@ -322,7 +322,16 @@ export default function MeetingsPage() {
 
 function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { toast, toastError } = useToast()
-  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '' })
+  const [form, setForm] = useState({
+    title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '',
+    /*
+     * '' is not a third mode — it is the absence of a choice, and it is the
+     * default because most people should not have to have an opinion about
+     * how their video gets to the other end. Sent as null, which leaves the
+     * meeting undecided and lets the server size it up the way it always has.
+     */
+    transport: '' as '' | 'mesh' | 'sfu',
+  })
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<MeetingItem | null>(null)
 
@@ -334,6 +343,7 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         scheduled_at: form.scheduled_at || null,
         requires_approval: form.requires_approval,
         passcode: form.passcode.trim() || null,
+        transport: form.transport || null,
       }),
     onSuccess: (m) => {
       setCreated(m)
@@ -434,6 +444,55 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
             />
             Require my approval before anyone joins (waiting room)
           </label>
+          {/*
+            * How the video travels. Three options rather than a switch, because
+            * the honest default is "don't make me choose" — and a two-way
+            * toggle has no way to say that.
+            *
+            * Named for what they do to the person picking, not for the
+            * architecture: nobody outside this codebase knows what an SFU is,
+            * and "direct" versus "through the server" is the whole difference.
+            */}
+          <div>
+            <Label>How it connects</Label>
+            <div className="mt-1 grid gap-1.5 sm:grid-cols-3">
+              {([
+                { value: '', title: 'Automatic', hint: 'Direct for small meetings, server for big ones' },
+                { value: 'mesh', title: 'Direct', hint: 'Never uses the server' },
+                { value: 'sfu', title: 'Through server', hint: 'Steady at any size' },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setForm({ ...form, transport: option.value })}
+                  className={`rounded-lg border px-3 py-2 text-left transition ${
+                    form.transport === option.value
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                      : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <span className="block text-sm font-medium">{option.title}</span>
+                  <span className="block text-[11px] text-slate-400">{option.hint}</span>
+                </button>
+              ))}
+            </div>
+            {/*
+              * The warning only appears on Direct, and it is not a nag: it is
+              * the one thing a person cannot work out for themselves. In a
+              * direct meeting everybody sends their own picture to everybody
+              * else, so each person's upload grows with the room — which is
+              * invisible until it is five people and somebody's phone is hot.
+              * Nothing stops the meeting growing; this is what "nothing stops
+              * it" needs to say out loud beforehand.
+              */}
+            <p className="mt-1 text-[11px] text-slate-400">
+              {form.transport === 'mesh'
+                ? 'Best up to about 6 people. Everyone sends video straight to everyone else, so it costs no server bandwidth — but each person’s upload grows with the room, and larger meetings will struggle on phones.'
+                : form.transport === 'sfu'
+                  ? 'Everyone sends one stream to the server and it does the copying. Handles large meetings smoothly and uses server bandwidth from the first person.'
+                  : 'Small meetings connect directly; the room moves to the server on its own once it outgrows that.'}
+            </p>
+          </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={create.isPending}>{create.isPending ? 'Creating…' : 'Create & get link'}</Button>

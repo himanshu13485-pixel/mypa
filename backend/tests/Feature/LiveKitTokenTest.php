@@ -317,6 +317,94 @@ class LiveKitTokenTest extends TestCase
             ->assertJsonPath('data.transport', 'sfu');
     }
 
+    public function test_a_host_can_pin_a_meeting_to_the_mesh_and_it_stays_there(): void
+    {
+        /*
+         * The one case where a room that has outgrown the mesh is left on it.
+         * Somebody chose "direct" to keep the meeting off the server, and a
+         * threshold quietly overriding them would be the server deciding on
+         * its own to start using bandwidth they said they did not want to
+         * spend. They were warned about the size before they picked it.
+         */
+        config(['livekit.mesh_up_to' => 2]);
+        $this->actingAs($this->host)
+            ->postJson('/api/v1/meetings', ['transport' => 'mesh', 'requires_approval' => false])
+            ->assertCreated()
+            ->assertJsonPath('data.transport', 'mesh');
+
+        $meeting = Meeting::latest('id')->firstOrFail();
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+        $this->joiner($meeting);
+        $this->joiner($meeting);
+
+        $this->assertSame('mesh', $meeting->fresh()->transport);
+        $this->actingAs($this->alice)
+            ->postJson("/api/v1/meetings/{$meeting->code}/heartbeat")
+            ->assertJsonPath('data.transport', 'mesh');
+    }
+
+    public function test_a_host_can_pin_a_meeting_to_the_sfu_before_anybody_joins(): void
+    {
+        // A meeting expected to be large may as well start on the SFU rather
+        // than migrating the room mid-sentence once it crosses the threshold.
+        config(['livekit.mesh_up_to' => 20]);
+        $this->actingAs($this->host)
+            ->postJson('/api/v1/meetings', ['transport' => 'sfu', 'requires_approval' => false])
+            ->assertCreated()
+            ->assertJsonPath('data.transport', 'sfu');
+
+        $meeting = Meeting::latest('id')->firstOrFail();
+        $this->actingAs($this->alice)
+            ->postJson("/api/v1/meetings/{$meeting->code}/join")
+            ->assertOk()
+            ->assertJsonPath('data.transport', 'sfu');
+    }
+
+    public function test_a_meeting_made_without_a_choice_is_left_undecided(): void
+    {
+        /*
+         * Every client that has never heard of this sends no transport at all,
+         * and must keep the behaviour it had. Undecided is not the same as
+         * pinned to the mesh: this one still escalates.
+         */
+        config(['livekit.mesh_up_to' => 2]);
+        $this->actingAs($this->host)->postJson('/api/v1/meetings', ['requires_approval' => false])->assertCreated();
+
+        $meeting = Meeting::latest('id')->firstOrFail();
+        $this->assertNull($meeting->transport);
+
+        $this->actingAs($this->alice)->postJson("/api/v1/meetings/{$meeting->code}/join")->assertOk();
+        $this->joiner($meeting);
+        $this->joiner($meeting);
+
+        $this->assertSame('sfu', $meeting->fresh()->transport);
+    }
+
+    public function test_a_pinned_mesh_meeting_is_listed_as_mesh_even_with_no_threshold_set(): void
+    {
+        /*
+         * transportFor() used to read "sfu if transport is sfu, or if no
+         * threshold is configured" — correct only while 'sfu' was the sole
+         * value ever written, since anything else meant undecided. A pinned
+         * mesh meeting is decided, and on this installation that expression
+         * would have had the listing contradict the room.
+         */
+        config(['livekit.mesh_up_to' => null]);
+        $this->actingAs($this->host)
+            ->postJson('/api/v1/meetings', ['transport' => 'mesh'])
+            ->assertCreated();
+
+        $meeting = Meeting::latest('id')->firstOrFail();
+        $this->assertSame('mesh', app(LiveKitTokenService::class)->transportFor($meeting));
+    }
+
+    public function test_a_transport_nobody_offers_is_refused(): void
+    {
+        $this->actingAs($this->host)
+            ->postJson('/api/v1/meetings', ['transport' => 'carrier-pigeon'])
+            ->assertStatus(422);
+    }
+
     public function test_a_server_without_livekit_is_never_recorded_as_having_escalated(): void
     {
         // Otherwise a meeting held while LiveKit was down would be stuck

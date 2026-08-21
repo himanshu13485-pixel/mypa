@@ -51,6 +51,10 @@ class LiveKitTokenService
      *   left, a room hovering at the threshold would migrate every time
      *   anybody came or went. The SFU handles four people perfectly well; the
      *   saving from going back is not worth a room that flickers.
+     *
+     * All of which describes an *undecided* meeting. A host who picked a
+     * transport when they made it has already answered the question — see
+     * pinTransport() — and none of the above applies.
      */
     public function settleTransport(Meeting $meeting): string
     {
@@ -62,6 +66,20 @@ class LiveKitTokenService
 
         if ($meeting->transport === 'sfu') {
             return 'sfu';
+        }
+
+        /*
+         * Pinned to the mesh by the host, and therefore final.
+         *
+         * This is the one case where a room that has outgrown the mesh is left
+         * on it anyway. That is the point: somebody chose "direct" to keep the
+         * meeting off the server and off the bandwidth bill, and a threshold
+         * quietly overriding them would be the server deciding to start
+         * charging. The room gets slower as it grows and the host was told so
+         * before they picked it.
+         */
+        if ($meeting->transport === 'mesh') {
+            return 'mesh';
         }
 
         $meshUpTo = config('livekit.mesh_up_to');
@@ -98,9 +116,50 @@ class LiveKitTokenService
             return 'mesh';
         }
 
+        /*
+         * Decided already — by escalation, or by the host at creation. Read it
+         * back rather than re-deriving it.
+         *
+         * This used to be `transport === 'sfu' || mesh_up_to === null`, which
+         * was right while 'sfu' was the only value ever written: anything else
+         * meant undecided. A pinned mesh meeting is not undecided, and on an
+         * installation with no threshold set that expression would have
+         * reported it as 'sfu' — the listing contradicting the room.
+         */
+        if ($meeting->transport !== null) {
+            return $meeting->transport;
+        }
+
         // Undecided and no threshold configured means the SFU, which is what
         // the first person to actually join will be told and record.
-        return $meeting->transport === 'sfu' || config('livekit.mesh_up_to') === null ? 'sfu' : 'mesh';
+        return config('livekit.mesh_up_to') === null ? 'sfu' : 'mesh';
+    }
+
+    /**
+     * Record the transport the host chose when they made the meeting.
+     *
+     * Escalation exists because most people should not have to think about
+     * this. Some do: a meeting that must not cost server bandwidth wants the
+     * mesh whatever its size, and one that is expected to be large may as well
+     * start on the SFU rather than migrating the room mid-sentence.
+     *
+     * Anything other than a real choice leaves the meeting undecided, which is
+     * the ordinary path — settleTransport() then works it out from the
+     * headcount exactly as it always has. So every existing caller of
+     * Meeting::create(), and every client that has never heard of this, keeps
+     * the behaviour it had.
+     *
+     * Here rather than in the controller because transport is not fillable:
+     * a room half on the mesh and half on the SFU is two rooms, so the column
+     * has exactly one writer and this is it.
+     */
+    public function pinTransport(Meeting $meeting, ?string $choice): void
+    {
+        if ($choice !== 'mesh' && $choice !== 'sfu') {
+            return;
+        }
+
+        $meeting->forceFill(['transport' => $choice])->save();
     }
 
     /** @deprecated Prefer transportFor(); kept for callers that only want the flag. */

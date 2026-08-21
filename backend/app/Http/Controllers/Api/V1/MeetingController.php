@@ -44,6 +44,12 @@ class MeetingController extends Controller
             'requires_approval' => ['sometimes', 'boolean'],
             'passcode' => ['sometimes', 'nullable', 'string', 'min:4', 'max:12', 'alpha_num'],
             'scheduled_at' => ['sometimes', 'nullable', 'date'],
+            /*
+             * How the media travels, if the host cares. Omitted — which is what
+             * every existing client sends — leaves it undecided, and the room
+             * works it out from its own size the way it always has.
+             */
+            'transport' => ['sometimes', 'nullable', 'in:mesh,sfu'],
         ]);
 
         $meeting = Meeting::create([
@@ -58,6 +64,10 @@ class MeetingController extends Controller
             'passcode' => ($data['passcode'] ?? null) ?: null,
             'scheduled_at' => $data['scheduled_at'] ?? null,
         ]);
+
+        // Not in the create() above: transport is not fillable, and the service
+        // is the only thing that writes it. Ignores anything but a real choice.
+        app(LiveKitTokenService::class)->pinTransport($meeting, $data['transport'] ?? null);
 
         return response()->json([
             'message' => 'Meeting created — share the code or link to invite people.',
