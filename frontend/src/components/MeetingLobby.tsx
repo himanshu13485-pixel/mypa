@@ -404,16 +404,17 @@ export default function MeetingLobby({
                 ))}
               </div>
               {/*
-                * The Direct warning is the one thing a person cannot work out
-                * for themselves: everybody sends their own picture to everybody
-                * else, so each person's upload grows with the room. That is
-                * invisible until it is six people and somebody's phone is hot.
-                * Nothing stops the meeting growing — so this has to be said
-                * beforehand rather than enforced afterwards.
+                * What actually degrades, which is not what you would guess.
+                * The upload does NOT grow with the room — sendQualityFor()
+                * divides one 2 Mbps budget by the headcount, so the uplink is
+                * flat and the picture is what gives way. What does grow is the
+                * number of connections and encoders, and that is the wall
+                * phones hit. Nothing stops the meeting growing past it, so it
+                * has to be said here rather than enforced later.
                 */}
               <p className="mt-1 text-[11px] text-slate-400">
                 {transport === 'mesh'
-                  ? 'Straight between everyone, no server. Best up to about 6 — bigger meetings strain phones.'
+                  ? 'Straight between everyone, no server. Quality steps down as people join; past about a dozen it strains phones.'
                   : transport === 'sfu'
                     ? 'Everything through the server. Steady at any size.'
                     : 'Direct while the meeting is small, through the server once it grows.'}

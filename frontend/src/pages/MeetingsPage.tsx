@@ -477,17 +477,18 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
               ))}
             </div>
             {/*
-              * The warning only appears on Direct, and it is not a nag: it is
-              * the one thing a person cannot work out for themselves. In a
-              * direct meeting everybody sends their own picture to everybody
-              * else, so each person's upload grows with the room — which is
-              * invisible until it is five people and somebody's phone is hot.
-              * Nothing stops the meeting growing; this is what "nothing stops
-              * it" needs to say out loud beforehand.
+              * The warning only appears on Direct, and it says what actually
+              * gives way — which is not the obvious thing. Everyone sending to
+              * everyone sounds like an upload that grows with the room, and
+              * sendQualityFor() is precisely what stops that: one 2 Mbps
+              * budget divided by the headcount, so the uplink stays flat and
+              * the picture steps down instead. What does grow is the number of
+              * connections and encoders each phone is running, and that is the
+              * wall. Nothing stops a meeting reaching it, so it is said here.
               */}
             <p className="mt-1 text-[11px] text-slate-400">
               {form.transport === 'mesh'
-                ? 'Best up to about 6 people. Everyone sends video straight to everyone else, so it costs no server bandwidth — but each person’s upload grows with the room, and larger meetings will struggle on phones.'
+                ? 'Everyone sends video straight to everyone else, so it costs no server bandwidth. Your upload stays around 2 Mbps whatever the size — the picture steps down instead as people join, and past about a dozen the number of connections starts to strain phones.'
                 : form.transport === 'sfu'
                   ? 'Everyone sends one stream to the server and it does the copying. Handles large meetings smoothly and uses server bandwidth from the first person.'
                   : 'Small meetings connect directly; the room moves to the server on its own once it outgrows that.'}
