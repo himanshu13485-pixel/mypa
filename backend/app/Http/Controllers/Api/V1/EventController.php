@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\AppId;
 use App\Models\Event;
 use App\Models\Task;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -133,6 +134,19 @@ class EventController extends Controller
 
         $event->participants()->updateExistingPivot($request->user()->id, ['status' => $data['status']]);
 
+        // The organiser is the one who needs to know, and only they get told —
+        // an RSVP is not news to the rest of the guest list.
+        if ($event->user && $event->user_id !== $request->user()->id) {
+            $said = ['accepted' => 'is coming to', 'declined' => 'cannot make', 'tentative' => 'might make'][$data['status']];
+
+            $event->user->notify(new \App\Notifications\SocialNotification(
+                'event_response',
+                "{$request->user()->name} {$said} “{$event->title}”.",
+                ['event_uuid' => $event->uuid, 'status' => $data['status']],
+                '/calendar',
+            ));
+        }
+
         return response()->json(['message' => 'Response saved.']);
     }
 
@@ -255,10 +269,38 @@ class EventController extends Controller
             ->unique()
             ->values();
 
+        // Who is new, worked out before the sync — afterwards everyone looks
+        // like a participant and there is no way to tell an invitation from a
+        // name that was already on the list. Re-notifying on every edit is how
+        // a calendar starts getting ignored.
+        $existing = $event->participants()->pluck('users.id');
+        $invited = $ids->diff($existing);
+
         if ($sync) {
             $event->participants()->sync($ids->mapWithKeys(fn ($id) => [$id => ['status' => 'invited']]));
         } else {
             $event->participants()->syncWithoutDetaching($ids->mapWithKeys(fn ($id) => [$id => ['status' => 'invited']]));
+        }
+
+        if ($invited->isEmpty()) {
+            return;
+        }
+
+        $host = $request->user()->name;
+
+        foreach (User::with('profile')->whereIn('id', $invited)->get() as $person) {
+            // Their clock, not the organiser's — an invitation that names a
+            // time in somebody else's timezone is worse than naming none.
+            $when = $event->starts_at?->timezone($person->profile?->timezone ?? config('app.timezone'));
+
+            $person->notify(new \App\Notifications\SocialNotification(
+                'event_invite',
+                $when
+                    ? "{$host} invited you to “{$event->title}” on " . $when->format('D j M, g:ia') . '.'
+                    : "{$host} invited you to “{$event->title}”.",
+                ['event_uuid' => $event->uuid, 'title' => $event->title],
+                '/calendar',
+            ));
         }
     }
 

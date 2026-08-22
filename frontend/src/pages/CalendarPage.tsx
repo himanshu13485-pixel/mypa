@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Download, Plus, Trash2 } from 'lucide-react'
 import {
@@ -7,7 +7,7 @@ import {
 } from 'date-fns'
 import { clsx } from 'clsx'
 import { Link } from 'react-router-dom'
-import { events as eventsApi } from '../api/endpoints'
+import { badges as badgesApi, events as eventsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
@@ -40,6 +40,14 @@ const emptyEvent = (date?: Date): EventFormState => ({
 
 export default function CalendarPage() {
   const queryClient = useQueryClient()
+
+  // Attending the calendar clears its invitations and replies.
+  useEffect(() => {
+    badgesApi.readKinds(['event_invite', 'event_response']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const isPhone = useIsPhone()
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
   const [showForm, setShowForm] = useState(false)
