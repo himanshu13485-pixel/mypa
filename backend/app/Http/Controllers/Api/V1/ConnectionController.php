@@ -165,21 +165,39 @@ class ConnectionController extends Controller
             ], 409);
         }
 
+        /*
+         * An application's account answers immediately, because nobody is
+         * going to answer for it.
+         *
+         * A request to one would otherwise sit pending for ever — there is no
+         * person reading its notifications — and whoever sent it would be left
+         * waiting on a decision that was never coming. The consent that
+         * matters is still the sender's: they chose to connect, and they can
+         * disconnect or block exactly as with anyone else.
+         */
+        $auto = (bool) $target->is_service_account;
+
         $connection = Connection::create([
             'requester_id' => $me->id,
             'addressee_id' => $target->id,
             'message' => $data['message'] ?? null,
+            ...($auto ? ['status' => 'accepted', 'responded_at' => now()] : []),
         ]);
 
-        $target->notify(new \App\Notifications\SocialNotification(
-            'connection_request',
-            "{$me->name} sent you a connection request.",
-            ['from_uuid' => $me->uuid, 'connection_uuid' => $connection->uuid],
-            '/connections',
-        ));
+        // Nothing is sent to a service account: it has a bell nobody reads.
+        if (! $auto) {
+            $target->notify(new \App\Notifications\SocialNotification(
+                'connection_request',
+                "{$me->name} sent you a connection request.",
+                ['from_uuid' => $me->uuid, 'connection_uuid' => $connection->uuid],
+                '/connections',
+            ));
+        }
 
         return response()->json([
-            'message' => 'Connection request sent.',
+            'message' => $auto
+                ? "You are now connected with {$target->name}."
+                : 'Connection request sent.',
             'data' => new ConnectionResource($connection->load(['requester.appId', 'addressee.appId'])),
         ], 201);
     }

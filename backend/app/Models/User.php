@@ -85,6 +85,9 @@ class User extends Authenticatable implements MustVerifyEmail
             'password' => 'hashed',
             'guest_expires_at' => 'datetime',
             'last_active_at' => 'datetime',
+            // Deliberately not fillable: this is set by mypa:service-account,
+            // never by anything a request can reach.
+            'is_service_account' => 'boolean',
         ];
     }
 
