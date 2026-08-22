@@ -75,6 +75,69 @@ class MeetingController extends Controller
         ], 201);
     }
 
+    /**
+     * Invite people who have an account, instead of sending them a link.
+     *
+     * A meeting was share-a-link only: the host copied a URL and found their
+     * own way to deliver it. That works for someone you are already talking
+     * to and not at all for a meeting booked for Thursday — there was nothing
+     * to remind, because nobody was on the meeting to remind.
+     *
+     * Attaching them as 'invited' is what makes the reminder possible: the
+     * scheduler notifies a meeting's participants, and until now a scheduled
+     * meeting had none until people started arriving.
+     */
+    public function invite(Request $request, Meeting $meeting): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($meeting->host_id === $me->id, 403, 'Only the host can invite people to this meeting.');
+        abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
+
+        $data = $request->validate([
+            'app_ids' => ['required', 'array', 'max:50'],
+            'app_ids.*' => ['string', 'max:32'],
+        ]);
+
+        $service = app(\App\Services\AppIdService::class);
+        $already = $meeting->participants()->pluck('users.id');
+
+        $people = collect($data['app_ids'])
+            ->map(fn ($appId) => $service->findVisibleUser($appId, $me))
+            ->filter(fn ($user) => $user && $user->id !== $me->id)
+            ->unique('id')
+            // Someone already on the meeting is not invited again — a host
+            // adding one more name should not re-ring everybody else.
+            ->reject(fn ($user) => $already->contains($user->id))
+            ->values();
+
+        if ($people->isEmpty()) {
+            return response()->json(['message' => 'Nobody new to invite.'], 422);
+        }
+
+        $meeting->participants()->syncWithoutDetaching(
+            $people->mapWithKeys(fn ($user) => [$user->id => ['status' => 'invited']])->all()
+        );
+
+        $title = $meeting->title ?: 'a meeting';
+
+        foreach ($people as $person) {
+            $when = $meeting->scheduled_at?->timezone($person->profile?->timezone ?? config('app.timezone'));
+
+            $person->notify(new \App\Notifications\SocialNotification(
+                'meeting_invite',
+                $when
+                    ? "{$me->name} invited you to {$title} on " . $when->format('D j M, g:ia') . '.'
+                    : "{$me->name} invited you to {$title}.",
+                ['meeting_code' => $meeting->code, 'title' => $meeting->title],
+                "/meetings/room/{$meeting->code}",
+            ));
+        }
+
+        return response()->json([
+            'message' => 'Invited ' . $people->pluck('name')->join(', ', ' and ') . '.',
+        ]);
+    }
+
     /** Look up a meeting by its code (the "open the link" step). */
     public function show(Request $request, Meeting $meeting): JsonResponse
     {

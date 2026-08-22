@@ -459,6 +459,8 @@ export const meetings = {
           })
         | { waiting: true }
     }>(`/meetings/${code}/join`, opts).then((r) => r.data.data),
+  invite: (code: string, app_ids: string[]) =>
+    api.post<{ message: string }>(`/meetings/${code}/invite`, { app_ids }).then((r) => r.data),
   leave: (code: string) => api.post(`/meetings/${code}/leave`),
   /**
    * A join token for the SFU. Only issued to somebody already in the room, so

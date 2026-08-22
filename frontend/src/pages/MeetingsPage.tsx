@@ -1,12 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, Copy, KeyRound, LogIn, Trash2, Video } from 'lucide-react'
+import { Calendar, Copy, KeyRound, LogIn, Trash2, UserPlus, Video } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
-import { meetings as meetingsApi } from '../api/endpoints'
+import { badges as badgesApi, meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
 import { usePrompt } from '../components/Prompt'
+import UserSuggest from '../components/UserSuggest'
 import type { MeetingItem } from '../types'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, Spinner,
@@ -40,8 +41,18 @@ export default function MeetingsPage() {
   const { ask, confirm } = usePrompt()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+
+  // Attending this section clears meeting invitations and starts-soon
+  // nudges — the list below says the same thing, in more detail.
+  useEffect(() => {
+    badgesApi.readKinds(['meeting_invite', 'meeting_soon']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [joinCode, setJoinCode] = useState('')
   const [showSchedule, setShowSchedule] = useState(false)
+  const [inviteFor, setInviteFor] = useState<MeetingItem | null>(null)
 
   const { data: meetings, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ['meetings'],
@@ -296,6 +307,14 @@ export default function MeetingsPage() {
                     <Trash2 className="size-3.5" />
                   </Button>
                 )}
+                {/* A link still has to be carried somewhere by hand. This
+                    reaches people who already have an account, and is what
+                    puts them on the meeting so the reminder can find them. */}
+                {m.is_host && m.status !== 'ended' && (
+                  <Button size="sm" variant="secondary" title="Invite people" onClick={() => setInviteFor(m)}>
+                    <UserPlus className="size-3.5" /> Invite
+                  </Button>
+                )}
                 <Button size="sm" variant="secondary" title="Copy invite link" onClick={() => copyLink(m)}>
                   <Copy className="size-3.5" /> {copiedCode === m.code ? 'Copied ✓' : 'Link'}
                 </Button>
@@ -314,6 +333,17 @@ export default function MeetingsPage() {
         <ScheduleModal
           onClose={() => setShowSchedule(false)}
           onCreated={() => queryClient.invalidateQueries({ queryKey: ['meetings'] })}
+        />
+      )}
+
+      {inviteFor && (
+        <InviteModal
+          meeting={inviteFor}
+          onClose={() => setInviteFor(null)}
+          onInvited={(message) => {
+            toast(message)
+            queryClient.invalidateQueries({ queryKey: ['meetings'] })
+          }}
         />
       )}
     </div>
@@ -500,6 +530,73 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           </div>
         </form>
       )}
+    </Modal>
+  )
+}
+
+/**
+ * Invite people who have an account.
+ *
+ * Comma-separated, because inviting one person at a time to a meeting of six
+ * is six dialogs. The field is the same typeahead used for sharing anything
+ * else, so a half-remembered name is enough.
+ */
+function InviteModal({
+  meeting,
+  onClose,
+  onInvited,
+}: {
+  meeting: MeetingItem
+  onClose: () => void
+  onInvited: (message: string) => void
+}) {
+  const [value, setValue] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const invite = useMutation({
+    mutationFn: () =>
+      meetingsApi.invite(
+        meeting.code,
+        value.split(',').map((part) => part.trim()).filter(Boolean),
+      ),
+    onSuccess: (res) => {
+      onInvited(res.message)
+      onClose()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  return (
+    <Modal title={`Invite to ${meeting.title || 'the meeting'}`} onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          invite.mutate()
+        }}
+      >
+        <ErrorNote message={error} />
+        <div>
+          <Label>Who should join?</Label>
+          <UserSuggest
+            multi
+            autoFocus
+            placeholder="rahul, priya@mypa.local"
+            value={value}
+            onChange={setValue}
+          />
+          <p className="mt-1 text-[11px] text-slate-400">
+            They get a notification with the link. If the meeting is scheduled, they are also
+            reminded ten minutes before it starts.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!value.trim() || invite.isPending}>
+            {invite.isPending ? 'Inviting…' : 'Invite'}
+          </Button>
+        </div>
+      </form>
     </Modal>
   )
 }
