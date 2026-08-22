@@ -9,6 +9,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageAttachment;
 use App\Models\MessageDeletion;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -117,11 +118,73 @@ class MessageController extends Controller
 
         broadcast(new MessageSent($message->load(['user', 'conversation'])))->toOthers();
 
+        $this->notifyMembers($conversation, $message, $me);
+
         return response()->json([
             'message' => 'Sent.',
             'data' => $message->load(['user:id,uuid,name', 'attachments', 'reactions', 'replyTo.user:id,uuid,name'])
                 ->serializeFor($me),
         ], 201);
+    }
+
+    /**
+     * Tell everyone else in the conversation, one alert per message.
+     *
+     * The broadcast above only lands in an app that is already open on this
+     * thread. Until now a closed tab or a pocketed phone got nothing at all,
+     * so chat was the one part of the app you had to keep watching to use.
+     *
+     * Deliberately per message rather than a digest per conversation: a
+     * collapsed "3 new messages" hides who is waiting on what, and a chat is
+     * expected to behave like a chat. That is also why each carries its own
+     * push tag — devices replace a notification that reuses a tag, so without
+     * it the fifth message would silently overwrite the fourth.
+     *
+     * Muting stays honoured. That is a decision the member made about this
+     * thread; it is not the same thing as never having been asked.
+     */
+    protected function notifyMembers(Conversation $conversation, Message $message, User $me): void
+    {
+        $recipients = $conversation->members()
+            ->where('users.id', '!=', $me->id)
+            ->whereNull('conversation_members.muted_at')
+            ->get();
+
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        // A group says which room it came from; a direct chat is just the
+        // sender, because naming the conversation would only repeat them.
+        $room = $conversation->name ?? $conversation->group?->name;
+        $where = $conversation->type === 'direct' || ! $room ? '' : " in {$room}";
+        $preview = "{$me->name}{$where}: " . $this->previewOf($message);
+
+        foreach ($recipients as $member) {
+            $member->notify(new \App\Notifications\SocialNotification(
+                'message',
+                $preview,
+                ['conversation_uuid' => $conversation->uuid, 'message_uuid' => $message->uuid],
+                '/messages?conversation=' . $conversation->uuid,
+                'message-' . $message->uuid,
+            ));
+        }
+    }
+
+    /** What the message looks like in one line, when there is no room for it. */
+    protected function previewOf(Message $message): string
+    {
+        if (filled($message->body)) {
+            return str($message->body)->stripTags()->limit(120)->toString();
+        }
+
+        return match ($message->type) {
+            'image' => 'sent a photo',
+            'video' => 'sent a video',
+            'audio', 'voice' => 'sent a voice message',
+            'file' => 'sent a file',
+            default => 'sent a message',
+        };
     }
 
     public function update(Request $request, Conversation $conversation, Message $message): JsonResponse

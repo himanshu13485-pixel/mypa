@@ -16,11 +16,19 @@ class SocialNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
+    /**
+     * $pushTag overrides how the device groups this alert. The default groups
+     * by kind, which is right for the occasional share or invite: a second one
+     * quietly replaces the first rather than stacking up. A chat message is
+     * the opposite — every one of them is meant to arrive on its own, so the
+     * caller passes a tag carrying the message's own id.
+     */
     public function __construct(
         public string $kind,
         public string $message,
         public array $data = [],
         public ?string $actionPath = null,
+        public ?string $pushTag = null,
     ) {
     }
 
@@ -45,9 +53,19 @@ class SocialNotification extends Notification implements ShouldQueue
             && ($notifiable->pushSubscriptions()->exists() || $notifiable->fcmTokens()->exists());
     }
 
+    /**
+     * Kinds too frequent to email.
+     *
+     * Email is one message per notification with no way to collapse it, so a
+     * busy chat would arrive as a busy inbox. These still reach the bell and
+     * the device; they just do not land in the recipient's mail.
+     */
+    private const NEVER_MAIL = ['message'];
+
     public function via(object $notifiable): array
     {
-        $via = self::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+        $mail = self::wantsMail($notifiable) && ! in_array($this->kind, self::NEVER_MAIL, true);
+        $via = $mail ? ['database', 'mail'] : ['database'];
 
         if (self::wantsPush($notifiable)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;
@@ -62,7 +80,7 @@ class SocialNotification extends Notification implements ShouldQueue
         return [
             'title' => 'My PA',
             'body' => $this->message,
-            'tag' => 'social-' . $this->kind,
+            'tag' => $this->pushTag ?? 'social-' . $this->kind,
             'url' => $this->actionPath ?? '/',
         ];
     }

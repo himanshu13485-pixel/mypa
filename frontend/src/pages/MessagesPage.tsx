@@ -5,7 +5,7 @@ import {
   Check, CheckCheck, ChevronLeft, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Search, Send,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
-import { conversationMembers, reportsApi } from '../api/endpoints'
+import { badges as badgesApi, conversationMembers, reportsApi } from '../api/endpoints'
 import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
@@ -138,6 +138,15 @@ function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => vo
 
 export default function MessagesPage() {
   const queryClient = useQueryClient()
+
+  // Opening chat clears the message notifications it produced — one
+  // per message means the bell fills up fast otherwise.
+  useEffect(() => {
+    badgesApi.readKinds(['message']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const { startCall } = useCalls()
   const { toastError } = useToast()
   const [showMembers, setShowMembers] = useState(false)
