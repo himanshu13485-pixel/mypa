@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Crown, Hand, Mic, MicOff, MoreVertical, Pin, PinOff, Signal, Star, UserMinus, Video, VideoOff, Volume2,
 } from 'lucide-react'
@@ -54,7 +55,30 @@ export default function ParticipantsPanel({
   onPin: (uuid: string | null) => void
   onClose: () => void
 }) {
-  const [openMenu, setOpenMenu] = useState<string | null>(null)
+  /*
+   * Which row's menu is open, and where to draw it.
+   *
+   * It used to be positioned inside its own <li>, which put it inside the
+   * scrolling roster — and a menu opened on anyone near the bottom was cut
+   * off by that scroll container, the lower half of it simply not there. So
+   * the controls that matter most on a long list were the ones you could not
+   * reach. It is portalled to <body> at fixed coordinates now, the same
+   * treatment UserSuggest already uses for the same reason.
+   */
+  const [openMenu, setOpenMenu] = useState<{ uuid: string; left: number; top: number } | null>(null)
+
+  // Fixed coordinates do not travel with the row they were measured from, so
+  // any scroll or resize leaves the menu pointing at nothing. Close it.
+  useEffect(() => {
+    if (!openMenu) return
+    const close = () => setOpenMenu(null)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [openMenu])
   const everyone = [me, ...participants]
   const handsUp = everyone.filter((p) => p.hand_raised).length
 
@@ -118,78 +142,101 @@ export default function ParticipantsPanel({
                 <button
                   className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
                   title="Options"
-                  onClick={() => setOpenMenu((m) => (m === p.uuid ? null : p.uuid))}
+                  onClick={(e) => setOpenMenu((m) => {
+                    if (m?.uuid === p.uuid) return null
+                    const r = e.currentTarget.getBoundingClientRect()
+                    // Roughly the tallest the menu gets. Flipped above the
+                    // button when the bottom of the window is closer than it.
+                    const height = 260
+                    const below = window.innerHeight - r.bottom
+                    return {
+                      uuid: p.uuid,
+                      left: Math.max(8, Math.min(r.right - 192, window.innerWidth - 200)),
+                      top: below < height && r.top > below ? Math.max(8, r.top - height) : r.bottom + 4,
+                    }
+                  })}
                 >
                   <MoreVertical className="size-4" />
                 </button>
               )}
 
-              {openMenu === p.uuid && (
-                <div
-                  className="absolute right-2 top-10 z-30 w-48 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900"
-                  onMouseLeave={() => setOpenMenu(null)}
-                >
-                  <MenuItem
-                    icon={pinnedUuid === p.uuid ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
-                    label={pinnedUuid === p.uuid ? 'Unpin' : 'Pin for me'}
-                    onClick={() => { onPin(pinnedUuid === p.uuid ? null : p.uuid); setOpenMenu(null) }}
-                  />
-                  {canActOn && (
-                    <>
-                      <MenuItem
-                        icon={<Star className="size-3.5" />}
-                        label={spotlightUuid === p.uuid ? 'Remove spotlight' : 'Spotlight for everyone'}
-                        onClick={() => { onAction(spotlightUuid === p.uuid ? 'clear_spotlight' : 'spotlight', p.uuid); setOpenMenu(null) }}
-                      />
-                      {p.mic_on ? (
+              {openMenu?.uuid === p.uuid && createPortal(
+                <>
+                  {/* Tapping anywhere else puts it away. onMouseLeave alone
+                      never fires on a touchscreen, and a menu floating above
+                      the whole room with no way to dismiss it is worse than
+                      one that was merely clipped. */}
+                  <div className="fixed inset-0 z-[77]" onMouseDown={() => setOpenMenu(null)} />
+                  <div
+                    // z-78: above the meeting window at z-60 and its own tile
+                    // menu at z-76, below dialogs at z-80 and toasts at z-100.
+                    className="fixed z-[78] max-h-[70vh] w-48 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900"
+                    style={{ left: openMenu.left, top: openMenu.top }}
+                    onMouseLeave={() => setOpenMenu(null)}
+                  >
+                    <MenuItem
+                      icon={pinnedUuid === p.uuid ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                      label={pinnedUuid === p.uuid ? 'Unpin' : 'Pin for me'}
+                      onClick={() => { onPin(pinnedUuid === p.uuid ? null : p.uuid); setOpenMenu(null) }}
+                    />
+                    {canActOn && (
+                      <>
                         <MenuItem
-                          icon={<MicOff className="size-3.5" />}
-                          label="Mute"
-                          onClick={() => { onAction('mute', p.uuid); setOpenMenu(null) }}
+                          icon={<Star className="size-3.5" />}
+                          label={spotlightUuid === p.uuid ? 'Remove spotlight' : 'Spotlight for everyone'}
+                          onClick={() => { onAction(spotlightUuid === p.uuid ? 'clear_spotlight' : 'spotlight', p.uuid); setOpenMenu(null) }}
                         />
-                      ) : (
-                        <MenuItem
-                          icon={<Volume2 className="size-3.5" />}
-                          label="Ask to unmute"
-                          onClick={() => { onAction('ask_unmute', p.uuid); setOpenMenu(null) }}
-                        />
-                      )}
-                      {p.cam_on && (
-                        <MenuItem
-                          icon={<VideoOff className="size-3.5" />}
-                          label="Stop video"
-                          onClick={() => { onAction('stop_video', p.uuid); setOpenMenu(null) }}
-                        />
-                      )}
-                      <MenuItem
-                        icon={<Crown className="size-3.5" />}
-                        label={p.role === 'cohost' ? 'Remove co-host' : 'Make co-host'}
-                        onClick={() => { onAction(p.role === 'cohost' ? 'demote' : 'promote', p.uuid); setOpenMenu(null) }}
-                      />
-                      {isHost && (
+                        {p.mic_on ? (
+                          <MenuItem
+                            icon={<MicOff className="size-3.5" />}
+                            label="Mute"
+                            onClick={() => { onAction('mute', p.uuid); setOpenMenu(null) }}
+                          />
+                        ) : (
+                          <MenuItem
+                            icon={<Volume2 className="size-3.5" />}
+                            label="Ask to unmute"
+                            onClick={() => { onAction('ask_unmute', p.uuid); setOpenMenu(null) }}
+                          />
+                        )}
+                        {p.cam_on && (
+                          <MenuItem
+                            icon={<VideoOff className="size-3.5" />}
+                            label="Stop video"
+                            onClick={() => { onAction('stop_video', p.uuid); setOpenMenu(null) }}
+                          />
+                        )}
                         <MenuItem
                           icon={<Crown className="size-3.5" />}
-                          label="Make host"
+                          label={p.role === 'cohost' ? 'Remove co-host' : 'Make co-host'}
+                          onClick={() => { onAction(p.role === 'cohost' ? 'demote' : 'promote', p.uuid); setOpenMenu(null) }}
+                        />
+                        {isHost && (
+                          <MenuItem
+                            icon={<Crown className="size-3.5" />}
+                            label="Make host"
+                            onClick={() => {
+                              setOpenMenu(null)
+                              if (confirm(`Hand the meeting over to ${p.name}? You become a co-host.`)) {
+                                onAction('transfer_host', p.uuid)
+                              }
+                            }}
+                          />
+                        )}
+                        <MenuItem
+                          icon={<UserMinus className="size-3.5" />}
+                          label="Remove from meeting"
+                          danger
                           onClick={() => {
                             setOpenMenu(null)
-                            if (confirm(`Hand the meeting over to ${p.name}? You become a co-host.`)) {
-                              onAction('transfer_host', p.uuid)
-                            }
+                            if (confirm(`Remove ${p.name} from this meeting?`)) onAction('remove', p.uuid)
                           }}
                         />
-                      )}
-                      <MenuItem
-                        icon={<UserMinus className="size-3.5" />}
-                        label="Remove from meeting"
-                        danger
-                        onClick={() => {
-                          setOpenMenu(null)
-                          if (confirm(`Remove ${p.name} from this meeting?`)) onAction('remove', p.uuid)
-                        }}
-                      />
-                    </>
-                  )}
-                </div>
+                      </>
+                    )}
+                  </div>
+                </>,
+                document.body,
               )}
             </li>
           )
