@@ -1,14 +1,22 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Flame, Plus, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { habits as habitsApi } from '../api/endpoints'
+import { badges as badgesApi, habits as habitsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner } from '../components/ui'
 import type { HabitItem } from '../types'
 
 export default function HabitsPage() {
   const queryClient = useQueryClient()
+
+  // Being here is the reminder answered.
+  useEffect(() => {
+    badgesApi.readKinds(['habit_reminder']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const { data, isLoading } = useQuery({ queryKey: ['habits'], queryFn: habitsApi.list })
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<HabitItem | null>(null)
