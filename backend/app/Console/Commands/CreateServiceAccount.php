@@ -79,8 +79,8 @@ class CreateServiceAccount extends Command
         $this->warn('Token — shown once, and not recoverable. Copy it now:');
         $this->line("  {$token}");
         $this->newLine();
-        $this->line('Sign in to Netvork with this token to reach its panel, where you can');
-        $this->line('issue more tokens, revoke this one, and see who is connected.');
+        $this->line('Paste it at ' . rtrim(config('mypa.frontend_url'), '/') . '/service/sign-in to reach');
+        $this->line('the panel for this account — more tokens, who is connected, what has been sent.');
 
         return self::SUCCESS;
     }

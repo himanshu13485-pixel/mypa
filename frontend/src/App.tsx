@@ -19,6 +19,7 @@ const ResetPassword = lazyRoute('ResetPassword', () => import('./pages/auth/Rese
 const VerifyEmail = lazyRoute('VerifyEmail', () => import('./pages/auth/VerifyEmail'))
 const Dashboard = lazyRoute('Dashboard', () => import('./pages/Dashboard'))
 const ServicePanelPage = lazyRoute('ServicePanelPage', () => import('./pages/ServicePanelPage'))
+const ServiceSignIn = lazyRoute('ServiceSignIn', () => import('./pages/ServiceSignIn'))
 const TasksPage = lazyRoute('TasksPage', () => import('./pages/TasksPage'))
 const CalendarPage = lazyRoute('CalendarPage', () => import('./pages/CalendarPage'))
 const CategoriesPage = lazyRoute('CategoriesPage', () => import('./pages/CategoriesPage'))
@@ -96,6 +97,9 @@ export default function App() {
               </RequireAuth>
             }
           />
+          {/* No password exists for these accounts, so they cannot come in
+              through the ordinary door. */}
+          <Route path="/service/sign-in" element={<ServiceSignIn />} />
           {/* An application's own panel. Outside Layout deliberately: the
               sidebar is a list of things a service account cannot use. */}
           <Route
