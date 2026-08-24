@@ -8,6 +8,8 @@ export interface User {
   /** Server's own gate: the account has an email address that is unconfirmed. */
   email_verification_required?: boolean
   app_id?: string
+  /** An account an application signs in as. It gets the service panel, not the app. */
+  is_service_account?: boolean
   plan?: string | null
   salesperson?: { uuid: string; name: string } | null
   roles?: string[]

@@ -41,6 +41,18 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     return <Navigate to="/verify-email" replace />
   }
 
+  /*
+   * An application signed in as itself gets its panel, wherever it was headed.
+   *
+   * Not a matter of taste: a service account has no profile worth filling in,
+   * no meetings to join and no notes to write, and leaving those reachable is
+   * how one ends up holding real work that nobody can find later. The panel is
+   * the whole of the app for this kind of account.
+   */
+  if (user?.is_service_account && location.pathname !== '/service') {
+    return <Navigate to="/service" replace />
+  }
+
   return children
 }
 

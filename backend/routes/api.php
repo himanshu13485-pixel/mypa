@@ -170,6 +170,23 @@ Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionContro
             ->middleware('throttle:5,1');
         Route::get('/me/app-id/qr', [AppIdController::class, 'myQr']);
 
+        /*
+         * The service panel: an application administering itself.
+         *
+         * Its own group rather than a corner of the authenticated one, because
+         * the rule is the opposite of everything in there — these routes exist
+         * only for accounts that are not people, and are invisible to the rest.
+         */
+        Route::prefix('service')->middleware('service.account')->group(function () {
+            Route::get('/overview', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'overview']);
+            Route::get('/tokens', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'tokens']);
+            Route::post('/tokens', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'issueToken']);
+            Route::delete('/tokens/{id}', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'revokeToken'])
+                ->whereNumber('id');
+            Route::get('/connections', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'connections']);
+            Route::delete('/connections/{uuid}', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'disconnect']);
+        });
+
         // App ID & connections
         Route::get('/app-id/search', [AppIdController::class, 'search']);
         Route::get('/connections', [ConnectionController::class, 'index']);

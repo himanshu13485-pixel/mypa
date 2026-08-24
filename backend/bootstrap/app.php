@@ -53,6 +53,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'verified.email' => \App\Http\Middleware\EnsureVerifiedEmail::class,
             'guest.meeting' => \App\Http\Middleware\AuthenticateMeetingGuest::class,
             'module' => \App\Http\Middleware\EnsureModule::class,
+            'service.account' => \App\Http\Middleware\EnsureServiceAccount::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

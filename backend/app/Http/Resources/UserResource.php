@@ -32,6 +32,13 @@ class UserResource extends JsonResource
                     'name' => $this->salesperson->name,
                 ] : null
             ),
+            // Tells the client to show the service panel instead of the app.
+            // Only ever about yourself; nobody else's account type is a
+            // fact this response owes them.
+            'is_service_account' => $this->when(
+                $request->user()?->id === $this->id,
+                fn () => (bool) $this->is_service_account
+            ),
             'email_verified' => $this->email_verified_at !== null,
             // Mirrors EnsureVerifiedEmail so the client can gate on exactly the
             // same rule. Unlike `email` this is always present — that one is

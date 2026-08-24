@@ -294,6 +294,44 @@ export const notes = {
     api.post(`/notes/${uuid}/share`, { app_id, permission }),
 }
 
+// --- Service accounts -------------------------------------------------------
+
+export interface ServiceOverview {
+  name: string
+  username: string | null
+  app_id: string | null
+  connections: number
+  tokens: number
+  messages_sent: number
+  last_sent_at: string | null
+}
+
+export interface ServiceToken {
+  id: number
+  name: string
+  created_at: string
+  last_used_at: string | null
+  current: boolean
+}
+
+export interface ServiceConnection {
+  uuid: string
+  name: string | null
+  app_id: string | null
+  connected_at: string | null
+}
+
+export const service = {
+  overview: () => api.get<{ data: ServiceOverview }>('/service/overview').then((r) => r.data.data),
+  tokens: () => api.get<{ data: ServiceToken[] }>('/service/tokens').then((r) => r.data.data),
+  issueToken: (name: string) =>
+    api.post<{ data: { id: number; name: string; token: string } }>('/service/tokens', { name })
+      .then((r) => r.data.data),
+  revokeToken: (id: number) => api.delete(`/service/tokens/${id}`),
+  connections: () => api.get<{ data: ServiceConnection[] }>('/service/connections').then((r) => r.data.data),
+  disconnect: (uuid: string) => api.delete(`/service/connections/${uuid}`),
+}
+
 // --- Files ------------------------------------------------------------------
 
 export const files = {
