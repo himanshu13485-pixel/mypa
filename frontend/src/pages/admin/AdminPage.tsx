@@ -1856,6 +1856,16 @@ function BotsTab() {
     onError: (err) => setError(errorMessage(err)),
   })
 
+  const issue = useMutation({
+    mutationFn: (row: ServiceAccountRow) =>
+      adminBots.issueToken(row.uuid).then((res) => ({ name: row.name, token: res.data.token })),
+    onSuccess: (res) => {
+      setFresh(res)
+      refresh()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
   const cutOff = async (row: ServiceAccountRow) => {
     const ok = await confirm({
       title: `Revoke every token for ${row.name}?`,
@@ -1936,15 +1946,32 @@ function BotsTab() {
                   {row.username} · {row.app_id}
                 </p>
               </div>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={row.tokens === 0 || revoke.isPending}
-                title={row.tokens === 0 ? 'Nothing can sign in as it already' : 'Revoke every token'}
-                onClick={() => void cutOff(row)}
-              >
-                Revoke tokens
-              </Button>
+              <div className="flex gap-1.5">
+                {/* Before Revoke, and not only alphabetically: rotating means
+                    issuing the replacement first, and revoking with nothing to
+                    replace it leaves the account unable to sign in anywhere. */}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={issue.isPending}
+                  title="Issue a new token for this account"
+                  onClick={() => {
+                    setError(null)
+                    issue.mutate(row)
+                  }}
+                >
+                  Issue token
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={row.tokens === 0 || revoke.isPending}
+                  title={row.tokens === 0 ? 'Nothing can sign in as it already' : 'Revoke every token'}
+                  onClick={() => void cutOff(row)}
+                >
+                  Revoke tokens
+                </Button>
+              </div>
             </div>
 
             <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">

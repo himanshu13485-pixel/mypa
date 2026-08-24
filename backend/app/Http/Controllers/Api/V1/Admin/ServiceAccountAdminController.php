@@ -49,6 +49,30 @@ class ServiceAccountAdminController extends Controller
     }
 
     /**
+     * Issue a token for an account that already exists.
+     *
+     * Without this the revoke button below is a one-way door: dropping every
+     * token leaves nothing able to sign in, and the account's own panel — the
+     * only other place a token can be issued — is reached by holding one. An
+     * admin could cut an integration off and then have no way to start it
+     * again. Rotating a leaked token needs both halves, in this order.
+     */
+    public function issueToken(Request $request, string $uuid): JsonResponse
+    {
+        $data = $request->validate(['name' => ['sometimes', 'string', 'max:64']]);
+
+        $bot = User::where('uuid', $uuid)->where('is_service_account', true)->first();
+        abort_unless($bot, 404, 'No such service account.');
+
+        $token = $bot->createToken($data['name'] ?? 'issued by admin');
+
+        return response()->json([
+            'message' => "New token for {$bot->name}. Copy it now — it is not shown again.",
+            'data' => ['token' => $token->plainTextToken],
+        ], 201);
+    }
+
+    /**
      * Cut off everything signed in as this account.
      *
      * The button for a leaked token, and for the day an integration is retired.

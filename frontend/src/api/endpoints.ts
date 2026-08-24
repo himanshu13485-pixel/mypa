@@ -186,6 +186,11 @@ export const adminBots = {
       '/admin/service-accounts',
       { name, ...(username ? { username } : {}) },
     ).then((r) => r.data),
+  issueToken: (uuid: string, name?: string) =>
+    api.post<{ message: string; data: { token: string } }>(
+      `/admin/service-accounts/${uuid}/tokens`,
+      name ? { name } : {},
+    ).then((r) => r.data),
   revokeTokens: (uuid: string) =>
     api.post<{ message: string }>(`/admin/service-accounts/${uuid}/revoke-tokens`).then((r) => r.data),
 }

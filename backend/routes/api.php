@@ -480,6 +480,7 @@ Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionContro
              */
             Route::get('/service-accounts', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'index']);
             Route::post('/service-accounts', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'store']);
+            Route::post('/service-accounts/{uuid}/tokens', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'issueToken']);
             Route::post('/service-accounts/{uuid}/revoke-tokens', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'revokeTokens']);
             Route::post('/users', [AdminUserController::class, 'store']);
             Route::get('/users/{user}', [AdminUserController::class, 'show']);
