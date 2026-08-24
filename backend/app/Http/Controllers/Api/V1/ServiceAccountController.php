@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Connection;
 use App\Models\Message;
+use App\Services\ServiceAccountService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -59,26 +60,45 @@ class ServiceAccountController extends Controller
                 'last_used_at' => $token->last_used_at,
                 // So the one you are holding is not the one you revoke.
                 'current' => $token->id === $request->user()->currentAccessToken()?->id,
+                // Tokens issued before they were kept cannot be shown again.
+                'revealable' => $token->encrypted_value !== null,
             ]);
 
         return response()->json(['data' => $tokens]);
     }
 
-    public function issueToken(Request $request): JsonResponse
+    public function issueToken(Request $request, ServiceAccountService $accounts): JsonResponse
     {
         $data = $request->validate(['name' => ['required', 'string', 'max:64']]);
 
-        $token = $request->user()->createToken($data['name']);
+        $token = $accounts->issueToken($request->user(), $data['name']);
 
         return response()->json([
-            'message' => 'Token created. Copy it now — it is not shown again.',
-            'data' => [
-                'id' => $token->accessToken->id,
-                'name' => $data['name'],
-                // The only time this value exists in readable form.
-                'token' => $token->plainTextToken,
-            ],
+            'message' => 'Token created.',
+            'data' => ['name' => $data['name'], 'token' => $token],
         ], 201);
+    }
+
+    /**
+     * Read a token back.
+     *
+     * Kept encrypted rather than hashed, for service accounts only, because an
+     * integration's token lives in another system's configuration: losing the
+     * only copy means nobody can check what was installed, or repair a setup
+     * without cutting the integration off first.
+     */
+    public function revealToken(Request $request, int $id, ServiceAccountService $accounts): JsonResponse
+    {
+        $token = $request->user()->tokens()->whereKey($id)->first();
+        abort_unless($token, 404, 'No such token.');
+
+        $value = $accounts->revealToken($token);
+
+        return $value
+            ? response()->json(['data' => ['id' => $token->id, 'token' => $value]])
+            : response()->json([
+                'message' => 'This token was issued before tokens were kept, so it cannot be shown. Issue a new one.',
+            ], 410);
     }
 
     public function revokeToken(Request $request, int $id): JsonResponse

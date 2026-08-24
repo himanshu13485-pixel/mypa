@@ -767,3 +767,12 @@ export interface AdminChatRecord {
   messages_count: number
   last_message_at?: string | null
 }
+
+/** One token belonging to a service account, as an admin sees it. */
+export interface BotToken {
+  id: number
+  name: string
+  created_at: string
+  last_used_at: string | null
+  revealable: boolean
+}

@@ -181,6 +181,7 @@ Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionContro
             Route::get('/overview', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'overview']);
             Route::get('/tokens', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'tokens']);
             Route::post('/tokens', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'issueToken']);
+            Route::get('/tokens/{id}/reveal', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'revealToken'])->whereNumber('id');
             Route::delete('/tokens/{id}', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'revokeToken'])
                 ->whereNumber('id');
             Route::get('/connections', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'connections']);
@@ -481,6 +482,9 @@ Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionContro
             Route::get('/service-accounts', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'index']);
             Route::post('/service-accounts', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'store']);
             Route::post('/service-accounts/{uuid}/tokens', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'issueToken']);
+            Route::get('/service-accounts/{uuid}/tokens', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'tokens']);
+            Route::get('/service-accounts/{uuid}/tokens/{id}/reveal', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'revealToken'])->whereNumber('id');
+            Route::delete('/service-accounts/{uuid}/tokens/{id}', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'revokeToken'])->whereNumber('id');
             Route::post('/service-accounts/{uuid}/revoke-tokens', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'revokeTokens']);
             Route::post('/users', [AdminUserController::class, 'store']);
             Route::get('/users/{user}', [AdminUserController::class, 'show']);

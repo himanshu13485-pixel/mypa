@@ -186,6 +186,14 @@ export const adminBots = {
       '/admin/service-accounts',
       { name, ...(username ? { username } : {}) },
     ).then((r) => r.data),
+  tokens: (uuid: string) =>
+    api.get<{ data: import('../types').BotToken[] }>(`/admin/service-accounts/${uuid}/tokens`)
+      .then((r) => r.data.data),
+  revealToken: (uuid: string, id: number) =>
+    api.get<{ data: { token: string } }>(`/admin/service-accounts/${uuid}/tokens/${id}/reveal`)
+      .then((r) => r.data.data.token),
+  revokeToken: (uuid: string, id: number) =>
+    api.delete<{ message: string }>(`/admin/service-accounts/${uuid}/tokens/${id}`).then((r) => r.data),
   issueToken: (uuid: string, name?: string) =>
     api.post<{ message: string; data: { token: string } }>(
       `/admin/service-accounts/${uuid}/tokens`,
@@ -341,6 +349,8 @@ export interface ServiceToken {
   created_at: string
   last_used_at: string | null
   current: boolean
+  /** Issued since tokens were kept, so it can be read back. */
+  revealable: boolean
 }
 
 export interface ServiceConnection {
@@ -357,6 +367,8 @@ export const service = {
     api.post<{ data: { id: number; name: string; token: string } }>('/service/tokens', { name })
       .then((r) => r.data.data),
   revokeToken: (id: number) => api.delete(`/service/tokens/${id}`),
+  revealToken: (id: number) =>
+    api.get<{ data: { token: string } }>(`/service/tokens/${id}/reveal`).then((r) => r.data.data.token),
   connections: () => api.get<{ data: ServiceConnection[] }>('/service/connections').then((r) => r.data.data),
   disconnect: (uuid: string) => api.delete(`/service/connections/${uuid}`),
 }

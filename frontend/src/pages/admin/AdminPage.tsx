@@ -1838,6 +1838,7 @@ function BotsTab() {
   const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
 
   const bots = useQuery({ queryKey: ['admin-bots'], queryFn: adminBots.list })
+  const [openTokens, setOpenTokens] = useState<string | null>(null)
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-bots'] })
 
   const create = useMutation({
@@ -1980,6 +1981,16 @@ function BotsTab() {
               <BotStat label="Sent" value={row.messages_sent} />
             </div>
 
+            <button
+              type="button"
+              className="mt-2 text-xs text-brand-600 underline"
+              onClick={() => setOpenTokens(openTokens === row.uuid ? null : row.uuid)}
+            >
+              {openTokens === row.uuid ? 'Hide tokens' : `Tokens (${row.tokens})`}
+            </button>
+
+            {openTokens === row.uuid && <BotTokens uuid={row.uuid} />}
+
             {/* Quiet and broken look identical from out here; only one of them
                 needs somebody to do something about it. */}
             <p className="mt-2 text-xs text-slate-400">
@@ -1992,6 +2003,93 @@ function BotsTab() {
           </Card>
         ))}
       </div>
+    </div>
+  )
+}
+
+/**
+ * One account's tokens, on request.
+ *
+ * Not loaded with the list: an admin opening this tab wants to see what exists
+ * and whether it is working, and pulling every token for every account to
+ * answer that would be reading credentials nobody asked for.
+ */
+function BotTokens({ uuid }: { uuid: string }) {
+  const queryClient = useQueryClient()
+  const [shown, setShown] = useState<Record<number, string>>({})
+  const [error, setError] = useState<string | null>(null)
+
+  const tokens = useQuery({ queryKey: ['admin-bot-tokens', uuid], queryFn: () => adminBots.tokens(uuid) })
+
+  const reveal = useMutation({
+    mutationFn: (id: number) => adminBots.revealToken(uuid, id).then((token) => ({ id, token })),
+    onSuccess: ({ id, token }) => setShown((r) => ({ ...r, [id]: token })),
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const revoke = useMutation({
+    mutationFn: (id: number) => adminBots.revokeToken(uuid, id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-bot-tokens', uuid] })
+      queryClient.invalidateQueries({ queryKey: ['admin-bots'] })
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  if (tokens.isLoading) return <Spinner />
+
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-2 dark:border-slate-800">
+      <ErrorNote message={error} />
+      {tokens.data?.length === 0 && (
+        <p className="py-2 text-xs text-slate-400">No tokens. Nothing can sign in as this account.</p>
+      )}
+      {tokens.data?.map((t) => (
+        <div key={t.id} className="flex items-center gap-2 py-2 text-sm">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{t.name}</span>
+            <span className="block text-xs text-slate-400">
+              {t.last_used_at ? `Last used ${format(new Date(t.last_used_at), 'd MMM yyyy HH:mm')}` : 'Never used'}
+            </span>
+            {shown[t.id] && (
+              <code className="mt-1 block truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] dark:bg-slate-800">
+                {shown[t.id]}
+              </code>
+            )}
+            {!t.revealable && (
+              <span className="text-[11px] text-slate-400">
+                Issued before tokens were kept — cannot be shown.
+              </span>
+            )}
+          </span>
+          {t.revealable && !shown[t.id] && (
+            <Button
+              size="sm"
+              variant="ghost"
+              title="Show this token"
+              disabled={reveal.isPending}
+              onClick={() => {
+                setError(null)
+                reveal.mutate(t.id)
+              }}
+            >
+              Show
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            title="Revoke just this token"
+            disabled={revoke.isPending}
+            onClick={() => {
+              setError(null)
+              revoke.mutate(t.id)
+            }}
+          >
+            <Ban className="size-3.5" />
+          </Button>
+        </div>
+      ))}
     </div>
   )
 }

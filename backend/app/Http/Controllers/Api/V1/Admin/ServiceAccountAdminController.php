@@ -57,19 +57,68 @@ class ServiceAccountAdminController extends Controller
      * admin could cut an integration off and then have no way to start it
      * again. Rotating a leaked token needs both halves, in this order.
      */
-    public function issueToken(Request $request, string $uuid): JsonResponse
+    public function issueToken(Request $request, string $uuid, ServiceAccountService $accounts): JsonResponse
     {
         $data = $request->validate(['name' => ['sometimes', 'string', 'max:64']]);
 
-        $bot = User::where('uuid', $uuid)->where('is_service_account', true)->first();
-        abort_unless($bot, 404, 'No such service account.');
-
-        $token = $bot->createToken($data['name'] ?? 'issued by admin');
+        $bot = $this->find($uuid);
+        $token = $accounts->issueToken($bot, $data['name'] ?? 'issued by admin');
 
         return response()->json([
-            'message' => "New token for {$bot->name}. Copy it now — it is not shown again.",
-            'data' => ['token' => $token->plainTextToken],
+            'message' => "New token for {$bot->name}.",
+            'data' => ['token' => $token],
         ], 201);
+    }
+
+    /** Every token this account has, and whether each can still be read back. */
+    public function tokens(Request $request, string $uuid): JsonResponse
+    {
+        $tokens = $this->find($uuid)->tokens()
+            ->latest('id')
+            ->get()
+            ->map(fn ($token) => [
+                'id' => $token->id,
+                'name' => $token->name,
+                'created_at' => $token->created_at,
+                'last_used_at' => $token->last_used_at,
+                'revealable' => $token->encrypted_value !== null,
+            ]);
+
+        return response()->json(['data' => $tokens]);
+    }
+
+    /**
+     * Show a token again.
+     *
+     * The reason it is kept at all: an integration's token lives in another
+     * system's configuration, and an admin who cannot read it back cannot
+     * check what was installed, or repair a setup, without first cutting the
+     * integration off. Encrypted at rest, so a database dump alone does not
+     * carry it.
+     */
+    public function revealToken(Request $request, string $uuid, int $id, ServiceAccountService $accounts): JsonResponse
+    {
+        $token = $this->find($uuid)->tokens()->whereKey($id)->first();
+        abort_unless($token, 404, 'No such token.');
+
+        $value = $accounts->revealToken($token);
+
+        return $value
+            ? response()->json(['data' => ['id' => $token->id, 'token' => $value]])
+            : response()->json([
+                'message' => 'This token was issued before tokens were kept, so it cannot be shown. Issue a new one.',
+            ], 410);
+    }
+
+    /** Withdraw one token, leaving the others working. */
+    public function revokeToken(Request $request, string $uuid, int $id): JsonResponse
+    {
+        $token = $this->find($uuid)->tokens()->whereKey($id)->first();
+        abort_unless($token, 404, 'No such token.');
+
+        $token->delete();
+
+        return response()->json(['message' => "Revoked “{$token->name}”."]);
     }
 
     /**
@@ -82,9 +131,7 @@ class ServiceAccountAdminController extends Controller
      */
     public function revokeTokens(Request $request, string $uuid, ServiceAccountService $accounts): JsonResponse
     {
-        $bot = User::with('appId')->where('uuid', $uuid)->where('is_service_account', true)->first();
-        abort_unless($bot, 404, 'No such service account.');
-
+        $bot = $this->find($uuid);
         $count = $bot->tokens()->count();
         $bot->tokens()->delete();
 
@@ -94,5 +141,13 @@ class ServiceAccountAdminController extends Controller
                 : "Revoked {$count} tokens for {$bot->name}. Nothing can sign in as it now.",
             'data' => $accounts->summarise($bot->fresh('appId')),
         ]);
+    }
+
+    protected function find(string $uuid): User
+    {
+        $bot = User::with('appId')->where('uuid', $uuid)->where('is_service_account', true)->first();
+        abort_unless($bot, 404, 'No such service account.');
+
+        return $bot;
     }
 }

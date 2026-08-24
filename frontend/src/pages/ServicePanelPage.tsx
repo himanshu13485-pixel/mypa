@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Copy, KeyRound, LogOut, Plug, Trash2 } from 'lucide-react'
+import { Copy, Eye, KeyRound, LogOut, Plug, Trash2 } from 'lucide-react'
 import { service as serviceApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
@@ -26,7 +26,7 @@ export default function ServicePanelPage() {
   const clearAuth = useAuthStore((s) => s.clear)
   const [error, setError] = useState<string | null>(null)
   const [tokenName, setTokenName] = useState('')
-  /** A token is readable exactly once — while it is on screen, and never again. */
+  /** The token just issued, shown large. Older ones are read back on request. */
   const [freshToken, setFreshToken] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -48,6 +48,15 @@ export default function ServicePanelPage() {
       setCopied(false)
       refresh()
     },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  /** Tokens read back on request, keyed by id — never all at once. */
+  const [revealed, setRevealed] = useState<Record<number, string>>({})
+
+  const reveal = useMutation({
+    mutationFn: (id: number) => serviceApi.revealToken(id).then((token) => ({ id, token })),
+    onSuccess: ({ id, token }) => setRevealed((r) => ({ ...r, [id]: token })),
     onError: (err) => setError(errorMessage(err)),
   })
 
@@ -135,7 +144,7 @@ export default function ServicePanelPage() {
         {freshToken && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
             <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
-              Copy this now. It is not shown again, and cannot be recovered.
+              Your new token. It can be read again from the list below, so losing this screen is not fatal.
             </p>
             <div className="mt-2 flex items-center gap-2">
               <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1.5 font-mono text-xs dark:bg-slate-900">
@@ -199,7 +208,26 @@ export default function ServicePanelPage() {
                     ? `Last used ${new Date(token.last_used_at).toLocaleString()}`
                     : 'Never used'}
                 </span>
+                {revealed[token.id] && (
+                  <code className="mt-1 block truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] dark:bg-slate-800">
+                    {revealed[token.id]}
+                  </code>
+                )}
               </span>
+              {token.revealable && !revealed[token.id] && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  title="Show this token"
+                  disabled={reveal.isPending}
+                  onClick={() => {
+                    setError(null)
+                    reveal.mutate(token.id)
+                  }}
+                >
+                  <Eye className="size-3.5" />
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"

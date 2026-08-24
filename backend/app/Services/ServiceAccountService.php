@@ -4,7 +4,10 @@ namespace App\Services;
 
 use App\Models\Role;
 use App\Models\User;
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Laravel\Sanctum\PersonalAccessToken;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -67,8 +70,46 @@ class ServiceAccountService
 
         return [
             'user' => $user->fresh('appId'),
-            'token' => $user->createToken('first token')->plainTextToken,
+            'token' => $this->issueToken($user, 'first token'),
         ];
+    }
+
+    /**
+     * Issue a token and keep a readable copy of it.
+     *
+     * The one place tokens are minted, so the keeping cannot be forgotten in
+     * one of three call sites. Encrypted with APP_KEY: an admin can read it
+     * back, a database dump on its own cannot.
+     */
+    public function issueToken(User $user, string $name): string
+    {
+        $new = $user->createToken($name);
+
+        // Only ever for an application. A person's token is replaceable by
+        // signing in again, so storing one buys nothing and risks the rest.
+        if ($user->is_service_account) {
+            $new->accessToken->forceFill([
+                'encrypted_value' => Crypt::encryptString($new->plainTextToken),
+            ])->save();
+        }
+
+        return $new->plainTextToken;
+    }
+
+    /** The readable token, for one issued since this became possible. */
+    public function revealToken(PersonalAccessToken $token): ?string
+    {
+        if (! $token->encrypted_value) {
+            return null;
+        }
+
+        try {
+            return Crypt::decryptString($token->encrypted_value);
+        } catch (DecryptException) {
+            // Encrypted under a different APP_KEY, or damaged. Nothing to show
+            // and nothing to be done but issue a new one.
+            return null;
+        }
     }
 
     /** Everything an admin needs to tell a working integration from a dead one. */
