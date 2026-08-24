@@ -166,6 +166,30 @@ export interface ClientErrorRow {
   resolved_at?: string | null
 }
 
+export interface ServiceAccountRow {
+  uuid: string
+  name: string
+  username: string | null
+  app_id: string | null
+  tokens: number
+  connections: number
+  messages_sent: number
+  last_sent_at: string | null
+  created_at: string
+}
+
+export const adminBots = {
+  list: () =>
+    api.get<{ data: ServiceAccountRow[] }>('/admin/service-accounts').then((r) => r.data.data),
+  create: (name: string, username?: string) =>
+    api.post<{ message: string; data: ServiceAccountRow & { token: string } }>(
+      '/admin/service-accounts',
+      { name, ...(username ? { username } : {}) },
+    ).then((r) => r.data),
+  revokeTokens: (uuid: string) =>
+    api.post<{ message: string }>(`/admin/service-accounts/${uuid}/revoke-tokens`).then((r) => r.data),
+}
+
 export const adminOps = {
   clientErrors: (resolved = false) =>
     api.get<Paginated<ClientErrorRow>>('/admin/client-errors', { params: { resolved: resolved ? 1 : 0 } })

@@ -2,12 +2,9 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Role;
-use App\Models\User;
-use App\Services\AppIdService;
+use App\Services\ServiceAccountService;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Make an account for an application, in one step, with nothing to click.
@@ -17,10 +14,9 @@ use Illuminate\Support\Str;
  * a profile nobody will ever read. All of that is ceremony for a thing that
  * only needs an identity to send from and a token to send with.
  *
- * The email is marked confirmed here rather than mailed, deliberately. The
- * confirmation step exists to prove a human owns an address; there is no human
- * and often no real address, and leaving it unconfirmed would block the
- * account from the very endpoints it exists to call.
+ * The admin panel does the same job from a screen. Both call the same service,
+ * because an account made from a shell and one made from a browser should be
+ * the same kind of thing.
  */
 class CreateServiceAccount extends Command
 {
@@ -31,50 +27,24 @@ class CreateServiceAccount extends Command
 
     protected $description = 'Create an account for an application and print its first token';
 
-    public function handle(AppIdService $appIds): int
+    public function handle(ServiceAccountService $accounts): int
     {
-        $name = trim($this->argument('name'));
-        $username = Str::slug($this->option('username') ?: $name, '-');
-        $email = trim((string) $this->option('email')) ?: "{$username}@service.local";
-
-        if (User::where('username', $username)->orWhere('email', $email)->exists()) {
-            $this->error("An account already exists with that username or email ({$username} / {$email}).");
+        try {
+            ['user' => $user, 'token' => $token] = $accounts->create(
+                trim($this->argument('name')),
+                $this->option('username'),
+                $this->option('email'),
+            );
+        } catch (ValidationException $e) {
+            $this->error(collect($e->errors())->flatten()->first());
 
             return self::FAILURE;
         }
 
-        $user = DB::transaction(function () use ($name, $username, $email, $appIds) {
-            $user = User::create([
-                'name' => $name,
-                'username' => $username,
-                'email' => $email,
-                // Never used to sign in — the token is the credential. Random
-                // rather than empty so nothing can be guessed into it.
-                'password' => Str::random(64),
-            ]);
-
-            $user->forceFill([
-                'is_service_account' => true,
-                'email_verified_at' => now(),
-            ])->save();
-
-            $user->profile()->create(['timezone' => config('app.timezone'), 'language' => 'en']);
-            $user->settings()->create([]);
-            $appIds->generateFor($user);
-
-            if ($role = Role::where('slug', 'user')->first()) {
-                $user->roles()->attach($role->id);
-            }
-
-            return $user;
-        });
-
-        $token = $user->createToken('first token')->plainTextToken;
-
         $this->newLine();
-        $this->info("Service account created: {$name}");
-        $this->line("  Connect to it as : {$username}");
-        $this->line('  App ID           : ' . $user->fresh()->appId?->app_id);
+        $this->info("Service account created: {$user->name}");
+        $this->line("  Connect to it as : {$user->username}");
+        $this->line('  App ID           : ' . $user->appId?->app_id);
         $this->newLine();
         $this->warn('Token — shown once, and not recoverable. Copy it now:');
         $this->line("  {$token}");

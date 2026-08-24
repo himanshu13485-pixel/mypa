@@ -470,6 +470,17 @@ Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionContro
         // --- Admin only ---------------------------------------------------
         Route::prefix('admin')->middleware('role:admin,super_admin')->group(function () {
             Route::get('/stats', [StatsController::class, 'index']);
+
+            /*
+             * Service accounts, seen from outside.
+             *
+             * Admin-only rather than shared with subadmins: a token issued here
+             * can send as an account everybody trusts, and revoking one cuts an
+             * integration off mid-flight. Neither is a moderation decision.
+             */
+            Route::get('/service-accounts', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'index']);
+            Route::post('/service-accounts', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'store']);
+            Route::post('/service-accounts/{uuid}/revoke-tokens', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'revokeTokens']);
             Route::post('/users', [AdminUserController::class, 'store']);
             Route::get('/users/{user}', [AdminUserController::class, 'show']);
             Route::put('/users/{user}', [AdminUserController::class, 'update']);

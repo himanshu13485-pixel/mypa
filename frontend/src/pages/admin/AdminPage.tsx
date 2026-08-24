@@ -2,18 +2,22 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, Ban, BarChart3, Bug, CheckCircle2, ClipboardCheck, CreditCard, Flag,
+  Activity, Ban, BarChart3, Bot, Bug, CheckCircle2, ClipboardCheck, CreditCard, Flag,
   KeyRound, LogIn, MailCheck, MessagesSquare, Pencil, Plus, Radio, RefreshCw, Search, Send,
   Shield, SlidersHorizontal, UserCheck, Users, Wifi,
 } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
-import { admin, adminBilling, adminCare, adminInternal, adminOps, adminSales, identity as identityApi } from '../../api/endpoints'
+import {
+  admin, adminBilling, adminBots, adminCare, adminInternal, adminOps, adminSales,
+  identity as identityApi, type ServiceAccountRow,
+} from '../../api/endpoints'
 import type { AdminPlan } from '../../types'
 import { api, errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import UserSuggest from '../../components/UserSuggest'
 import { useToast } from '../../components/Toast'
+import { usePrompt } from '../../components/Prompt'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner,
 } from '../../components/ui'
@@ -1817,6 +1821,163 @@ function ClientErrorsTab() {
   )
 }
 
+/**
+ * Service accounts, from the outside.
+ *
+ * Each one has a panel of its own, but reaching it means holding a token —
+ * which is exactly what you have lost when you most need to look. This view
+ * does not depend on the credential still working: what exists, what it is
+ * doing, and the one button that matters when something is wrong.
+ */
+function BotsTab() {
+  const queryClient = useQueryClient()
+  const { confirm } = usePrompt()
+  const [name, setName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  /** Readable once, here, and nowhere afterwards. */
+  const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
+
+  const bots = useQuery({ queryKey: ['admin-bots'], queryFn: adminBots.list })
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-bots'] })
+
+  const create = useMutation({
+    mutationFn: () => adminBots.create(name.trim()),
+    onSuccess: (res) => {
+      setFresh({ name: res.data.name, token: res.data.token })
+      setName('')
+      refresh()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const revoke = useMutation({
+    mutationFn: (uuid: string) => adminBots.revokeTokens(uuid),
+    onSuccess: refresh,
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const cutOff = async (row: ServiceAccountRow) => {
+    const ok = await confirm({
+      title: `Revoke every token for ${row.name}?`,
+      message:
+        'Whatever is using it stops sending immediately. Its connections and what it has sent are kept, and a new token can be issued from its own panel.',
+      actionLabel: 'Revoke',
+      danger: true,
+    })
+    if (ok) {
+      setError(null)
+      revoke.mutate(row.uuid)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <ErrorNote message={error} />
+
+      <Card>
+        <h2 className="text-sm font-semibold">New service account</h2>
+        <p className="mt-0.5 text-xs text-slate-400">
+          An account an application signs in as. It gets no inbox and nobody tending it — connection
+          requests to it are accepted as they arrive, because nothing here would answer them.
+        </p>
+
+        {fresh && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+            <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
+              {fresh.name} — copy this token now. It is not shown again.
+            </p>
+            <code className="mt-2 block truncate rounded bg-white px-2 py-1.5 font-mono text-xs dark:bg-slate-900">
+              {fresh.token}
+            </code>
+            <button
+              type="button"
+              className="mt-2 text-xs text-amber-800 underline dark:text-amber-300"
+              onClick={() => setFresh(null)}
+            >
+              I have saved it
+            </button>
+          </div>
+        )}
+
+        <form
+          className="mt-3 flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setError(null)
+            create.mutate()
+          }}
+        >
+          <div className="min-w-48 flex-1">
+            <Label>Name</Label>
+            <Input
+              value={name}
+              placeholder="Grapme Alerts — what people see it from"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <Button type="submit" disabled={!name.trim() || create.isPending}>
+            {create.isPending ? 'Creating…' : 'Create'}
+          </Button>
+        </form>
+      </Card>
+
+      {bots.isLoading && <Spinner />}
+      {bots.data?.length === 0 && (
+        <EmptyState title="No service accounts" hint="Nothing is signing in as an application yet." />
+      )}
+
+      <div className="grid gap-3">
+        {bots.data?.map((row) => (
+          <Card key={row.uuid}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium">{row.name}</p>
+                <p className="text-xs text-slate-400">
+                  {row.username} · {row.app_id}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={row.tokens === 0 || revoke.isPending}
+                title={row.tokens === 0 ? 'Nothing can sign in as it already' : 'Revoke every token'}
+                onClick={() => void cutOff(row)}
+              >
+                Revoke tokens
+              </Button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+              <BotStat label="Tokens" value={row.tokens} />
+              <BotStat label="Connected" value={row.connections} />
+              <BotStat label="Sent" value={row.messages_sent} />
+            </div>
+
+            {/* Quiet and broken look identical from out here; only one of them
+                needs somebody to do something about it. */}
+            <p className="mt-2 text-xs text-slate-400">
+              {row.tokens === 0
+                ? 'No tokens — nothing can sign in as this account.'
+                : row.last_sent_at
+                  ? `Last sent ${new Date(row.last_sent_at).toLocaleString()}.`
+                  : 'Has never sent anything.'}
+            </p>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function BotStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-2 py-2 dark:bg-slate-800/60">
+      <p className="text-lg font-semibold">{value}</p>
+      <p className="text-[11px] text-slate-400">{label}</p>
+    </div>
+  )
+}
+
 const TABS = [
   { key: 'overview', label: 'Overview', icon: Shield },
   { key: 'users', label: 'Users', icon: Users },
@@ -1828,6 +1989,7 @@ const TABS = [
   { key: 'logins', label: 'Logins', icon: LogIn },
   { key: 'errors', label: 'Errors', icon: Bug },
   { key: 'moderation', label: 'Moderation', icon: Flag },
+  { key: 'bots', label: 'Service Accounts', icon: Bot },
   { key: 'internal', label: 'Internal Work', icon: MessagesSquare },
   { key: 'sales', label: 'My Users', icon: UserCheck },
 ] as const
@@ -1836,7 +1998,10 @@ const TABS = [
 function visibleTabs(roles: string[]) {
   if (roles.includes('admin') || roles.includes('super_admin')) return TABS
   if (roles.includes('subadmin')) {
-    return TABS.filter((t) => !['overview', 'active', 'plans', 'live', 'errors'].includes(t.key))
+    // 'bots' is admin-only for the same reason the API is: a token issued
+    // here sends as an account everyone trusts, and revoking one cuts an
+    // integration off mid-flight. Neither is a moderation call.
+    return TABS.filter((t) => !['overview', 'active', 'plans', 'live', 'errors', 'bots'].includes(t.key))
   }
   return TABS.filter((t) => ['sales', 'internal'].includes(t.key))
 }
@@ -1879,6 +2044,7 @@ export default function AdminPage() {
         ))}
       </div>
 
+      {tab === 'bots' && <BotsTab />}
       {tab === 'overview' && <OverviewTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'active' && <ActiveMembersTab />}
