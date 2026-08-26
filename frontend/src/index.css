@@ -154,3 +154,59 @@ h3 {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* --- Opening a section -----------------------------------------------------
+ *
+ * Every page is its own lazily-loaded file, so a section used to appear the
+ * instant its chunk arrived — a hard cut, at a moment the browser is already
+ * busy parsing and painting. The eye reads that as a stutter even when it is
+ * fast, which is most of what "choppy" was.
+ *
+ * A short rise and fade gives the change a direction and covers the frame or
+ * two of layout settling. Deliberately brief: long enough to be continuous,
+ * short enough that nobody waiting on the page is made to wait for the
+ * animation. Nothing here delays interaction — the content is present and
+ * clickable from the first frame.
+ */
+@keyframes route-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.route-enter {
+  animation: route-enter 180ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+/*
+ * The waiting state, delayed into existence.
+ *
+ * Routes are pre-fetched while the app is idle, so most loads finish in a
+ * frame or two — and a spinner shown for that long is a flicker, which reads
+ * as worse than nothing at all. Holding it invisible for 220ms means it only
+ * ever appears when there is a genuine wait to acknowledge.
+ */
+@keyframes route-fallback-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.route-fallback {
+  animation: route-fallback-in 120ms ease-out 220ms both;
+}
+
+/*
+ * Someone who has asked for less movement gets none of this. The content
+ * still arrives; it simply arrives without being animated into place.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .route-enter,
+  .route-fallback {
+    animation: none;
+  }
+}

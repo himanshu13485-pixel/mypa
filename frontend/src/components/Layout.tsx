@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart3, Calendar, CheckSquare, CreditCard, FileText, FolderKanban, MonitorUp,
@@ -18,6 +18,7 @@ import VoiceAssistant from './VoiceAssistant'
 import MobileVerifyBanner from './MobileVerifyBanner'
 import { Avatar } from '../lib/avatars'
 import { useLandscapePhone } from '../lib/useMediaQuery'
+import { Spinner } from './ui'
 
 /** Sidebar rows that carry an unattended-items badge. */
 const BADGE_KEYS: Record<string, 'messages' | 'calls' | 'connections'> = {
@@ -312,7 +313,23 @@ export default function Layout() {
           // A meeting wants the screen; every other page wants margins.
           bare ? 'p-0' : immersive ? 'p-2 sm:p-4' : 'p-4 sm:p-6',
         )}>
-          <Outlet />
+          {/*
+            * The waiting happens here, not around the whole app.
+            *
+            * The only Suspense boundary used to sit above the Routes, so
+            * opening a section replaced everything — sidebar, header, the lot —
+            * with a full-screen spinner and then painted the new page. Two
+            * whole-screen changes to move between two pages that share all
+            * their furniture, which is most of what "choppy" was.
+            *
+            * Inside <main>, only the content area waits, and the chrome you
+            * navigated with stays where it is.
+            */}
+          <Suspense fallback={<RouteFallback />}>
+            <div key={pathname} className="route-enter">
+              <Outlet />
+            </div>
+          </Suspense>
           <MeetingSlot />
         </main>
 
@@ -384,5 +401,22 @@ export default function Layout() {
     </div>
     </MeetingHost>
     </CallProvider>
+  )
+}
+
+/**
+ * What a section shows while its file is still arriving.
+ *
+ * Deliberately not a spinner. A spinner that appears for 80ms and vanishes
+ * reads as a flicker rather than as progress, and most of these loads are
+ * that fast — the routes are pre-fetched while the app sits idle. The delay
+ * means nothing is drawn at all unless the wait is long enough to be worth
+ * acknowledging, which for a fast load is never.
+ */
+function RouteFallback() {
+  return (
+    <div className="route-fallback flex items-center justify-center py-16">
+      <Spinner />
+    </div>
   )
 }

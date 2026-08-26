@@ -1,4 +1,4 @@
-import { lazy, type ComponentType } from 'react'
+import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import { reportError } from './report'
 
 /**
@@ -72,11 +72,16 @@ async function discardCachedShell(): Promise<void> {
 /** Every route here is a page: it renders from the URL and takes no props. */
 type RouteComponent = ComponentType<Record<string, never>>
 
+/** A lazy route that can also be fetched before anyone asks for it. */
+export type PreloadableRoute = LazyExoticComponent<RouteComponent> & {
+  preload: () => void
+}
+
 export function lazyRoute(
   name: string,
   load: () => Promise<{ default: RouteComponent }>,
-) {
-  return lazy(async () => {
+): PreloadableRoute {
+  const component = lazy(async () => {
     try {
       return await load()
     } catch (first) {
@@ -107,5 +112,23 @@ export function lazyRoute(
         return await new Promise<{ default: RouteComponent }>(() => undefined)
       }
     }
-  })
+  }) as PreloadableRoute
+
+  /*
+   * Fetch the chunk without rendering it.
+   *
+   * Every page is its own file, so the first visit to each one waits on a
+   * network round trip — and because that wait suspends, the screen changes
+   * twice: once to a placeholder, once to the page. Doing it while the app is
+   * idle means the file is usually already in memory when somebody clicks,
+   * and the navigation is a single instant repaint.
+   *
+   * Failures are ignored on purpose. This is speculative work; if it does not
+   * land, the ordinary load path runs later and handles its own errors.
+   */
+  component.preload = () => {
+    void load().catch(() => undefined)
+  }
+
+  return component
 }

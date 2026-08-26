@@ -1,4 +1,4 @@
-import { Suspense } from 'react'
+import { Suspense, useEffect } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import ErrorBoundary from './components/ErrorBoundary'
 import { lazyRoute } from './lib/lazyRoute'
@@ -53,7 +53,54 @@ const PrivacyPage = lazyRoute('PrivacyPage', () => import('./pages/site/InfoPage
 const SubscriptionPage = lazyRoute('SubscriptionPage', () => import('./pages/SubscriptionPage'))
 const PaymentStatusPage = lazyRoute('PaymentStatusPage', () => import('./pages/PaymentStatusPage'))
 
+/**
+ * The sections reachable from the sidebar, fetched before anyone asks.
+ *
+ * Each page is its own file, so the first visit to each one waits on a network
+ * round trip — and because that wait suspends, the screen changes twice: once
+ * to a placeholder, once to the page. Doing it while the browser is idle means
+ * the file is already in memory when somebody clicks, and the navigation is a
+ * single repaint.
+ *
+ * The sidebar only, deliberately. Admin and the meeting room are large — the
+ * meeting room drags in the whole LiveKit client — and most people never open
+ * either. Speculatively downloading a megabyte someone will not use is not a
+ * kindness on a phone.
+ */
+const SIDEBAR_ROUTES = [
+  Dashboard, TasksPage, CalendarPage, MessagesPage, NotesPage, FilesPage,
+  GroupsPage, HabitsPage, GoalsPage, ConnectionsPage, CallsPage, MeetingsPage,
+]
+
+function usePreloadedSections() {
+  useEffect(() => {
+    const preload = () => SIDEBAR_ROUTES.forEach((route) => route.preload())
+
+    /*
+     * requestIdleCallback, so this never competes with the work the person is
+     * actually waiting for. Safari has no such thing, hence the timeout — and
+     * the timeout on the idle call itself, so a permanently busy tab still
+     * gets there rather than never.
+     */
+    // Read off first: `'requestIdleCallback' in window` narrows window itself
+    // in TypeScript's eyes, leaving the Safari branch unreachable.
+    const idle: typeof window.requestIdleCallback | undefined = window.requestIdleCallback
+
+    if (typeof idle === 'function') {
+      const id = idle(preload, { timeout: 4000 })
+
+      return () => window.cancelIdleCallback(id)
+    }
+
+    const id = window.setTimeout(preload, 2000)
+
+    return () => window.clearTimeout(id)
+  }, [])
+}
+
 export default function App() {
+  usePreloadedSections()
+
   return (
     <ErrorBoundary>
     <ToastProvider>
