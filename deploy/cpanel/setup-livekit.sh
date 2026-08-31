@@ -1,0 +1,275 @@
+#!/bin/bash
+# Install and configure LiveKit, the SFU that lets a meeting grow past the
+# handful of people a peer-to-peer mesh can carry.
+# Run as root:  bash deploy/cpanel/setup-livekit.sh
+#
+# Why an SFU at all: in a mesh everybody sends their own picture to everybody
+# else, so a participant's upload grows with the room — six people need about
+# 7.5 Mbps each and ten need 15, which no phone and few homes have. With an
+# SFU each person sends one stream here and this server copies it out. Their
+# upload stops growing; ours starts.
+#
+# What that costs, so it is not a surprise: a twenty-person meeting is roughly
+# 30 Mbps in and 60 Mbps out, sustained, which is about 40 GB per hour. Check
+# that against the host's transfer allowance before turning it on for everyone.
+set -e
+
+APP_USER=${APP_USER:-grapme}
+APP_DIR=${APP_DIR:-/home/$APP_USER/netvork}
+DOMAIN=${DOMAIN:-netvork.app}
+SFU_DOMAIN=${SFU_DOMAIN:-sfu.$DOMAIN}
+SSLDIR=/home/$APP_USER/ssl-netvork
+# The signalling port the browser connects to over wss://.
+WS_PORT=${WS_PORT:-7880}
+# One UDP port for all media, rather than a port per connection.
+#
+# This started as a 50000-60000 range, which is what "one port per participant"
+# suggests and is LiveKit's older shape. A range cannot be tested: a port in it
+# is only bound while a call is using it, so a room where media never arrives
+# looks exactly like a room where the firewall is fine. One port is open or it
+# is not, and can be answered in a second from anywhere.
+#
+# WHY 50000 AND NOT SOMETHING TIDY LIKE 7882: the machine sits behind the
+# provider's NAT (its own address is a 10.x), and the provider's edge forwards
+# a fixed list of ports. That list is upstream of this box — packets to a port
+# not on it never arrive at all, which tcpdump proved for 7882: a steady
+# stream sent from outside, zero packets captured, while the box's own
+# firewall stood wide open. No firewall-cmd here can change that list. What
+# is demonstrably ON the list is the old media range — the LiveKit log shows
+# a working connection on 50000-60000 — so the mux port lives inside it.
+#
+# (Also: firewalld on this box puts its default-zone rules in 'public' while
+# the real interface sits in the 'docker' zone, so the rules this script adds
+# are belt-and-braces at best. The provider's edge is the gate that counts.)
+UDP_PORT=${UDP_PORT:-50000}
+# LiveKit's ICE-over-TCP fallback, for clients whose network will not pass UDP
+# at all — corporate firewalls, a few mobile carriers. Without it those people
+# join, appear in the roster, and then see and hear nobody.
+TCP_PORT=${TCP_PORT:-7881}
+PHP=${PHP:-/opt/cpanel/ea-php84/root/usr/bin/php}
+
+command -v curl >/dev/null || { echo "!! curl is required"; exit 1; }
+
+echo "== detecting addresses =="
+PUB_IP=$(curl -s --max-time 10 https://ipinfo.io/ip)
+[ -n "$PUB_IP" ] || { echo "!! could not determine the public address"; exit 1; }
+echo "   public: $PUB_IP"
+
+echo "== installing livekit-server =="
+if ! command -v livekit-server >/dev/null; then
+  curl -sSL https://get.livekit.io | bash
+fi
+echo "   $(livekit-server --version 2>&1 | head -1)"
+
+echo "== keys =="
+# Generated once and kept. Re-running must not invalidate the tokens the app
+# is already handing out, so an existing config is left alone.
+CONFIG=/etc/livekit/livekit.yaml
+mkdir -p /etc/livekit
+if [ -f "$CONFIG" ] && grep -q 'keys:' "$CONFIG"; then
+  API_KEY=$(awk '/^keys:/{getline; print $1}' "$CONFIG" | tr -d ':')
+  API_SECRET=$(awk '/^keys:/{getline; print $2}' "$CONFIG")
+  echo "   reusing the existing key ($API_KEY)"
+else
+  API_KEY="API$(head -c 16 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 12)"
+  API_SECRET=$(head -c 48 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 48)
+  echo "   generated a new key ($API_KEY)"
+fi
+
+echo "== writing $CONFIG =="
+cat > "$CONFIG" <<YAML
+# Managed by deploy/cpanel/setup-livekit.sh — re-running rewrites this file.
+port: $WS_PORT
+rtc:
+  # udp_port, not a port range — those are alternatives, and setting both said
+  # "one port" and "ten thousand ports" in the same breath. Everything is
+  # multiplexed over this one, which is the whole reason it can be checked.
+  udp_port: $UDP_PORT
+  # ICE over TCP, for networks that will not pass UDP at all.
+  tcp_port: $TCP_PORT
+  # Discovers the public address itself, so ICE candidates point somewhere
+  # reachable rather than at a private interface nobody outside can route to.
+  # Also an alternative to node_ip rather than a companion; this one needs no
+  # maintenance if the address ever changes.
+  use_external_ip: true
+
+keys:
+  $API_KEY: $API_SECRET
+
+# TLS is NOT terminated here. LiveKit has no tls: section at all — inventing
+# one is what made it exit 0 on every start with "field tls not found in type
+# config.Config", seventy-seven times before anyone read the log. It expects a
+# proxy in front, and this box already has the right one: Apache holds the
+# AutoSSL certificate for the subdomain.
+YAML
+
+chmod 600 "$CONFIG"
+
+echo "== apache in front (TLS) =="
+# LiveKit stays on plain HTTP on the loopback side; Apache does the certificate
+# on 443 for $SFU_DOMAIN. Only signalling goes through here — the media is UDP
+# straight to the box on the port above and never touches Apache.
+if [ ! -d /etc/apache2/conf.d/userdata ]; then
+  echo "!! no cPanel Apache userdata directory — set up a proxy for"
+  echo "   https://$SFU_DOMAIN -> http://127.0.0.1:$WS_PORT yourself."
+  SCHEME=wss
+else
+  INC=/etc/apache2/conf.d/userdata/ssl/2_4/$APP_USER/$SFU_DOMAIN
+  mkdir -p "$INC"
+  cat > "$INC/livekit.conf" <<APACHE
+# Managed by deploy/cpanel/setup-livekit.sh
+# Signalling only. Media is UDP direct to this host and does not come past here.
+ProxyPreserveHost On
+ProxyRequests Off
+# The websocket upgrade has to be matched before the generic rule, or Apache
+# proxies it as ordinary HTTP and the connection closes as soon as it opens.
+RewriteEngine On
+RewriteCond %{HTTP:Upgrade} =websocket [NC]
+RewriteRule ^/(.*) ws://127.0.0.1:$WS_PORT/\$1 [P,L]
+ProxyPass / http://127.0.0.1:$WS_PORT/ timeout=600 keepalive=On
+ProxyPassReverse / http://127.0.0.1:$WS_PORT/
+
+# Ten minutes, because Apache's default is sixty seconds and it applies to a
+# websocket that is simply sitting there.
+#
+# A meeting's signalling connection is quiet most of the time — it carries
+# who joined and who muted, not media — so a room where nothing is being
+# announced looks idle and got cut. LiveKit reconnected, which is why the
+# symptom was not "the meeting ended" but video stalling and people dropping
+# out and back at intervals nobody could account for. The server log calls it
+# RR_SIGNAL_DISCONNECTED.
+ProxyTimeout 600
+APACHE
+
+  # Websockets need mod_proxy_wstunnel; without it the upgrade is refused and
+  # the meeting never gets past "connecting".
+  if ! httpd -M 2>/dev/null | grep -q proxy_wstunnel; then
+    echo "!! mod_proxy_wstunnel is not loaded. Install it, or signalling will fail:"
+    echo "   yum -y install ea-apache24-mod_proxy_wstunnel && systemctl restart httpd"
+  fi
+
+  /scripts/ensure_vhost_includes --user="$APP_USER" >/dev/null 2>&1 \
+    || echo "!! ensure_vhost_includes failed — run it by hand, then restart httpd"
+  systemctl restart httpd >/dev/null 2>&1 || true
+  echo "   proxying https://$SFU_DOMAIN -> http://127.0.0.1:$WS_PORT"
+  SCHEME=wss
+fi
+
+
+echo "== firewall =="
+# CSF first: that is what WHM installs, and a box running it usually has
+# firewalld stopped. Checking only firewalld would report success on a WHM
+# server and leave the UDP range shut, which does not look like a firewall
+# problem from the outside — the meeting connects, and then stays black.
+if [ -x /usr/sbin/csf ]; then
+  cp -n /etc/csf/csf.conf /etc/csf/csf.conf.before-livekit 2>/dev/null || true
+  # The media port and LiveKit's TCP fallback. Not 7880: Apache reaches that
+  # over the loopback, so opening it publicly would expose the unencrypted
+  # signalling port for no gain.
+  # Anchored to the UDP_IN line: a bare grep for the number matches it
+  # anywhere in the file and would decide the rule was already there.
+  grep -q "^UDP_IN.*,$UDP_PORT" /etc/csf/csf.conf \
+    || sed -i "s/^UDP_IN = \"\(.*\)\"/UDP_IN = \"\1,$UDP_PORT\"/" /etc/csf/csf.conf
+  grep -q "^TCP_IN.*,$TCP_PORT" /etc/csf/csf.conf \
+    || sed -i "s/^TCP_IN = \"\(.*\)\"/TCP_IN = \"\1,$TCP_PORT\"/" /etc/csf/csf.conf
+  csf -r >/dev/null 2>&1 || true
+  echo "   csf updated: $UDP_PORT/udp and $TCP_PORT/tcp (7880 stays loopback-only)"
+  echo "   (previous config saved as /etc/csf/csf.conf.before-livekit)"
+elif command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then
+  firewall-cmd --permanent --add-port=$UDP_PORT/udp >/dev/null
+  # The old 50000-60000 range is no longer used; leaving it open would be ten
+  # thousand ports held for nothing.
+  firewall-cmd --permanent --remove-port=50000-60000/udp >/dev/null 2>&1 || true
+  firewall-cmd --permanent --add-port=$TCP_PORT/tcp >/dev/null
+  firewall-cmd --reload >/dev/null
+  echo "   firewalld updated: $UDP_PORT/udp and $TCP_PORT/tcp (7880 stays loopback-only)"
+else
+  echo "!! no firewall manager found — open $UDP_PORT/udp and $TCP_PORT/tcp yourself."
+  echo "   Media is UDP; without that port the meeting connects and then stays black."
+fi
+
+echo "== service =="
+cat > /etc/systemd/system/livekit.service <<UNIT
+# /etc/systemd/system/livekit.service — managed by setup-livekit.sh
+[Unit]
+Description=LiveKit SFU for Netvork meetings
+After=network.target
+
+[Service]
+User=root
+Restart=always
+RestartSec=3
+ExecStart=/usr/local/bin/livekit-server --config $CONFIG
+StandardOutput=append:/home/$APP_USER/logs/livekit.log
+StandardError=append:/home/$APP_USER/logs/livekit.log
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+mkdir -p /home/$APP_USER/logs
+chown $APP_USER:$APP_USER /home/$APP_USER/logs
+systemctl daemon-reload
+systemctl enable livekit >/dev/null 2>&1 || true
+# restart, not `enable --now`.
+#
+# `enable --now` starts a stopped service and does nothing at all to a running
+# one — it succeeds, so the `|| restart` after it never fired. Re-running this
+# script therefore rewrote the config and left the old one running, and every
+# check afterwards passed: the service was active, the file on disk was right,
+# and the process had never read it. That cost an evening, with LiveKit still
+# answering on a port range the config had not mentioned for an hour.
+systemctl restart livekit
+
+# is-active exits non-zero for anything but "active", including the perfectly
+# ordinary "activating" of a service two seconds old — and under set -e that
+# killed this script before it wrote any of the settings below, leaving LiveKit
+# installed and the app with no idea it existed.
+STATE=starting
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  STATE=$(systemctl is-active livekit || true)
+  [ "$STATE" = active ] && break
+  sleep 1
+done
+echo "   service: $STATE"
+if [ "$STATE" != active ]; then
+  echo "!! livekit is not up. The settings below are still written, so nothing is"
+  echo "   left half-done — but check:  journalctl -u livekit -n 40 --no-pager"
+fi
+
+echo "== pointing the app at it =="
+ENV_FILE="$APP_DIR/backend/.env"
+set_env () {
+  # Replace in place if present, append if not — so re-running does not
+  # accumulate duplicate keys that the last one silently wins.
+  if grep -q "^$1=" "$ENV_FILE"; then
+    sed -i "s|^$1=.*|$1=$2|" "$ENV_FILE"
+  else
+    echo "$1=$2" >> "$ENV_FILE"
+  fi
+}
+set_env LIVEKIT_ENABLED true
+set_env LIVEKIT_URL "$SCHEME://$SFU_DOMAIN"
+set_env LIVEKIT_API_KEY "$API_KEY"
+set_env LIVEKIT_API_SECRET "$API_SECRET"
+sudo -u $APP_USER $PHP "$APP_DIR/backend/artisan" config:cache >/dev/null
+
+echo
+echo "== done =="
+echo "   signalling : $SCHEME://$SFU_DOMAIN  (Apache -> 127.0.0.1:$WS_PORT)"
+echo "   media      : UDP $UDP_PORT (one port, all of it), TCP $TCP_PORT as fallback"
+echo "   log        : /home/$APP_USER/logs/livekit.log"
+echo
+echo "Before this works end to end — none of which WHM does for you:"
+echo "  1. $SFU_DOMAIN must resolve to $PUB_IP. Add it as a subdomain in"
+echo "     cPanel, which creates the DNS record and brings it into AutoSSL."
+echo "  2. Apache holds the certificate for it, not LiveKit — cPanel issues and"
+echo "     renews that itself once the subdomain exists. Nothing to copy."
+echo "  3. Check the host's transfer allowance. A twenty-person meeting is"
+echo "     about 40 GB an hour through this box; that is the number that"
+echo "     decides whether this is affordable, not CPU."
+echo "  4. LIVEKIT_MESH_UP_TO empty means every meeting uses the SFU, which is"
+echo "     the setting to leave it on. Set it to a number and meetings run"
+echo "     peer-to-peer up to that many people and then move the whole room"
+echo "     to the SFU mid-meeting. That handover is not proven yet — it has"
+echo "     been through five real devices once and was not stable."

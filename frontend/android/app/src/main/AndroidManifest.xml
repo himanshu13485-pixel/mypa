@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme">
+
+        <!-- supportsPictureInPicture floats a call when somebody presses home
+             rather than hiding it; resizeableActivity is its precondition. -->
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
+            android:name=".MainActivity"
+            android:label="@string/title_activity_main"
+            android:theme="@style/AppTheme.NoActionBarLaunch"
+            android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+        </activity>
+
+        <!-- The native half of ringing. Registered here, in the app's own
+             manifest, which the merger puts ahead of library manifests — so
+             call messages reach this service rather than the Capacitor
+             plugin's. Non-call messages are handed on to the plugin's
+             handling by the subclass, and token rotation is inherited. -->
+        <service
+            android:name=".NetvorkMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+        <!-- Keeps the microphone alive while the app is in the background. -->
+        <service
+            android:name=".CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
+        <!-- The notification's Decline button. -->
+        <receiver
+            android:name=".DeclineReceiver"
+            android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"></meta-data>
+        </provider>
+    </application>
+
+    <!-- Permissions -->
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- A meetings app in a webview is only as capable as the shell around
+         it. getUserMedia inside the WebView asks the *app* for the camera and
+         microphone, and Capacitor grants that by requesting these runtime
+         permissions — but only if they are declared here. Without them the
+         prompt never appears and the meeting joins silent and black, with no
+         error anywhere: the exact class of failure this project has spent a
+         week learning to hate. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Wired and Bluetooth headsets: the speaker-switching the app already
+         has is worthless if the shell cannot see the earpiece. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+
+    <!-- Android 13+: notifications are opt-in per app, and the web push the
+         site registers rides on the shell's permission. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Since Android 9 the microphone is cut off to background apps, so a
+         call died the moment somebody pressed home. A foreground service is
+         the sanctioned exemption and from Android 10 it must name its reason;
+         from 14 the matching permission is required too. This is the same
+         bargain every calling app strikes, and its ongoing notification is
+         the same one WhatsApp shows during a call. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+
+    <!-- An incoming call may take a locked screen, like a phone call does.
+         Newer Android grants this selectively; where refused, the heads-up
+         notification still shows and rings. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
+</manifest>

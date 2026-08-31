@@ -5,7 +5,7 @@ import { Copy, Eye, MonitorUp } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
-import { Badge, Button, Card, EmptyState, Input, Spinner } from '../components/ui'
+import { Badge, Button, Card, EmptyState, Input, SkeletonList } from '../components/ui'
 import { screenShareSupported } from '../lib/devices'
 
 export function screenLink(code: string): string {
@@ -104,7 +104,7 @@ export default function ScreenPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={4} avatar={false} />
       ) : !sessions?.length ? (
         <Card>
           <EmptyState title="No screen sessions yet" hint="Start sharing and send the link, or enter a code to view." />

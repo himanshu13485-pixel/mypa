@@ -6,7 +6,20 @@ import { badges as badgesApi, groups as groupsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
-import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, Spinner, Textarea } from '../components/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNote,
+  Input,
+  Label,
+  LoadError,
+  Modal,
+  Select,
+  SkeletonCards,
+  Textarea,
+} from '../components/ui'
 import { GROUP_TYPES, type GroupItem } from '../types'
 import { Avatar } from '../lib/avatars'
 
@@ -70,7 +83,7 @@ export default function GroupsPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={4} />
       ) : isError ? (
         <Card>
           <LoadError what="your groups" message={errorMessage(loadError)} onRetry={() => refetch()} />

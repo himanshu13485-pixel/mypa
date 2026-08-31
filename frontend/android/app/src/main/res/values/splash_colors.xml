@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The app's own dark ground (slate-950), so the splash and the first
+         painted screen are the same colour and the handover is invisible. -->
+    <color name="splash_background">#020617</color>
+</resources>

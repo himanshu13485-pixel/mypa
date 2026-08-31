@@ -86,6 +86,31 @@ self.addEventListener('fetch', (event) => {
   )
 })
 
+/**
+ * What a notification feels like in a pocket.
+ *
+ * A phone face-down on a desk gives you the buzz and nothing else, and until
+ * every kind of alert started pushing, that was fine: there were two of them.
+ * Now that a chat message, a bill falling due and a colleague ticking off a
+ * checklist all arrive here, one shared pattern means the only way to know
+ * whether something needs you is to pick the phone up.
+ *
+ * These deliberately mirror the vibration patterns of the matching Android
+ * channels in NotificationChannels.java, so the same event feels the same
+ * whether it reached you through the browser or the installed app.
+ */
+const VIBRATION = {
+  messages_v1: [0, 180, 90, 180],
+  reminders_v1: [0, 250, 120, 250],
+  money_v1: [0, 400, 150, 200],
+  social_v1: [0, 200, 100, 200],
+  system_v1: [0, 300],
+}
+
+function vibrationFor(channel) {
+  return VIBRATION[channel] || VIBRATION.social_v1
+}
+
 /* ---- Web push: system notifications with sound, even when the tab is closed. */
 self.addEventListener('push', (event) => {
   let data = {}
@@ -106,7 +131,7 @@ self.addEventListener('push', (event) => {
   const call = data.kind === 'call'
 
   event.waitUntil(
-    self.registration.showNotification(data.title || 'My PA', {
+    self.registration.showNotification(data.title || 'Netvork', {
       body: data.body || '',
       tag: data.tag || undefined,
       icon: '/icons/icon.svg',
@@ -116,9 +141,56 @@ self.addEventListener('push', (event) => {
       requireInteraction: data.requireInteraction === true,
       actions: Array.isArray(data.actions) ? data.actions : undefined,
       // Sound is the device's own; vibration is ours to choose.
-      vibrate: call ? [400, 200, 400, 200, 400] : [200, 100, 200],
+      vibrate: call ? [400, 200, 400, 200, 400] : vibrationFor(data.channel),
     }),
   )
+})
+
+/*
+ * The browser moved this device's push subscription.
+ *
+ * Chrome rotates a subscription on its own — after a browser update, under
+ * storage pressure, or simply with age. The old endpoint stops working and no
+ * new one is registered, so the phone quietly stops receiving anything and the
+ * server keeps posting to an address nobody reads. Nothing on the device says
+ * so; the person just notices they stopped being told about calls while
+ * everyone else still was.
+ *
+ * Re-subscribing here and telling the server is what keeps them.
+ */
+self.addEventListener('pushsubscriptionchange', (event) => {
+  event.waitUntil((async () => {
+    const previous = event.oldSubscription
+    // The key the old subscription was made with. Without it there is nothing
+    // to re-subscribe against — the next visit to the app re-registers, so
+    // giving up here loses a window rather than the subscription.
+    const key = previous?.options?.applicationServerKey
+    if (!key) return
+
+    try {
+      const fresh = event.newSubscription
+        ?? (await self.registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: key,
+        }))
+      const json = fresh.toJSON()
+
+      // Identified by the endpoint it replaces: a service worker holds no
+      // session, and knowing the old endpoint is what proves this is the same
+      // device rather than somebody claiming to be.
+      await fetch('/api/v1/push/rotate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({
+          old_endpoint: previous.endpoint,
+          endpoint: json.endpoint,
+          keys: json.keys,
+        }),
+      })
+    } catch (err) {
+      console.warn('[sw] could not move the push subscription', err)
+    }
+  })())
 })
 
 self.addEventListener('notificationclick', (event) => {

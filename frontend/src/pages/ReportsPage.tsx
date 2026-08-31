@@ -4,7 +4,7 @@ import { Download } from 'lucide-react'
 import { format } from 'date-fns'
 import { reports } from '../api/endpoints'
 import { useAuthStore } from '../stores/auth'
-import { Button, Card, Spinner } from '../components/ui'
+import { Button, Card, Skeleton } from '../components/ui'
 
 function StatTile({ label, value, suffix }: { label: string; value: number | string; suffix?: string }) {
   return (
@@ -59,7 +59,31 @@ export default function ReportsPage() {
     URL.revokeObjectURL(url)
   }
 
-  if (isLoading || !summary) return <Spinner />
+  if (isLoading || !summary) {
+    return (
+      <div className="space-y-6" aria-busy="true" aria-label="Loading your reports">
+        <Skeleton className="h-6 w-32" />
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          {Array.from({ length: 6 }, (_, i) => (
+            <Card key={i}>
+              <Skeleton className="h-6 w-14" />
+              <Skeleton className="mt-2 h-2.5 w-20" />
+            </Card>
+          ))}
+        </div>
+        {/* The chart. A bar row rather than a block, so the shape of what is
+            coming is legible rather than a grey rectangle. */}
+        <Card>
+          <Skeleton className="mb-4 h-3 w-40" />
+          <div className="flex h-40 items-end gap-2">
+            {[40, 65, 30, 80, 55, 70, 45, 60, 35, 75, 50, 68].map((h, i) => (
+              <Skeleton key={i} className="flex-1 rounded-t" style={{ height: `${h}%` }} />
+            ))}
+          </div>
+        </Card>
+      </div>
+    )
+  }
 
   const { totals } = summary
   const maxCompleted = Math.max(1, ...(productivity ?? []).map((d) => d.completed))

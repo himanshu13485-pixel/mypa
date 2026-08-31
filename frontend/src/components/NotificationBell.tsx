@@ -5,9 +5,11 @@ import { AlarmClock, Bell, Check, CheckCheck, Trash2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import { notifications as notificationsApi, reminders as remindersApi, tasks as tasksApi } from '../api/endpoints'
-import { Button, EmptyState, Spinner } from './ui'
+import { Button, EmptyState, SkeletonList } from './ui'
 import type { AppNotification } from '../types'
 import { playChime } from '../lib/alerts'
+import { getEcho } from '../lib/echo'
+import { useAuthStore } from '../stores/auth'
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
@@ -17,8 +19,53 @@ export default function NotificationBell() {
   const { data: count = 0 } = useQuery({
     queryKey: ['notifications-count'],
     queryFn: notificationsApi.unreadCount,
-    refetchInterval: 30_000,
+    /*
+     * A safety net now, not the mechanism.
+     *
+     * Notifications arrive over the websocket below, so this no longer
+     * decides how quickly the bell notices anything. It stays, at a much
+     * longer interval, to cover the case the socket cannot: a tab that was
+     * asleep or offline while an event went out, which Reverb does not
+     * replay. Two minutes is cheap and catches up on the next tick.
+     */
+    refetchInterval: 120_000,
+    // The one refetch worth having on focus: coming back to the tab is
+    // exactly when a missed event would still be missing.
+    refetchOnWindowFocus: true,
   })
+
+  /*
+   * The moment a notification exists, rather than up to half a minute later.
+   *
+   * Every notification now broadcasts on the sender's own private channel as
+   * well as being stored, so an open tab hears about it immediately. Before
+   * this the bell polled on a timer and nothing else, which meant a phone
+   * could buzz while the website sat unchanged — and in a background tab,
+   * where browsers throttle timers hard, considerably longer than the
+   * thirty seconds the interval promised.
+   *
+   * Invalidating rather than reading the payload: the event says something
+   * arrived, and the queries are the single source of what it was. That
+   * also keeps the unread count honest without doing the arithmetic here.
+   */
+  const userUuid = useAuthStore((s) => s.user?.uuid)
+  useEffect(() => {
+    if (!userUuid) return
+    const echo = getEcho()
+    if (!echo) return
+
+    const channel = echo.private(`user.${userUuid}`)
+    channel.notification(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+    })
+
+    // Only this listener. The channel itself carries calls and meeting
+    // signals too, and leaving it is not ours to do.
+    return () => {
+      channel.stopListening('.Illuminate\\Notifications\\Events\\BroadcastNotificationCreated')
+    }
+  }, [userUuid, queryClient])
 
   // Chime when new notifications arrive (not on the very first load).
   const prevCount = useRef<number | null>(null)
@@ -63,18 +110,29 @@ export default function NotificationBell() {
     },
   })
 
-  const openTask = (n: AppNotification) => {
+  /**
+   * Take the reader to whatever this notification is about.
+   *
+   * This used to understand exactly one destination — a task — because for
+   * a long time a task reminder was very nearly the only thing in here. Now
+   * that every part of the app notifies, most rows in this list were about
+   * something else entirely: an expense added to a shared ledger, a missed
+   * call, a payment, a group role. Every one of those looked clickable, said
+   * nothing when clicked, and quietly marked itself read.
+   *
+   * The server has always sent where to go — action_path is written into
+   * every notification's payload — so this only ever had to read it. The
+   * task branch stays as the fallback for the older rows already sitting in
+   * people's lists, which predate action_path.
+   */
+  const openNotification = (n: AppNotification) => {
     if (!n.read_at) markRead.mutate(n.id)
-    if (n.data.task_uuid) {
-      setOpen(false)
-      navigate(`/tasks?open=${n.data.task_uuid}`)
-      return
-    }
-    // CRM (and any future) notifications carry their destination with them.
-    if (n.data.action_path) {
-      setOpen(false)
-      navigate(n.data.action_path)
-    }
+
+    const to = n.data.action_path ?? (n.data.task_uuid ? `/tasks?open=${n.data.task_uuid}` : null)
+    if (!to) return
+
+    setOpen(false)
+    navigate(to)
   }
 
   return (
@@ -96,7 +154,12 @@ export default function NotificationBell() {
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-2 w-96 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900">
+          {/* On a phone this is a viewport strip, not a button-anchored panel:
+              the bell sits left of the theme and sign-out buttons, so a 24rem
+              panel hung from its right edge ran clean off the left of the
+              screen, headers truncated to "…ions". Anchoring is a desktop
+              luxury; a phone gets the width the screen actually has. */}
+          <div className="fixed inset-x-2 top-16 z-50 rounded-xl border border-slate-200 bg-white shadow-xl dark:border-slate-800 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:right-0 sm:top-auto sm:mt-2 sm:w-96 sm:max-w-[calc(100vw-2rem)]">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2.5 dark:border-slate-800">
               <h3 className="text-sm font-semibold">Notifications</h3>
               {count > 0 && (
@@ -107,7 +170,7 @@ export default function NotificationBell() {
             </div>
             <div className="max-h-96 overflow-y-auto">
               {isLoading ? (
-                <Spinner />
+                <SkeletonList rows={4} avatar={false} />
               ) : !list?.data.length ? (
                 <EmptyState title="No notifications" hint="Task reminders will appear here." />
               ) : (
@@ -119,7 +182,7 @@ export default function NotificationBell() {
                       !n.read_at && 'bg-brand-50/50 dark:bg-brand-950/30',
                     )}
                   >
-                    <button className="block w-full text-left" onClick={() => openTask(n)}>
+                    <button className="block w-full text-left" onClick={() => openNotification(n)}>
                       <p className="text-sm">{n.data.message}</p>
                       <p className="mt-0.5 text-xs text-slate-400">
                         {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}

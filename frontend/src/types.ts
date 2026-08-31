@@ -8,6 +8,8 @@ export interface User {
   /** Server's own gate: the account has an email address that is unconfirmed. */
   email_verification_required?: boolean
   app_id?: string
+  /** An account an application signs in as. It gets the service panel, not the app. */
+  is_service_account?: boolean
   plan?: string | null
   salesperson?: { uuid: string; name: string } | null
   roles?: string[]
@@ -218,7 +220,15 @@ export interface Connection {
   status: 'pending' | 'accepted' | 'declined'
   message?: string | null
   direction: 'sent' | 'received'
-  user: { uuid: string; name: string; app_id?: string; photo_path?: string | null; avatar?: string | null } | null
+  user: {
+    uuid: string
+    name: string
+    app_id?: string
+    photo_path?: string | null
+    avatar?: string | null
+    /** Using the app now — already filtered by their privacy setting server-side. */
+    is_online?: boolean
+  } | null
   responded_at?: string | null
   created_at: string
 }
@@ -264,6 +274,9 @@ export interface AppNotification {
   type: string
   data: {
     kind: string
+    // Where clicking this should go. Written by SocialNotification for
+    // every kind; absent on rows created before it existed.
+    action_path?: string | null
     reminder_id?: number
     task_uuid?: string
     task_title?: string
@@ -690,6 +703,13 @@ export interface MeetingItem {
   participant_limit?: number | null
   minutes_limit?: number | null
   expires_at?: string | null
+  /**
+   * How media reaches this room. Decided by the server and the same for
+   * everyone in it — half a room on each would simply not see the other half.
+   * 'mesh' is peer-to-peer and free to host; 'sfu' routes through LiveKit and
+   * is what makes a room bigger than about eight people work.
+   */
+  transport?: 'mesh' | 'sfu'
   spotlight_uuid?: string | null
   my_role?: MeetingRole
   can_moderate?: boolean
@@ -711,6 +731,12 @@ export interface MeetingHeartbeat {
   /** When the host's plan runs out. Null means the meeting has no limit. */
   expires_at?: string | null
   participant_limit?: number | null
+  /**
+   * Repeated on every beat so the room can tell if it has changed. It is not
+   * meant to, but two people on different transports simply do not see each
+   * other, and nothing else in the room would ever notice.
+   */
+  transport?: 'mesh' | 'sfu'
 }
 
 export type MeetingHostAction =
@@ -723,7 +749,7 @@ export interface MeetingSignalPayload {
   meeting_type: 'audio' | 'video'
   from_uuid: string
   from_name?: string | null
-  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat' | 'share' | 'record' | 'media' | 'rec-request' | 'rec-allow' | 'rec-deny' | 'host-mute' | 'host-ask-unmute' | 'host-stop-video' | 'removed' | 'lock' | 'role' | 'spotlight'
+  signal: 'join' | 'leave' | 'end' | 'offer' | 'answer' | 'ice' | 'rename' | 'react' | 'knock' | 'admitted' | 'denied' | 'chat' | 'share' | 'record' | 'media' | 'rec-request' | 'rec-allow' | 'rec-deny' | 'host-mute' | 'host-ask-unmute' | 'host-stop-video' | 'removed' | 'lock' | 'role' | 'spotlight' | 'transport'
   payload: Record<string, unknown>
 }
 
@@ -744,4 +770,74 @@ export interface AdminChatRecord {
   members: string[]
   messages_count: number
   last_message_at?: string | null
+}
+
+/** One token belonging to a service account, as an admin sees it. */
+export interface BotToken {
+  id: number
+  name: string
+  created_at: string
+  last_used_at: string | null
+  revealable: boolean
+}
+
+// --- Booking links ----------------------------------------------------------
+
+export interface BookingHour {
+  weekday: number
+  start_time: string
+  end_time: string
+}
+
+export interface BookingPageConfig {
+  uuid: string
+  slug: string
+  url: string
+  title: string | null
+  description: string | null
+  duration_minutes: number
+  buffer_minutes: number
+  min_notice_minutes: number
+  max_days_ahead: number
+  is_active: boolean
+  timezone: string
+  hours: BookingHour[]
+}
+
+/** What the host sees about somebody who booked them. */
+export interface BookingRow {
+  uuid: string
+  name: string
+  email: string
+  note: string | null
+  starts_at: string
+  ends_at: string
+  guest_timezone: string
+  status: 'confirmed' | 'cancelled'
+  meeting_code: string | null
+}
+
+/** What a stranger sees before booking: no more than the link already gave. */
+export interface PublicBookingPage {
+  slug: string
+  host_name: string
+  title: string
+  description: string | null
+  duration_minutes: number
+  timezone: string
+  max_days_ahead: number
+}
+
+export interface BookingDetail {
+  uuid: string
+  name: string
+  email: string
+  note: string | null
+  starts_at: string
+  ends_at: string
+  guest_timezone: string
+  status: 'confirmed' | 'cancelled'
+  host_name: string
+  slug: string
+  meeting: { code: string; passcode: string; join_url: string } | null
 }

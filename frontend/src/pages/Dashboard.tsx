@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { AlertTriangle, CalendarClock, CheckCircle2, ListTodo, Star, TrendingUp } from 'lucide-react'
 import { dashboard } from '../api/endpoints'
 import { useAuthStore } from '../stores/auth'
-import { Badge, Card, EmptyState, Spinner } from '../components/ui'
+import { Badge, Card, EmptyState, Skeleton, SkeletonList } from '../components/ui'
 import type { Task } from '../types'
 import { format } from 'date-fns'
 
@@ -63,11 +63,56 @@ function greeting(): string {
   return 'Good evening'
 }
 
+/**
+ * The dashboard, before it knows anything.
+ *
+ * This is the page the app opens on, so its loading state is the first
+ * impression the whole product makes. A centred spinner on a blank screen
+ * was that impression: nothing, then everything, with the layout snapping
+ * into place as six stat tiles and two lists arrived at once.
+ *
+ * Drawn to the same grid as the real thing, so the numbers land in boxes
+ * that are already there and nothing moves when they do.
+ */
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6" aria-busy="true" aria-label="Loading your dashboard">
+      <div className="space-y-2">
+        <Skeleton className="h-3 w-40" />
+        <Skeleton className="h-7 w-64" />
+        <Skeleton className="h-3 w-72" />
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        {Array.from({ length: 6 }, (_, i) => (
+          <div
+            key={i}
+            className="space-y-3 rounded-xl border border-slate-200/70 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+          >
+            <Skeleton className="size-8 rounded-lg" />
+            <Skeleton className="h-6 w-12" />
+            <Skeleton className="h-2.5 w-16" />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {[0, 1].map((i) => (
+          <Card key={i}>
+            <Skeleton className="mb-3 h-3 w-32" />
+            <SkeletonList rows={4} avatar={false} />
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const user = useAuthStore((s) => s.user)
   const { data, isLoading } = useQuery({ queryKey: ['dashboard'], queryFn: dashboard.summary })
 
-  if (isLoading || !data) return <Spinner />
+  if (isLoading || !data) return <DashboardSkeleton />
 
   const { counts } = data
 

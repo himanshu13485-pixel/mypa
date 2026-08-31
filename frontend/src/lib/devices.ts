@@ -57,6 +57,58 @@ export async function listDevices(): Promise<DeviceOption[]> {
     }))
 }
 
+/**
+ * getUserMedia, with the two retreats a real machine needs.
+ *
+ * A camera on Windows is usually exclusive: while one page holds it, a second
+ * request for the same device fails outright. And stopping a track returns
+ * long before the operating system has actually let the device go, so the very
+ * next request lands in that gap. Both surface as NotReadableError, worded by
+ * the browser as "could not start video source" — which reads to everyone as
+ * "some other app has my camera" even when the other app was this page a
+ * moment ago.
+ *
+ * So: try again a few times, then, if the trouble is the exact camera asked
+ * for, drop the constraint and take whatever camera there is. A saved
+ * deviceId goes stale whenever the device list changes — unplug a webcam, use
+ * a different dock — and `exact` turns that into a hard failure. That is why
+ * pressing the flip-camera button "fixed" it: flipping asks for a different
+ * device.
+ *
+ * Throws only if every retreat fails, which is then genuinely worth telling
+ * somebody about.
+ */
+export async function openMedia(want: MediaStreamConstraints): Promise<MediaStream> {
+  const retryable = ['NotReadableError', 'AbortError']
+  let lastErr: unknown
+
+  for (const wait of [0, 250, 500]) {
+    if (wait) await new Promise((r) => setTimeout(r, wait))
+    try {
+      return await navigator.mediaDevices.getUserMedia(want)
+    } catch (err) {
+      lastErr = err
+      if (!retryable.includes((err as Error)?.name)) break
+    }
+  }
+
+  // Last resort: the same request without pinning a particular device.
+  const loosened = (c: boolean | MediaTrackConstraints | undefined) =>
+    (c && typeof c === 'object' && 'deviceId' in c ? { ...c, deviceId: undefined } : c)
+  const relaxed: MediaStreamConstraints = {
+    audio: loosened(want.audio as MediaTrackConstraints),
+    video: loosened(want.video as MediaTrackConstraints),
+  }
+
+  if (JSON.stringify(relaxed) !== JSON.stringify(want)) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(relaxed)
+    } catch { /* fall through to the original error, which is the honest one */ }
+  }
+
+  throw lastErr
+}
+
 /** Live list that refreshes when something is plugged in or unplugged. */
 export function useDevices(enabled = true) {
   const [devices, setDevices] = useState<DeviceOption[]>([])
@@ -89,6 +141,104 @@ export const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
   width: { ideal: 1280 },
   height: { ideal: 720 },
   frameRate: { ideal: 30 },
+}
+
+/**
+ * How much video to send each peer, given how many there are.
+ *
+ * In a mesh everybody sends their own picture to everybody else, so a flat
+ * per-connection cap means total upload grows with the room: at 1.5 Mbps
+ * apiece, six people needed 7.5 Mbps up and ten needed 13.5 — past what most
+ * home connections give and far past a phone on mobile data. The room did not
+ * fail politely either; it degraded for everyone at once.
+ *
+ * Stepping the cap down as people arrive holds the total near 2 Mbps whatever
+ * the size, which is the number that has to fit down one uplink. Resolution
+ * comes down with it — bitrate alone just makes a soft 720p, and the tiles are
+ * small in a full room anyway.
+ *
+ * Above about twelve this stops being enough and the answer is an SFU, where
+ * each person sends one stream and the server does the copying.
+ */
+export interface SendQuality {
+  maxBitrate: number
+  /** 1 = full capture resolution, 2 = half width and height, and so on. */
+  scaleResolutionDownBy: number
+  /** For logging and the network panel — not sent anywhere. */
+  label: string
+}
+
+/** What one uplink is asked to carry in total, whatever the room size. */
+const UPLOAD_BUDGET = 2_000_000
+
+/**
+ * Below this, video is worse than no video — blocky enough to be a distraction
+ * while still costing the bandwidth. Past the point where the budget divides
+ * down to it, the mesh is simply out of road: the fix is an SFU, not a smaller
+ * number, because by then it is the encoding and the connection count hurting
+ * rather than the bitrate.
+ */
+const FLOOR = 120_000
+
+/** Nobody needs more than this, even alone with one other person. */
+const CEILING = 1_500_000
+
+export function sendQualityFor(peerCount: number): SendQuality {
+  const peers = Math.max(1, peerCount)
+
+  /*
+   * Divide the budget, all the way up.
+   *
+   * This started as fixed rungs — 700k up to three people, 350k up to six —
+   * which made the total sawtooth: 1.4 Mbps at two, 2.1 at three, back to 1.4
+   * at four. The peaks were the top of each rung and meant nothing, and the
+   * rungs were also worse than dividing at most sizes (700k where division
+   * gives 1000k at two people, 350k where it gives 500k at four). They added
+   * an edge to reason about in exchange for lower quality.
+   */
+  // floor, not round: the budget is a ceiling, so rounding up puts the total
+  // over it — by one bit at three people, which is harmless, but a rule that
+  // can exceed its own limit is one you cannot then rely on.
+  const maxBitrate = Math.min(CEILING, Math.max(FLOOR, Math.floor(UPLOAD_BUDGET / peers)))
+
+  /*
+   * Resolution still steps, where bitrate does not.
+   *
+   * A scale factor that slid a little every time somebody joined would have
+   * the encoder re-keying on each arrival for a change nobody can see. Three
+   * steps are enough, and they line up with how large the tiles actually are
+   * by then.
+   */
+  const scale = peers <= 1 ? 1 : peers <= 3 ? 1.5 : peers <= 6 ? 2 : 3
+  const label = scale === 1 ? '720p' : scale === 1.5 ? '480p' : scale === 2 ? '360p' : '240p'
+
+  return { maxBitrate, scaleResolutionDownBy: scale, label }
+}
+
+/**
+ * Apply that to every outgoing video sender.
+ *
+ * Called whenever the room changes size, not only when a connection is made —
+ * the fifth person arriving has to quieten down the four who were already
+ * talking, or only their own stream is sized for the room they are in.
+ */
+export function applySendQuality(pcs: Iterable<RTCPeerConnection>, peerCount: number): SendQuality {
+  const quality = sendQualityFor(peerCount)
+
+  for (const pc of pcs) {
+    for (const sender of pc.getSenders()) {
+      if (sender.track?.kind !== 'video') continue
+      const params = sender.getParameters()
+      // getParameters can come back with no encodings before the first
+      // negotiation; setting one is how you get something to configure.
+      params.encodings = params.encodings?.length ? params.encodings : [{}]
+      params.encodings[0].maxBitrate = quality.maxBitrate
+      params.encodings[0].scaleResolutionDownBy = quality.scaleResolutionDownBy
+      sender.setParameters(params).catch(() => undefined)
+    }
+  }
+
+  return quality
 }
 
 export const AUDIO_CONSTRAINTS: MediaTrackConstraints = {
@@ -198,6 +348,51 @@ export async function applySpeaker(deviceId: string, root: ParentNode = document
 
 export function speakerSelectionSupported(): boolean {
   return typeof (HTMLMediaElement.prototype as { setSinkId?: unknown }).setSinkId === 'function'
+}
+
+/**
+ * Which speaker to use when nobody has chosen one.
+ *
+ * The browser's own default is "whatever the system says", which on a phone
+ * is the earpiece — right for a call held to your ear, wrong for a meeting
+ * on a desk, and wrong for both when a headset is paired and being ignored.
+ *
+ * A headset always wins: pairing one is itself the instruction. Below that
+ * the two differ on purpose. A call is a conversation held to the head, so
+ * the earpiece comes next and the loudspeaker last. A meeting is watched at
+ * arm's length, so the loudspeaker comes next and the earpiece last.
+ *
+ * Matched on labels, which is all the Web Audio API offers — and only when
+ * permission has been granted, since labels are empty before that. An unknown
+ * device sorts mid-table rather than last: something unrecognised is more
+ * likely a real output than the earpiece is to be the right one.
+ */
+/** Named for the two, since AudioContext is the browser's own — and is used
+    a few lines below by testSpeaker, which my shadowing quietly broke. */
+export type ListeningContext = 'call' | 'meeting'
+
+export function preferredSpeaker(devices: DeviceOption[], context: ListeningContext): string | null {
+  const rank = (label: string): number => {
+    const l = label.toLowerCase()
+    if (/bluetooth|headset|airpod|buds|headphone|wireless/.test(l)) return 0
+    const earpiece = /earpiece|receiver|handset|phone speaker/.test(l)
+    const loud = /speakerphone|loudspeaker|^speaker\b|speaker$/.test(l)
+    if (context === 'call') {
+      if (earpiece) return 1
+      if (loud) return 3
+    } else {
+      if (loud) return 1
+      if (earpiece) return 3
+    }
+
+    return 2
+  }
+
+  const best = [...devices]
+    .filter((d) => d.kind === 'audiooutput' && d.deviceId)
+    .sort((a, b) => rank(a.label) - rank(b.label))[0]
+
+  return best?.deviceId ?? null
 }
 
 /**

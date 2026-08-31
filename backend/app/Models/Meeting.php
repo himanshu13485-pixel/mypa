@@ -19,6 +19,13 @@ class Meeting extends Model
         'spotlight_uuid', 'status', 'scheduled_at', 'reminded_at', 'started_at', 'ended_at',
     ];
 
+    /**
+     * Deliberately not fillable. The transport is decided by one method in
+     * LiveKitTokenService and by nothing else — a room half on the mesh and
+     * half on the SFU is two rooms, so this is not a field any request should
+     * be able to set.
+     */
+
     protected $hidden = ['passcode'];
 
     protected function casts(): array
@@ -32,6 +39,27 @@ class Meeting extends Model
             'started_at' => 'datetime',
             'ended_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        /*
+         * On the model event, not in the controllers. Three separate paths
+         * end a meeting — the host's button, the last person leaving, the
+         * time-limit reaper — and each sets status itself. A hook here cannot
+         * be forgotten by the next path somebody adds.
+         *
+         * Without this, "ended" was a fact about our database that LiveKit
+         * never heard: any client that missed the end signal (a sleeping
+         * phone, a tab in the recents screen) kept publishing to the room
+         * indefinitely, which is how the SFU came to be at twenty percent CPU
+         * fifteen minutes after everyone thought the meeting was over.
+         */
+        static::updated(function (Meeting $meeting) {
+            if ($meeting->wasChanged('status') && $meeting->status === 'ended') {
+                app(\App\Services\LiveKitTokenService::class)->closeRoom($meeting);
+            }
+        });
     }
 
     public function uniqueIds(): array

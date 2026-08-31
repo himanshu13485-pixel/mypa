@@ -182,7 +182,12 @@ export default function UserSuggest({
       {open && rect && createPortal(
         <div
           ref={listRef}
-          className="fixed z-[60] max-h-70 overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
+          // z-90, above the dialogs at z-80. Every input this list belongs to
+          // sits inside one, and the list is portalled to <body> — so it is a
+          // sibling of the dialog, not a child, and at z-60 it drew behind it.
+          // The suggestions were never missing: they were under the backdrop,
+          // showing through as a blur. Stays below the toasts at z-100.
+          className="fixed z-[90] max-h-70 overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900"
           style={{ left: rect.left, top: rect.top, width: rect.width }}
         >
           {suggestions.length === 0 ? (

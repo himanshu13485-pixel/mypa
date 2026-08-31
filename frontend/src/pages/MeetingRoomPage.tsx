@@ -12,19 +12,22 @@ import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { startCompositeRecording, type CompositeRecorder } from '../lib/recorder'
 import { createEffectTrack, createSharePipeline, type BlurPipeline } from '../lib/videoFx'
-import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
+import { MAX_VIDEO_TILES, VIDEO_FIT, rankTiles, useGalleryLayout, useSelfView } from '../lib/videoLayout'
 import { useActiveSpeaker } from '../lib/activeSpeaker'
 import { usePeerQuality } from '../lib/netQuality'
 import {
   AUDIO_CONSTRAINTS, VIDEO_CONSTRAINTS, applySpeaker, loadDeviceChoice, nextCamera, openCamera, openMic,
-  saveDeviceChoice, screenShareSupported, senderFor, shareFailureMessage, speakerSelectionSupported,
+  applySendQuality, saveDeviceChoice, screenShareSupported, senderFor, shareFailureMessage, speakerSelectionSupported,
   swapTrack, testSpeaker, useDevices, useMicLevel, type DeviceChoice,
+  openMedia,
+  preferredSpeaker,
 } from '../lib/devices'
+import { mergeForHandover, readyToRetire } from '../lib/handover'
 import { keepScreenAwake, openPip, pipSupport, type PipSession } from '../lib/pip'
 import {
   enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported, onFullscreenChange,
 } from '../lib/fullscreen'
-import { useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
+import { isPhoneViewport, useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
 import BackgroundPicker, { type BackgroundChoice } from '../components/BackgroundPicker'
 import MeetingLobby, { type LobbyResult } from '../components/MeetingLobby'
 import ParticipantsPanel, { QualityDot } from '../components/ParticipantsPanel'
@@ -33,6 +36,8 @@ import { readGuestPass } from '../lib/guestPass'
 import { useToast } from '../components/Toast'
 import { Button, Card } from '../components/ui'
 import { NEW_MEETING, meetingLink } from './MeetingsPage'
+import { useMeetingSession } from '../components/MeetingHost'
+import { holdMicrophoneInBackground, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
 import type { MeetingHostAction, MeetingParticipant, MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
 import { Avatar } from '../lib/avatars'
@@ -153,6 +158,13 @@ function PeerTile({
  */
 export default function MeetingRoomPage() {
   const { code: routeCode = '' } = useParams()
+  /*
+   * MeetingHost keeps the room alive while you walk around the app, so the
+   * meeting being held and whether it is currently a floating tile come from
+   * there rather than from the URL. On the guest route there is no host, the
+   * defaults apply, and everything below behaves exactly as it always did.
+   */
+  const { code: hostedCode, minimised, close: onClosed } = useMeetingSession()
   /**
    * A meeting that does not exist yet.
    *
@@ -166,7 +178,7 @@ export default function MeetingRoomPage() {
    * out as the placeholder and becomes the real code on join.
    */
   const [createdCode, setCreatedCode] = useState<string | null>(null)
-  const code = createdCode ?? routeCode
+  const code = createdCode ?? hostedCode ?? routeCode
   const unborn = code === NEW_MEETING
   const navigate = useNavigate()
   const account = useAuthStore((s) => s.user)
@@ -221,6 +233,12 @@ export default function MeetingRoomPage() {
 
   // Room state mirrored from the server (heartbeat + signals).
   const [roster, setRoster] = useState<MeetingParticipant[]>([])
+  /** Turned out of the room by this same account joining elsewhere — not a fault. */
+  const [wasReplaced, setWasReplaced] = useState(false)
+  // Mirrored for long-lived closures (broadcastMedia): state reads there are
+  // frozen at bind time, and announcing mute to last beat's roster would skip
+  // whoever joined since.
+  const rosterRef = useRef<MeetingParticipant[]>([])
   const [myRole, setMyRole] = useState<'host' | 'cohost' | 'participant'>('participant')
   const [isLocked, setIsLocked] = useState(false)
   const [spotlight, setSpotlight] = useState<string | null>(null)
@@ -312,6 +330,21 @@ export default function MeetingRoomPage() {
   /** When each offer went out — an answer that never comes is repaired. */
   const dialedAtRef = useRef<Map<string, number>>(new Map())
   const wakeLockRef = useRef<{ release: () => void } | null>(null)
+  /**
+   * The SFU session, when this meeting is on one. Null on the mesh, which is
+   * every meeting until a LiveKit server is configured — so the peer-connection
+   * code below stays exactly as it was rather than growing a second mode.
+   */
+  const sfuRef = useRef<import('../lib/sfu').SfuSession | null>(null)
+  /*
+   * Which way this browser is connected, so the heartbeat can tell if the
+   * server has changed its mind. Two people in one meeting on two different
+   * transports do not see each other at all, and — this is the part that makes
+   * it worth a ref — neither of them gets an error about it.
+   */
+  const transportRef = useRef<'mesh' | 'sfu'>('mesh')
+  /** A migration in flight. Two at once would publish twice. */
+  const migratingRef = useRef(false)
 
   const { data: meeting } = useQuery({
     queryKey: ['meeting', code],
@@ -344,7 +377,7 @@ export default function MeetingRoomPage() {
   const canFullscreen = useMemo(fullscreenSupported, [])
   /** Sideways on a phone: the picture gets the room's own chrome as well. */
   const landscape = useLandscapePhone()
-  const { cameras } = useDevices(phase === 'in')
+  const { cameras, speakers } = useDevices(phase === 'in')
   const quality = usePeerQuality(useCallback(() => pcsRef.current, []), phase === 'in')
   const activeSpeaker = useActiveSpeaker([
     { uuid: 'me', stream: localStreamRef.current },
@@ -389,21 +422,43 @@ export default function MeetingRoomPage() {
      */
     const wantVideo = meeting?.type !== 'audio' && lobbyRef.current?.camOn !== false
 
-    let stream: MediaStream
+    /*
+     * The camera is usually still being let go of, not in use by anything.
+     *
+     * The lobby stops its preview and hands straight over to this, and
+     * track.stop() returns long before the operating system has actually
+     * released the device — so the very next getUserMedia lands in the gap and
+     * fails with NotReadableError, which reads as "your camera is in use by
+     * another application". It was in use by this page, a moment ago.
+     *
+     * The fallback below then joined with audio only, silently. That is the
+     * whole bug behind "my video only starts if I refresh or switch camera":
+     * refreshing takes long enough that the device is free, and switching
+     * camera opens it again later, by which time it also is.
+     *
+     * Three tries over about a second. A camera genuinely held by Zoom or
+     * another tab will still fail all three and still fall back, which is
+     * right — that one is not a race and waiting longer will not help.
+     */
+    let stream: MediaStream | null = null
+    let lastErr: unknown
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio,
-        video: wantVideo ? video : false,
-      })
+      stream = await openMedia({ audio, video: wantVideo ? video : false })
     } catch (err) {
+      lastErr = err
+      console.warn('[meeting] could not open camera and mic', err)
+    }
+
+    if (!stream) {
       // Camera busy (another app/browser window) or missing: join with mic
       // only instead of failing the whole meeting.
       if (meeting?.type !== 'audio') {
-        console.warn('[meeting] camera unavailable, falling back to audio-only', err)
+        console.warn('[meeting] camera unavailable, falling back to audio-only', lastErr)
+        toastError('Could not open your camera — joining with audio only.')
         stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         setCameraOff(true)
       } else {
-        throw err
+        throw lastErr
       }
     }
 
@@ -419,7 +474,7 @@ export default function MeetingRoomPage() {
     cameraTrackRef.current = stream.getVideoTracks()[0] ?? null
     showSelf(stream)
     return stream
-  }, [meeting?.type, showSelf])
+  }, [meeting?.type, showSelf, toastError])
 
   const flushPendingIce = useCallback((peerUuid: string) => {
     const pc = pcsRef.current.get(peerUuid)
@@ -476,14 +531,9 @@ export default function MeetingRoomPage() {
         pc.addTransceiver('video', { direction: 'sendrecv', streams: [stream] })
       }
 
-      // Allow decent video bandwidth so 720p does not get crushed.
-      pc.getSenders().forEach((sender) => {
-        if (sender.track?.kind !== 'video') return
-        const params = sender.getParameters()
-        params.encodings = params.encodings?.length ? params.encodings : [{}]
-        params.encodings[0].maxBitrate = 1_500_000
-        sender.setParameters(params).catch(() => undefined)
-      })
+      // Sized for the room, not for this one connection — see applySendQuality.
+      // pcsRef already holds this peer, so the count includes them.
+      applySendQuality([pc], pcsRef.current.size)
 
       setPeers((p) => (p.some((x) => x.uuid === peerUuid) ? p : [...p, { uuid: peerUuid, name: peerName, stream: null }]))
 
@@ -684,6 +734,15 @@ export default function MeetingRoomPage() {
   }, [])
 
   const teardown = useCallback(() => {
+    // Leaving the SFU room releases what we publish and unsubscribes us; the
+    // peer-connection teardown below is a no-op there, since there are none.
+    sfuRef.current?.disconnect()
+    sfuRef.current = null
+    // Back to undecided. teardown runs on the way out and before a rejoin, and
+    // a leftover "already on the SFU" would leave the next room believing it
+    // had migrated when it has not even joined.
+    transportRef.current = 'mesh'
+    migratingRef.current = false
     pcsRef.current.forEach((pc) => pc.close())
     pcsRef.current.clear()
     pendingIceRef.current.clear()
@@ -708,6 +767,226 @@ export default function MeetingRoomPage() {
     wakeLockRef.current = null
   }, [])
 
+  /**
+   * Exactly what this browser is putting on the wire right now.
+   *
+   * Not localStreamRef: while a screen is being shared the outgoing video is
+   * the composite — screen with the camera drawn into a corner — and while the
+   * background is blurred it is the filtered track. Publishing the raw camera
+   * to the SFU instead would end somebody's screen share by moving the room,
+   * which is not a thing a transport change is allowed to do.
+   */
+  const outgoingStream = useCallback((): MediaStream | null => {
+    const video = sharePipeRef.current?.track ?? blurRef.current?.track ?? cameraTrackRef.current ?? null
+    const audio = localStreamRef.current?.getAudioTracks()[0] ?? null
+    const tracks = [video, audio].filter((t): t is MediaStreamTrack => !!t)
+
+    return tracks.length ? new MediaStream(tracks) : null
+  }, [])
+
+  /**
+   * Send the SFU whatever we are sending now. A no-op on the mesh, where
+   * replaceTrack on each sender does the same job without renegotiating.
+   */
+  const republishToSfu = useCallback(async () => {
+    const stream = outgoingStream()
+    if (!sfuRef.current || !stream) return
+    try {
+      await sfuRef.current.publish(stream)
+      // publish() unpublishes everything first, which drops the mute state
+      // along with the track it was set on.
+      await sfuRef.current.setMicEnabled(myMediaRef.current.mic)
+    } catch (err) {
+      console.warn('[meeting] could not republish to the SFU', err)
+    }
+  }, [outgoingStream])
+
+  /**
+   * Let go of one mesh connection, keeping the tile.
+   *
+   * removePeer takes the person off the screen as well, which is right when
+   * they have left and catastrophic when they are still here and merely being
+   * reached a different way — the picture would blink out and come back.
+   */
+  const retireMeshPeer = useCallback((peerUuid: string) => {
+    const pc = pcsRef.current.get(peerUuid)
+    if (!pc) return
+    pc.close()
+    pcsRef.current.delete(peerUuid)
+    dialedAtRef.current.delete(peerUuid)
+    const t = restartTimersRef.current.get(peerUuid)
+    if (t) {
+      clearTimeout(t)
+      restartTimersRef.current.delete(peerUuid)
+    }
+  }, [])
+
+  /**
+   * The handover, one person at a time.
+   *
+   * The room does not switch from the mesh to the SFU at a moment; it crosses
+   * over peer by peer as each one turns up on the server, and both paths are
+   * live at once in between. That overlap is the whole design — the mesh
+   * connection to somebody is only dropped once their video is already
+   * arriving the other way, so there is no instant where a tile has nothing to
+   * show. Tearing down first and reconnecting after would be far simpler and
+   * would black the room out for as long as it took everybody to migrate.
+   *
+   * Once the last mesh connection has gone this behaves exactly like the plain
+   * SFU path: the server's participant list is the room.
+   */
+  const adoptSfuPeers = useCallback((list: import('../lib/sfu').SfuPeer[]) => {
+    // Before the state update, never inside it: React runs updaters twice in
+    // development, and closing a peer connection twice is not free.
+    for (const uuid of readyToRetire(list)) retireMeshPeer(uuid)
+
+    setPeers((prev) => mergeForHandover(
+      prev,
+      list.map((p) => {
+        /*
+         * The roster is the authority on names, so an established tile keeps
+         * the one it has; the SFU's identity is only a fallback for a
+         * stranger. And while a mesh connection to somebody is still alive,
+         * their mute flags stay the mesh's too: a person mid-handover who has
+         * connected to the SFU but not yet published anything reports "no
+         * live tracks", which read as camera-off would paint an avatar over
+         * a mesh video that is still playing underneath.
+         */
+        const { micOff, camOff, ...rest } = p
+        const named = { ...rest, name: prev.find((x) => x.uuid === p.uuid)?.name ?? p.name }
+
+        return pcsRef.current.has(p.uuid) ? named : { ...named, micOff, camOff }
+      }),
+      (uuid) => pcsRef.current.has(uuid),
+    ))
+  }, [retireMeshPeer])
+
+  const openSfu = useCallback(async (
+    live: string,
+    onPeers: (list: import('../lib/sfu').SfuPeer[]) => void,
+    { clone = false }: { clone?: boolean } = {},
+  ) => {
+    const grant = await meetingsApi.realtimeToken(live)
+    const { joinSfu } = await import('../lib/sfu')
+
+    /*
+     * Give LiveKit its own copy of each track when the mesh is still using
+     * the originals.
+     *
+     * LiveKit stops a camera track when the camera is turned off — that is how
+     * the indicator light goes out — and it was being handed the very same
+     * MediaStreamTrack objects the mesh senders were sending. So escalating
+     * with the camera off stopped the track for everyone still on the mesh
+     * too, and their picture of that person simply died.
+     *
+     * A clone shares the source and nothing else, so the two transports can
+     * mute, stop and republish without reaching into each other.
+     */
+    const source = outgoingStream()
+    const publishing = source && clone
+      ? new MediaStream(source.getTracks().map((t) => t.clone()))
+      : source
+
+    return joinSfu(grant.url, grant.token, publishing, {
+      onPeers,
+      onState: (state) => {
+        /*
+         * Displaced, not disconnected. This account opened the meeting
+         * somewhere else — another device, or this page reloaded — and only
+         * one connection per identity may hold the room. Saying "lost the
+         * connection" for that sent people hunting a network fault that was
+         * really their own second tab.
+         */
+        if (state === 'replaced') {
+          teardown()
+          joinedRef.current = false
+          setWasReplaced(true)
+          setErrorMsg(
+            'This account opened the meeting somewhere else — another device, or this page in another tab. '
+            + 'One device at a time can be in a meeting with the same account.',
+          )
+          setPhase('error')
+          return
+        }
+        if (state === 'closed' && joinedRef.current) toastError('Lost the connection to the meeting.')
+      },
+      onError: (message) => toastError(message),
+    }, {
+      // Read once at join time, not from the hook: a phone rotated into
+      // landscape is still a phone, and re-publishing because the viewport
+      // crossed a breakpoint would interrupt the video for no reason.
+      mobile: isPhoneViewport(),
+    })
+  }, [outgoingStream, toastError])
+
+  /**
+   * Move this browser from the mesh to the SFU, without the room noticing.
+   *
+   * Called when the meeting outgrows what the mesh can carry — either by the
+   * signal the server sends on the join that tipped it over, or by the
+   * heartbeat for anyone who missed that. Both routes land here and it runs
+   * once: two migrations in flight would publish twice and leave the room
+   * watching whichever copy the server picked.
+   *
+   * Nothing is torn down here. The mesh connections are retired individually
+   * by adoptSfuPeers as each person appears on the other side, so a browser
+   * that never manages to reach the SFU keeps the meeting it already has
+   * rather than being left with neither.
+   */
+  const escalateToSfu = useCallback(async (live: string) => {
+    if (transportRef.current === 'sfu' || migratingRef.current || sfuRef.current) return
+    migratingRef.current = true
+    console.info('[meeting] escalating to the SFU')
+    try {
+      sfuRef.current = await openSfu(live, adoptSfuPeers, { clone: true })
+      transportRef.current = 'sfu'
+
+      /*
+       * A deadline on the overlap.
+       *
+       * Mesh connections are meant to be let go one at a time as each person
+       * turns up on the server, and "turns up" was read as "is sending
+       * something we can show". Somebody sitting with their camera off and
+       * their microphone muted never sends anything — so their mesh connection
+       * was never retired, and the room stayed half on each transport
+       * indefinitely, paying for both and reconciling two sources of truth
+       * about who is present.
+       *
+       * Everyone has had long enough by now. Whatever is left goes.
+       */
+      window.setTimeout(() => {
+        if (transportRef.current !== 'sfu') return
+        for (const uuid of [...pcsRef.current.keys()]) retireMeshPeer(uuid)
+      }, 8000)
+
+      /*
+       * Re-assert mute and camera-off on the new connection.
+       *
+       * On the mesh they are track.enabled, which travels with the track and
+       * needs nothing said. LiveKit publishes its own mute state, so a person
+       * who joined muted and said nothing since would arrive on the SFU
+       * unmuted — the room would hear them, and their own button would still
+       * say they were muted.
+       */
+      await sfuRef.current.setMicEnabled(myMediaRef.current.mic)
+      // Not while sharing. What we just published is the composite, which goes
+      // out through the camera publication because that is how the mesh sends
+      // it too — so disabling the camera for somebody who is sharing with their
+      // face off would take their screen down along with it.
+      if (!displayTrackRef.current) await sfuRef.current.setCameraEnabled(myMediaRef.current.cam)
+    } catch (err) {
+      // Left on the mesh, which still works for everyone who has not moved
+      // yet, and the heartbeat will try again on its next beat.
+      migratingRef.current = false
+      sfuRef.current = null
+      console.warn('[meeting] could not escalate to the SFU', err)
+    }
+  }, [openSfu, adoptSfuPeers, retireMeshPeer])
+
+  useEffect(() => {
+    rosterRef.current = roster
+  }, [roster])
+
   const joinRoom = useCallback(async (lobby?: LobbyResult) => {
     if (lobby) lobbyRef.current = lobby
     const opts = lobbyRef.current
@@ -720,7 +999,9 @@ export default function MeetingRoomPage() {
       // in this call needs the real code before the re-render delivers it.
       let live = code
       if (live === NEW_MEETING) {
-        const made = await meetingsApi.create({ type: 'video' })
+        // The lobby's transport choice, and the only moment it can be applied:
+        // the meeting is being created right here.
+        const made = await meetingsApi.create({ type: 'video', transport: opts?.transport ?? null })
         live = made.code
         setCreatedCode(made.code)
         // Replace rather than push: Back should return to the meetings list,
@@ -759,6 +1040,26 @@ export default function MeetingRoomPage() {
       // One peer we cannot reach must not cost us the others: a throw here
       // used to abandon everybody further down the list and drop the room
       // into the error screen. The heartbeat picks up whatever failed.
+      /*
+       * On the SFU there is nobody to dial.
+       *
+       * Everyone publishes one stream to the server and subscribes to what it
+       * sends back, so the whole offer/answer/ICE dance below is skipped —
+       * along with the mesh's per-peer upload, which is the reason a room
+       * bigger than about eight people needs this at all.
+       */
+      transportRef.current = room.transport ?? 'mesh'
+
+      if (room.transport === 'sfu') {
+        // adoptSfuPeers, not a plain setPeers: with no mesh connections open
+        // it reduces to exactly that, and using it here means the merge path
+        // is the one that runs in every meeting rather than only in the rarer
+        // case, where a mistake in it could sit unnoticed for months.
+        sfuRef.current = await openSfu(live, adoptSfuPeers)
+
+        return
+      }
+
       // offerTo signals with `code`, which is still the placeholder on the
       // render that creates the room. Safe: a meeting that did not exist a
       // moment ago has nobody in it, so this loop is empty in exactly the case
@@ -820,6 +1121,19 @@ export default function MeetingRoomPage() {
       switch (signal.signal) {
         case 'join':
           setPeers((p) => (p.some((x) => x.uuid === signal.from_uuid) ? p : p)) // roster only; offers arrive next
+          break
+        /*
+         * The room has outgrown the mesh. Sent alongside the join that tipped
+         * it over, so the move starts in the same moment the new tile appears
+         * rather than up to a heartbeat later — which is the difference between
+         * a stutter and a pause everyone notices.
+         *
+         * Only ever mesh to SFU. escalateToSfu ignores a second one, so this
+         * arriving twice, or after the heartbeat already acted on it, costs a
+         * function call.
+         */
+        case 'transport':
+          if (signal.payload.transport === 'sfu') void escalateToSfu(code)
           break
         case 'leave':
           removePeer(signal.from_uuid)
@@ -1013,6 +1327,17 @@ export default function MeetingRoomPage() {
         }
         // The deadline can move: the host upgrading mid-meeting lifts it.
         setExpiresAt(hb.expires_at ?? null)
+        /*
+         * The meeting has outgrown the mesh and moved to the SFU.
+         *
+         * The join that tipped it over signals this immediately, so by the time
+         * a beat notices, this browser has usually gone already and the call
+         * below returns at once. This is the backstop for the browser that
+         * missed the signal — a throttled background tab, a websocket that was
+         * reconnecting — which is precisely the browser that would otherwise be
+         * left alone on a transport the rest of the room has abandoned.
+         */
+        if (hb.transport === 'sfu') void escalateToSfu(code)
         const others = hb.participants.filter((p) => p.uuid !== user?.uuid)
         setRoster(others)
         /*
@@ -1026,16 +1351,33 @@ export default function MeetingRoomPage() {
          */
         setPeers((ps) => {
           const roster = new Map(others.map((p) => [p.uuid, p]))
+          /*
+           * And the authority on who is in the room at all.
+           *
+           * A tile used to be removed only when its own transport said so, and
+           * a browser that closes without a clean goodbye says nothing — so the
+           * SFU held the participant until its own timeout and the room went on
+           * showing a live-looking still of somebody who had left. The
+           * participants panel, which reads this roster, said six while seven
+           * tiles were on screen, and the extra one was the most convincing of
+           * them because its last frame never went away.
+           *
+           * Anyone we still hold a peer connection to is kept regardless: on
+           * the mesh they are reachable whatever the roster believes.
+           */
+          const gone = ps.filter((x) => !roster.has(x.uuid) && !pcsRef.current.has(x.uuid))
           const stale = ps.some((x) => {
             const row = roster.get(x.uuid)
             return row && (row.name !== x.name || (row.avatar ?? null) !== (x.avatar ?? null))
           })
-          return stale
-            ? ps.map((x) => {
-                const row = roster.get(x.uuid)
-                return row ? { ...x, name: row.name, avatar: row.avatar ?? null } : x
-              })
-            : ps
+          if (!gone.length && !stale) return ps
+
+          return ps
+            .filter((x) => roster.has(x.uuid) || pcsRef.current.has(x.uuid))
+            .map((x) => {
+              const row = roster.get(x.uuid)
+              return row ? { ...x, name: row.name, avatar: row.avatar ?? null } : x
+            })
         })
         /*
          * Anyone we ought to be talking to but are not.
@@ -1062,6 +1404,18 @@ export default function MeetingRoomPage() {
          */
         for (const peer of others) {
           if (!user?.uuid) continue
+          /*
+           * Not once this browser is on the SFU. The gap this repairs is a
+           * missing mesh connection, and after the move there is supposed to be
+           * one — so redialling would open a peer connection to somebody who is
+           * being reached through the server already, and pay the mesh's upload
+           * for a second copy of a picture that is arriving anyway.
+           *
+           * Offers still get answered, deliberately: they come from people who
+           * have not moved yet, and answering is what keeps their video up
+           * until they do.
+           */
+          if (transportRef.current === 'sfu') continue
           const pc = pcsRef.current.get(peer.uuid)
           if (dialingRef.current.has(peer.uuid)) continue
           // An offer sent long enough ago that an answer should have come
@@ -1100,15 +1454,25 @@ export default function MeetingRoomPage() {
       stop = true
       clearInterval(timer)
     }
-  }, [phase, code, teardown, user?.uuid, joinRoom, offerTo, removePeer])
+  }, [phase, code, teardown, user?.uuid, joinRoom, offerTo, removePeer, escalateToSfu])
 
   /**
    * Closing the tab or navigating away never runs a normal request, so the
    * leave has to go out with keepalive — otherwise the browser cancels it and
    * we become the ghost the reaper has to clean up 45 seconds later.
+   *
+   * Only when the page is genuinely going away, though. pagehide fires when a
+   * page is HIDDEN, which on a phone includes switching tabs or backgrounding
+   * the app — so this used to walk people out of meetings for looking at
+   * something else. event.persisted true means frozen and possibly returning;
+   * the heartbeat stopping and the reaper collecting is the right answer for
+   * the tabs that never do come back.
    */
   useEffect(() => {
-    const bye = () => {
+    // Only a page that is really being discarded — see the note above, and
+    // the identical guard on the call's goodbye in CallManager.
+    const bye = (event: PageTransitionEvent) => {
+      if (event.persisted) return
       if (!joinedRef.current) return
       // Raw fetch, so the api client's interceptor is not here to swap a guest
       // onto their own routes: without this a guest left on `Bearer null` and
@@ -1141,11 +1505,34 @@ export default function MeetingRoomPage() {
     return () => document.removeEventListener('click', resume)
   }, [])
 
-  // Keep chosen speaker applied as tiles come and go.
+  /*
+   * The same microphone hold a call takes — a meeting left in the background
+   * is muted by Android for exactly the same reason. See nativeShell.
+   */
   useEffect(() => {
-    if (!deviceChoice.speakerId || phase !== 'in') return
-    void applySpeaker(deviceChoice.speakerId)
-  }, [deviceChoice.speakerId, peers, phase])
+    if (phase !== 'in') return
+    holdMicrophoneInBackground(meeting?.title || 'Netvork meeting')
+    // A meeting is watched at arm's length, so the loudspeaker — the opposite
+    // of a call, and the same split preferredSpeaker makes on a desktop.
+    routeAudioToSpeaker(true)
+
+    return () => {
+      releaseMicrophoneHold()
+      releaseAudioRoute()
+    }
+  }, [phase, meeting?.title])
+
+  // Keep the speaker applied as tiles come and go.
+  useEffect(() => {
+    if (phase !== 'in') return
+    /*
+     * A meeting is watched at arm's length, so with nothing chosen the order
+     * is headset, loudspeaker, earpiece — the middle two swapped from a call,
+     * which is held to the head. Chosen always wins.
+     */
+    const speaker = deviceChoice.speakerId ?? preferredSpeaker(speakers, 'meeting')
+    if (speaker) void applySpeaker(speaker)
+  }, [deviceChoice.speakerId, peers, phase, speakers])
 
   // Track fullscreen so the layout can switch to the split/speaker view.
   useEffect(() => {
@@ -1192,13 +1579,26 @@ export default function MeetingRoomPage() {
    * broadcasting a stale value for whichever of the two it didn't change.
    */
   const broadcastMedia = useCallback(() => {
-    pcsRef.current.forEach((_, uuid) => {
-      meetingsApi.signal(code, 'media', myMediaRef.current, uuid).catch(() => undefined)
+    /*
+     * To the roster, not to the peer connections. On the SFU there are no
+     * peer connections, so announcing to pcsRef told nobody — mute state
+     * stopped being persisted to the server the moment a meeting was not on
+     * the mesh, and the People panel showed whatever everyone joined with.
+     * (Tiles are unaffected either way: on the SFU they read mute from the
+     * publications themselves.) The roster is the same set of people on the
+     * mesh, so nothing changes there.
+     */
+    rosterRef.current.forEach((peer) => {
+      meetingsApi.signal(code, 'media', myMediaRef.current, peer.uuid).catch(() => undefined)
     })
   }, [code])
 
   const setMicEnabled = useCallback((on: boolean) => {
     localStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = on))
+    // On the SFU, muting the track locally is not enough: the server is the
+    // one forwarding it, and it needs telling so it stops — and so everyone
+    // else's roster shows the mute rather than silence they cannot explain.
+    void sfuRef.current?.setMicEnabled(on)
     myMediaRef.current = { ...myMediaRef.current, mic: on }
     setMuted(!on)
     broadcastMedia()
@@ -1213,10 +1613,20 @@ export default function MeetingRoomPage() {
     if (on && !localStreamRef.current?.getVideoTracks().length) {
       void (async () => {
         try {
-          const track = await openCamera({
-            deviceId: deviceChoice.cameraId,
-            facing: deviceChoice.facing,
+          // Through openMedia, so turning the camera back on gets the same
+          // retries and the same fall back to any camera. Without it this was
+          // a single attempt against a possibly-stale saved deviceId.
+          const camStream = await openMedia({
+            video: {
+              ...VIDEO_CONSTRAINTS,
+              ...(deviceChoice.cameraId
+                ? { deviceId: { exact: deviceChoice.cameraId } }
+                : deviceChoice.facing
+                  ? { facingMode: { ideal: deviceChoice.facing } }
+                  : {}),
+            },
           })
+          const track = camStream.getVideoTracks()[0]
           cameraTrackRef.current = track
           swapTrack(pcsRef.current.values(), localStreamRef.current, track)
           track.enabled = true
@@ -1238,6 +1648,12 @@ export default function MeetingRoomPage() {
             }
           } else if (localStreamRef.current) {
             showSelf(localStreamRef.current)
+          }
+
+          // On the SFU the server forwards what we publish, so a track that
+          // only went into the mesh senders would reach nobody.
+          if (sfuRef.current && localStreamRef.current) {
+            await sfuRef.current.publish(localStreamRef.current)
           }
 
           myMediaRef.current = { ...myMediaRef.current, cam: true }
@@ -1279,6 +1695,9 @@ export default function MeetingRoomPage() {
       })
       cameraTrackRef.current = null
       showSelf(stream)
+      // Tell the SFU too, or it keeps forwarding a track that no longer has a
+      // camera behind it and everyone stares at a frozen last frame.
+      void sfuRef.current?.setCameraEnabled(false)
       myMediaRef.current = { ...myMediaRef.current, cam: false }
       setCameraOff(true)
       broadcastMedia()
@@ -1302,6 +1721,21 @@ export default function MeetingRoomPage() {
     setCameraEnabled(false)
     toast(`${who} turned your camera off.`, 'info')
   }
+
+  /**
+   * Re-size every outgoing stream whenever the room changes size.
+   *
+   * Doing it only when a connection is made would size the newcomer's stream
+   * correctly and leave everyone already talking still sending as though the
+   * room were empty — which is exactly the case that overloads an uplink,
+   * because it is the people who have been there longest who have the most
+   * connections to feed.
+   */
+  useEffect(() => {
+    if (phase !== 'in') return
+    const quality = applySendQuality(pcsRef.current.values(), pcsRef.current.size)
+    console.info('[meeting] sending', quality.label, 'to', pcsRef.current.size, 'peer(s)')
+  }, [peers.length, phase])
 
   /** Stable across renders, so the meter's memo only re-runs on micRev. */
   const getLocalStream = useCallback(() => localStreamRef.current, [])
@@ -1444,9 +1878,29 @@ export default function MeetingRoomPage() {
         return
       }
       if (sharing) return
+      /*
+       * Camera off means off, including while picking a different one.
+       *
+       * This opened the device to switch to it whatever the camera button
+       * said, so choosing a camera with your video off turned the light on and
+       * left it on — the picture went nowhere, and the only evidence anyone had
+       * that they were not being watched was a button claiming they were not.
+       *
+       * The choice is remembered instead. ensureLocalStream and the camera
+       * toggle both read it, so it is honoured the moment the camera is
+       * actually turned on.
+       */
+      if (cameraOff) {
+        setDeviceChoice(saveDeviceChoice({ cameraId: id }))
+        toast('Camera switched — it will be used when you turn your camera on.', 'success')
+        return
+      }
       const track = await openCamera({ deviceId: id })
       cameraTrackRef.current = track
       swapTrack(pcsRef.current.values(), localStreamRef.current, track)
+      // The mesh swaps the track inside the sender; the SFU has to be told,
+      // or switching camera changed nothing for anyone but the person doing it.
+      void republishToSfu()
       showSelf(localStreamRef.current)
       setDeviceChoice(saveDeviceChoice({ cameraId: id }))
     } catch (err) {
@@ -1488,6 +1942,11 @@ export default function MeetingRoomPage() {
       // goes into to be agreed as ours to send on — which it is not, for
       // anyone who joined with the camera off and never turned it on.
       void renegotiate('screen share')
+      // On the SFU there is no sender to swap: what everyone sees is what we
+      // publish, so the composite has to be published in its place. Without
+      // this, starting a share in a room that had escalated did all the work
+      // of compositing and then showed it to nobody.
+      void republishToSfu()
       showSelf(new MediaStream([track]))
       setSharing(true)
     } catch (err) {
@@ -1517,6 +1976,9 @@ export default function MeetingRoomPage() {
     pcsRef.current.forEach((_, uuid) => {
       meetingsApi.signal(code, 'share', { on: false }, uuid).catch(() => undefined)
     })
+    // The composite has just been stopped; publish the camera in its place, or
+    // the room keeps the last frame of the shared screen frozen on the tile.
+    void republishToSfu()
     showSelf(localStreamRef.current)
     setSharing(false)
   }
@@ -1526,6 +1988,10 @@ export default function MeetingRoomPage() {
     teardown()
     joinedRef.current = false
     await meetingsApi.leave(code).catch(() => undefined)
+    // Before navigating: the host renders this component, so leaving it
+    // mounted would put a floating tile for a meeting nobody is in on top of
+    // the meetings list.
+    onClosed()
     navigate('/meetings')
   }
 
@@ -1789,6 +2255,62 @@ export default function MeetingRoomPage() {
    */
   const stagedLayout = isVideo && stageUuid !== null
     && (layout !== 'gallery' || pinned !== null || someoneSharing)
+
+  /*
+   * Only so many faces at once.
+   *
+   * Left out rather than hidden with CSS, and that distinction is the whole
+   * point on an SFU: adaptiveStream decides what to subscribe to from what is
+   * actually on the page, so a tile that is rendered-but-invisible is still
+   * paid for in full. Not rendering it is what stops the stream arriving.
+   *
+   * Whoever is talking is ranked in, so a small grid still shows you the
+   * person worth looking at.
+   */
+  /*
+   * Who has spoken lately, most recent first.
+   *
+   * Without it, somebody who stops talking is swapped off screen the instant
+   * the next person starts — mid-conversation, exactly when you still want to
+   * see their reaction. Holding the last few speakers keeps a back-and-forth
+   * on screen instead of flickering between two tiles.
+   */
+  const [recentSpeakers, setRecentSpeakers] = useState<string[]>([])
+  useEffect(() => {
+    if (!activeSpeaker || activeSpeaker === 'me') return
+    setRecentSpeakers((prev) => (
+      // Guarded, or setting state from a value derived from it loops.
+      prev[0] === activeSpeaker
+        ? prev
+        : [activeSpeaker, ...prev.filter((u) => u !== activeSpeaker)].slice(0, MAX_VIDEO_TILES)
+    ))
+  }, [activeSpeaker])
+
+  const { visible: visiblePeers, overflow: overflowPeers } = useMemo(
+    () => rankTiles(peers, {
+      spotlight,
+      pinned,
+      activeSpeaker,
+      recentSpeakers,
+      // A staged layout already shows one big tile plus a filmstrip, so the
+      // strip gets the same allowance as the grid.
+      limit: MAX_VIDEO_TILES,
+    }),
+    [peers, spotlight, pinned, activeSpeaker, recentSpeakers],
+  )
+  /*
+   * Tell the server which tiles are worth full quality.
+   *
+   * visiblePeers is already ranked — pinned first, then spotlit, then whoever
+   * is speaking — so this asks for the best picture exactly where it will be
+   * seen large, and the small layer for everyone being drawn small anyway.
+   * On the mesh there is nothing to ask: every peer sends us one stream and
+   * the quality was settled when they published it.
+   */
+  useEffect(() => {
+    sfuRef.current?.setFocus(visiblePeers.map((p) => p.uuid))
+  }, [visiblePeers])
+
   const stripSide = layout === 'sidebar'
 
   const selfTile = showSelfTile ? (
@@ -2019,11 +2541,13 @@ export default function MeetingRoomPage() {
         defaultName={user?.name ?? 'Guest'}
         audioOnly={!isVideo}
         error={lobbyError}
+        // Only a room that does not exist yet has a transport left to choose.
+        choosesTransport={unborn}
         onJoin={(result) => {
           setLobbyError(null)
           void joinRoom(result)
         }}
-        onCancel={() => navigate('/meetings')}
+        onCancel={() => { onClosed(); navigate('/meetings') }}
       />
     )
   }
@@ -2036,7 +2560,7 @@ export default function MeetingRoomPage() {
           The host has a waiting room on. You will join automatically the moment they admit you —
           keep this page open.
         </p>
-        <Button className="mt-4" variant="secondary" onClick={() => navigate('/meetings')}>Cancel</Button>
+        <Button className="mt-4" variant="secondary" onClick={() => { onClosed(); navigate('/meetings') }}>Cancel</Button>
       </Card>
     )
   }
@@ -2047,7 +2571,7 @@ export default function MeetingRoomPage() {
         <p className="text-sm font-semibold">
           {phase === 'removed' ? 'You were removed from this meeting' : 'The host did not admit you'}
         </p>
-        <Button className="mt-4" onClick={() => navigate('/meetings')}>Back to Meetings</Button>
+        <Button className="mt-4" onClick={() => { onClosed(); navigate('/meetings') }}>Back to Meetings</Button>
       </Card>
     )
   }
@@ -2056,7 +2580,9 @@ export default function MeetingRoomPage() {
     return (
       <Card className="mx-auto mt-10 max-w-md text-center">
         <p className="text-sm font-semibold">
-          {phase !== 'ended' ? 'Could not join' : endedReason === 'time_limit' ? 'Time is up' : 'Meeting ended'}
+          {phase !== 'ended'
+            ? (wasReplaced ? 'Opened somewhere else' : 'Could not join')
+            : endedReason === 'time_limit' ? 'Time is up' : 'Meeting ended'}
         </p>
         <p className="mt-1 text-xs text-slate-400">
           {phase !== 'ended'
@@ -2066,8 +2592,82 @@ export default function MeetingRoomPage() {
                 + 'Starting another one carries on from where you left off.'
               : 'Everyone has left, or the host ended it.'}
         </p>
-        <Button className="mt-4" onClick={() => navigate('/meetings')}>Back to Meetings</Button>
+        <Button className="mt-4" onClick={() => { onClosed(); navigate('/meetings') }}>Back to Meetings</Button>
       </Card>
+    )
+  }
+
+  /*
+   * Navigated away, but still in the meeting.
+   *
+   * Every hook above has already run, so the connection, the heartbeat and
+   * the media are exactly as they were — only the markup is different. That
+   * is the whole reason the room is rendered by MeetingHost rather than by a
+   * route: a route unmounts, and an unmounted meeting is a meeting you have
+   * left.
+   *
+   * Deliberately small and nearly featureless. It is a reminder that you are
+   * in a meeting and a way back into it, not a second control panel to keep
+   * in step with the real one.
+   */
+  if (minimised) {
+    const speaker = visiblePeers[0]
+
+    return (
+      <div className="fixed bottom-20 right-3 z-50 w-44 overflow-hidden rounded-xl bg-slate-900 shadow-xl ring-1 ring-white/10 sm:bottom-4 sm:w-56">
+        <button
+          type="button"
+          onClick={() => navigate(`/meetings/room/${code}`)}
+          className="block w-full text-left"
+          title="Back to the meeting"
+        >
+          <div className="relative aspect-video bg-slate-950">
+            {speaker?.stream && !speaker.camOff ? (
+              <video
+                ref={(el) => { if (el && el.srcObject !== speaker.stream) { el.srcObject = speaker.stream; void el.play().catch(() => undefined) } }}
+                autoPlay
+                playsInline
+                muted
+                className={VIDEO_FIT}
+              />
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <Avatar name={speaker?.name ?? myName} avatar={speaker?.avatar} size={40} />
+              </div>
+            )}
+            <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] text-white">
+              {phase === 'in' ? fmt(elapsed) : 'Connecting…'}
+              <Users className="size-3" />
+              {peers.length + 1}
+            </span>
+          </div>
+        </button>
+        <div className="flex items-center justify-between gap-1 px-2 py-1.5">
+          <button
+            type="button"
+            onClick={() => setMicEnabled(muted)}
+            className={clsx('rounded-full p-1.5', muted ? 'bg-red-600 text-white' : 'bg-slate-700 text-white')}
+            title={muted ? 'Unmute' : 'Mute'}
+          >
+            {muted ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate(`/meetings/room/${code}`)}
+            className="flex-1 truncate rounded-full bg-slate-700 px-2 py-1 text-[11px] text-white"
+          >
+            Back to meeting
+          </button>
+          <button
+            type="button"
+            onClick={leave}
+            className="rounded-full bg-red-600 p-1.5 text-white"
+            title="Leave"
+          >
+            <PhoneOff className="size-4" />
+          </button>
+        </div>
+      </div>
     )
   }
 
@@ -2259,7 +2859,7 @@ export default function MeetingRoomPage() {
                 )}
               >
                 {stageUuid !== 'me' && selfTile}
-                {peers.filter((p) => p.uuid !== stageUuid).map((p) => peerTile(p, false))}
+                {visiblePeers.filter((p) => p.uuid !== stageUuid).map((p) => peerTile(p, false))}
               </div>
               {/* Stage */}
               <div className="min-h-0 min-w-0 flex-1">
@@ -2270,7 +2870,28 @@ export default function MeetingRoomPage() {
           ) : (
             <>
               {selfTile}
-              {peers.map((p) => peerTile(p, false))}
+              {visiblePeers.map((p) => peerTile(p, false))}
+              {/*
+                Everyone past the ninth tile. They are still in the meeting and
+                still heard — audio is never dropped — they simply have no
+                picture on screen, and saying so is better than letting someone
+                wonder whether their camera is working. Whoever speaks is
+                swapped in, so this list is not a queue anybody is stuck in.
+              */}
+              {overflowPeers.length > 0 && (
+                <div
+                  className="flex min-h-16 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-2 text-center dark:border-slate-700 dark:bg-slate-900"
+                  style={galleryTileStyle}
+                  title={overflowPeers.map((p) => p.name).join(', ')}
+                >
+                  <span className="text-sm font-semibold text-slate-500 dark:text-slate-400">
+                    +{overflowPeers.length}
+                  </span>
+                  <span className="px-1 text-[10px] leading-tight text-slate-400">
+                    {overflowPeers.length === 1 ? 'more person' : 'more people'} — heard, not shown
+                  </span>
+                </div>
+              )}
               {/*
                 Floated over the grid rather than placed in it. As a grid child
                 this took a row of its own, so the only person in the room got
@@ -2577,8 +3198,12 @@ function DeviceMenu({
     // catches the click-away.
     <>
       <div className="fixed inset-0 z-20" onMouseDown={onClose} />
+      {/* A viewport strip on a phone, an anchored panel from sm up — the same
+          repair as the call window's device picker: hung from the right edge
+          of a button near the bar's left end, most of a 16rem panel sat off
+          the left of the screen. */}
       <div
-        className="absolute bottom-11 right-0 z-30 max-h-[70vh] w-64 max-w-[calc(100vw-2rem)] space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900"
+        className="fixed inset-x-3 bottom-24 z-30 max-h-[70vh] space-y-2 overflow-y-auto rounded-xl border border-slate-200 bg-white p-3 text-xs shadow-lg dark:border-slate-700 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:bottom-11 sm:right-0 sm:w-64 sm:max-w-[calc(100vw-2rem)]"
       >
         {!audioOnly && (
           <label className="block">

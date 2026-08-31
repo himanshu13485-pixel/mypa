@@ -84,6 +84,10 @@ class User extends Authenticatable implements MustVerifyEmail
             'username_changed_at' => 'datetime',
             'password' => 'hashed',
             'guest_expires_at' => 'datetime',
+            'last_active_at' => 'datetime',
+            // Deliberately not fillable: this is set by mypa:service-account,
+            // never by anything a request can reach.
+            'is_service_account' => 'boolean',
         ];
     }
 
@@ -133,6 +137,57 @@ class User extends Authenticatable implements MustVerifyEmail
     public function pushSubscriptions(): HasMany
     {
         return $this->hasMany(PushSubscription::class);
+    }
+
+    /** Long enough to ride out a poll gap, short enough to mean "now". */
+    public const ONLINE_WITHIN_SECONDS = 120;
+
+    /**
+     * Is this person using the app right now, as far as $viewer may know?
+     *
+     * Two questions in one, deliberately — asking "are they online" without
+     * asking "may this person see that" is how a privacy setting ends up
+     * being decorative. 'nobody' hides it from everyone; 'connections' from
+     * strangers; 'everyone' from no one.
+     */
+    public function isOnlineFor(?self $viewer): bool
+    {
+        if (! $this->last_active_at || $this->last_active_at->lt(now()->subSeconds(self::ONLINE_WITHIN_SECONDS))) {
+            return false;
+        }
+        if (! $viewer || $viewer->id === $this->id) {
+            return (bool) $viewer;
+        }
+
+        return match ($this->settings?->privacyValue('online_status_visibility') ?? 'connections') {
+            'nobody' => false,
+            'connections' => app(\App\Services\AppIdService::class)->areConnected($viewer, $this),
+            default => true,
+        };
+    }
+
+    /**
+     * Where a broadcast notification is delivered.
+     *
+     * Laravel's default is a channel named after the class and primary key —
+     * App.Models.User.{id} — which this app has no authorisation rule for and
+     * would never let anybody subscribe to. It already has the right channel:
+     * user.{uuid} is authorised in channels.php, is what calls and meeting
+     * signals already travel on, and its comment has always said
+     * "notifications" among them. It simply was not being used for any.
+     *
+     * Naming it here is what lets the bell hear a notification the moment it
+     * is created, instead of finding out on its next poll.
+     */
+    public function receivesBroadcastNotificationsOn(): string
+    {
+        return 'user.' . $this->uuid;
+    }
+
+    /** Installed Android apps that can be rung. The native twin of the above. */
+    public function fcmTokens(): HasMany
+    {
+        return $this->hasMany(FcmToken::class);
     }
 
     public function loginHistories(): HasMany

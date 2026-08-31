@@ -5,7 +5,7 @@ import { Check, Sparkles } from 'lucide-react'
 import { clsx } from 'clsx'
 import { subscription as subscriptionApi } from '../api/endpoints'
 import { useAuthStore } from '../stores/auth'
-import { Button, Card, Spinner } from '../components/ui'
+import { Button, Card, SkeletonCards } from '../components/ui'
 import CheckoutDialog from '../components/CheckoutDialog'
 import type { PlanInfo } from '../types'
 
@@ -89,7 +89,7 @@ export default function PricingPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={5} className="md:grid-cols-2 xl:grid-cols-5" />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           {plans?.map((plan) => {

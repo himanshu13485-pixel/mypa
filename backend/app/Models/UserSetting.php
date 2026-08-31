@@ -17,6 +17,24 @@ class UserSetting extends Model
         'last_seen_visibility' => 'connections',
     ];
 
+    /**
+     * Everything on, for anyone who has not said otherwise.
+     *
+     * This was already the behaviour, but only as a `?? true` repeated at
+     * each of the four places that read a preference — which is the kind of
+     * default that quietly stops being the default the first time somebody
+     * writes `?? false` in a fifth place. Naming it once means the answer to
+     * "is this on for a new account?" is in one readable line, and adding a
+     * preference later means adding it here rather than remembering to.
+     *
+     * Deliberately on rather than off: a notification nobody asked for can
+     * be turned off in a moment, and one that never arrived is invisible.
+     */
+    public const DEFAULT_NOTIFICATIONS = [
+        'email' => true,
+        'push' => true,
+    ];
+
     protected $fillable = [
         'user_id', 'theme', 'compact_mode', 'default_task_view',
         'dashboard_layout', 'notification_preferences', 'privacy',
@@ -35,6 +53,20 @@ class UserSetting extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Whether a notification channel is on for this person.
+     *
+     * Absent means on — the row is created empty at registration and only
+     * gains keys when somebody changes something, so "not mentioned" and
+     * "never touched" are the same state and both mean the default.
+     */
+    public function notificationValue(string $key): bool
+    {
+        return (bool) ($this->notification_preferences[$key]
+            ?? self::DEFAULT_NOTIFICATIONS[$key]
+            ?? true);
     }
 
     public function privacyValue(string $key): string

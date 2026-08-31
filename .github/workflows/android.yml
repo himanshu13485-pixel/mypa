@@ -1,0 +1,53 @@
+# Build the Android APK on GitHub's machines, so nobody has to install the
+# Android SDK to get one.
+#
+# An APK is not a zip of the website — it is a compiled Android app, and
+# compiling one needs aapt2, d8 and the platform jars. Android Studio is only
+# the friendliest way to obtain those; a runner already has them. The cost of
+# a local setup is several gigabytes and an afternoon, and it has to be
+# repeated on every machine that ever wants to cut a build.
+#
+# Manual by default. The APK is a distribution artefact, not something every
+# commit needs, and the web app updates itself without one — the shell loads
+# netvork.app live, so a new APK is only required when the shell itself
+# changes (permissions, icon, back-button behaviour).
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    # The shell, not the site. Changing a React page does not need a new APK.
+    paths:
+      - 'frontend/android/**'
+      - 'frontend/capacitor.config.ts'
+      - '.github/workflows/android.yml'
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          # Capacitor 8's Gradle plugin targets 21; 17 fails at configuration
+          # time with an unhelpful "Unsupported class file major version".
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Build debug APK
+        working-directory: frontend/android
+        # Debug, deliberately: it is signed with the throwaway debug key, so it
+        # installs on any phone with "unknown sources" and needs no secrets in
+        # this repository. A Play Store build needs a real keystore, which
+        # belongs in repository secrets and not in a first pass.
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: netvork-debug-apk
+          path: frontend/android/app/build/outputs/apk/debug/*.apk
+          # Long enough to be useful, short enough not to hoard builds.
+          retention-days: 30

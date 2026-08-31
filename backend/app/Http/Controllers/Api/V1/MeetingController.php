@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Events\MeetingSignal;
 use App\Http\Controllers\Controller;
 use App\Models\Meeting;
+use App\Services\LiveKitTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -43,6 +44,12 @@ class MeetingController extends Controller
             'requires_approval' => ['sometimes', 'boolean'],
             'passcode' => ['sometimes', 'nullable', 'string', 'min:4', 'max:12', 'alpha_num'],
             'scheduled_at' => ['sometimes', 'nullable', 'date'],
+            /*
+             * How the media travels, if the host cares. Omitted — which is what
+             * every existing client sends — leaves it undecided, and the room
+             * works it out from its own size the way it always has.
+             */
+            'transport' => ['sometimes', 'nullable', 'in:mesh,sfu'],
         ]);
 
         $meeting = Meeting::create([
@@ -58,10 +65,77 @@ class MeetingController extends Controller
             'scheduled_at' => $data['scheduled_at'] ?? null,
         ]);
 
+        // Not in the create() above: transport is not fillable, and the service
+        // is the only thing that writes it. Ignores anything but a real choice.
+        app(LiveKitTokenService::class)->pinTransport($meeting, $data['transport'] ?? null);
+
         return response()->json([
             'message' => 'Meeting created — share the code or link to invite people.',
             'data' => $this->serialize($meeting->load('host:id,uuid,name'), $request),
         ], 201);
+    }
+
+    /**
+     * Invite people who have an account, instead of sending them a link.
+     *
+     * A meeting was share-a-link only: the host copied a URL and found their
+     * own way to deliver it. That works for someone you are already talking
+     * to and not at all for a meeting booked for Thursday — there was nothing
+     * to remind, because nobody was on the meeting to remind.
+     *
+     * Attaching them as 'invited' is what makes the reminder possible: the
+     * scheduler notifies a meeting's participants, and until now a scheduled
+     * meeting had none until people started arriving.
+     */
+    public function invite(Request $request, Meeting $meeting): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($meeting->host_id === $me->id, 403, 'Only the host can invite people to this meeting.');
+        abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
+
+        $data = $request->validate([
+            'app_ids' => ['required', 'array', 'max:50'],
+            'app_ids.*' => ['string', 'max:32'],
+        ]);
+
+        $service = app(\App\Services\AppIdService::class);
+        $already = $meeting->participants()->pluck('users.id');
+
+        $people = collect($data['app_ids'])
+            ->map(fn ($appId) => $service->findVisibleUser($appId, $me))
+            ->filter(fn ($user) => $user && $user->id !== $me->id)
+            ->unique('id')
+            // Someone already on the meeting is not invited again — a host
+            // adding one more name should not re-ring everybody else.
+            ->reject(fn ($user) => $already->contains($user->id))
+            ->values();
+
+        if ($people->isEmpty()) {
+            return response()->json(['message' => 'Nobody new to invite.'], 422);
+        }
+
+        $meeting->participants()->syncWithoutDetaching(
+            $people->mapWithKeys(fn ($user) => [$user->id => ['status' => 'invited']])->all()
+        );
+
+        $title = $meeting->title ?: 'a meeting';
+
+        foreach ($people as $person) {
+            $when = $meeting->scheduled_at?->timezone($person->profile?->timezone ?? config('app.timezone'));
+
+            $person->notify(new \App\Notifications\SocialNotification(
+                'meeting_invite',
+                $when
+                    ? "{$me->name} invited you to {$title} on " . $when->format('D j M, g:ia') . '.'
+                    : "{$me->name} invited you to {$title}.",
+                ['meeting_code' => $meeting->code, 'title' => $meeting->title],
+                "/meetings/room/{$meeting->code}",
+            ));
+        }
+
+        return response()->json([
+            'message' => 'Invited ' . $people->pluck('name')->join(', ', ' and ') . '.',
+        ]);
     }
 
     /** Look up a meeting by its code (the "open the link" step). */
@@ -185,10 +259,29 @@ class MeetingController extends Controller
             ],
         ]);
 
+        /*
+         * Settle the transport before announcing the arrival, not after.
+         *
+         * This person may be the one who tips the room past what the mesh can
+         * carry, and the room finding that out on its next heartbeat would mean
+         * up to fifteen seconds of everybody dialling a peer who has already
+         * been told to use the SFU. Deciding first makes "somebody arrived" and
+         * "we are moving" one event instead of two, so the mesh clients start
+         * migrating in the same instant the new tile appears.
+         */
+        $wasOn = $meeting->transport;
+        $transport = app(LiveKitTokenService::class)->settleTransport($meeting);
+        $escalated = $transport === 'sfu' && $wasOn !== 'sfu';
+
         // Tell everyone already inside that a participant arrived (for the roster).
         $myName = $data['display_name'] ?? $me->name;
         foreach ($joined as $peer) {
             \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $myName, $peer->uuid, 'join'));
+            if ($escalated) {
+                \App\Support\Realtime::send(new MeetingSignal(
+                    $meeting, $me->uuid, $myName, $peer->uuid, 'transport', ['transport' => 'sfu'],
+                ));
+            }
         }
 
         $meeting = $meeting->fresh()->load('host:id,uuid,name');
@@ -265,6 +358,22 @@ class MeetingController extends Controller
             // than everyone being dropped without notice.
             'expires_at' => $meeting->expiresAt()?->toIso8601String(),
             'participant_limit' => $meeting->participantLimit(),
+            /*
+             * The transport, on every beat.
+             *
+             * A room that outgrows the mesh escalates to the SFU while people
+             * are sitting in it, so this is the instruction to move. The signal
+             * sent on the join that tipped it over is what makes that prompt;
+             * this is what makes it certain — a browser whose websocket was
+             * asleep, throttled in a background tab, or reconnecting misses the
+             * signal entirely and would otherwise be the one person left on a
+             * transport the rest of the room has abandoned. Which is not a
+             * degraded meeting. It is a person alone in an empty room while
+             * everyone else carries on without noticing.
+             *
+             * One string every fifteen seconds to close that off.
+             */
+            'transport' => app(LiveKitTokenService::class)->settleTransport($meeting),
         ]]);
     }
 
@@ -329,6 +438,39 @@ class MeetingController extends Controller
         }
 
         return response()->json(['message' => 'Left the meeting.']);
+    }
+
+    /**
+     * A LiveKit join token, for a meeting running on the SFU.
+     *
+     * Deliberately narrow: it hands out a credential, so it answers only for
+     * somebody the room has already admitted. Being in the meeting is the
+     * check — join() does the deciding about passcodes, locks, the waiting
+     * room, plan limits and removals, and this refuses anyone it has not
+     * already let through. Minting a token for someone still knocking would
+     * route around every one of those.
+     */
+    public function realtimeToken(Request $request, Meeting $meeting): JsonResponse
+    {
+        $me = $request->user();
+        $livekit = app(\App\Services\LiveKitTokenService::class);
+
+        abort_unless($livekit->configured(), 503, 'Real-time media is not configured on this server.');
+        abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
+
+        $pivot = $meeting->participants()->where('users.id', $me->id)->first()?->pivot;
+        abort_unless($pivot?->status === 'joined', 403, 'Join the meeting first.');
+
+        return response()->json(['data' => [
+            'url' => config('livekit.url'),
+            'room' => $livekit->roomFor($meeting),
+            'token' => $livekit->tokenFor(
+                $meeting,
+                $me,
+                $pivot->display_name ?? $me->name,
+                $meeting->canModerate($me),
+            ),
+        ]]);
     }
 
     /**
@@ -843,6 +985,11 @@ class MeetingController extends Controller
             // who has to pass it on to invitees.
             'passcode' => $canModerate ? $meeting->passcode : null,
             'spotlight_uuid' => $meeting->spotlight_uuid,
+            // Which transport this room is on, so the client knows whether to
+            // build a mesh or ask for an SFU token. Decided by the server so
+            // everybody in one meeting agrees — half a room on each would
+            // simply not see the other half.
+            'transport' => app(LiveKitTokenService::class)->transportFor($meeting),
             // The host's plan, applied to everyone in the room. Sent to all so
             // the countdown and the "x of y" count are the same for everybody.
             'participant_limit' => $meeting->participantLimit(),

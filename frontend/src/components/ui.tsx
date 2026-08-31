@@ -1,5 +1,5 @@
 import { clsx } from 'clsx'
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import type { ButtonHTMLAttributes, CSSProperties, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { AlertTriangle, Inbox, RefreshCw, X } from 'lucide-react'
 
 /**
@@ -232,6 +232,139 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
       </span>
       <p className="text-sm font-medium text-slate-700 dark:text-slate-200">{title}</p>
       {hint && <p className="mt-1 max-w-xs text-xs leading-relaxed text-slate-400 dark:text-slate-500">{hint}</p>}
+    </div>
+  )
+}
+
+/**
+ * The same trap `widthClass` above exists for, one property along.
+ *
+ * A default `rounded-md` on the element and a caller's `rounded-full` are
+ * both rounding utilities, and which one wins is decided by the order
+ * Tailwind emits them rather than the order they are written — `rounded-md`
+ * was winning, so every avatar placeholder stood in for a circle as a
+ * rounded square. Only apply the default when the caller has not asked for a
+ * radius of their own.
+ */
+function roundedClass(className?: string): string | false {
+  return !/(^|\s)rounded(-|\s|$)/.test(className ?? '') && 'rounded-md'
+}
+
+/*
+ * Placeholders shaped like the thing that is coming.
+ *
+ * Every list in the app used to wait behind a centred spinner. A spinner is
+ * honest but it is also the wrong shape: the content arrives, the spinner
+ * vanishes, and the whole page jumps as the real layout takes its place. Two
+ * repaints and a shift, every time, for data that usually arrives in under a
+ * second.
+ *
+ * A skeleton occupies the space the content will occupy, so the arrival is one
+ * repaint and nothing moves. It is also a better lie about how fast the app
+ * is: seeing the shape of your list immediately reads as "loading" in a way a
+ * spinner reads as "waiting".
+ */
+export function Skeleton({ className, style }: { className?: string; style?: CSSProperties }) {
+  // style, for the one thing a class cannot express: a bar whose height is a
+  // percentage chosen per bar, so a chart placeholder looks like a chart.
+  return (
+    <div
+      style={style}
+      className={clsx('skeleton bg-slate-200/70 dark:bg-slate-700/50', roundedClass(className), className)}
+    />
+  )
+}
+
+/**
+ * Rows of avatar + two lines: conversations, connections, group members,
+ * anything that is a person or a titled thing with a subtitle.
+ *
+ * The widths vary per row on purpose. Identical bars look like a rendering
+ * bug; uneven ones read as text.
+ */
+export function SkeletonList({ rows = 6, avatar = true }: { rows?: number; avatar?: boolean }) {
+  const widths = ['w-2/3', 'w-1/2', 'w-3/5', 'w-2/5', 'w-3/4', 'w-1/2']
+
+  return (
+    <div className="space-y-1" aria-hidden>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-center gap-3 rounded-xl px-3 py-2.5">
+          {avatar && <Skeleton className="size-9 shrink-0 rounded-full" />}
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className={clsx('h-3', widths[i % widths.length])} />
+            <Skeleton className="h-2.5 w-1/3" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** The card grids: tasks, notes, bills, goals, habits, projects, files. */
+export function SkeletonCards({ count = 6, className }: { count?: number; className?: string }) {
+  return (
+    <div className={clsx('grid gap-3 sm:grid-cols-2 xl:grid-cols-3', className)} aria-hidden>
+      {Array.from({ length: count }, (_, i) => (
+        <div
+          key={i}
+          className="space-y-3 rounded-xl border border-slate-200/70 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
+        >
+          <div className="flex items-center gap-2">
+            <Skeleton className="size-4 rounded" />
+            <Skeleton className="h-3 flex-1" />
+          </div>
+          <Skeleton className="h-2.5 w-4/5" />
+          <div className="flex gap-2 pt-1">
+            <Skeleton className="h-5 w-16 rounded-full" />
+            <Skeleton className="h-5 w-12 rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** Admin and report tables, where the columns are the shape worth holding. */
+export function SkeletonTable({ rows = 8, cols = 4 }: { rows?: number; cols?: number }) {
+  return (
+    <div className="space-y-2" aria-hidden>
+      {Array.from({ length: rows }, (_, r) => (
+        <div key={r} className="flex items-center gap-4 px-3 py-2">
+          {Array.from({ length: cols }, (_, c) => (
+            <Skeleton key={c} className={clsx('h-3', c === 0 ? 'w-1/4' : 'flex-1')} />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * A conversation waiting to arrive.
+ *
+ * Alternating sides and varying widths, because a chat thread is the one place
+ * where a column of identical grey bars would look nothing like what replaces
+ * it. Bottom-aligned for the same reason the real thread is: messages grow
+ * upward from the composer.
+ */
+export function SkeletonMessages({ count = 7 }: { count?: number }) {
+  const shapes = [
+    { mine: false, w: 'w-52' },
+    { mine: true, w: 'w-40' },
+    { mine: false, w: 'w-64' },
+    { mine: false, w: 'w-36' },
+    { mine: true, w: 'w-56' },
+    { mine: true, w: 'w-28' },
+    { mine: false, w: 'w-48' },
+  ]
+
+  return (
+    <div className="flex h-full flex-col justify-end gap-3" aria-hidden>
+      {shapes.slice(0, count).map((s, i) => (
+        <div key={i} className={clsx('flex', s.mine ? 'justify-end' : 'justify-start')}>
+          <Skeleton className={clsx('h-10 max-w-[75%] rounded-2xl', s.w)} />
+        </div>
+      ))}
     </div>
   )
 }

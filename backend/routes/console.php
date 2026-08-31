@@ -24,6 +24,19 @@ Schedule::command('mypa:reap-meetings')->everyMinute()->withoutOverlapping();
 // Every minute, because "in ten minutes" is only true for one of them.
 Schedule::command('mypa:send-meeting-reminders')->everyMinute()->withoutOverlapping();
 
+// Half an hour before a calendar entry, for the same reason and on the same
+// cadence. Longer notice than a meeting because an appointment usually has a
+// journey in front of it.
+Schedule::command('mypa:send-event-reminders')->everyMinute()->withoutOverlapping();
+
+// Habit nudges at the time the person set, in their own timezone — so every
+// minute, because 7am is a different instant for each of them.
+Schedule::command('mypa:habit-reminders')->everyMinute()->withoutOverlapping();
+
+// Goal target dates: a week out, the day before, and the day itself. Once a
+// day is enough, and is what stops a distant date reminding every morning.
+Schedule::command('mypa:goal-reminders')->dailyAt('08:30')->withoutOverlapping();
+
 // Daily ledger emails go out at 6 AM, only for projects that changed.
 Schedule::command('mypa:project-daily-reports')->dailyAt('06:00')->withoutOverlapping();
 

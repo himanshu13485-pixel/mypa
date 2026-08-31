@@ -5,6 +5,7 @@ import type {
   CheckoutSession, Connection, ConversationItem, DashboardSummary, FileItem,
   GoalItem, GroupItem, HabitItem, InvoiceRecord, MySubscription, Note,
   Paginated, PaymentRecord, PlanInfo, ReportSummary, Task, User,
+  BookingDetail, BookingHour, BookingPageConfig, BookingRow, PublicBookingPage,
 } from '../types'
 
 // --- Auth -------------------------------------------------------------------
@@ -166,6 +167,43 @@ export interface ClientErrorRow {
   resolved_at?: string | null
 }
 
+export interface ServiceAccountRow {
+  uuid: string
+  name: string
+  username: string | null
+  app_id: string | null
+  tokens: number
+  connections: number
+  messages_sent: number
+  last_sent_at: string | null
+  created_at: string
+}
+
+export const adminBots = {
+  list: () =>
+    api.get<{ data: ServiceAccountRow[] }>('/admin/service-accounts').then((r) => r.data.data),
+  create: (name: string, username?: string) =>
+    api.post<{ message: string; data: ServiceAccountRow & { token: string } }>(
+      '/admin/service-accounts',
+      { name, ...(username ? { username } : {}) },
+    ).then((r) => r.data),
+  tokens: (uuid: string) =>
+    api.get<{ data: import('../types').BotToken[] }>(`/admin/service-accounts/${uuid}/tokens`)
+      .then((r) => r.data.data),
+  revealToken: (uuid: string, id: number) =>
+    api.get<{ data: { token: string } }>(`/admin/service-accounts/${uuid}/tokens/${id}/reveal`)
+      .then((r) => r.data.data.token),
+  revokeToken: (uuid: string, id: number) =>
+    api.delete<{ message: string }>(`/admin/service-accounts/${uuid}/tokens/${id}`).then((r) => r.data),
+  issueToken: (uuid: string, name?: string) =>
+    api.post<{ message: string; data: { token: string } }>(
+      `/admin/service-accounts/${uuid}/tokens`,
+      name ? { name } : {},
+    ).then((r) => r.data),
+  revokeTokens: (uuid: string) =>
+    api.post<{ message: string }>(`/admin/service-accounts/${uuid}/revoke-tokens`).then((r) => r.data),
+}
+
 export const adminOps = {
   clientErrors: (resolved = false) =>
     api.get<Paginated<ClientErrorRow>>('/admin/client-errors', { params: { resolved: resolved ? 1 : 0 } })
@@ -292,6 +330,48 @@ export const notes = {
   remove: (uuid: string) => api.delete(`/notes/${uuid}`),
   share: (uuid: string, app_id: string, permission: 'view' | 'edit') =>
     api.post(`/notes/${uuid}/share`, { app_id, permission }),
+}
+
+// --- Service accounts -------------------------------------------------------
+
+export interface ServiceOverview {
+  name: string
+  username: string | null
+  app_id: string | null
+  connections: number
+  tokens: number
+  messages_sent: number
+  last_sent_at: string | null
+}
+
+export interface ServiceToken {
+  id: number
+  name: string
+  created_at: string
+  last_used_at: string | null
+  current: boolean
+  /** Issued since tokens were kept, so it can be read back. */
+  revealable: boolean
+}
+
+export interface ServiceConnection {
+  uuid: string
+  name: string | null
+  app_id: string | null
+  connected_at: string | null
+}
+
+export const service = {
+  overview: () => api.get<{ data: ServiceOverview }>('/service/overview').then((r) => r.data.data),
+  tokens: () => api.get<{ data: ServiceToken[] }>('/service/tokens').then((r) => r.data.data),
+  issueToken: (name: string) =>
+    api.post<{ data: { id: number; name: string; token: string } }>('/service/tokens', { name })
+      .then((r) => r.data.data),
+  revokeToken: (id: number) => api.delete(`/service/tokens/${id}`),
+  revealToken: (id: number) =>
+    api.get<{ data: { token: string } }>(`/service/tokens/${id}/reveal`).then((r) => r.data.data.token),
+  connections: () => api.get<{ data: ServiceConnection[] }>('/service/connections').then((r) => r.data.data),
+  disconnect: (uuid: string) => api.delete(`/service/connections/${uuid}`),
 }
 
 // --- Files ------------------------------------------------------------------
@@ -459,7 +539,18 @@ export const meetings = {
           })
         | { waiting: true }
     }>(`/meetings/${code}/join`, opts).then((r) => r.data.data),
+  invite: (code: string, app_ids: string[]) =>
+    api.post<{ message: string }>(`/meetings/${code}/invite`, { app_ids }).then((r) => r.data),
   leave: (code: string) => api.post(`/meetings/${code}/leave`),
+  /**
+   * A join token for the SFU. Only issued to somebody already in the room, so
+   * this is called after join(), never instead of it. The client rewrites the
+   * path for guests, who need the same token members do.
+   */
+  realtimeToken: (code: string) =>
+    api.post<{ data: { url: string; room: string; token: string } }>(
+      `/meetings/${code}/realtime-token`,
+    ).then((r) => r.data.data),
   /** Remove it from the list for good — host only, and not while it is running. */
   remove: (code: string) => api.delete<{ message: string }>(`/meetings/${code}`).then((r) => r.data),
   heartbeat: (code: string) =>
@@ -618,4 +709,39 @@ export const guestMeetings = {
       guest: { uuid: string; name: string }
       meeting: { code: string; title: string | null; type: 'audio' | 'video'; requires_approval: boolean }
     } }>(`/meetings/${code}/guest`, { name, passcode }).then((r) => r.data.data),
+}
+
+// --- Booking links ----------------------------------------------------------
+
+export const bookingApi = {
+  /** Your own page. Created server-side the first time you look at it. */
+  mine: () => api.get<{ data: BookingPageConfig }>('/booking-page').then((r) => r.data.data),
+  save: (payload: Partial<BookingPageConfig> & { hours?: BookingHour[] }) =>
+    api.put<{ data: BookingPageConfig }>('/booking-page', payload).then((r) => r.data.data),
+  bookings: (past = false) =>
+    api.get<{ data: BookingRow[] }>('/booking-page/bookings', { params: { past: past ? 1 : 0 } }).then((r) => r.data.data),
+  cancel: (uuid: string) => api.post(`/booking-page/bookings/${uuid}/cancel`),
+}
+
+/**
+ * The public half.
+ *
+ * Everything here is reached with no session, by somebody who was handed a
+ * link — so it is deliberately a separate object from bookingApi above. The
+ * two never overlap, and keeping them apart makes it obvious at every call
+ * site which side of the auth line you are on.
+ */
+export const publicBookingApi = {
+  page: (slug: string) => api.get<{ data: PublicBookingPage }>(`/book/${slug}`).then((r) => r.data.data),
+  slots: (slug: string, from: string, to: string) =>
+    api
+      .get<{ data: { duration_minutes: number; slots: string[] } }>(`/book/${slug}/slots`, { params: { from, to } })
+      .then((r) => r.data.data),
+  book: (slug: string, payload: { starts_at: string; name: string; email: string; note?: string; timezone: string }) =>
+    api.post<{ data: BookingDetail }>(`/book/${slug}`, payload).then((r) => r.data.data),
+
+  detail: (token: string) => api.get<{ data: BookingDetail }>(`/bookings/${token}`).then((r) => r.data.data),
+  cancel: (token: string) => api.post(`/bookings/${token}/cancel`),
+  reschedule: (token: string, starts_at: string) =>
+    api.post<{ data: BookingDetail }>(`/bookings/${token}/reschedule`, { starts_at }).then((r) => r.data.data),
 }

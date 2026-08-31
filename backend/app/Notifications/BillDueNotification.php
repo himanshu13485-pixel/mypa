@@ -3,6 +3,8 @@
 namespace App\Notifications;
 
 use App\Models\Bill;
+use App\Notifications\Concerns\BroadcastsTheStoredRow;
+use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -10,6 +12,7 @@ use Illuminate\Notifications\Notification;
 
 class BillDueNotification extends Notification implements ShouldQueue
 {
+    use BroadcastsTheStoredRow;
     use Queueable;
 
     public function __construct(public Bill $bill, public bool $alarm = false)
@@ -18,12 +21,13 @@ class BillDueNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        $via = ['database'];
+        $via = SocialNotification::BELL;
         if (SocialNotification::wantsMail($notifiable)) {
             $via[] = 'mail';
         }
         if (SocialNotification::wantsPush($notifiable)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;
+            $via[] = \App\Notifications\Channels\FcmChannel::class;
         }
 
         return $via;
@@ -45,7 +49,24 @@ class BillDueNotification extends Notification implements ShouldQueue
                 ? $this->alarmMessage()
                 : "\u{201C}{$this->bill->name}\u{201D} is due " . $this->bill->due_on->toFormattedDateString() . '.',
             'url' => '/bills',
+            // Per bill, not per app: two bills due the same morning are
+            // two things to pay, and a shared tag would have shown only
+            // the second of them.
+            'tag' => 'bill-' . $this->bill->uuid,
+            'kind' => $this->kind(),
+            'channel' => Alerts::channelOf($this->kind()),
         ];
+    }
+
+    /** An alarm and a reminder are the same bill said at different volumes. */
+    protected function kind(): string
+    {
+        return $this->alarm ? 'bill_alarm' : 'bill_due';
+    }
+
+    public function pushOptions(): array
+    {
+        return Alerts::optionsOf($this->kind());
     }
 
     protected function daysLeft(): int

@@ -13,7 +13,7 @@ PHP=${PHP:-/opt/cpanel/ea-php84/root/usr/bin/php}
 
 echo "== publishing SPA to $DOCROOT =="
 rsync -a --delete \
-  --exclude=.htaccess --exclude=apibase --exclude=cgi-bin \
+  --exclude=.htaccess --exclude=apibase --exclude=storage --exclude=cgi-bin \
   --exclude=.well-known --exclude=php.ini --exclude=.user.ini \
   "$APP_DIR/frontend/dist/" "$DOCROOT/"
 
@@ -22,8 +22,30 @@ ln -sfn "$APP_DIR/backend/public" "$DOCROOT/apibase"
 
 echo "== storage symlink + permissions =="
 [ -L "$APP_DIR/backend/public/storage" ] || sudo -u $APP_USER $PHP "$APP_DIR/backend/artisan" storage:link
+# Uploaded files, at the address the app actually asks for.
+#
+# storage:link above puts the public disk under backend/public, which this
+# docroot serves as apibase — so an uploaded photo was reachable, but only at
+# /apibase/storage/x.jpg. photoUrl() builds /storage/x.jpg, the ordinary
+# Laravel address, and nothing served that path: it fell through every rule to
+# the SPA fallback and came back as index.html with a 200 and a Content-Type
+# of text/html. An <img> handed HTML shows a broken-image glyph, so every
+# profile photo anyone ever uploaded appeared never to have uploaded.
+#
+# A second symlink rather than a rewrite to apibase/storage: Apache serves the
+# file directly, and it is one hop for the filesystem to follow instead of two
+# through a symlink that is itself inside a symlink.
+#
+# The -d test first, because ln -sfn onto a real directory does not replace it
+# — it creates the link *inside* it, as $DOCROOT/storage/public, and then
+# every photo 404s for a reason nothing in the output would suggest.
+if [ -d "$DOCROOT/storage" ] && [ ! -L "$DOCROOT/storage" ]; then
+  rm -rf "$DOCROOT/storage"
+fi
+ln -sfn "$APP_DIR/backend/storage/app/public" "$DOCROOT/storage"
 chown -R $APP_USER:$APP_USER "$DOCROOT"
 chown -h $APP_USER:$APP_USER "$DOCROOT/apibase"
+chown -h $APP_USER:$APP_USER "$DOCROOT/storage"
 chmod -R 775 "$APP_DIR/backend/storage" "$APP_DIR/backend/bootstrap/cache"
 
 echo "== rewrite rules =="

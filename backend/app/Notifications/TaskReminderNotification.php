@@ -3,6 +3,8 @@
 namespace App\Notifications;
 
 use App\Models\TaskReminder;
+use App\Notifications\Concerns\BroadcastsTheStoredRow;
+use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -10,6 +12,7 @@ use Illuminate\Notifications\Notification;
 
 class TaskReminderNotification extends Notification implements ShouldQueue
 {
+    use BroadcastsTheStoredRow;
     use Queueable;
 
     public function __construct(public TaskReminder $reminder)
@@ -19,7 +22,7 @@ class TaskReminderNotification extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         $channels = $this->reminder->channels ?? ['in_app'];
-        $via = ['database'];
+        $via = SocialNotification::BELL;
 
         if (in_array('email', $channels) && SocialNotification::wantsMail($notifiable)) {
             $via[] = 'mail';
@@ -27,6 +30,7 @@ class TaskReminderNotification extends Notification implements ShouldQueue
 
         if (SocialNotification::wantsPush($notifiable)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;
+            $via[] = \App\Notifications\Channels\FcmChannel::class;
         }
 
         return $via;
@@ -44,7 +48,14 @@ class TaskReminderNotification extends Notification implements ShouldQueue
                 : $task->title,
             'tag' => 'task-' . $task->uuid,
             'url' => '/tasks?open=' . $task->uuid,
+            'kind' => 'task_reminder',
+            'channel' => Alerts::channelOf('task_reminder'),
         ];
+    }
+
+    public function pushOptions(): array
+    {
+        return Alerts::optionsOf('task_reminder');
     }
 
     public function toDatabase(object $notifiable): array

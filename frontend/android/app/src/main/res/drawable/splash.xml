@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What is on screen for the second or two before the web app answers.
+
+  Capacitor ships a stock splash and Android draws a spinner over it, which
+  says "something is loading" and nothing else — no name, no brand, and the
+  same blank grey any half-finished app shows. This is the app's own dark
+  ground with the mark centred on it, so the wait reads as Netvork opening
+  rather than as a browser thinking.
+
+  A layer-list of vectors rather than the five PNG densities Capacitor
+  generates: nothing to regenerate when the brand moves, and sharp on any
+  screen. The PNGs it created are deleted, or the density-qualified ones would
+  win over this.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background"/>
+    <item
+        android:drawable="@drawable/netvork_logo"
+        android:gravity="center"
+        android:width="132dp"
+        android:height="132dp"/>
+</layer-list>

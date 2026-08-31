@@ -13,12 +13,18 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/push-notifications": "^8.1.2",
     "@tailwindcss/vite": "^4.3.3",
     "@tanstack/react-query": "^5.101.4",
     "axios": "^1.18.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
     "laravel-echo": "^2.4.0",
+    "livekit-client": "^2.21.0",
     "lucide-react": "^1.27.0",
     "pusher-js": "^8.6.0",
     "react": "^19.2.7",
@@ -28,6 +34,8 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@dicebear/collection": "^9.4.2",
+    "@dicebear/core": "^9.4.3",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

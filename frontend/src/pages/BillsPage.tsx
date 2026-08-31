@@ -7,7 +7,18 @@ import { clsx } from 'clsx'
 import { bills as billsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
-import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner } from '../components/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNote,
+  Input,
+  Label,
+  Modal,
+  Select,
+  SkeletonList,
+} from '../components/ui'
 import { BILL_FREQUENCIES } from '../types'
 
 export default function BillsPage() {
@@ -88,7 +99,7 @@ export default function BillsPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={6} avatar={false} />
       ) : !data?.data.length ? (
         <Card>
           <EmptyState title="No bills here" hint="Add recurring bills and get reminded before they're due." />

@@ -11,7 +11,8 @@ import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import type { ProjectItem, ProjectEntryItem, ProjectSummaryRow } from '../types'
 import {
-  Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea,
+  Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, SkeletonCards, SkeletonTable,
+  Textarea,
 } from '../components/ui'
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD', 'JPY', 'CNY']
@@ -59,7 +60,7 @@ export default function ProjectsPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={4} />
       ) : !projects?.length ? (
         <Card>
           <EmptyState
@@ -455,7 +456,7 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
 
       {/* Entries */}
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={8} cols={5} />
       ) : !entries?.data.length ? (
         <Card>
           <EmptyState title="No entries" hint="Add your first credit or debit — daily expenses, payments received, anything." />

@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\V1\AppIdController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BlockController;
+use App\Http\Controllers\Api\V1\BookingPageController;
 use App\Http\Controllers\Api\V1\CallController;
 use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\ConversationController;
@@ -64,6 +65,47 @@ Route::get('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestC
 Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'join'])
         ->middleware('throttle:10,1');
 
+// The browser moved a push subscription. Open because a service worker holds
+// no session and this can fire with no tab to lend it one; the old endpoint is
+// what stands in for the session, and only the device that had it knows it.
+// The Android notification's Decline button. No sanctum here on purpose: the
+// press happens in native code that holds no token, and the URL's signature
+// (call + callee + one-minute expiry) is the entire authorisation.
+Route::post('/push/calls/{call}/decline', [\App\Http\Controllers\Api\V1\CallController::class, 'declineFromPush'])
+    ->name('push.calls.decline')
+    ->middleware('signed');
+
+Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'rotate'])
+    ->middleware('throttle:20,1');
+
+/*
+ * Booking links: the second door with no session behind it.
+ *
+ * Somebody who has been handed a link can see when the host is free and
+ * take one of those times, and afterwards can move or cancel what they took
+ * using the token in their confirmation email. None of it requires an
+ * account, which is the entire point — and which is why every route here is
+ * throttled and returns nothing about the host beyond what the link already
+ * gave away.
+ *
+ * Reading is looser than writing. Browsing a fortnight of slots is a
+ * handful of requests as somebody flicks between weeks; booking is once.
+ */
+Route::get('/book/{slug}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'page'])
+    ->middleware('throttle:60,1');
+Route::get('/book/{slug}/slots', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'slots'])
+    ->middleware('throttle:60,1');
+Route::post('/book/{slug}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'book'])
+    ->middleware('throttle:10,1');
+
+// Managing a booking already made. The token is the credential.
+Route::get('/bookings/{token}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'show'])
+    ->middleware('throttle:30,1')->where('token', '[A-Za-z0-9]{64}');
+Route::post('/bookings/{token}/cancel', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'cancel'])
+    ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]{64}');
+Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'reschedule'])
+    ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]{64}');
+
     /*
      * What a guest may do, and nothing else.
      *
@@ -94,6 +136,9 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
          */
         Route::post('/guest/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chat'])
             ->middleware('throttle:60,1');
+        // A guest in the room needs the same token a member does — they are
+        // in the same meeting, and the pass they hold is only good for it.
+        Route::post('/guest/meetings/{meeting}/realtime-token', [\App\Http\Controllers\Api\V1\MeetingController::class, 'realtimeToken']);
         Route::get('/guest/meetings/{meeting}/participants', [\App\Http\Controllers\Api\V1\MeetingController::class, 'participants']);
     });
 
@@ -161,6 +206,24 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
             ->middleware('throttle:5,1');
         Route::get('/me/app-id/qr', [AppIdController::class, 'myQr']);
 
+        /*
+         * The service panel: an application administering itself.
+         *
+         * Its own group rather than a corner of the authenticated one, because
+         * the rule is the opposite of everything in there — these routes exist
+         * only for accounts that are not people, and are invisible to the rest.
+         */
+        Route::prefix('service')->middleware('service.account')->group(function () {
+            Route::get('/overview', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'overview']);
+            Route::get('/tokens', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'tokens']);
+            Route::post('/tokens', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'issueToken']);
+            Route::get('/tokens/{id}/reveal', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'revealToken'])->whereNumber('id');
+            Route::delete('/tokens/{id}', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'revokeToken'])
+                ->whereNumber('id');
+            Route::get('/connections', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'connections']);
+            Route::delete('/connections/{uuid}', [\App\Http\Controllers\Api\V1\ServiceAccountController::class, 'disconnect']);
+        });
+
         // App ID & connections
         Route::get('/app-id/search', [AppIdController::class, 'search']);
         Route::get('/connections', [ConnectionController::class, 'index']);
@@ -177,9 +240,18 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
         Route::post('/calls/seen', [\App\Http\Controllers\Api\V1\BadgeController::class, 'markCallsSeen']);
 
         // Web push subscriptions (system notifications on this device)
+        // Your booking link: the page itself, and what people have booked.
+        Route::get('/booking-page', [BookingPageController::class, 'show']);
+        Route::put('/booking-page', [BookingPageController::class, 'update']);
+        Route::get('/booking-page/bookings', [BookingPageController::class, 'bookings']);
+        Route::post('/booking-page/bookings/{booking}/cancel', [BookingPageController::class, 'cancelBooking']);
+
         Route::get('/push/public-key', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'publicKey']);
         Route::post('/push/subscribe', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'subscribe']);
         Route::post('/push/unsubscribe', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'unsubscribe']);
+        // The Android app's ring channel — see registerFcm for why it exists.
+        Route::post('/push/fcm-token', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'registerFcm']);
+        Route::delete('/push/fcm-token', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'unregisterFcm']);
 
         // Identity change requests (approval-based)
         Route::get('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'index']);
@@ -234,11 +306,15 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
         Route::post('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'store']);
         Route::get('/meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'show']);
         Route::post('/meetings/{meeting}/join', [\App\Http\Controllers\Api\V1\MeetingController::class, 'join']);
+        Route::post('/meetings/{meeting}/invite', [\App\Http\Controllers\Api\V1\MeetingController::class, 'invite']);
         Route::post('/meetings/{meeting}/leave', [\App\Http\Controllers\Api\V1\MeetingController::class, 'leave']);
         Route::post('/meetings/{meeting}/heartbeat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'heartbeat']);
         Route::post('/meetings/{meeting}/host-action', [\App\Http\Controllers\Api\V1\MeetingController::class, 'hostAction']);
         Route::post('/meetings/{meeting}/end', [\App\Http\Controllers\Api\V1\MeetingController::class, 'end']);
         Route::delete('/meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'destroy']);
+        // A join token for the SFU. Only ever issued to somebody the room has
+        // already admitted — see the controller.
+        Route::post('/meetings/{meeting}/realtime-token', [\App\Http\Controllers\Api\V1\MeetingController::class, 'realtimeToken']);
         // WebRTC signalling posts one request per ICE candidate - with a TURN
         // server in play that is dozens per peer, so the ordinary per-minute
         // limit would drop candidates and strand the connection in "checking".
@@ -437,6 +513,21 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
         // --- Admin only ---------------------------------------------------
         Route::prefix('admin')->middleware('role:admin,super_admin')->group(function () {
             Route::get('/stats', [StatsController::class, 'index']);
+
+            /*
+             * Service accounts, seen from outside.
+             *
+             * Admin-only rather than shared with subadmins: a token issued here
+             * can send as an account everybody trusts, and revoking one cuts an
+             * integration off mid-flight. Neither is a moderation decision.
+             */
+            Route::get('/service-accounts', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'index']);
+            Route::post('/service-accounts', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'store']);
+            Route::post('/service-accounts/{uuid}/tokens', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'issueToken']);
+            Route::get('/service-accounts/{uuid}/tokens', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'tokens']);
+            Route::get('/service-accounts/{uuid}/tokens/{id}/reveal', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'revealToken'])->whereNumber('id');
+            Route::delete('/service-accounts/{uuid}/tokens/{id}', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'revokeToken'])->whereNumber('id');
+            Route::post('/service-accounts/{uuid}/revoke-tokens', [\App\Http\Controllers\Api\V1\Admin\ServiceAccountAdminController::class, 'revokeTokens']);
             Route::post('/users', [AdminUserController::class, 'store']);
             Route::get('/users/{user}', [AdminUserController::class, 'show']);
             Route::put('/users/{user}', [AdminUserController::class, 'update']);

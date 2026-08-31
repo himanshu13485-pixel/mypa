@@ -96,6 +96,9 @@ class ProjectController extends Controller
 
         $entry = $project->entries()->create($data + ['created_by' => $request->user()->id]);
 
+        $this->tellTheOthers($project, $request->user(), 'expense_added', $entry,
+            'added', $entry->description);
+
         return response()->json(['message' => 'Entry added.', 'data' => $this->serializeEntry($entry->load(['creator:id,uuid,name', 'editor:id,uuid,name']))], 201);
     }
 
@@ -112,6 +115,9 @@ class ProjectController extends Controller
         }
         $entry->update($data);
 
+        $this->tellTheOthers($project, $request->user(), 'expense_updated', $entry->fresh(),
+            'edited', $entry->description);
+
         return response()->json(['message' => 'Entry updated.', 'data' => $this->serializeEntry($entry->fresh()->load(['creator:id,uuid,name', 'editor:id,uuid,name']))]);
     }
 
@@ -120,9 +126,69 @@ class ProjectController extends Controller
         $this->authorizeOwner($request, $project);
         $this->authorizeUnlocked($request, $project);
         abort_unless($entry->project_id === $project->id, 404);
+        // Read before it goes: a deleted model keeps its attributes in
+        // memory, which is all the message needs.
+        $description = $entry->description;
         $entry->delete();
 
+        $this->tellTheOthers($project, $request->user(), 'expense_deleted', $entry,
+            'deleted', $description);
+
         return response()->json(['message' => 'Entry deleted.']);
+    }
+
+    /**
+     * Tell the rest of the project that the ledger moved.
+     *
+     * A shared project is the one place in the app where other people spend
+     * your money, and until now it was the quietest: you were told once, when
+     * the project was shared with you, and never again. Someone could add a
+     * hundred thousand rupees of expenses to a ledger you co-own and the only
+     * way to find out was to open it and read.
+     *
+     * Everyone with access hears, except whoever did it — being told about
+     * your own typing is just noise. The owner counts as a member here: they
+     * are not in sharedWith, and they are precisely the person who most wants
+     * to know.
+     */
+    protected function tellTheOthers(
+        Project $project,
+        \App\Models\User $actor,
+        string $kind,
+        ProjectEntry $entry,
+        string $verb,
+        string $description,
+    ): void {
+        $recipients = $project->sharedWith()->where('users.id', '!=', $actor->id)->get();
+        if ($project->user_id !== $actor->id && $project->user) {
+            $recipients->push($project->user);
+        }
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $money = $entry->currency . ' ' . $entry->amount;
+        $flow = $entry->direction === 'credit' ? 'credit' : 'expense';
+        $line = "{$actor->name} {$verb} a {$flow} of {$money} in " . $this->quoted($project->name)
+            . ': ' . str($description)->limit(60);
+
+        foreach ($recipients->unique('id') as $person) {
+            $person->notify(new \App\Notifications\SocialNotification(
+                $kind,
+                $line,
+                ['project_uuid' => $project->uuid, 'entry_uuid' => $entry->uuid],
+                '/projects?open=' . $project->uuid,
+                // Per entry, so a busy afternoon on one ledger arrives as
+                // the several separate things it actually was.
+                'entry-' . $entry->uuid,
+            ));
+        }
+    }
+
+    /** Curly quotes, kept in one place so every message uses the same pair. */
+    protected function quoted(string $text): string
+    {
+        return "“" . $text . "”";
     }
 
     // ---- Summary & export --------------------------------------------------

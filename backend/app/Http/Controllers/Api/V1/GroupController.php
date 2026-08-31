@@ -166,6 +166,13 @@ class GroupController extends Controller
 
         $group->members()->updateExistingPivot($member->id, ['role' => $data['role']]);
 
+        $member->notify(new \App\Notifications\SocialNotification(
+            'group_role',
+            "{$request->user()->name} changed your role in " . $this->quoted($group->name) . " to {$data['role']}.",
+            ['group_uuid' => $group->uuid, 'role' => $data['role']],
+            '/groups',
+        ));
+
         return response()->json(['message' => 'Member role updated.']);
     }
 
@@ -181,7 +188,22 @@ class GroupController extends Controller
 
         $group->members()->detach($member->id);
 
+        if (! $leavingSelf) {
+            $member->notify(new \App\Notifications\SocialNotification(
+                'group_removed',
+                "{$me->name} removed you from the group " . $this->quoted($group->name) . '.',
+                ['group_uuid' => $group->uuid],
+                '/groups',
+            ));
+        }
+
         return response()->json(['message' => $leavingSelf ? 'You left the group.' : 'Member removed.']);
+    }
+
+    /** Curly quotes, kept in one place so every message uses the same pair. */
+    protected function quoted(string $text): string
+    {
+        return "“" . $text . "”";
     }
 
     // --- Group content ------------------------------------------------------

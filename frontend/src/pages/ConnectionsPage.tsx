@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Flag, Phone, Search, UserPlus, Video, X } from 'lucide-react'
+import { Check, Flag, MessageSquare, Phone, Search, UserPlus, Video, X } from 'lucide-react'
 import { badges as badgesApi, chat, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
 import { useCalls } from '../components/CallManager'
 import { REPORT_REASONS } from '../types'
@@ -8,7 +8,18 @@ import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
 import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
-import { Badge, Button, Card, EmptyState, ErrorNote, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNote,
+  Label,
+  Modal,
+  Select,
+  SkeletonList,
+  Textarea,
+} from '../components/ui'
 import { Avatar } from '../lib/avatars'
 
 export default function ConnectionsPage() {
@@ -28,6 +39,14 @@ export default function ConnectionsPage() {
   const { data: list, isLoading } = useQuery({
     queryKey: ['connections'],
     queryFn: () => connectionsApi.list(),
+    /*
+     * Presence goes stale on its own — somebody closing their laptop sends
+     * nothing — so the dots need re-asking rather than invalidating. A minute
+     * against the server's two-minute window means a dot is wrong for well
+     * under a minute, and only while this page is open: refetchInterval stops
+     * when the tab is in the background.
+     */
+    refetchInterval: 60_000,
   })
   const { data: qr } = useQuery({ queryKey: ['my-qr'], queryFn: profile.myQr })
 
@@ -180,7 +199,7 @@ export default function ConnectionsPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={6} />
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card className="min-w-0">
@@ -249,11 +268,32 @@ export default function ConnectionsPage() {
               <div className="space-y-2">
                 {shown.map((c) => (
                   <div key={c.uuid} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
-                    <div className="flex min-w-0 flex-1 items-center gap-3">
-                      <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
+                    {/* flex-basis 11rem, not plain flex-1. The row wraps, but
+                        wrapping only happens once something refuses to shrink —
+                        and flex-1 shrinks to nothing first, so on a phone the
+                        buttons stayed on one line and the name was the thing
+                        that gave, squeezed to two letters beside the avatar.
+                        A basis the name can insist on flips the outcome: the
+                        name keeps its line and the buttons wrap below it. */}
+                    <div className="flex min-w-0 flex-[1_1_11rem] items-center gap-3">
+                      {/* The dot rides on the avatar rather than sitting beside
+                          the name, so it stays put however the row wraps. */}
+                      <div className="relative shrink-0">
+                        <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
+                        {c.user?.is_online && (
+                          <span
+                            title="Online now"
+                            className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900"
+                          />
+                        )}
+                      </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{c.user?.name}</p>
-                        <p className="truncate text-xs text-slate-400">{c.user?.app_id}</p>
+                        <p className="truncate text-xs">
+                          {c.user?.is_online
+                            ? <span className="font-medium text-emerald-600 dark:text-emerald-400">Online</span>
+                            : <span className="text-slate-400">{c.user?.app_id}</span>}
+                        </p>
                       </div>
                     </div>
                     {c.user?.app_id && (
@@ -276,12 +316,19 @@ export default function ConnectionsPage() {
                         >
                           <Video className="size-3.5" />
                         </Button>
+                        {/* An icon like the two beside it. As the only word in
+                            the row it set the button's height and pushed the
+                            call icons out of line, and it was also the only one
+                            with no title — so on a phone, where nothing hovers,
+                            it was the least labelled of the three despite being
+                            the only one that said anything. */}
                         <Button
                           size="sm"
                           variant="secondary"
+                          title={`Message ${c.user.name}`}
                           onClick={() => { window.location.href = `/messages?start=${c.user!.app_id}` }}
                         >
-                          Message
+                          <MessageSquare className="size-3.5" />
                         </Button>
                       </div>
                     )}

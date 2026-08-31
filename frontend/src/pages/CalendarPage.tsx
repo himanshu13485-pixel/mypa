@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Download, Plus, Trash2 } from 'lucide-react'
 import {
@@ -7,10 +7,21 @@ import {
 } from 'date-fns'
 import { clsx } from 'clsx'
 import { Link } from 'react-router-dom'
-import { events as eventsApi } from '../api/endpoints'
+import { badges as badgesApi, events as eventsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
-import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
+import {
+  Button,
+  Card,
+  ErrorNote,
+  Input,
+  Label,
+  Modal,
+  Select,
+  Skeleton,
+  SkeletonList,
+  Textarea,
+} from '../components/ui'
 import { useIsPhone } from '../lib/useMediaQuery'
 import { EVENT_TYPES, type CalendarEvent, type CalendarFeedTask } from '../types'
 
@@ -40,6 +51,14 @@ const emptyEvent = (date?: Date): EventFormState => ({
 
 export default function CalendarPage() {
   const queryClient = useQueryClient()
+
+  // Attending the calendar clears its invitations and replies.
+  useEffect(() => {
+    badgesApi.readKinds(['event_invite', 'event_response']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const isPhone = useIsPhone()
   const [month, setMonth] = useState(() => startOfMonth(new Date()))
   const [showForm, setShowForm] = useState(false)
@@ -179,7 +198,19 @@ export default function CalendarPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        /* The month, or the agenda it becomes on a phone — the same fork the
+           real view makes below, so the placeholder is never the wrong shape
+           for the screen it is on. */
+        <Card>
+          <div className="hidden grid-cols-7 gap-1 sm:grid">
+            {Array.from({ length: 35 }, (_, i) => (
+              <Skeleton key={i} className="h-16 rounded-lg" />
+            ))}
+          </div>
+          <div className="sm:hidden">
+            <SkeletonList rows={5} avatar={false} />
+          </div>
+        </Card>
       ) : isPhone ? (
         /* A 7-column month needs 640px, so on a phone it becomes a sideways
            pan through 21px chips. An agenda reads the way a phone calendar

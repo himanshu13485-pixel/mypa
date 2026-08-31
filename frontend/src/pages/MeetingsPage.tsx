@@ -1,15 +1,16 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, Copy, KeyRound, LogIn, Trash2, Video } from 'lucide-react'
+import { Calendar, Copy, KeyRound, LogIn, Trash2, UserPlus, Video } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
-import { meetings as meetingsApi } from '../api/endpoints'
+import { badges as badgesApi, meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
 import { usePrompt } from '../components/Prompt'
+import UserSuggest from '../components/UserSuggest'
 import type { MeetingItem } from '../types'
 import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, Spinner,
+  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, SkeletonCards,
 } from '../components/ui'
 
 /**
@@ -40,8 +41,18 @@ export default function MeetingsPage() {
   const { ask, confirm } = usePrompt()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+
+  // Attending this section clears meeting invitations and starts-soon
+  // nudges — the list below says the same thing, in more detail.
+  useEffect(() => {
+    badgesApi.readKinds(['meeting_invite', 'meeting_soon']).then(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+    }).catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [joinCode, setJoinCode] = useState('')
   const [showSchedule, setShowSchedule] = useState(false)
+  const [inviteFor, setInviteFor] = useState<MeetingItem | null>(null)
 
   const { data: meetings, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ['meetings'],
@@ -222,7 +233,7 @@ export default function MeetingsPage() {
 
       {/* My meetings */}
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={3} />
       ) : isError ? (
         <Card>
           <LoadError what="your meetings" message={errorMessage(loadError)} onRetry={() => refetch()} />
@@ -296,6 +307,14 @@ export default function MeetingsPage() {
                     <Trash2 className="size-3.5" />
                   </Button>
                 )}
+                {/* A link still has to be carried somewhere by hand. This
+                    reaches people who already have an account, and is what
+                    puts them on the meeting so the reminder can find them. */}
+                {m.is_host && m.status !== 'ended' && (
+                  <Button size="sm" variant="secondary" title="Invite people" onClick={() => setInviteFor(m)}>
+                    <UserPlus className="size-3.5" /> Invite
+                  </Button>
+                )}
                 <Button size="sm" variant="secondary" title="Copy invite link" onClick={() => copyLink(m)}>
                   <Copy className="size-3.5" /> {copiedCode === m.code ? 'Copied ✓' : 'Link'}
                 </Button>
@@ -316,13 +335,33 @@ export default function MeetingsPage() {
           onCreated={() => queryClient.invalidateQueries({ queryKey: ['meetings'] })}
         />
       )}
+
+      {inviteFor && (
+        <InviteModal
+          meeting={inviteFor}
+          onClose={() => setInviteFor(null)}
+          onInvited={(message) => {
+            toast(message)
+            queryClient.invalidateQueries({ queryKey: ['meetings'] })
+          }}
+        />
+      )}
     </div>
   )
 }
 
 function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const { toast, toastError } = useToast()
-  const [form, setForm] = useState({ title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '' })
+  const [form, setForm] = useState({
+    title: '', type: 'video', scheduled_at: '', requires_approval: true, passcode: '',
+    /*
+     * '' is not a third mode — it is the absence of a choice, and it is the
+     * default because most people should not have to have an opinion about
+     * how their video gets to the other end. Sent as null, which leaves the
+     * meeting undecided and lets the server size it up the way it always has.
+     */
+    transport: '' as '' | 'mesh' | 'sfu',
+  })
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<MeetingItem | null>(null)
 
@@ -334,6 +373,7 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         scheduled_at: form.scheduled_at || null,
         requires_approval: form.requires_approval,
         passcode: form.passcode.trim() || null,
+        transport: form.transport || null,
       }),
     onSuccess: (m) => {
       setCreated(m)
@@ -434,12 +474,129 @@ function ScheduleModal({ onClose, onCreated }: { onClose: () => void; onCreated:
             />
             Require my approval before anyone joins (waiting room)
           </label>
+          {/*
+            * How the video travels. Three options rather than a switch, because
+            * the honest default is "don't make me choose" — and a two-way
+            * toggle has no way to say that.
+            *
+            * Named for what they do to the person picking, not for the
+            * architecture: nobody outside this codebase knows what an SFU is,
+            * and "direct" versus "through the server" is the whole difference.
+            */}
+          <div>
+            <Label>How it connects</Label>
+            <div className="mt-1 grid gap-1.5 sm:grid-cols-3">
+              {([
+                { value: '', title: 'Automatic', hint: 'Direct for small meetings, server for big ones' },
+                { value: 'mesh', title: 'Direct', hint: 'Never uses the server' },
+                { value: 'sfu', title: 'Through server', hint: 'Steady at any size' },
+              ] as const).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setForm({ ...form, transport: option.value })}
+                  className={`rounded-lg border px-3 py-2 text-left transition ${
+                    form.transport === option.value
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                      : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600'
+                  }`}
+                >
+                  <span className="block text-sm font-medium">{option.title}</span>
+                  <span className="block text-[11px] text-slate-400">{option.hint}</span>
+                </button>
+              ))}
+            </div>
+            {/*
+              * The warning only appears on Direct, and it says what actually
+              * gives way — which is not the obvious thing. Everyone sending to
+              * everyone sounds like an upload that grows with the room, and
+              * sendQualityFor() is precisely what stops that: one 2 Mbps
+              * budget divided by the headcount, so the uplink stays flat and
+              * the picture steps down instead. What does grow is the number of
+              * connections and encoders each phone is running, and that is the
+              * wall. Nothing stops a meeting reaching it, so it is said here.
+              */}
+            <p className="mt-1 text-[11px] text-slate-400">
+              {form.transport === 'mesh'
+                ? 'Everyone sends video straight to everyone else, so it costs no server bandwidth. Your upload stays around 2 Mbps whatever the size — the picture steps down instead as people join, and past about a dozen the number of connections starts to strain phones.'
+                : form.transport === 'sfu'
+                  ? 'Everyone sends one stream to the server and it does the copying. Handles large meetings smoothly and uses server bandwidth from the first person.'
+                  : 'Small meetings connect directly; the room moves to the server on its own once it outgrows that.'}
+            </p>
+          </div>
           <div className="flex justify-end gap-2">
             <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
             <Button type="submit" disabled={create.isPending}>{create.isPending ? 'Creating…' : 'Create & get link'}</Button>
           </div>
         </form>
       )}
+    </Modal>
+  )
+}
+
+/**
+ * Invite people who have an account.
+ *
+ * Comma-separated, because inviting one person at a time to a meeting of six
+ * is six dialogs. The field is the same typeahead used for sharing anything
+ * else, so a half-remembered name is enough.
+ */
+function InviteModal({
+  meeting,
+  onClose,
+  onInvited,
+}: {
+  meeting: MeetingItem
+  onClose: () => void
+  onInvited: (message: string) => void
+}) {
+  const [value, setValue] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const invite = useMutation({
+    mutationFn: () =>
+      meetingsApi.invite(
+        meeting.code,
+        value.split(',').map((part) => part.trim()).filter(Boolean),
+      ),
+    onSuccess: (res) => {
+      onInvited(res.message)
+      onClose()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  return (
+    <Modal title={`Invite to ${meeting.title || 'the meeting'}`} onClose={onClose}>
+      <form
+        className="space-y-4"
+        onSubmit={(e) => {
+          e.preventDefault()
+          invite.mutate()
+        }}
+      >
+        <ErrorNote message={error} />
+        <div>
+          <Label>Who should join?</Label>
+          <UserSuggest
+            multi
+            autoFocus
+            placeholder="rahul, priya@mypa.local"
+            value={value}
+            onChange={setValue}
+          />
+          <p className="mt-1 text-[11px] text-slate-400">
+            They get a notification with the link. If the meeting is scheduled, they are also
+            reminded ten minutes before it starts.
+          </p>
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" disabled={!value.trim() || invite.isPending}>
+            {invite.isPending ? 'Inviting…' : 'Invite'}
+          </Button>
+        </div>
+      </form>
     </Modal>
   )
 }

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { categories as categoriesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
-import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Spinner } from '../components/ui'
+import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, SkeletonCards } from '../components/ui'
 import type { Category } from '../types'
 
 export default function CategoriesPage() {
@@ -62,7 +62,7 @@ export default function CategoriesPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={6} />
       ) : (
         <>
           <section>

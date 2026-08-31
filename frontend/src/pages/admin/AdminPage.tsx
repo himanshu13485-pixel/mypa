@@ -2,20 +2,24 @@ import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, Ban, BarChart3, Bug, CheckCircle2, ClipboardCheck, CreditCard, Flag,
+  Activity, Ban, BarChart3, Bot, Bug, CheckCircle2, ClipboardCheck, CreditCard, Flag,
   KeyRound, LogIn, MailCheck, MessagesSquare, Pencil, Plus, Radio, RefreshCw, Search, Send,
   Shield, SlidersHorizontal, UserCheck, Users, Wifi,
 } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
-import { admin, adminBilling, adminCare, adminInternal, adminOps, adminSales, identity as identityApi } from '../../api/endpoints'
+import {
+  admin, adminBilling, adminBots, adminCare, adminInternal, adminOps, adminSales,
+  identity as identityApi, type ServiceAccountRow,
+} from '../../api/endpoints'
 import type { AdminPlan } from '../../types'
 import { api, errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import UserSuggest from '../../components/UserSuggest'
 import { useToast } from '../../components/Toast'
+import { usePrompt } from '../../components/Prompt'
 import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner,
+  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, SkeletonList, SkeletonTable,
 } from '../../components/ui'
 import type { User } from '../../types'
 
@@ -45,7 +49,7 @@ function ApprovalsTab() {
     <Card>
       <h2 className="mb-3 text-sm font-semibold">Identity change approvals</h2>
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={4} avatar={false} />
       ) : !data?.data.length ? (
         <EmptyState title="No pending requests" hint="Mobile, email, and username changes appear here for review." />
       ) : (
@@ -99,7 +103,7 @@ function ActiveMembersTab() {
     <Card>
       <h2 className="mb-3 text-sm font-semibold">Active members (last 24 hours)</h2>
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={6} cols={4} />
       ) : !data?.length ? (
         <EmptyState title="No activity in the last 24 hours" />
       ) : (
@@ -164,7 +168,7 @@ function ActivityTab() {
     <Card>
       <h2 className="mb-3 text-sm font-semibold">Audit trail (admin & moderation actions)</h2>
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={6} avatar={false} />
       ) : !data?.data.length ? (
         <EmptyState title="No audit entries yet" />
       ) : (
@@ -220,7 +224,7 @@ function LoginsTab() {
         </div>
       </div>
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={6} cols={5} />
       ) : !data?.data.length ? (
         <EmptyState title="No logins recorded" />
       ) : (
@@ -296,7 +300,7 @@ function ModerationTab() {
         </div>
       </div>
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={4} avatar={false} />
       ) : !data?.data.length ? (
         <EmptyState title={`No ${status} reports`} hint="Reports from users about messages or members appear here." />
       ) : (
@@ -516,7 +520,7 @@ function PlansTab() {
         </p>
       </div>
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={8} cols={5} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-sm">
@@ -650,7 +654,7 @@ function UserSummaryModal({ user, onClose }: { user: User; onClose: () => void }
   return (
     <Modal title={`Activity summary — ${user.name}`} onClose={onClose} wide>
       {isLoading || !data ? (
-        <Spinner />
+        <SkeletonList rows={4} avatar={false} />
       ) : (
         <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
           {[
@@ -752,7 +756,7 @@ function RecordsSection({ userUuid }: { userUuid: string }) {
         </Button>
       </div>
       {tab === 'calls' && (
-        !callRecs ? <Spinner /> : !callRecs.data.length ? (
+        !callRecs ? <SkeletonTable rows={6} cols={5} /> : !callRecs.data.length ? (
           <p className="text-xs text-slate-400">No calls on record.</p>
         ) : (
           <div className="max-h-52 space-y-1 overflow-y-auto">
@@ -773,7 +777,7 @@ function RecordsSection({ userUuid }: { userUuid: string }) {
         )
       )}
       {tab === 'chats' && (
-        !chatRecs ? <Spinner /> : !chatRecs.data.length ? (
+        !chatRecs ? <SkeletonTable rows={6} cols={5} /> : !chatRecs.data.length ? (
           <p className="text-xs text-slate-400">No conversations on record.</p>
         ) : (
           <div className="max-h-52 space-y-1 overflow-y-auto">
@@ -833,7 +837,7 @@ function RightsModal({ user, onClose }: { user: User; onClose: () => void }) {
   return (
     <Modal title={`Subadmin rights — ${user.name}`} onClose={onClose}>
       {!grid ? (
-        <Spinner />
+        <SkeletonList rows={6} avatar={false} />
       ) : (
         <div className="space-y-4">
           <div className="flex justify-end gap-2">
@@ -966,7 +970,7 @@ function UsersTab() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={8} cols={6} />
       ) : !users?.data.length ? (
         <EmptyState title="No users found" />
       ) : (
@@ -1408,7 +1412,7 @@ function InternalTab() {
         </div>
         <ErrorNote message={error} />
         {isLoading ? (
-          <Spinner />
+          <SkeletonList rows={4} />
         ) : !threads?.length ? (
           <EmptyState title="No discussions yet" hint="Look up a user above to start one." />
         ) : (
@@ -1573,7 +1577,7 @@ function SalesTab() {
         Users assigned to you. Open a summary to see their activity and subscription.
       </p>
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={6} cols={5} />
       ) : !users?.data.length ? (
         <EmptyState title="No users assigned to you yet" hint="An admin assigns users from the Users tab." />
       ) : (
@@ -1622,7 +1626,7 @@ function SalesSummaryModal({ user, onClose }: { user: User; onClose: () => void 
   return (
     <Modal title={`Activity — ${user.name}`} onClose={onClose}>
       {isLoading || !data ? (
-        <Spinner />
+        <SkeletonList rows={4} avatar={false} />
       ) : (
         <div className="space-y-2 text-sm">
           <p>
@@ -1688,7 +1692,7 @@ function LiveMeetingsTab() {
     onError: (err) => toastError(errorMessage(err)),
   })
 
-  if (isLoading) return <Spinner />
+  if (isLoading) return <SkeletonTable rows={6} cols={5} />
   if (error) return <ErrorNote message={errorMessage(error)} />
 
   const rows = data?.data ?? []
@@ -1778,7 +1782,7 @@ function ClientErrorsTab() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={5} avatar={false} />
       ) : !data?.data.length ? (
         <EmptyState
           title={resolved ? 'Nothing marked fixed yet' : 'Nothing is broken'}
@@ -1817,6 +1821,288 @@ function ClientErrorsTab() {
   )
 }
 
+/**
+ * Service accounts, from the outside.
+ *
+ * Each one has a panel of its own, but reaching it means holding a token —
+ * which is exactly what you have lost when you most need to look. This view
+ * does not depend on the credential still working: what exists, what it is
+ * doing, and the one button that matters when something is wrong.
+ */
+function BotsTab() {
+  const queryClient = useQueryClient()
+  const { confirm } = usePrompt()
+  const [name, setName] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  /** Readable once, here, and nowhere afterwards. */
+  const [fresh, setFresh] = useState<{ name: string; token: string } | null>(null)
+
+  const bots = useQuery({ queryKey: ['admin-bots'], queryFn: adminBots.list })
+  const [openTokens, setOpenTokens] = useState<string | null>(null)
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['admin-bots'] })
+
+  const create = useMutation({
+    mutationFn: () => adminBots.create(name.trim()),
+    onSuccess: (res) => {
+      setFresh({ name: res.data.name, token: res.data.token })
+      setName('')
+      refresh()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const revoke = useMutation({
+    mutationFn: (uuid: string) => adminBots.revokeTokens(uuid),
+    onSuccess: refresh,
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const issue = useMutation({
+    mutationFn: (row: ServiceAccountRow) =>
+      adminBots.issueToken(row.uuid).then((res) => ({ name: row.name, token: res.data.token })),
+    onSuccess: (res) => {
+      setFresh(res)
+      refresh()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const cutOff = async (row: ServiceAccountRow) => {
+    const ok = await confirm({
+      title: `Revoke every token for ${row.name}?`,
+      message:
+        'Whatever is using it stops sending immediately. Its connections and what it has sent are kept, and a new token can be issued from its own panel.',
+      actionLabel: 'Revoke',
+      danger: true,
+    })
+    if (ok) {
+      setError(null)
+      revoke.mutate(row.uuid)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <ErrorNote message={error} />
+
+      <Card>
+        <h2 className="text-sm font-semibold">New service account</h2>
+        <p className="mt-0.5 text-xs text-slate-400">
+          An account an application signs in as. It gets no inbox and nobody tending it — connection
+          requests to it are accepted as they arrive, because nothing here would answer them.
+        </p>
+
+        {fresh && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+            <p className="text-xs font-medium text-amber-900 dark:text-amber-200">
+              {fresh.name} — copy this token now. It is not shown again.
+            </p>
+            <code className="mt-2 block truncate rounded bg-white px-2 py-1.5 font-mono text-xs dark:bg-slate-900">
+              {fresh.token}
+            </code>
+            <button
+              type="button"
+              className="mt-2 text-xs text-amber-800 underline dark:text-amber-300"
+              onClick={() => setFresh(null)}
+            >
+              I have saved it
+            </button>
+          </div>
+        )}
+
+        <form
+          className="mt-3 flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setError(null)
+            create.mutate()
+          }}
+        >
+          <div className="min-w-48 flex-1">
+            <Label>Name</Label>
+            <Input
+              value={name}
+              placeholder="Grapme Alerts — what people see it from"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+          <Button type="submit" disabled={!name.trim() || create.isPending}>
+            {create.isPending ? 'Creating…' : 'Create'}
+          </Button>
+        </form>
+      </Card>
+
+      {bots.isLoading && <SkeletonList rows={3} avatar={false} />}
+      {bots.data?.length === 0 && (
+        <EmptyState title="No service accounts" hint="Nothing is signing in as an application yet." />
+      )}
+
+      <div className="grid gap-3">
+        {bots.data?.map((row) => (
+          <Card key={row.uuid}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-medium">{row.name}</p>
+                <p className="text-xs text-slate-400">
+                  {row.username} · {row.app_id}
+                </p>
+              </div>
+              <div className="flex gap-1.5">
+                {/* Before Revoke, and not only alphabetically: rotating means
+                    issuing the replacement first, and revoking with nothing to
+                    replace it leaves the account unable to sign in anywhere. */}
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={issue.isPending}
+                  title="Issue a new token for this account"
+                  onClick={() => {
+                    setError(null)
+                    issue.mutate(row)
+                  }}
+                >
+                  Issue token
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={row.tokens === 0 || revoke.isPending}
+                  title={row.tokens === 0 ? 'Nothing can sign in as it already' : 'Revoke every token'}
+                  onClick={() => void cutOff(row)}
+                >
+                  Revoke tokens
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm">
+              <BotStat label="Tokens" value={row.tokens} />
+              <BotStat label="Connected" value={row.connections} />
+              <BotStat label="Sent" value={row.messages_sent} />
+            </div>
+
+            <button
+              type="button"
+              className="mt-2 text-xs text-brand-600 underline"
+              onClick={() => setOpenTokens(openTokens === row.uuid ? null : row.uuid)}
+            >
+              {openTokens === row.uuid ? 'Hide tokens' : `Tokens (${row.tokens})`}
+            </button>
+
+            {openTokens === row.uuid && <BotTokens uuid={row.uuid} />}
+
+            {/* Quiet and broken look identical from out here; only one of them
+                needs somebody to do something about it. */}
+            <p className="mt-2 text-xs text-slate-400">
+              {row.tokens === 0
+                ? 'No tokens — nothing can sign in as this account.'
+                : row.last_sent_at
+                  ? `Last sent ${new Date(row.last_sent_at).toLocaleString()}.`
+                  : 'Has never sent anything.'}
+            </p>
+          </Card>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * One account's tokens, on request.
+ *
+ * Not loaded with the list: an admin opening this tab wants to see what exists
+ * and whether it is working, and pulling every token for every account to
+ * answer that would be reading credentials nobody asked for.
+ */
+function BotTokens({ uuid }: { uuid: string }) {
+  const queryClient = useQueryClient()
+  const [shown, setShown] = useState<Record<number, string>>({})
+  const [error, setError] = useState<string | null>(null)
+
+  const tokens = useQuery({ queryKey: ['admin-bot-tokens', uuid], queryFn: () => adminBots.tokens(uuid) })
+
+  const reveal = useMutation({
+    mutationFn: (id: number) => adminBots.revealToken(uuid, id).then((token) => ({ id, token })),
+    onSuccess: ({ id, token }) => setShown((r) => ({ ...r, [id]: token })),
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const revoke = useMutation({
+    mutationFn: (id: number) => adminBots.revokeToken(uuid, id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-bot-tokens', uuid] })
+      queryClient.invalidateQueries({ queryKey: ['admin-bots'] })
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  if (tokens.isLoading) return <SkeletonList rows={3} avatar={false} />
+
+  return (
+    <div className="mt-3 border-t border-slate-100 pt-2 dark:border-slate-800">
+      <ErrorNote message={error} />
+      {tokens.data?.length === 0 && (
+        <p className="py-2 text-xs text-slate-400">No tokens. Nothing can sign in as this account.</p>
+      )}
+      {tokens.data?.map((t) => (
+        <div key={t.id} className="flex items-center gap-2 py-2 text-sm">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{t.name}</span>
+            <span className="block text-xs text-slate-400">
+              {t.last_used_at ? `Last used ${format(new Date(t.last_used_at), 'd MMM yyyy HH:mm')}` : 'Never used'}
+            </span>
+            {shown[t.id] && (
+              <code className="mt-1 block truncate rounded bg-slate-50 px-2 py-1 font-mono text-[11px] dark:bg-slate-800">
+                {shown[t.id]}
+              </code>
+            )}
+            {!t.revealable && (
+              <span className="text-[11px] text-slate-400">
+                Issued before tokens were kept — cannot be shown.
+              </span>
+            )}
+          </span>
+          {t.revealable && !shown[t.id] && (
+            <Button
+              size="sm"
+              variant="ghost"
+              title="Show this token"
+              disabled={reveal.isPending}
+              onClick={() => {
+                setError(null)
+                reveal.mutate(t.id)
+              }}
+            >
+              Show
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="ghost"
+            title="Revoke just this token"
+            disabled={revoke.isPending}
+            onClick={() => {
+              setError(null)
+              revoke.mutate(t.id)
+            }}
+          >
+            <Ban className="size-3.5" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function BotStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg bg-slate-50 px-2 py-2 dark:bg-slate-800/60">
+      <p className="text-lg font-semibold">{value}</p>
+      <p className="text-[11px] text-slate-400">{label}</p>
+    </div>
+  )
+}
+
 const TABS = [
   { key: 'overview', label: 'Overview', icon: Shield },
   { key: 'users', label: 'Users', icon: Users },
@@ -1828,6 +2114,7 @@ const TABS = [
   { key: 'logins', label: 'Logins', icon: LogIn },
   { key: 'errors', label: 'Errors', icon: Bug },
   { key: 'moderation', label: 'Moderation', icon: Flag },
+  { key: 'bots', label: 'Service Accounts', icon: Bot },
   { key: 'internal', label: 'Internal Work', icon: MessagesSquare },
   { key: 'sales', label: 'My Users', icon: UserCheck },
 ] as const
@@ -1836,7 +2123,10 @@ const TABS = [
 function visibleTabs(roles: string[]) {
   if (roles.includes('admin') || roles.includes('super_admin')) return TABS
   if (roles.includes('subadmin')) {
-    return TABS.filter((t) => !['overview', 'active', 'plans', 'live', 'errors'].includes(t.key))
+    // 'bots' is admin-only for the same reason the API is: a token issued
+    // here sends as an account everyone trusts, and revoking one cuts an
+    // integration off mid-flight. Neither is a moderation call.
+    return TABS.filter((t) => !['overview', 'active', 'plans', 'live', 'errors', 'bots'].includes(t.key))
   }
   return TABS.filter((t) => ['sales', 'internal'].includes(t.key))
 }
@@ -1879,6 +2169,7 @@ export default function AdminPage() {
         ))}
       </div>
 
+      {tab === 'bots' && <BotsTab />}
       {tab === 'overview' && <OverviewTab />}
       {tab === 'users' && <UsersTab />}
       {tab === 'active' && <ActiveMembersTab />}

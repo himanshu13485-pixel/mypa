@@ -194,13 +194,13 @@ export async function getPushSubscription(): Promise<PushSubscription | null> {
   return reg ? reg.pushManager.getSubscription() : null
 }
 
-/** Ask permission, subscribe this browser, and register it with the server. */
-export async function enablePush(): Promise<void> {
-  if (!pushSupported()) throw new Error('This browser does not support push notifications.')
-
-  const permission = await Notification.requestPermission()
-  if (permission !== 'granted') throw new Error('Notification permission was not granted.')
-
+/**
+ * Subscribe this browser and tell the server, assuming permission is settled.
+ *
+ * Split out from enablePush so the silent path below can reuse it without
+ * going anywhere near Notification.requestPermission().
+ */
+async function subscribeAndRegister(): Promise<void> {
   const { data } = await api.get<{ data: { key: string | null } }>('/push/public-key')
   if (!data.data.key) throw new Error('Push is not configured on the server.')
 
@@ -218,6 +218,48 @@ export async function enablePush(): Promise<void> {
     endpoint: sub.endpoint,
     keys: { p256dh: json.keys?.p256dh, auth: json.keys?.auth },
   })
+}
+
+/** Ask permission, subscribe this browser, and register it with the server. */
+export async function enablePush(): Promise<void> {
+  if (!pushSupported()) throw new Error('This browser does not support push notifications.')
+
+  const permission = await Notification.requestPermission()
+  if (permission !== 'granted') throw new Error('Notification permission was not granted.')
+
+  await subscribeAndRegister()
+}
+
+/**
+ * Keep an already-permitted browser registered, silently, on every load.
+ *
+ * Notifications are meant to be on by default, and for the phone and the bell
+ * they are. Browser push was the exception: it stayed off until somebody found
+ * the toggle in Settings, so people who had already granted permission — who
+ * had, in other words, already said yes — went on receiving nothing.
+ *
+ * It also repairs the case that is otherwise invisible. A subscription can
+ * stop working while the browser still believes in it: the endpoint expires,
+ * the server gets a 410 on the next send and prunes the row, and from then on
+ * the toggle reads "on" and nothing ever arrives again. Re-registering on each
+ * load puts the row back, and re-subscribes outright if the browser has since
+ * dropped its own.
+ *
+ * Deliberately silent: it returns immediately unless permission is ALREADY
+ * granted, so it can never produce a permission prompt out of nowhere. Asking
+ * remains something a person does on purpose, in Settings.
+ *
+ * Failures are ignored. This is opportunistic repair on a page load; if it
+ * does not work the Settings toggle still reports its errors properly.
+ */
+export async function ensurePushRegistered(): Promise<void> {
+  if (!pushSupported() || Notification.permission !== 'granted') return
+
+  try {
+    await subscribeAndRegister()
+  } catch {
+    /* nothing here is worth interrupting a page load for */
+  }
 }
 
 /** Unsubscribe this browser and remove it from the server. */

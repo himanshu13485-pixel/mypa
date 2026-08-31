@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  BarChart3, Building2, Calendar, CheckSquare, CreditCard, FileText, FolderKanban, MonitorUp,
+  BarChart3, Building2, Calendar, CalendarClock, CheckSquare, CreditCard, FileText, FolderKanban, MonitorUp,
   FolderOpen, LayoutDashboard, LogOut, Menu, MessageCircle, Moon, MoreHorizontal, Phone,
   Briefcase, Receipt, Repeat, Settings, Shield, Star, Sun, Target, UserPlus, Users, Video, X,
 } from 'lucide-react'
@@ -9,15 +9,19 @@ import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import { auth, badges as badgesApi } from '../api/endpoints'
 import { crm as crmApi } from '../api/crm'
+import { ensurePushRegistered } from '../lib/alerts'
 import { disconnectEcho } from '../lib/echo'
 import { isStaff, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
 import NetvorkMark from './Logo'
 import { CallProvider } from './CallManager'
+import { MeetingHost, MeetingSlot } from './MeetingHost'
 import VoiceAssistant from './VoiceAssistant'
 import MobileVerifyBanner from './MobileVerifyBanner'
 import { Avatar } from '../lib/avatars'
 import { useLandscapePhone } from '../lib/useMediaQuery'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
+import { Spinner } from './ui'
 
 /** Sidebar rows that carry an unattended-items badge. */
 const BADGE_KEYS: Record<string, 'messages' | 'calls' | 'connections'> = {
@@ -36,6 +40,7 @@ const navSections: { label: string | null; items: { to: string; label: string; i
     { to: '/messages', label: 'Call/Messages', icon: MessageCircle },
     { to: '/calls', label: 'Call Logs', icon: Phone },
     { to: '/meetings', label: 'Meetings', icon: Video },
+    { to: '/booking', label: 'Booking link', icon: CalendarClock },
     { to: '/screen', label: 'Screen', icon: MonitorUp },
   ]},
   { label: 'Workspace', items: [
@@ -76,11 +81,23 @@ function applyTheme(dark: boolean) {
   document.documentElement.classList.toggle('dark', dark)
 }
 
-export default function Layout() {
+/**
+ * @param preloadPath fetches the page behind a link before it is clicked.
+ *   Passed in rather than imported, because the route table lives in App and
+ *   App renders this — importing it back would be a cycle.
+ */
+export default function Layout({ preloadPath }: { preloadPath?: (to: string) => void }) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const { user, clear } = useAuthStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  /*
+   * The app scrolls inside <main>, and <main> outlives every page in it, so
+   * without this a section opens wherever the last one was left.
+   */
+  const mainRef = useRef<HTMLElement>(null)
+  useScrollRestoration(mainRef)
 
   // A live meeting or screen share wants the whole screen; a nav bar eating
   // 56px of a phone is the difference between seeing faces and seeing chrome.
@@ -105,6 +122,23 @@ export default function Layout() {
     applyTheme(dark)
     localStorage.setItem('mypa-theme', dark ? 'dark' : 'light')
   }, [dark])
+
+  /*
+   * Re-register this browser for push, silently, once per load.
+   *
+   * Inside Layout because Layout only renders behind the auth guard, so
+   * there is a signed-in user for the subscription to belong to. It never
+   * prompts — it returns immediately unless permission was already granted —
+   * so the cost to somebody who has not opted in is one `if`.
+   *
+   * What it buys is a subscription that repairs itself. An endpoint that
+   * expires is pruned server-side on the next failed send, and until now
+   * nothing ever put it back: the toggle went on reading "on" and no
+   * notification ever arrived again.
+   */
+  useEffect(() => {
+    void ensurePushRegistered()
+  }, [])
 
   const { data: badges } = useQuery({
     queryKey: ['badges'],
@@ -164,6 +198,22 @@ export default function Layout() {
                 to={to}
                 end={to === '/'}
                 onClick={() => setSidebarOpen(false)}
+                /*
+                 * Start fetching the page on approach.
+                 *
+                 * A pointer entering a link precedes the click by a few
+                 * hundred milliseconds, and a keyboard focus by longer, so
+                 * the chunk is usually in memory by the time the navigation
+                 * happens. Touch has no hover, which is what pointerdown is
+                 * for: it fires as the finger lands, before the tap has been
+                 * recognised as a tap.
+                 *
+                 * Already-loaded pages cost nothing to ask for again — the
+                 * import is memoised — so this needs no bookkeeping.
+                 */
+                onPointerEnter={() => preloadPath?.(to)}
+                onPointerDown={() => preloadPath?.(to)}
+                onFocus={() => preloadPath?.(to)}
                 className={({ isActive }) =>
                   clsx(
                     'tap group flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors',
@@ -192,6 +242,9 @@ export default function Layout() {
       {isStaff(user) && (
         <NavLink
           to="/admin"
+          onPointerEnter={() => preloadPath?.('/admin')}
+          onPointerDown={() => preloadPath?.('/admin')}
+          onFocus={() => preloadPath?.('/admin')}
           onClick={() => setSidebarOpen(false)}
           className={({ isActive }) =>
             clsx(
@@ -211,6 +264,7 @@ export default function Layout() {
 
   return (
     <CallProvider>
+    <MeetingHost>
     {/* h-dvh, not h-screen: 100vh on a phone is the height with the URL bar
         hidden, so a plain h-screen shell hides its own footer until you
         scroll, then jumps when the bar retracts. */}
@@ -328,12 +382,29 @@ export default function Layout() {
             resolves against a parent with a definite height — <main> has one
             from `flex-1`, an extra div in between does not, and the meeting
             tiles collapsed from 366x648 to 256x144. */}
-        <main className={clsx(
+        <main ref={mainRef} className={clsx(
           'scroll-pane mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto',
           // A meeting wants the screen; every other page wants margins.
           bare ? 'p-0' : immersive ? 'p-2 sm:p-4' : 'p-4 sm:p-6',
         )}>
-          <Outlet />
+          {/*
+            * The waiting happens here, not around the whole app.
+            *
+            * The only Suspense boundary used to sit above the Routes, so
+            * opening a section replaced everything — sidebar, header, the lot —
+            * with a full-screen spinner and then painted the new page. Two
+            * whole-screen changes to move between two pages that share all
+            * their furniture, which is most of what "choppy" was.
+            *
+            * Inside <main>, only the content area waits, and the chrome you
+            * navigated with stays where it is.
+            */}
+          <Suspense fallback={<RouteFallback />}>
+            <div key={pathname} className="route-enter">
+              <Outlet />
+            </div>
+          </Suspense>
+          <MeetingSlot />
         </main>
 
         {/* Mobile bottom bar. Four destinations plus the drawer — the same
@@ -351,6 +422,7 @@ export default function Layout() {
                 key={to}
                 to={to}
                 end={to === '/'}
+                onPointerDown={() => preloadPath?.(to)}
                 className={({ isActive }) =>
                   clsx(
                     'relative flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium transition-colors',
@@ -402,6 +474,24 @@ export default function Layout() {
       */}
       {!immersive && !chatOpen && <VoiceAssistant />}
     </div>
+    </MeetingHost>
     </CallProvider>
+  )
+}
+
+/**
+ * What a section shows while its file is still arriving.
+ *
+ * Deliberately not a spinner. A spinner that appears for 80ms and vanishes
+ * reads as a flicker rather than as progress, and most of these loads are
+ * that fast — the routes are pre-fetched while the app sits idle. The delay
+ * means nothing is drawn at all unless the wait is long enough to be worth
+ * acknowledging, which for a fast load is never.
+ */
+function RouteFallback() {
+  return (
+    <div className="route-fallback flex items-center justify-center py-16">
+      <Spinner />
+    </div>
   )
 }
