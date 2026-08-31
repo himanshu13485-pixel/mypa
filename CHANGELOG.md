@@ -4,6 +4,43 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Added — 2026-08-31 (A link that lets people book you)
+
+Hand somebody a link, they pick a time you are free, and it becomes a real
+meeting — no account, no back-and-forth about what suits. The Calendly idea,
+built on what Netvork already had rather than beside it.
+
+- **Your own link at `/book/{you}`**, created the first time you open the page
+  so there is nothing to set up before there is something to look at. It starts
+  switched off: a live link with no hours behind it shows a stranger an empty
+  fortnight, which reads as broken rather than as unfinished.
+- **Weekly availability**, several windows per day, so "mornings and afternoons
+  but not lunch" is expressible — a single row per weekday could not say that.
+  Plus meeting length, a gap after each, the least notice you will accept, and
+  how far ahead the calendar is open.
+- **Slots honour everything already in your diary.** Confirmed bookings, timed
+  calendar entries and meetings you are hosting all remove the times they
+  touch, widened by your buffer. All-day entries are ignored on purpose: a
+  birthday means "this is happening today", not "I am busy for every minute of
+  it".
+- **A booking creates a real video meeting and a calendar entry.** The meeting
+  is generated with a password, because a meeting without one refuses guests
+  outright — the person who booked would have been locked out of their own
+  appointment. The calendar entry exists because the calendar page reads events
+  and knows nothing about meetings, so a booking would otherwise be invisible
+  on the one screen whose job is showing what is coming.
+- **Both sides are told**: the host through the bell, the guest by email. That
+  email carries the joining link, the password, and a token link back to the
+  booking — which is the guest's only credential, since they have no account.
+- **Guests can move or cancel** from that link. A move keeps the same booking,
+  meeting and token, so the link already in their inbox goes on working;
+  cancelling and recreating would invalidate it and send a second email
+  contradicting the first.
+- **Times are computed in the host's timezone and shown in the visitor's.**
+  Weekly hours are a wall-clock fact about the host's life and survive daylight
+  saving; the instants they correspond to do not. Doing the arithmetic in UTC
+  would quietly move somebody's morning twice a year.
+
 ### Fixed — 2026-08-31 (Push that turns itself on, and a bell that does not wait)
 
 Testing the notification work across two accounts surfaced three faults, all

@@ -779,3 +779,64 @@ export interface BotToken {
   last_used_at: string | null
   revealable: boolean
 }
+
+// --- Booking links ----------------------------------------------------------
+
+export interface BookingHour {
+  weekday: number
+  start_time: string
+  end_time: string
+}
+
+export interface BookingPageConfig {
+  uuid: string
+  slug: string
+  url: string
+  title: string | null
+  description: string | null
+  duration_minutes: number
+  buffer_minutes: number
+  min_notice_minutes: number
+  max_days_ahead: number
+  is_active: boolean
+  timezone: string
+  hours: BookingHour[]
+}
+
+/** What the host sees about somebody who booked them. */
+export interface BookingRow {
+  uuid: string
+  name: string
+  email: string
+  note: string | null
+  starts_at: string
+  ends_at: string
+  guest_timezone: string
+  status: 'confirmed' | 'cancelled'
+  meeting_code: string | null
+}
+
+/** What a stranger sees before booking: no more than the link already gave. */
+export interface PublicBookingPage {
+  slug: string
+  host_name: string
+  title: string
+  description: string | null
+  duration_minutes: number
+  timezone: string
+  max_days_ahead: number
+}
+
+export interface BookingDetail {
+  uuid: string
+  name: string
+  email: string
+  note: string | null
+  starts_at: string
+  ends_at: string
+  guest_timezone: string
+  status: 'confirmed' | 'cancelled'
+  host_name: string
+  slug: string
+  meeting: { code: string; passcode: string; join_url: string } | null
+}

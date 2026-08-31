@@ -5,6 +5,7 @@ import type {
   CheckoutSession, Connection, ConversationItem, DashboardSummary, FileItem,
   GoalItem, GroupItem, HabitItem, InvoiceRecord, MySubscription, Note,
   Paginated, PaymentRecord, PlanInfo, ReportSummary, Task, User,
+  BookingDetail, BookingHour, BookingPageConfig, BookingRow, PublicBookingPage,
 } from '../types'
 
 // --- Auth -------------------------------------------------------------------
@@ -708,4 +709,39 @@ export const guestMeetings = {
       guest: { uuid: string; name: string }
       meeting: { code: string; title: string | null; type: 'audio' | 'video'; requires_approval: boolean }
     } }>(`/meetings/${code}/guest`, { name, passcode }).then((r) => r.data.data),
+}
+
+// --- Booking links ----------------------------------------------------------
+
+export const bookingApi = {
+  /** Your own page. Created server-side the first time you look at it. */
+  mine: () => api.get<{ data: BookingPageConfig }>('/booking-page').then((r) => r.data.data),
+  save: (payload: Partial<BookingPageConfig> & { hours?: BookingHour[] }) =>
+    api.put<{ data: BookingPageConfig }>('/booking-page', payload).then((r) => r.data.data),
+  bookings: (past = false) =>
+    api.get<{ data: BookingRow[] }>('/booking-page/bookings', { params: { past: past ? 1 : 0 } }).then((r) => r.data.data),
+  cancel: (uuid: string) => api.post(`/booking-page/bookings/${uuid}/cancel`),
+}
+
+/**
+ * The public half.
+ *
+ * Everything here is reached with no session, by somebody who was handed a
+ * link — so it is deliberately a separate object from bookingApi above. The
+ * two never overlap, and keeping them apart makes it obvious at every call
+ * site which side of the auth line you are on.
+ */
+export const publicBookingApi = {
+  page: (slug: string) => api.get<{ data: PublicBookingPage }>(`/book/${slug}`).then((r) => r.data.data),
+  slots: (slug: string, from: string, to: string) =>
+    api
+      .get<{ data: { duration_minutes: number; slots: string[] } }>(`/book/${slug}/slots`, { params: { from, to } })
+      .then((r) => r.data.data),
+  book: (slug: string, payload: { starts_at: string; name: string; email: string; note?: string; timezone: string }) =>
+    api.post<{ data: BookingDetail }>(`/book/${slug}`, payload).then((r) => r.data.data),
+
+  detail: (token: string) => api.get<{ data: BookingDetail }>(`/bookings/${token}`).then((r) => r.data.data),
+  cancel: (token: string) => api.post(`/bookings/${token}/cancel`),
+  reschedule: (token: string, starts_at: string) =>
+    api.post<{ data: BookingDetail }>(`/bookings/${token}/reschedule`, { starts_at }).then((r) => r.data.data),
 }

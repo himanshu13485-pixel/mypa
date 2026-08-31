@@ -34,6 +34,9 @@ const GoalsPage = lazyRoute('GoalsPage', () => import('./pages/GoalsPage'))
 const BillsPage = lazyRoute('BillsPage', () => import('./pages/BillsPage'))
 const ProjectsPage = lazyRoute('ProjectsPage', () => import('./pages/ProjectsPage'))
 const MeetingsPage = lazyRoute('MeetingsPage', () => import('./pages/MeetingsPage'))
+const BookingLinkPage = lazyRoute('BookingLinkPage', () => import('./pages/BookingLinkPage'))
+const PublicBookingPage = lazyRoute('PublicBookingPage', () => import('./pages/PublicBookingPage'))
+const ManageBookingPage = lazyRoute('ManageBookingPage', () => import('./pages/ManageBookingPage'))
 const MeetingRoomPage = lazyRoute('MeetingRoomPage', () => import('./pages/MeetingRoomPage'))
 const ScreenPage = lazyRoute('ScreenPage', () => import('./pages/ScreenPage'))
 const ScreenSessionPage = lazyRoute('ScreenSessionPage', () => import('./pages/ScreenSessionPage'))
@@ -76,6 +79,7 @@ const SIDEBAR_ROUTES = [
   // bought nothing and made Bills, Projects and Settings the three sections
   // that visibly waited.
   ProjectsPage, CategoriesPage, BillsPage, ReportsPage, SubscriptionPage, SettingsPage,
+  BookingLinkPage,
   ScreenPage,
 ]
 
@@ -107,6 +111,7 @@ const ROUTES_BY_PATH: Record<string, PreloadableRoute> = {
   '/bills': BillsPage,
   '/projects': ProjectsPage,
   '/meetings': MeetingsPage,
+  '/booking': BookingLinkPage,
   '/screen': ScreenPage,
   '/reports': ReportsPage,
   '/subscription': SubscriptionPage,
@@ -172,6 +177,13 @@ export default function App() {
               </RequireGuestPass>
             }
           />
+          {/* Booking links. Outside the auth guard and outside Layout: the
+              person following one has no account and nothing to be shown a
+              sidebar for. /booking/:token is the receipt, reached from the
+              confirmation email, and is the only way a guest can change
+              what they booked. */}
+          <Route path="/book/:slug" element={<PublicBookingPage />} />
+          <Route path="/booking/:token" element={<ManageBookingPage />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -229,6 +241,7 @@ export default function App() {
             <Route path="/bills" element={<BillsPage />} />
             <Route path="/projects" element={<ProjectsPage />} />
             <Route path="/meetings" element={<MeetingsPage />} />
+            <Route path="/booking" element={<BookingLinkPage />} />
             <Route path="/meetings/room/:code" element={<MeetingRoomRoute />} />
             <Route path="/screen" element={<ScreenPage />} />
             <Route path="/screen/session/:code" element={<ScreenSessionPage />} />

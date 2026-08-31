@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\Admin\UserController as AdminUserController;
 use App\Http\Controllers\Api\V1\AppIdController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BlockController;
+use App\Http\Controllers\Api\V1\BookingPageController;
 use App\Http\Controllers\Api\V1\CallController;
 use App\Http\Controllers\Api\V1\CategoryController;
 use App\Http\Controllers\Api\V1\ConversationController;
@@ -69,6 +70,34 @@ Route::post('/push/calls/{call}/decline', [\App\Http\Controllers\Api\V1\CallCont
 
 Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'rotate'])
     ->middleware('throttle:20,1');
+
+/*
+ * Booking links: the second door with no session behind it.
+ *
+ * Somebody who has been handed a link can see when the host is free and
+ * take one of those times, and afterwards can move or cancel what they took
+ * using the token in their confirmation email. None of it requires an
+ * account, which is the entire point — and which is why every route here is
+ * throttled and returns nothing about the host beyond what the link already
+ * gave away.
+ *
+ * Reading is looser than writing. Browsing a fortnight of slots is a
+ * handful of requests as somebody flicks between weeks; booking is once.
+ */
+Route::get('/book/{slug}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'page'])
+    ->middleware('throttle:60,1');
+Route::get('/book/{slug}/slots', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'slots'])
+    ->middleware('throttle:60,1');
+Route::post('/book/{slug}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'book'])
+    ->middleware('throttle:10,1');
+
+// Managing a booking already made. The token is the credential.
+Route::get('/bookings/{token}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'show'])
+    ->middleware('throttle:30,1')->where('token', '[A-Za-z0-9]{64}');
+Route::post('/bookings/{token}/cancel', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'cancel'])
+    ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]{64}');
+Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'reschedule'])
+    ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]{64}');
 
     /*
      * What a guest may do, and nothing else.
@@ -204,6 +233,12 @@ Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionContro
         Route::post('/calls/seen', [\App\Http\Controllers\Api\V1\BadgeController::class, 'markCallsSeen']);
 
         // Web push subscriptions (system notifications on this device)
+        // Your booking link: the page itself, and what people have booked.
+        Route::get('/booking-page', [BookingPageController::class, 'show']);
+        Route::put('/booking-page', [BookingPageController::class, 'update']);
+        Route::get('/booking-page/bookings', [BookingPageController::class, 'bookings']);
+        Route::post('/booking-page/bookings/{booking}/cancel', [BookingPageController::class, 'cancelBooking']);
+
         Route::get('/push/public-key', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'publicKey']);
         Route::post('/push/subscribe', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'subscribe']);
         Route::post('/push/unsubscribe', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'unsubscribe']);

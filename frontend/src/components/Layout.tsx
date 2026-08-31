@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  BarChart3, Calendar, CheckSquare, CreditCard, FileText, FolderKanban, MonitorUp,
+  BarChart3, Calendar, CalendarClock, CheckSquare, CreditCard, FileText, FolderKanban, MonitorUp,
   FolderOpen, LayoutDashboard, LogOut, Menu, MessageCircle, Moon, MoreHorizontal, Phone,
   Briefcase, Receipt, Repeat, Settings, Shield, Star, Sun, Target, UserPlus, Users, Video, X,
 } from 'lucide-react'
@@ -39,6 +39,7 @@ const navSections: { label: string | null; items: { to: string; label: string; i
     { to: '/messages', label: 'Call/Messages', icon: MessageCircle },
     { to: '/calls', label: 'Call Logs', icon: Phone },
     { to: '/meetings', label: 'Meetings', icon: Video },
+    { to: '/booking', label: 'Booking link', icon: CalendarClock },
     { to: '/screen', label: 'Screen', icon: MonitorUp },
   ]},
   { label: 'Workspace', items: [
