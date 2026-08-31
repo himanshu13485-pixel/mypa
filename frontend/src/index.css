@@ -201,6 +201,36 @@ h3 {
 }
 
 /*
+ * The shimmer that makes a placeholder read as "coming" rather than "broken".
+ *
+ * A pulse on opacity rather than a sweeping gradient: a gradient animation
+ * repaints the whole block every frame, and a list of forty of them on a phone
+ * is real work for something nobody is looking at. Opacity is composited.
+ */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.skeleton {
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+
+/*
+ * Staggered, so a list breathes instead of flashing in unison — forty blocks
+ * pulsing on the same beat looks like a fault, not a wait.
+ */
+.skeleton:nth-child(2n) { animation-delay: 0.15s; }
+.skeleton:nth-child(3n) { animation-delay: 0.3s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/*
  * Someone who has asked for less movement gets none of this. The content
  * still arrives; it simply arrives without being animated into place.
  */

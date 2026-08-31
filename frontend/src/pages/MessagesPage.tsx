@@ -16,7 +16,7 @@ import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { useCalls } from '../components/CallManager'
 import { useToast } from '../components/Toast'
-import { Button, EmptyState, Input, Modal, Spinner } from '../components/ui'
+import { Button, EmptyState, Input, Modal, SkeletonList, SkeletonMessages } from '../components/ui'
 import type { ChatMessage, ConversationItem } from '../types'
 import { Avatar } from '../lib/avatars'
 
@@ -182,12 +182,28 @@ export default function MessagesPage() {
   const [searching, setSearching] = useState(false)
   const query = searching ? search.trim() : ''
 
-  const { data: messages } = useQuery({
+  const { data: messages, isLoading: loadingThread } = useQuery({
     queryKey: ['messages', selected?.uuid, query],
     queryFn: () => chat.messages(selected!.uuid, query ? { q: query } : undefined),
     enabled: !!selected,
     refetchInterval: query ? false : 15_000,
   })
+
+  /**
+   * Warm a thread before it is asked for.
+   *
+   * The unsearched thread only — that is what opening a conversation shows,
+   * and the effect below clears any search on the way in, so the key this
+   * fills is the key that will be read.
+   */
+  const prefetchThread = (uuid: string) => {
+    if (uuid === selected?.uuid) return
+
+    void queryClient.prefetchQuery({
+      queryKey: ['messages', uuid, ''],
+      queryFn: () => chat.messages(uuid),
+    })
+  }
 
   useEffect(() => {
     setSearching(false)
@@ -376,7 +392,7 @@ export default function MessagesPage() {
           </Button>
         </div>
         {isLoading ? (
-          <Spinner />
+          <SkeletonList rows={8} />
         ) : !conversations?.data.length ? (
           <EmptyState title="No conversations" hint="Start a chat with a connection's App ID." />
         ) : (
@@ -385,6 +401,9 @@ export default function MessagesPage() {
               <button
                 key={c.uuid}
                 onClick={() => setSelected(c)}
+                onPointerEnter={() => prefetchThread(c.uuid)}
+                onPointerDown={() => prefetchThread(c.uuid)}
+                onFocus={() => prefetchThread(c.uuid)}
                 className={clsx(
                   'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
                   selected?.uuid === c.uuid
@@ -538,6 +557,10 @@ export default function MessagesPage() {
 
             {/* Messages */}
             <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto p-4">
+              {/* A thread being opened for the first time. Once it has been
+                  read once the cache answers instantly and this never shows;
+                  before, every switch blanked the panel either way. */}
+              {loadingThread && !messages && <SkeletonMessages />}
               {messages?.map((m) => (
                 <div key={m.uuid} className={clsx('group flex', m.is_own ? 'justify-end' : 'justify-start')}>
                   <div className={clsx('relative max-w-[75%]')}>
@@ -816,7 +839,7 @@ function MembersModal({ conversationUuid, onClose }: { conversationUuid: string;
   return (
     <Modal title="Members" onClose={onClose}>
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={4} />
       ) : (
         <div className="space-y-1.5">
           {members?.map((m) => (

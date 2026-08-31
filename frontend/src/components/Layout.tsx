@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   BarChart3, Calendar, CheckSquare, CreditCard, FileText, FolderKanban, MonitorUp,
@@ -18,6 +18,7 @@ import VoiceAssistant from './VoiceAssistant'
 import MobileVerifyBanner from './MobileVerifyBanner'
 import { Avatar } from '../lib/avatars'
 import { useLandscapePhone } from '../lib/useMediaQuery'
+import { useScrollRestoration } from '../lib/useScrollRestoration'
 import { Spinner } from './ui'
 
 /** Sidebar rows that carry an unattended-items badge. */
@@ -77,11 +78,23 @@ function applyTheme(dark: boolean) {
   document.documentElement.classList.toggle('dark', dark)
 }
 
-export default function Layout() {
+/**
+ * @param preloadPath fetches the page behind a link before it is clicked.
+ *   Passed in rather than imported, because the route table lives in App and
+ *   App renders this — importing it back would be a cycle.
+ */
+export default function Layout({ preloadPath }: { preloadPath?: (to: string) => void }) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const { user, clear } = useAuthStore()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  /*
+   * The app scrolls inside <main>, and <main> outlives every page in it, so
+   * without this a section opens wherever the last one was left.
+   */
+  const mainRef = useRef<HTMLElement>(null)
+  useScrollRestoration(mainRef)
 
   // A live meeting or screen share wants the whole screen; a nav bar eating
   // 56px of a phone is the difference between seeing faces and seeing chrome.
@@ -143,6 +156,22 @@ export default function Layout() {
                 to={to}
                 end={to === '/'}
                 onClick={() => setSidebarOpen(false)}
+                /*
+                 * Start fetching the page on approach.
+                 *
+                 * A pointer entering a link precedes the click by a few
+                 * hundred milliseconds, and a keyboard focus by longer, so
+                 * the chunk is usually in memory by the time the navigation
+                 * happens. Touch has no hover, which is what pointerdown is
+                 * for: it fires as the finger lands, before the tap has been
+                 * recognised as a tap.
+                 *
+                 * Already-loaded pages cost nothing to ask for again — the
+                 * import is memoised — so this needs no bookkeeping.
+                 */
+                onPointerEnter={() => preloadPath?.(to)}
+                onPointerDown={() => preloadPath?.(to)}
+                onFocus={() => preloadPath?.(to)}
                 className={({ isActive }) =>
                   clsx(
                     'tap group flex items-center gap-3 rounded-xl px-3 py-2 text-sm transition-colors',
@@ -171,6 +200,9 @@ export default function Layout() {
       {isStaff(user) && (
         <NavLink
           to="/admin"
+          onPointerEnter={() => preloadPath?.('/admin')}
+          onPointerDown={() => preloadPath?.('/admin')}
+          onFocus={() => preloadPath?.('/admin')}
           onClick={() => setSidebarOpen(false)}
           className={({ isActive }) =>
             clsx(
@@ -308,7 +340,7 @@ export default function Layout() {
             resolves against a parent with a definite height — <main> has one
             from `flex-1`, an extra div in between does not, and the meeting
             tiles collapsed from 366x648 to 256x144. */}
-        <main className={clsx(
+        <main ref={mainRef} className={clsx(
           'scroll-pane mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto',
           // A meeting wants the screen; every other page wants margins.
           bare ? 'p-0' : immersive ? 'p-2 sm:p-4' : 'p-4 sm:p-6',
@@ -348,6 +380,7 @@ export default function Layout() {
                 key={to}
                 to={to}
                 end={to === '/'}
+                onPointerDown={() => preloadPath?.(to)}
                 className={({ isActive }) =>
                   clsx(
                     'relative flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium transition-colors',

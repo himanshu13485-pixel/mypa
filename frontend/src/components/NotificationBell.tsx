@@ -5,7 +5,7 @@ import { AlarmClock, Bell, Check, CheckCheck, Trash2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import { notifications as notificationsApi, reminders as remindersApi, tasks as tasksApi } from '../api/endpoints'
-import { Button, EmptyState, Spinner } from './ui'
+import { Button, EmptyState, SkeletonList } from './ui'
 import type { AppNotification } from '../types'
 import { playChime } from '../lib/alerts'
 
@@ -123,7 +123,7 @@ export default function NotificationBell() {
             </div>
             <div className="max-h-96 overflow-y-auto">
               {isLoading ? (
-                <Spinner />
+                <SkeletonList rows={4} avatar={false} />
               ) : !list?.data.length ? (
                 <EmptyState title="No notifications" hint="Task reminders will appear here." />
               ) : (

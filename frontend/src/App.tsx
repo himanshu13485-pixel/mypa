@@ -1,7 +1,7 @@
 import { Suspense, useEffect } from 'react'
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import ErrorBoundary from './components/ErrorBoundary'
-import { lazyRoute } from './lib/lazyRoute'
+import { lazyRoute, type PreloadableRoute } from './lib/lazyRoute'
 import { MeetingRoomRoute } from './components/MeetingHost'
 import Layout from './components/Layout'
 import { RequireAdmin, RequireAuth, RequireGuestPass } from './components/Protected'
@@ -70,7 +70,54 @@ const PaymentStatusPage = lazyRoute('PaymentStatusPage', () => import('./pages/P
 const SIDEBAR_ROUTES = [
   Dashboard, TasksPage, CalendarPage, MessagesPage, NotesPage, FilesPage,
   GroupsPage, HabitsPage, GoalsPage, ConnectionsPage, CallsPage, MeetingsPage,
+  // The rest of the sidebar, added once the numbers were actually looked at:
+  // every one of these is between 8 and 24KB before compression, so the
+  // whole remaining list costs less than a single photo. Leaving them out
+  // bought nothing and made Bills, Projects and Settings the three sections
+  // that visibly waited.
+  ProjectsPage, CategoriesPage, BillsPage, ReportsPage, SubscriptionPage, SettingsPage,
+  ScreenPage,
 ]
+
+/**
+ * The heavy pages, fetched only when somebody looks like they are going.
+ *
+ * These are the two that genuinely cost something — the meeting room drags
+ * in the whole LiveKit client, and most people never open the admin panel at
+ * all — so they stay out of the idle sweep above. Instead the sidebar asks
+ * for them the moment a pointer touches the link, which is a few hundred
+ * milliseconds before the click lands: enough of a head start that the page
+ * is usually ready by the time the navigation happens, and nothing is
+ * downloaded for somebody who never goes near it.
+ */
+const ROUTES_BY_PATH: Record<string, PreloadableRoute> = {
+  '/': Dashboard,
+  '/dashboard': Dashboard,
+  '/tasks': TasksPage,
+  '/calendar': CalendarPage,
+  '/categories': CategoriesPage,
+  '/connections': ConnectionsPage,
+  '/messages': MessagesPage,
+  '/calls': CallsPage,
+  '/notes': NotesPage,
+  '/files': FilesPage,
+  '/groups': GroupsPage,
+  '/habits': HabitsPage,
+  '/goals': GoalsPage,
+  '/bills': BillsPage,
+  '/projects': ProjectsPage,
+  '/meetings': MeetingsPage,
+  '/screen': ScreenPage,
+  '/reports': ReportsPage,
+  '/subscription': SubscriptionPage,
+  '/settings': SettingsPage,
+  '/admin': AdminPage,
+}
+
+/** Sidebar links carry a query string; the chunk is decided by the path. */
+function preloadPath(to: string): void {
+  ROUTES_BY_PATH[to.split('?')[0]]?.preload()
+}
 
 function usePreloadedSections() {
   useEffect(() => {
@@ -160,7 +207,7 @@ export default function App() {
           <Route
             element={
               <RequireAuth>
-                <Layout />
+                <Layout preloadPath={preloadPath} />
               </RequireAuth>
             }
           >

@@ -19,7 +19,7 @@ import UserSuggest from '../../components/UserSuggest'
 import { useToast } from '../../components/Toast'
 import { usePrompt } from '../../components/Prompt'
 import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner,
+  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, SkeletonList, SkeletonTable,
 } from '../../components/ui'
 import type { User } from '../../types'
 
@@ -49,7 +49,7 @@ function ApprovalsTab() {
     <Card>
       <h2 className="mb-3 text-sm font-semibold">Identity change approvals</h2>
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={4} avatar={false} />
       ) : !data?.data.length ? (
         <EmptyState title="No pending requests" hint="Mobile, email, and username changes appear here for review." />
       ) : (
@@ -103,7 +103,7 @@ function ActiveMembersTab() {
     <Card>
       <h2 className="mb-3 text-sm font-semibold">Active members (last 24 hours)</h2>
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={6} cols={4} />
       ) : !data?.length ? (
         <EmptyState title="No activity in the last 24 hours" />
       ) : (
@@ -168,7 +168,7 @@ function ActivityTab() {
     <Card>
       <h2 className="mb-3 text-sm font-semibold">Audit trail (admin & moderation actions)</h2>
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={6} avatar={false} />
       ) : !data?.data.length ? (
         <EmptyState title="No audit entries yet" />
       ) : (
@@ -224,7 +224,7 @@ function LoginsTab() {
         </div>
       </div>
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={6} cols={5} />
       ) : !data?.data.length ? (
         <EmptyState title="No logins recorded" />
       ) : (
@@ -300,7 +300,7 @@ function ModerationTab() {
         </div>
       </div>
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={4} avatar={false} />
       ) : !data?.data.length ? (
         <EmptyState title={`No ${status} reports`} hint="Reports from users about messages or members appear here." />
       ) : (
@@ -520,7 +520,7 @@ function PlansTab() {
         </p>
       </div>
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={8} cols={5} />
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-sm">
@@ -654,7 +654,7 @@ function UserSummaryModal({ user, onClose }: { user: User; onClose: () => void }
   return (
     <Modal title={`Activity summary — ${user.name}`} onClose={onClose} wide>
       {isLoading || !data ? (
-        <Spinner />
+        <SkeletonList rows={4} avatar={false} />
       ) : (
         <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
           {[
@@ -756,7 +756,7 @@ function RecordsSection({ userUuid }: { userUuid: string }) {
         </Button>
       </div>
       {tab === 'calls' && (
-        !callRecs ? <Spinner /> : !callRecs.data.length ? (
+        !callRecs ? <SkeletonTable rows={6} cols={5} /> : !callRecs.data.length ? (
           <p className="text-xs text-slate-400">No calls on record.</p>
         ) : (
           <div className="max-h-52 space-y-1 overflow-y-auto">
@@ -777,7 +777,7 @@ function RecordsSection({ userUuid }: { userUuid: string }) {
         )
       )}
       {tab === 'chats' && (
-        !chatRecs ? <Spinner /> : !chatRecs.data.length ? (
+        !chatRecs ? <SkeletonTable rows={6} cols={5} /> : !chatRecs.data.length ? (
           <p className="text-xs text-slate-400">No conversations on record.</p>
         ) : (
           <div className="max-h-52 space-y-1 overflow-y-auto">
@@ -837,7 +837,7 @@ function RightsModal({ user, onClose }: { user: User; onClose: () => void }) {
   return (
     <Modal title={`Subadmin rights — ${user.name}`} onClose={onClose}>
       {!grid ? (
-        <Spinner />
+        <SkeletonList rows={6} avatar={false} />
       ) : (
         <div className="space-y-4">
           <div className="flex justify-end gap-2">
@@ -970,7 +970,7 @@ function UsersTab() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={8} cols={6} />
       ) : !users?.data.length ? (
         <EmptyState title="No users found" />
       ) : (
@@ -1412,7 +1412,7 @@ function InternalTab() {
         </div>
         <ErrorNote message={error} />
         {isLoading ? (
-          <Spinner />
+          <SkeletonList rows={4} />
         ) : !threads?.length ? (
           <EmptyState title="No discussions yet" hint="Look up a user above to start one." />
         ) : (
@@ -1577,7 +1577,7 @@ function SalesTab() {
         Users assigned to you. Open a summary to see their activity and subscription.
       </p>
       {isLoading ? (
-        <Spinner />
+        <SkeletonTable rows={6} cols={5} />
       ) : !users?.data.length ? (
         <EmptyState title="No users assigned to you yet" hint="An admin assigns users from the Users tab." />
       ) : (
@@ -1626,7 +1626,7 @@ function SalesSummaryModal({ user, onClose }: { user: User; onClose: () => void 
   return (
     <Modal title={`Activity — ${user.name}`} onClose={onClose}>
       {isLoading || !data ? (
-        <Spinner />
+        <SkeletonList rows={4} avatar={false} />
       ) : (
         <div className="space-y-2 text-sm">
           <p>
@@ -1692,7 +1692,7 @@ function LiveMeetingsTab() {
     onError: (err) => toastError(errorMessage(err)),
   })
 
-  if (isLoading) return <Spinner />
+  if (isLoading) return <SkeletonTable rows={6} cols={5} />
   if (error) return <ErrorNote message={errorMessage(error)} />
 
   const rows = data?.data ?? []
@@ -1782,7 +1782,7 @@ function ClientErrorsTab() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={5} avatar={false} />
       ) : !data?.data.length ? (
         <EmptyState
           title={resolved ? 'Nothing marked fixed yet' : 'Nothing is broken'}
@@ -1932,7 +1932,7 @@ function BotsTab() {
         </form>
       </Card>
 
-      {bots.isLoading && <Spinner />}
+      {bots.isLoading && <SkeletonList rows={3} avatar={false} />}
       {bots.data?.length === 0 && (
         <EmptyState title="No service accounts" hint="Nothing is signing in as an application yet." />
       )}
@@ -2036,7 +2036,7 @@ function BotTokens({ uuid }: { uuid: string }) {
     onError: (err) => setError(errorMessage(err)),
   })
 
-  if (tokens.isLoading) return <Spinner />
+  if (tokens.isLoading) return <SkeletonList rows={3} avatar={false} />
 
   return (
     <div className="mt-3 border-t border-slate-100 pt-2 dark:border-slate-800">

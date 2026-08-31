@@ -8,7 +8,8 @@ import { badges as badgesApi, categories as categoriesApi, groups as groupsApi, 
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
 import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Pager, Select, Spinner, Textarea,
+  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Pager, Select, SkeletonCards,
+  Textarea,
 } from '../components/ui'
 import { TASK_PRIORITIES, TASK_STATUSES, type Task } from '../types'
 
@@ -287,7 +288,7 @@ export default function TasksPage() {
 
       {/* Task list */}
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={6} />
       ) : isError ? (
         <Card>
           <LoadError what="your tasks" message={errorMessage(loadError)} onRetry={() => refetch()} />

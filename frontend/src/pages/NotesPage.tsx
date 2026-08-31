@@ -6,7 +6,19 @@ import { clsx } from 'clsx'
 import { badges as badgesApi, notes as notesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
-import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../components/ui'
+import {
+  Button,
+  Card,
+  EmptyState,
+  ErrorNote,
+  Input,
+  Label,
+  Modal,
+  Pager,
+  Select,
+  SkeletonCards,
+  Textarea,
+} from '../components/ui'
 import type { Note } from '../types'
 
 interface NoteFormState {
@@ -158,7 +170,7 @@ export default function NotesPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={6} />
       ) : notesList.length === 0 ? (
         <Card>
           <EmptyState title="No notes yet" hint="Capture ideas, checklists, and private information." />

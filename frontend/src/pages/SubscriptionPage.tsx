@@ -4,7 +4,7 @@ import { CreditCard, FileText, Receipt } from 'lucide-react'
 import { format } from 'date-fns'
 import { subscription as subscriptionApi } from '../api/endpoints'
 import { useAuthStore } from '../stores/auth'
-import { Badge, Button, Card, EmptyState, Spinner } from '../components/ui'
+import { Badge, Button, Card, EmptyState, Skeleton, SkeletonList } from '../components/ui'
 
 function formatBytes(bytes: number): string {
   if (!bytes) return '0 B'
@@ -28,7 +28,22 @@ export default function SubscriptionPage() {
   const { data: payments } = useQuery({ queryKey: ['my-payments'], queryFn: subscriptionApi.payments })
   const { data: invoices } = useQuery({ queryKey: ['my-invoices'], queryFn: subscriptionApi.invoices })
 
-  if (isLoading || !mySub) return <Spinner />
+  if (isLoading || !mySub) {
+    return (
+      <div className="max-w-4xl space-y-4" aria-busy="true" aria-label="Loading your subscription">
+        <Skeleton className="h-6 w-40" />
+        <Card>
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="mt-2 h-3 w-56" />
+          <Skeleton className="mt-4 h-8 w-28 rounded-lg" />
+        </Card>
+        <Card>
+          <Skeleton className="mb-3 h-3 w-24" />
+          <SkeletonList rows={3} avatar={false} />
+        </Card>
+      </div>
+    )
+  }
 
   const isFree = mySub.plan.slug === 'free'
 

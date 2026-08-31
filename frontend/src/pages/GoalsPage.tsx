@@ -5,7 +5,19 @@ import { format } from 'date-fns'
 import { clsx } from 'clsx'
 import { badges as badgesApi, goals as goalsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
-import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNote,
+  Input,
+  Label,
+  Modal,
+  Select,
+  SkeletonCards,
+  Textarea,
+} from '../components/ui'
 import { GOAL_TYPES, type GoalItem } from '../types'
 
 export default function GoalsPage() {
@@ -141,7 +153,7 @@ export default function GoalsPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={4} />
       ) : !data?.length ? (
         <Card>
           <EmptyState title="No goals yet" hint="Set a goal, break it into milestones, and track your progress." />

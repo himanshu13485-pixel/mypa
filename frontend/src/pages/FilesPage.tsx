@@ -9,7 +9,7 @@ import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
 import { PickUserModal } from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
-import { Button, Card, EmptyState, Modal, Spinner } from '../components/ui'
+import { Button, Card, EmptyState, Modal, SkeletonCards } from '../components/ui'
 import { usePrompt } from '../components/Prompt'
 
 function formatBytes(bytes: number): string {
@@ -201,7 +201,7 @@ export default function FilesPage() {
           )}
 
           {isLoading ? (
-            <Spinner />
+            <SkeletonCards count={6} />
           ) : !data || (data.folders.length === 0 && data.files.length === 0) ? (
             <Card>
               <EmptyState title="This folder is empty" hint="Upload files or create a folder." />

@@ -4,7 +4,7 @@ import { Check, Flame, Plus, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { badges as badgesApi, habits as habitsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
-import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner } from '../components/ui'
+import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, SkeletonCards } from '../components/ui'
 import type { HabitItem } from '../types'
 
 export default function HabitsPage() {
@@ -70,7 +70,7 @@ export default function HabitsPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={6} />
       ) : !data?.length ? (
         <Card>
           <EmptyState title="No habits yet" hint="Build routines — check them off daily and grow your streaks." />

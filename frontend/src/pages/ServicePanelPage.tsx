@@ -5,9 +5,7 @@ import { service as serviceApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { disconnectEcho } from '../lib/echo'
-import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Spinner,
-} from '../components/ui'
+import { Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, SkeletonList } from '../components/ui'
 
 /**
  * What an application sees instead of the app.
@@ -105,7 +103,7 @@ export default function ServicePanelPage() {
       {/* --- Identity + numbers ------------------------------------------- */}
       <Card>
         {overview.isLoading ? (
-          <Spinner />
+          <SkeletonList rows={4} avatar={false} />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
@@ -195,7 +193,7 @@ export default function ServicePanelPage() {
         </form>
 
         <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
-          {tokens.isLoading && <Spinner />}
+          {tokens.isLoading && <SkeletonList rows={3} avatar={false} />}
           {tokens.data?.map((token) => (
             <div key={token.id} className="flex items-center gap-2 py-2 text-sm">
               <span className="min-w-0 flex-1">
@@ -259,7 +257,7 @@ export default function ServicePanelPage() {
         </p>
 
         <div className="mt-3 divide-y divide-slate-100 dark:divide-slate-800">
-          {connections.isLoading && <Spinner />}
+          {connections.isLoading && <SkeletonList rows={3} avatar={false} />}
           {connections.data?.map((c) => (
             <div key={c.uuid} className="flex items-center gap-2 py-2 text-sm">
               <span className="min-w-0 flex-1">

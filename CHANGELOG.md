@@ -4,6 +4,45 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Changed — 2026-08-31 (Moving around the app stops flickering)
+
+Netvork felt choppy next to something like Teams, and none of it was the
+animations — the route transition was already a 180ms fade over a delayed
+spinner, with the pages pre-fetched while the app sat idle. What made it feel
+slow was that the app kept throwing away things it already had, and then
+showing nothing while it fetched them again.
+
+- **Skeletons instead of spinners**, everywhere — 46 of them. A spinner is
+  honest but it is the wrong shape: it vanishes, the real layout takes its
+  place, and the page jumps. A placeholder occupying the space the content
+  will occupy makes the arrival one repaint with nothing moving. The dashboard
+  and reports get skeletons drawn to their own stat grids, chat gets bubbles,
+  tables get rows.
+- **Switching chats no longer blanks the thread.** Opening a different
+  conversation changes the query key, so the messages became `undefined` and
+  the panel emptied until the request came back. Conversations are now
+  pre-fetched the moment a pointer lands on one in the list — a few hundred
+  milliseconds of head start, which is usually the whole request — and the
+  first open of a thread shows message-shaped placeholders instead of nothing.
+- **Sections remember where they were.** The app scrolls inside `<main>`,
+  which is never unmounted, so its scroll position simply carried over: scroll
+  halfway down a long task list, open Notes, and Notes opened halfway down.
+  Now a new page starts at the top and going back returns you to where you
+  were.
+- **Cached answers live 30 minutes rather than 5.** The old window was shorter
+  than the gap between visits to most sections, so coming back to a page ten
+  minutes later was a cold load with a spinner even though nothing had
+  changed. That reload was most of what "slow" actually was.
+- **The whole sidebar is pre-fetched**, not the twelve routes that happened to
+  be listed. The rest are 8–24KB each, so leaving Bills, Projects, Settings,
+  Categories, Reports and Subscription out bought nothing and made them the
+  sections that visibly waited. The two that genuinely cost something — the
+  meeting room with the LiveKit client, and the admin panel — are instead
+  fetched when a pointer approaches their link.
+- **Avatar placeholders were rounded squares.** A default `rounded-md` and a
+  caller's `rounded-full` are both rounding utilities and Tailwind's emission
+  order decided the winner, the same trap `widthClass` already existed for.
+
 ### Added — 2026-08-31 (Everything notifies, on the phone and on the web)
 
 The push transports were finished long before there was much to send through

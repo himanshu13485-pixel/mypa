@@ -10,7 +10,7 @@ import { usePrompt } from '../components/Prompt'
 import UserSuggest from '../components/UserSuggest'
 import type { MeetingItem } from '../types'
 import {
-  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, Spinner,
+  Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, SkeletonCards,
 } from '../components/ui'
 
 /**
@@ -233,7 +233,7 @@ export default function MeetingsPage() {
 
       {/* My meetings */}
       {isLoading ? (
-        <Spinner />
+        <SkeletonCards count={3} />
       ) : isError ? (
         <Card>
           <LoadError what="your meetings" message={errorMessage(loadError)} onRetry={() => refetch()} />

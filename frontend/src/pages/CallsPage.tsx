@@ -7,7 +7,7 @@ import { badges as badgesApi, calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useCalls } from '../components/CallManager'
 import { useToast } from '../components/Toast'
-import { Badge, Button, Card, EmptyState, LoadError, Pager, Spinner } from '../components/ui'
+import { Badge, Button, Card, EmptyState, LoadError, Pager, SkeletonList } from '../components/ui'
 
 export default function CallsPage() {
   const queryClient = useQueryClient()
@@ -82,7 +82,7 @@ export default function CallsPage() {
       <h1 className="text-xl font-semibold tracking-tight">Calls</h1>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={8} />
       ) : isError ? (
         <Card>
           <LoadError what="your calls" message={errorMessage(error)} onRetry={() => refetch()} />

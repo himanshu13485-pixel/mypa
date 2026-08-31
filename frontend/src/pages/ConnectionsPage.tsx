@@ -8,7 +8,18 @@ import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
 import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
-import { Badge, Button, Card, EmptyState, ErrorNote, Label, Modal, Select, Spinner, Textarea } from '../components/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorNote,
+  Label,
+  Modal,
+  Select,
+  SkeletonList,
+  Textarea,
+} from '../components/ui'
 import { Avatar } from '../lib/avatars'
 
 export default function ConnectionsPage() {
@@ -188,7 +199,7 @@ export default function ConnectionsPage() {
       </div>
 
       {isLoading ? (
-        <Spinner />
+        <SkeletonList rows={6} />
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Card className="min-w-0">
