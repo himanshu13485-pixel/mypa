@@ -24,7 +24,11 @@ function widthClass(className?: string): string | false {
  * does not change size when it takes focus.
  */
 const FIELD = [
-  'rounded-xl bg-white px-3 py-2 text-sm text-slate-900 shadow-sm',
+  // min-w-0 matters: a text input carries an intrinsic minimum width (the
+  // browser's default `size`), and a grid or flex item may not shrink below
+  // its content, so in a narrow column the box grew past its container while
+  // the dropdowns beside it behaved. Let every field shrink to its column.
+  'min-w-0 rounded-xl bg-white px-3 py-2 text-sm text-slate-900 shadow-sm',
   'ring-1 ring-inset ring-slate-200 transition-shadow',
   'focus:outline-none focus:ring-2 focus:ring-brand-500',
   'dark:bg-slate-800 dark:text-slate-100 dark:shadow-none dark:ring-slate-700',

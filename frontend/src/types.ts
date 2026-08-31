@@ -271,6 +271,7 @@ export interface AppNotification {
     priority?: string
     message: string
     actions?: string[]
+    action_path?: string | null
   }
   read_at: string | null
   created_at: string

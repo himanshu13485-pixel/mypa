@@ -37,3 +37,15 @@ Schedule::call(function () {
         ->where('created_at', '<', now()->subDays(60))
         ->delete();
 })->daily()->name('prune-read-notifications');
+
+// Unpaid invoices, chased on the days each company chose (its own schedule
+// decides; a company with the schedule off is skipped).
+Schedule::command('crm:chase-payments')->dailyAt('09:00')->withoutOverlapping();
+
+// Subscriptions bill before anyone is chased about them: the morning's
+// recurring documents go out first, then the reminder run reads the books.
+Schedule::command('crm:generate-recurring')->dailyAt('07:30')->withoutOverlapping();
+
+// The paid-leave accrual: one day a month to everyone past probation, and
+// on 1 April the year just ended is closed out and paid.
+Schedule::command('crm:credit-leaves')->monthlyOn(1, '00:20')->withoutOverlapping();

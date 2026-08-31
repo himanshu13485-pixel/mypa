@@ -29,6 +29,13 @@ Route::post('/webhooks/cashfree', [\App\Http\Controllers\Api\WebhookController::
 
 Route::prefix('v1')->group(function () {
 
+    // Cashfree telling one CRM company that a payment link was paid.
+    // Unauthenticated by nature: the signature over the raw body, checked
+    // against that company's own secret, is the whole guard. The company is
+    // in the path because each brings its own Cashfree account.
+    Route::post('/crm/webhooks/cashfree/{organizationUuid}', [\App\Http\Controllers\Api\V1\Crm\CashfreeWebhookController::class, 'handle'])
+        ->middleware('throttle:120,1');
+
     // Public pricing
     Route::get('/plans', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'plans'])
         ->middleware('throttle:30,1');
@@ -466,6 +473,526 @@ Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuest
             Route::put('/billing/coupons/{coupon:code}', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'updateCoupon']);
             Route::get('/billing/refunds', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'refunds']);
             Route::post('/billing/payments/{payment}/refund', [\App\Http\Controllers\Api\V1\Admin\BillingAdminController::class, 'createRefund']);
+        });
+
+        /*
+         * --- CRM addon -----------------------------------------------------
+         *
+         * A separate product living behind its own door. Nothing here touches
+         * the personal Netvork surface: access requires an active crm_members
+         * row (crm.member middleware), and per-module rights ride on it.
+         * Super admins manage which organizations have the addon at all.
+         */
+        Route::prefix('crm')->group(function () {
+            // Sidebar bootstrap — "not a member" is an answer, not an error.
+            Route::get('/me', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'me']);
+
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/masters', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'masters']);
+                Route::get('/dashboard', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'dashboard']);
+                Route::get('/badges', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'badges']);
+            // "I have looked at this section" — the sidebar badge goes quiet.
+            Route::post('/sections/{section}/seen', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'markSectionSeen']);
+            });
+
+            // Employees
+            // One's own record: profile, letters basis and documents — the
+            // person's right, no employees module right needed.
+            Route::get('/my/profile', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'myProfile'])->middleware('crm.member');
+            Route::get('/my/documents/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'downloadMyDocument'])->middleware('crm.member');
+
+            Route::middleware('crm.member:employees,view')->group(function () {
+                Route::get('/employees', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'index']);
+                Route::get('/employees/{uuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'show']);
+                Route::get('/employees/{uuid}/documents/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'downloadDocument']);
+            });
+            /*
+             * Everything that CHANGES an employee — registering, profile
+             * edits, salary, documents, deactivation — is company authority,
+             * not a grantable right. A Team Head reads their subtree above;
+             * only an admin or subadmin may write here.
+             */
+            Route::middleware(['crm.member', 'crm.manager'])->group(function () {
+                Route::post('/employees', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'store']);
+                Route::put('/employees/{uuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'update']);
+                Route::post('/employees/{uuid}/salary', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'addSalary']);
+                Route::delete('/employees/{uuid}/salary/{recordId}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'deleteSalary']);
+                // Compensation: the CTC structure, the incentive plan, and
+                // loans — the employee's terms, so company authority too.
+                Route::get('/employees/{uuid}/compensation', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'show']);
+                Route::post('/employees/{uuid}/compensation/structures', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'storeStructure']);
+                Route::delete('/employees/{uuid}/compensation/structures/{structureUuid}', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'deleteStructure']);
+                Route::post('/employees/{uuid}/compensation/plans', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'storePlan']);
+                Route::delete('/employees/{uuid}/compensation/plans/{planUuid}', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'deletePlan']);
+                Route::get('/employees/{uuid}/compensation/incentive-preview', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'preview']);
+                Route::post('/employees/{uuid}/compensation/payment-gate', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'setPaymentGate']);
+                Route::post('/employees/{uuid}/compensation/loans', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'storeLoan']);
+                Route::post('/employees/{uuid}/compensation/loans/{loanUuid}/repay', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'repayLoan']);
+                Route::post('/employees/{uuid}/compensation/loans/{loanUuid}/close', [\App\Http\Controllers\Api\V1\Crm\CompensationController::class, 'closeLoan']);
+                Route::post('/employees/{uuid}/documents', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'uploadDocument']);
+                Route::delete('/employees/{uuid}/documents/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'deleteDocument']);
+                Route::delete('/employees/{uuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'destroy']);
+            });
+
+            // Clients
+            Route::middleware('crm.member:clients,view')->group(function () {
+                Route::get('/clients', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'index']);
+                Route::get('/clients/options', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'options']);
+                Route::get('/clients/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'show']);
+            });
+            Route::post('/clients', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'store'])
+                ->middleware('crm.member:clients,create');
+            // "This client already exists — let me in on it."
+            Route::get('/client-requests', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'accessRequests'])
+                ->middleware('crm.member');
+            Route::post('/client-requests/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'decideAccessRequest'])
+                ->middleware('crm.member:clients,edit');
+            Route::put('/clients/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'update'])
+                ->middleware('crm.member:clients,edit');
+            // Hand a client to another employee (managers only, enforced in
+            // the controller — the rights matrix cannot express "not a lead").
+            Route::post('/clients/{uuid}/transfer', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'transfer'])
+                ->middleware('crm.member:clients,edit');
+            Route::delete('/clients/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'destroy'])
+                ->middleware('crm.member:clients,delete');
+
+            // Lead Generation + Lead Log (the log is a view over the trail)
+            Route::middleware('crm.member:leads,view')->group(function () {
+                Route::get('/leads', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'index']);
+                Route::get('/lead-log', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'log']);
+                Route::get('/leads/{uuid}', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'show']);
+                // Lead Duplication: the requests, own-only for non-deciders.
+                Route::get('/lead-requests', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'accessRequests']);
+                // What the follow-up popup nags about.
+                Route::get('/leads-due', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'due']);
+                // What the new-lead popup nags about.
+                Route::get('/leads-new', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'fresh']);
+            });
+            Route::post('/leads', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'store'])
+                ->middleware('crm.member:leads,create');
+            Route::middleware('crm.member:leads,edit')->group(function () {
+                Route::put('/leads/{uuid}', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'update']);
+                // Deciding a duplication, moving or sharing a lead: managers,
+            // checked in the controller.
+            Route::post('/lead-requests/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'decideAccessRequest'])
+                ->middleware('crm.member:leads,edit');
+            Route::post('/leads/{uuid}/transfer', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'transfer'])
+                ->middleware('crm.member:leads,edit');
+            // The reshuffle, and the client who came back.
+            Route::post('/leads/bulk-transfer', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'bulkTransfer'])
+                ->middleware('crm.member:leads,edit');
+            Route::post('/leads/bulk-share', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'bulkShare'])
+                ->middleware('crm.member:leads,edit');
+            Route::post('/leads/{uuid}/reopen', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'reopen'])
+                ->middleware('crm.member:leads,edit');
+            Route::post('/leads/{uuid}/share', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'share'])
+                ->middleware('crm.member:leads,edit');
+            Route::post('/leads/{uuid}/followup', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'followUp']);
+                Route::post('/leads/{uuid}/convert', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'convert']);
+            });
+            Route::delete('/leads/{uuid}', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'destroy'])
+                ->middleware('crm.member:leads,delete');
+            // Urgency is anyone-on-the-lead's; settling a duplicate is the
+            // Admin's — both gates live in the controller, view scope here.
+            Route::post('/leads/{uuid}/urgent', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'setUrgent'])
+                ->middleware('crm.member:leads,view');
+            Route::post('/leads/{uuid}/settle-duplicate', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'settleDuplicate'])
+                ->middleware('crm.member:leads,view');
+
+            // Targets: read for members (own row), write for managers
+            Route::get('/targets', [\App\Http\Controllers\Api\V1\Crm\TargetController::class, 'index'])
+                ->middleware('crm.member:targets,view');
+            Route::get('/targets/growth', [\App\Http\Controllers\Api\V1\Crm\TargetController::class, 'growth'])
+                ->middleware('crm.member:targets,view');
+            // Setting targets (and copying a month) is company authority —
+            // the Admin and Subadmin, never a granted right.
+            Route::middleware(['crm.member', 'crm.manager'])->group(function () {
+                Route::post('/targets', [\App\Http\Controllers\Api\V1\Crm\TargetController::class, 'upsert']);
+                Route::post('/targets/copy-previous', [\App\Http\Controllers\Api\V1\Crm\TargetController::class, 'copyPrevious']);
+            });
+
+            // Contests: every member plays; editing needs the module right
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/contests', [\App\Http\Controllers\Api\V1\Crm\ContestController::class, 'index']);
+                Route::get('/contests/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ContestController::class, 'show']);
+                Route::post('/contests/{uuid}/answer', [\App\Http\Controllers\Api\V1\Crm\ContestController::class, 'answer']);
+                Route::get('/contests/{uuid}/results', [\App\Http\Controllers\Api\V1\Crm\ContestController::class, 'results']);
+            });
+            // Contests are company authority: the Admin/Subadmin set,
+            // edit, replicate, grade and delete them. Everyone plays.
+            Route::post('/contests', [\App\Http\Controllers\Api\V1\Crm\ContestController::class, 'store'])
+                ->middleware(['crm.member', 'crm.manager']);
+            Route::post('/contests/{uuid}/replicate', [\App\Http\Controllers\Api\V1\Crm\ContestController::class, 'replicate'])
+                ->middleware(['crm.member', 'crm.manager']);
+            Route::middleware(['crm.member', 'crm.manager'])->group(function () {
+                Route::put('/contests/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ContestController::class, 'update']);
+                Route::post('/contests/{uuid}/answers/{answerId}/grade', [\App\Http\Controllers\Api\V1\Crm\ContestController::class, 'gradeAnswer']);
+            });
+            Route::delete('/contests/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ContestController::class, 'destroy'])
+                ->middleware(['crm.member', 'crm.manager']);
+
+            // DWR: everyone submits their own; the org-wide window is scoped
+            // inside the controller (dwr view right or admin/subadmin).
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/dwr', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'index']);
+                Route::get('/dwr/stats', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'stats']);
+                Route::get('/dwr/my-kpis', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'myKpis']);
+                Route::get('/dwr/prefill', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'prefill']);
+                Route::post('/dwr', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'store']);
+                Route::get('/dwr/{uuid}', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'show']);
+            });
+            // KPI catalog + per-employee assignment: company authority too.
+            Route::middleware(['crm.member', 'crm.manager'])->group(function () {
+                Route::get('/dwr-parameters', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'parameters']);
+                Route::post('/dwr-parameters', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'storeParameter']);
+                Route::put('/dwr-parameters/{id}', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'updateParameter']);
+                Route::get('/dwr-assignments/{memberUuid}', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'assignments']);
+                Route::put('/dwr-assignments/{memberUuid}', [\App\Http\Controllers\Api\V1\Crm\DwrController::class, 'saveAssignments']);
+            });
+
+            // Punch: everyone punches themselves; the report is scoped inside.
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/punch/today', [\App\Http\Controllers\Api\V1\Crm\PunchController::class, 'today']);
+                Route::post('/punch/in', [\App\Http\Controllers\Api\V1\Crm\PunchController::class, 'punchIn']);
+                Route::post('/punch/out', [\App\Http\Controllers\Api\V1\Crm\PunchController::class, 'punchOut']);
+                Route::get('/punch', [\App\Http\Controllers\Api\V1\Crm\PunchController::class, 'index']);
+            });
+            Route::put('/punch/{id}', [\App\Http\Controllers\Api\V1\Crm\PunchController::class, 'update'])
+                ->middleware('crm.member:punch,edit');
+
+            // Proforma + tax invoices (one engine; the kind rides on the row)
+            Route::middleware('crm.member:invoices,view')->group(function () {
+                Route::get('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'index']);
+                Route::get('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'show']);
+                // Invoice Log / Proforma Log — the trail, same ledger window.
+                Route::get('/invoice-log', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'log']);
+                // The paper copy, rendered server-side (print dialogs are not
+                // available in every browser the CRM runs in).
+                Route::post('/invoices/{uuid}/email', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'email']);
+                Route::get('/exports/invoices', [\App\Http\Controllers\Api\V1\Crm\ExportController::class, 'invoices']);
+                Route::get('/exports/payments', [\App\Http\Controllers\Api\V1\Crm\ExportController::class, 'payments']);
+                Route::get('/invoices/{uuid}/pdf', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'pdf']);
+            });
+            Route::post('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'store'])
+                ->middleware('crm.member:invoices,create');
+            Route::put('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'update'])
+                ->middleware('crm.member:invoices,edit');
+            Route::post('/invoices/{uuid}/cancel', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'cancel'])
+                ->middleware('crm.member:invoices,delete');
+            Route::post('/invoices/{uuid}/convert', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'convert'])
+                ->middleware('crm.member:invoices,create');
+            Route::post('/invoices/{uuid}/payments', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'addPayment'])
+                ->middleware('crm.member:payments,create');
+            Route::put('/invoices/{uuid}/payments/{paymentId}/charge', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'setPaymentCharge'])
+                ->middleware('crm.member:payments,edit');
+            Route::delete('/invoices/{uuid}/payments/{paymentId}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'deletePayment'])
+                ->middleware('crm.member:payments,delete');
+
+            // Payment inbox: bank credits logged, then claimed onto invoices
+            // Money still owed, and the chasing of it.
+            Route::middleware('crm.member:payments,view')->group(function () {
+                Route::get('/payments/outstanding', [\App\Http\Controllers\Api\V1\Crm\PaymentReminderController::class, 'outstanding']);
+                Route::get('/invoices/{invoiceUuid}/reminders', [\App\Http\Controllers\Api\V1\Crm\PaymentReminderController::class, 'index']);
+            });
+            Route::post('/invoices/{invoiceUuid}/reminders', [\App\Http\Controllers\Api\V1\Crm\PaymentReminderController::class, 'store'])
+                ->middleware('crm.member:payments,create');
+
+            Route::middleware('crm.member:payments,view')->group(function () {
+                Route::get('/payments', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'index']);
+            });
+            Route::post('/payments', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'store'])
+                ->middleware('crm.member:payments,create');
+            Route::middleware('crm.member:payments,edit')->group(function () {
+                Route::put('/payments/{uuid}', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'update']);
+                Route::post('/payments/{uuid}/claim', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'claim']);
+                // Settling and correcting are the Admin's, checked in the
+                // controller — the rights matrix cannot say "not a lead".
+                Route::post('/payments/{uuid}/settle', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'settle']);
+                Route::post('/payments/{uuid}/reclaim', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'reclaim']);
+                Route::post('/payments/{uuid}/unclaim', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'unclaim']);
+            });
+            Route::delete('/payments/{uuid}', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'destroy'])
+                ->middleware('crm.member:payments,delete');
+
+            // Vendors: registered before any bill can name them, exactly as
+            // a client is registered before an invoice. They ride the
+            // expenses rights, being the same head of work.
+            Route::middleware('crm.member:expenses,view')->group(function () {
+                Route::get('/vendors', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'index']);
+                Route::get('/vendors/options', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'options']);
+                Route::get('/vendors/{uuid}', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'show']);
+            });
+            Route::post('/vendors', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'store'])
+                ->middleware('crm.member:expenses,create');
+            Route::put('/vendors/{uuid}', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'update'])
+                ->middleware('crm.member:expenses,edit');
+            Route::delete('/vendors/{uuid}', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'destroy'])
+                ->middleware('crm.member:expenses,delete');
+
+            // HR Policy: the house rules everyone is measured against.
+            // Readable by all — rules people are judged by should be
+            // visible to them — and the Admin's alone to change.
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/hr-policy', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'show']);
+                Route::get('/hr-policy/holidays', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'holidays']);
+                Route::get('/hr-policy/leave-accounts', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'leaveAccounts']);
+                Route::get('/hr-policy/leave-accounts/{memberUuid}', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'leaveLedger']);
+                Route::put('/hr-policy', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'update']);
+                Route::put('/hr-policy/holidays', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'saveHolidays']);
+                Route::delete('/hr-policy/holidays/{uuid}', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'deleteHoliday']);
+                Route::post('/hr-policy/accrual', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'runAccrual']);
+                Route::post('/hr-policy/year-end', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'runYearEnd']);
+            });
+
+            // Expenses
+            Route::middleware('crm.member:expenses,view')->group(function () {
+                Route::get('/expenses', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'index']);
+                Route::get('/expenses/{uuid}/bills/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'downloadBill']);
+            });
+            Route::post('/expenses', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'store'])
+                ->middleware('crm.member:expenses,create');
+            Route::middleware('crm.member:expenses,edit')->group(function () {
+                Route::put('/expenses/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'update']);
+                Route::post('/expenses/{uuid}/payments', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'pay']);
+                Route::delete('/expenses/{uuid}/payments/{paymentUuid}', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'unpay']);
+                Route::post('/expenses/{uuid}/bills', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'uploadBill']);
+                Route::delete('/expenses/{uuid}/bills/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'deleteBill']);
+            });
+            Route::delete('/expenses/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'destroy'])
+                ->middleware('crm.member:expenses,delete');
+
+            // Salary: everyone reads (own slips scoped inside); managing needs rights
+            Route::get('/salary', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'index'])
+                ->middleware('crm.member');
+            Route::post('/salary/generate', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'generate'])
+                ->middleware('crm.member:salary,create');
+            // The Incentives ledger: own by default; another's needs the
+            // salary right. Rulings (hold/cancel/release) are manager acts.
+            // Office Assets: everyone reads their own kit; the full
+            // register needs the assets right (managers hold it by role).
+            Route::get('/assets', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'index'])->middleware('crm.member');
+            Route::get('/assets/mine', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'mine'])->middleware('crm.member');
+            Route::get('/assets/member/{memberUuid}', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'forMember'])->middleware('crm.member');
+            Route::post('/assets', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'store'])->middleware('crm.member');
+            Route::put('/assets/{uuid}', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'update'])->middleware('crm.member');
+            Route::post('/assets/{uuid}/allocate', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'allocate'])->middleware('crm.member');
+            Route::post('/assets/{uuid}/return', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'returnAsset'])->middleware('crm.member');
+            Route::post('/assets/{uuid}/repaired', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'repaired'])->middleware('crm.member');
+            Route::delete('/assets/{uuid}', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'destroy'])->middleware('crm.member');
+            Route::get('/assets/{uuid}/history', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'history'])->middleware('crm.member');
+            // The P&L: the Admin's page alone (gate inside).
+            Route::get('/pl', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'index'])->middleware('crm.member');
+            Route::get('/pl/config', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'config'])->middleware('crm.member');
+            Route::put('/pl/config', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'saveConfig'])->middleware('crm.member');
+            Route::post('/pl/lines', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'storeLine'])->middleware('crm.member');
+            Route::delete('/pl/lines/{id}', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'deleteLine'])->middleware('crm.member');
+            // Churn: reads with the reports right.
+            // Celebrations: festival vibes + the wishes wall.
+            Route::get('/chat-directory', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'chatDirectory'])->middleware('crm.member');
+            Route::get('/celebration-today', [\App\Http\Controllers\Api\V1\Crm\CelebrationController::class, 'today'])->middleware('crm.member');
+            Route::get('/wishes', [\App\Http\Controllers\Api\V1\Crm\CelebrationController::class, 'wishes'])->middleware('crm.member');
+            Route::post('/wishes', [\App\Http\Controllers\Api\V1\Crm\CelebrationController::class, 'sendWish'])->middleware('crm.member');
+            Route::get('/masters/festival-settings', [\App\Http\Controllers\Api\V1\Crm\CelebrationController::class, 'settings'])->middleware('crm.member:masters,edit');
+            Route::put('/masters/festival-settings', [\App\Http\Controllers\Api\V1\Crm\CelebrationController::class, 'saveSettings'])->middleware('crm.member:masters,edit');
+            Route::post('/masters/celebration-song', [\App\Http\Controllers\Api\V1\Crm\CelebrationController::class, 'uploadSong'])->middleware('crm.member:masters,edit');
+            Route::get('/churn', [\App\Http\Controllers\Api\V1\Crm\ChurnController::class, 'index'])->middleware('crm.member');
+            Route::get('/incentives', [\App\Http\Controllers\Api\V1\Crm\IncentiveController::class, 'index'])->middleware('crm.member');
+            Route::post('/incentives/hold', [\App\Http\Controllers\Api\V1\Crm\IncentiveController::class, 'hold'])->middleware('crm.member');
+            Route::post('/incentives/hold-all', [\App\Http\Controllers\Api\V1\Crm\IncentiveController::class, 'holdAll'])->middleware('crm.member');
+            Route::post('/incentives/holds/{uuid}/release', [\App\Http\Controllers\Api\V1\Crm\IncentiveController::class, 'release'])->middleware('crm.member');
+            Route::get('/salary/{uuid}/pdf', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'pdf'])
+                ->middleware('crm.member');
+            Route::post('/salary/{uuid}/recalculate', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'recalculate'])
+                ->middleware('crm.member:salary,edit');
+            Route::post('/salary/mark-paid', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'markPaid'])
+                ->middleware('crm.member:salary,edit');
+            Route::put('/salary/{uuid}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'update'])
+                ->middleware('crm.member:salary,edit');
+            Route::delete('/salary/{uuid}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'destroy'])
+                ->middleware('crm.member:salary,delete');
+
+            // Leaves: request your own; deciding needs the module right
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/leaves', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'index']);
+                Route::post('/leaves', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'store']);
+                Route::delete('/leaves/{uuid}', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'cancel']);
+            });
+            Route::post('/leaves/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'decide'])
+                ->middleware('crm.member:leaves,edit');
+
+            // Tasks with the approval flow
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/tasks', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'index']);
+                Route::post('/tasks/{uuid}/progress', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'progress']);
+            });
+            Route::post('/tasks', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'store'])
+                ->middleware('crm.member:tasks,create');
+            Route::middleware('crm.member:tasks,edit')->group(function () {
+                Route::put('/tasks/{uuid}', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'update']);
+                Route::post('/tasks/{uuid}/review', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'review']);
+            });
+            Route::delete('/tasks/{uuid}', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'destroy'])
+                ->middleware('crm.member:tasks,delete');
+
+            // Approvals register + inbox, and invoice update requests
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/approvals', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'index']);
+                // What this member may point a request at.
+                Route::get('/approvals/options', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'options']);
+                Route::post('/approvals', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'store']);
+                Route::get('/invoice-updates', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'invoiceUpdates']);
+                Route::post('/invoices/{invoiceUuid}/update-request', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'requestInvoiceUpdate']);
+            });
+            Route::post('/approvals/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'decide'])
+                ->middleware('crm.member:approvals,edit');
+            Route::post('/invoice-updates/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'decideInvoiceUpdate'])
+                ->middleware('crm.member:invoices,edit');
+
+            // Newsletters
+            Route::get('/newsletters', [\App\Http\Controllers\Api\V1\Crm\NewsletterController::class, 'index'])
+                ->middleware('crm.member:newsletters,view');
+            Route::post('/newsletters', [\App\Http\Controllers\Api\V1\Crm\NewsletterController::class, 'store'])
+                ->middleware('crm.member:newsletters,create');
+            Route::middleware('crm.member:newsletters,edit')->group(function () {
+                Route::put('/newsletters/{uuid}', [\App\Http\Controllers\Api\V1\Crm\NewsletterController::class, 'update']);
+                Route::post('/newsletters/{uuid}/send', [\App\Http\Controllers\Api\V1\Crm\NewsletterController::class, 'send']);
+            });
+            Route::delete('/newsletters/{uuid}', [\App\Http\Controllers\Api\V1\Crm\NewsletterController::class, 'destroy'])
+                ->middleware('crm.member:newsletters,delete');
+
+            // CMS notice board: everyone reads, editors manage
+            // Complaint Management System: client issues and the office's
+            // own working-out of them, in one record.
+            Route::middleware('crm.member:complaints,view')->group(function () {
+                Route::get('/complaints', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'index']);
+                Route::get('/complaints-due', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'due']);
+                Route::get('/complaints/options', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'options']);
+                Route::get('/complaints/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'show']);
+                Route::get('/complaints/{uuid}/files/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'downloadFile']);
+                // Anyone who can see a complaint can talk on it — that is
+                // what makes the internal thread worth having.
+                Route::post('/complaints/{uuid}/replies', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'reply']);
+                Route::delete('/complaints/{uuid}/replies/{replyUuid}', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'deleteReply']);
+            });
+            Route::post('/complaints', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'store'])
+                ->middleware('crm.member:complaints,create');
+            Route::middleware('crm.member:complaints,edit')->group(function () {
+                Route::put('/complaints/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'update']);
+                Route::post('/complaints/{uuid}/allocate', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'allocate']);
+                Route::post('/complaints/{uuid}/status', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'status']);
+                Route::post('/complaints/{uuid}/files', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'uploadFile']);
+                Route::delete('/complaints/{uuid}/files/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'deleteFile']);
+            });
+            Route::delete('/complaints/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'destroy'])
+                ->middleware('crm.member:complaints,delete');
+
+            Route::get('/cms', [\App\Http\Controllers\Api\V1\Crm\CmsController::class, 'index'])
+                ->middleware('crm.member');
+            Route::post('/cms', [\App\Http\Controllers\Api\V1\Crm\CmsController::class, 'store'])
+                ->middleware('crm.member:cms,create');
+            Route::put('/cms/{uuid}', [\App\Http\Controllers\Api\V1\Crm\CmsController::class, 'update'])
+                ->middleware('crm.member:cms,edit');
+            Route::delete('/cms/{uuid}', [\App\Http\Controllers\Api\V1\Crm\CmsController::class, 'destroy'])
+                ->middleware('crm.member:cms,delete');
+
+            /*
+             * Dedicated Company Workspace (DCW): extra form fields a company
+             * requests for itself. Managing them is company authority; the
+             * Super Admin approves before anything appears on a form.
+             */
+            Route::middleware(['crm.member', 'crm.manager'])->group(function () {
+                Route::get('/workspace-fields', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'index']);
+                Route::post('/workspace-fields', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'store']);
+                Route::delete('/workspace-fields/{uuid}', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'destroy']);
+            });
+
+            // Reports: the controller holds the stricter door — the Admin,
+            // plus a Subadmin named with reports.view. The User Log keeps
+            // the reports module right.
+            Route::get('/reports/overview', [\App\Http\Controllers\Api\V1\Crm\ReportController::class, 'overview'])
+                ->middleware('crm.member');
+            Route::get('/user-log', [\App\Http\Controllers\Api\V1\Crm\ReportController::class, 'userLog'])
+                ->middleware('crm.member:reports,view');
+
+            // Commission to a client: an expense tied to a sale, never a
+            // line on the invoice.
+            Route::get('/commissions', [\App\Http\Controllers\Api\V1\Crm\CommissionController::class, 'index'])
+                ->middleware('crm.member:expenses,view');
+            Route::post('/commissions', [\App\Http\Controllers\Api\V1\Crm\CommissionController::class, 'store'])
+                ->middleware('crm.member:expenses,create');
+            Route::delete('/commissions/{uuid}', [\App\Http\Controllers\Api\V1\Crm\CommissionController::class, 'destroy'])
+                ->middleware('crm.member:expenses,delete');
+
+            // Internal notes on a document: whoever can see it can speak.
+            Route::middleware('crm.member:invoices,view')->group(function () {
+                Route::get('/invoices/{invoiceUuid}/notes', [\App\Http\Controllers\Api\V1\Crm\InvoiceNoteController::class, 'index']);
+                Route::post('/invoices/{invoiceUuid}/notes', [\App\Http\Controllers\Api\V1\Crm\InvoiceNoteController::class, 'store']);
+                Route::delete('/invoices/{invoiceUuid}/notes/{noteUuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceNoteController::class, 'destroy']);
+            });
+
+            // Subscriptions: a document told to happen again.
+            Route::get('/recurring', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'index'])
+                ->middleware('crm.member:invoices,view');
+            Route::post('/invoices/{invoiceUuid}/recurring', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'store'])
+                ->middleware('crm.member:invoices,create');
+            Route::post('/recurring/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'decide'])
+                ->middleware('crm.member:invoices,edit');
+            Route::post('/recurring/{uuid}/run', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'run'])
+                ->middleware('crm.member:invoices,create');
+
+            // "Pay online" links against a proforma or an invoice.
+            Route::get('/invoices/{invoiceUuid}/payment-links', [\App\Http\Controllers\Api\V1\Crm\PaymentLinkController::class, 'index'])
+                ->middleware('crm.member:payments,view');
+            Route::post('/invoices/{invoiceUuid}/payment-links', [\App\Http\Controllers\Api\V1\Crm\PaymentLinkController::class, 'store'])
+                ->middleware('crm.member:payments,create');
+            Route::get('/masters/payment-gateway', [\App\Http\Controllers\Api\V1\Crm\PaymentLinkController::class, 'settings'])
+                ->middleware('crm.member:masters,edit');
+            Route::put('/masters/payment-gateway', [\App\Http\Controllers\Api\V1\Crm\PaymentLinkController::class, 'saveSettings'])
+                ->middleware('crm.member:masters,edit');
+
+            // How this company settles payments and chases unpaid invoices.
+            Route::get('/masters/payment-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'paymentSettings'])
+                ->middleware('crm.member:payments,view');
+            Route::get('/masters/lead-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'leadSettings'])
+                ->middleware('crm.member:leads,view');
+            Route::get('/masters/lead-options', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'leadOptions'])
+                ->middleware('crm.member:leads,view');
+            Route::get('/masters/complaint-options', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'complaintOptions'])
+                ->middleware('crm.member');
+            Route::get('/masters/approval-types', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'approvalTypes'])
+                ->middleware('crm.member:approvals,view');
+
+            // Billing masters
+            Route::middleware('crm.member:masters,edit')->group(function () {
+                Route::put('/masters/payment-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'savePaymentSettings']);
+                Route::put('/masters/lead-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveLeadSettings']);
+                Route::put('/masters/lead-options', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveLeadOptions']);
+                Route::put('/masters/approval-types', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveApprovalTypes']);
+                Route::put('/masters/complaint-options', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveComplaintOptions']);
+                Route::post('/masters/issuing-companies', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeCompany']);
+                Route::put('/masters/issuing-companies/{id}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'updateCompany']);
+                Route::post('/masters/issuing-companies/{id}/logo', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'uploadCompanyLogo']);
+                Route::get('/masters/fx-rate', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'fxRate']);
+                Route::put('/masters/fx-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveFxSettings']);
+                Route::get('/masters/birthday-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'birthdaySettings']);
+                Route::put('/masters/birthday-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveBirthdaySettings']);
+                Route::get('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'communicationSettings']);
+                Route::put('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveCommunicationSettings']);
+                Route::post('/masters/bank-accounts', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeBank']);
+                Route::put('/masters/bank-accounts/{id}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'updateBank']);
+            });
+        });
+
+        // The addon switch itself: super admin only.
+        Route::prefix('admin/crm')->middleware('role:super_admin')->group(function () {
+            Route::get('/organizations', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'index']);
+            Route::post('/organizations', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'store']);
+            Route::put('/organizations/{organization}', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'update']);
+            Route::get('/organizations/{organization}/members', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'members']);
+            Route::post('/organizations/{organization}/enter', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'enter']);
+            // DCW approvals across every company.
+            Route::get('/field-requests', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'pending']);
+            Route::post('/field-requests/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'decide']);
         });
     });
 });

@@ -68,6 +68,12 @@ export default function NotificationBell() {
     if (n.data.task_uuid) {
       setOpen(false)
       navigate(`/tasks?open=${n.data.task_uuid}`)
+      return
+    }
+    // CRM (and any future) notifications carry their destination with them.
+    if (n.data.action_path) {
+      setOpen(false)
+      navigate(n.data.action_path)
     }
   }
 

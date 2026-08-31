@@ -65,7 +65,9 @@ return [
     |
     */
 
-    'timezone' => 'UTC',
+    // Netvork runs on Indian Standard Time — punches, DWRs, follow-up
+    // alerts and "today" boundaries all read the office clock, not UTC.
+    'timezone' => env('APP_TIMEZONE', 'Asia/Kolkata'),
 
     /*
     |--------------------------------------------------------------------------

@@ -1,0 +1,136 @@
+import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { BellRing, ExternalLink, X } from 'lucide-react'
+import { crm, crmCan, type CrmMe } from '../../api/crm'
+import { Button } from '../../components/ui'
+
+const SNOOZE_KEY = 'crm-new-lead-alert-snooze-until'
+
+/**
+ * The new-lead nag. The moment a lead lands on somebody's desk it pops up
+ * — no waiting for a poll cycle beyond the next fetch — and keeps coming
+ * back every N minutes (the Admin's "new lead" knob, 15 by default) until
+ * the person attends it. Attending means recording the first follow-up or
+ * moving the status; from then on the ordinary follow-up alerts own it.
+ */
+export function NewLeadAlerts({ me }: { me: CrmMe | undefined }) {
+  const enabled = !!me?.enabled && crmCan(me, 'leads', 'view')
+  const [open, setOpen] = useState(false)
+  const [processing, setProcessing] = useState<Set<string>>(new Set())
+
+  const { data } = useQuery({
+    queryKey: ['crm', 'leads-new'],
+    queryFn: crm.leads.fresh,
+    enabled,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: true,
+  })
+
+  const fresh = data?.data ?? []
+  const snoozeMinutes = data?.alert_minutes ?? 15
+
+  // Pop up whenever an unattended lead exists and the snooze has passed.
+  useEffect(() => {
+    if (fresh.length === 0) {
+      setOpen(false)
+      return
+    }
+    let snoozedUntil = 0
+    try {
+      snoozedUntil = Number(sessionStorage.getItem(SNOOZE_KEY) ?? 0)
+    } catch { /* storage may be unavailable; nag rather than stay silent */ }
+    if (Date.now() >= snoozedUntil) {
+      setOpen(true)
+    } else {
+      // Wake exactly when the snooze runs out, not a poll later.
+      const timer = setTimeout(() => setOpen(true), snoozedUntil - Date.now())
+      return () => clearTimeout(timer)
+    }
+  }, [fresh.length])
+
+  // A lead that left the list was attended — stop calling it Processing.
+  useEffect(() => {
+    setProcessing((prev) => {
+      const still = new Set([...prev].filter((uuid) => fresh.some((l) => l.uuid === uuid)))
+      return still.size === prev.size ? prev : still
+    })
+  }, [fresh])
+
+  if (!open || fresh.length === 0) return null
+
+  const snooze = () => {
+    try {
+      sessionStorage.setItem(SNOOZE_KEY, String(Date.now() + snoozeMinutes * 60_000))
+    } catch { /* without storage the next poll reopens it — safe direction */ }
+    setOpen(false)
+  }
+
+  const openLead = (uuid: string) => {
+    setProcessing((prev) => new Set(prev).add(uuid))
+    window.open(`/crm/leads/${uuid}`, '_blank', 'noopener')
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl dark:bg-slate-900">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5 dark:border-slate-800">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+            <BellRing className="size-4 text-emerald-500" />
+            {fresh.length === 1 ? 'A new lead has arrived' : `${fresh.length} new leads have arrived`}
+          </h2>
+          <button onClick={snooze} aria-label="Remind me later" className="rounded p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* One popup, however many leads — scrolling past five. */}
+        <ul className="max-h-80 divide-y divide-slate-50 overflow-y-auto px-5 dark:divide-slate-800/60">
+          {fresh.map((lead) => {
+            const isProcessing = processing.has(lead.uuid)
+            return (
+              <li key={lead.uuid} className="flex items-center gap-3 py-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-medium text-slate-800 dark:text-slate-100">
+                      #{lead.lead_no} {lead.company_name}
+                    </span>
+                    {lead.is_urgent && (
+                      <span className="rounded-full bg-red-500 px-2 py-0.5 text-[11px] font-semibold text-white">
+                        URGENT
+                      </span>
+                    )}
+                    {isProcessing && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                        Processing…
+                      </span>
+                    )}
+                  </div>
+                  <div className="truncate text-xs text-slate-500">
+                    {[lead.contact_person, lead.mobile, lead.created_by && `from ${lead.created_by}`]
+                      .filter(Boolean).join(' · ')}
+                  </div>
+                  <div className="text-xs text-emerald-600">
+                    {lead.waiting_minutes <= 1 ? 'arrived just now'
+                      : lead.waiting_minutes >= 60
+                        ? `waiting ${Math.floor(lead.waiting_minutes / 60)}h ${lead.waiting_minutes % 60}m`
+                        : `waiting ${lead.waiting_minutes}m`}
+                  </div>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => openLead(lead.uuid)}>
+                  <ExternalLink className="size-3.5" /> Attend
+                </Button>
+              </li>
+            )
+          })}
+        </ul>
+
+        <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-5 py-3 dark:border-slate-800">
+          <span className="text-xs text-slate-400">
+            Attending a lead — a first follow-up or a status change — clears it. Otherwise this returns in {snoozeMinutes} minutes.
+          </span>
+          <Button size="sm" variant="secondary" onClick={snooze}>Remind me later</Button>
+        </div>
+      </div>
+    </div>
+  )
+}

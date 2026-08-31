@@ -49,6 +49,51 @@ const TermsPage = lazyRoute('TermsPage', () => import('./pages/site/InfoPages').
 const PrivacyPage = lazyRoute('PrivacyPage', () => import('./pages/site/InfoPages').then((m) => ({ default: m.PrivacyPage })))
 const SubscriptionPage = lazyRoute('SubscriptionPage', () => import('./pages/SubscriptionPage'))
 const PaymentStatusPage = lazyRoute('PaymentStatusPage', () => import('./pages/PaymentStatusPage'))
+// The CRM addon: its own shell and route tree, fully apart from the personal app.
+const CrmLayout = lazyRoute('CrmLayout', () => import('./pages/crm/CrmLayout'))
+const CrmDashboard = lazyRoute('CrmDashboard', () => import('./pages/crm/CrmDashboard'))
+const CrmEmployeesPage = lazyRoute('CrmEmployeesPage', () => import('./pages/crm/CrmEmployeesPage'))
+const CrmEmployeeFormPage = lazyRoute('CrmEmployeeFormPage', () => import('./pages/crm/CrmEmployeeFormPage'))
+const CrmClientsPage = lazyRoute('CrmClientsPage', () => import('./pages/crm/CrmClientsPage'))
+const CrmClientDetailPage = lazyRoute('CrmClientDetailPage', () => import('./pages/crm/CrmClientDetailPage'))
+const CrmLeadsPage = lazyRoute('CrmLeadsPage', () => import('./pages/crm/CrmLeadsPage'))
+const CrmLeadDetailPage = lazyRoute('CrmLeadDetailPage', () => import('./pages/crm/CrmLeadDetailPage'))
+const CrmLeadLogPage = lazyRoute('CrmLeadLogPage', () => import('./pages/crm/CrmLeadLogPage'))
+const CrmTargetsPage = lazyRoute('CrmTargetsPage', () => import('./pages/crm/CrmTargetsPage'))
+const CrmContestsPage = lazyRoute('CrmContestsPage', () => import('./pages/crm/CrmContestsPage'))
+const CrmContestPlayPage = lazyRoute('CrmContestPlayPage', () => import('./pages/crm/CrmContestPlayPage'))
+const CrmDwrPage = lazyRoute('CrmDwrPage', () => import('./pages/crm/CrmDwrPage'))
+const CrmPunchPage = lazyRoute('CrmPunchPage', () => import('./pages/crm/CrmPunchPage'))
+const CrmPaymentsPage = lazyRoute('CrmPaymentsPage', () => import('./pages/crm/CrmPaymentsPage'))
+const CrmExpensesPage = lazyRoute('CrmExpensesPage', () => import('./pages/crm/CrmExpensesPage'))
+const CrmVendorsPage = lazyRoute('CrmVendorsPage', () => import('./pages/crm/CrmVendorsPage'))
+const CrmComplaintsPage = lazyRoute('CrmComplaintsPage', () => import('./pages/crm/CrmComplaintsPage'))
+const CrmComplaintDetailPage = lazyRoute('CrmComplaintDetailPage', () => import('./pages/crm/CrmComplaintDetailPage'))
+const CrmComplaintLogPage = lazyRoute('CrmComplaintLogPage', () => import('./pages/crm/CrmComplaintLogPage'))
+const CrmHrPolicyPage = lazyRoute('CrmHrPolicyPage', () => import('./pages/crm/CrmHrPolicyPage'))
+const CrmIncentivesPage = lazyRoute('CrmIncentivesPage', () => import('./pages/crm/CrmIncentivesPage'))
+const CrmSalaryPage = lazyRoute('CrmSalaryPage', () => import('./pages/crm/CrmSalaryPage'))
+const CrmLeavesPage = lazyRoute('CrmLeavesPage', () => import('./pages/crm/CrmLeavesPage'))
+const CrmTasksPage = lazyRoute('CrmTasksPage', () => import('./pages/crm/CrmTasksPage'))
+const CrmApprovalsPage = lazyRoute('CrmApprovalsPage', () => import('./pages/crm/CrmApprovalsPage'))
+const CrmNewslettersPage = lazyRoute('CrmNewslettersPage', () => import('./pages/crm/CrmNewslettersPage'))
+const CrmCmsPage = lazyRoute('CrmCmsPage', () => import('./pages/crm/CrmCmsPage'))
+const CrmUserLogPage = lazyRoute('CrmUserLogPage', () => import('./pages/crm/CrmUserLogPage'))
+const CrmReportsPage = lazyRoute('CrmReportsPage', () => import('./pages/crm/CrmReportsPage'))
+const CrmWorkspaceFieldsPage = lazyRoute('CrmWorkspaceFieldsPage', () => import('./pages/crm/CrmWorkspaceFieldsPage'))
+const CrmFieldRequestsPage = lazyRoute('CrmFieldRequestsPage', () => import('./pages/crm/CrmFieldRequestsPage'))
+const CrmInvoicesPage = lazyRoute('CrmInvoicesPage', () => import('./pages/crm/CrmInvoicesPage'))
+const CrmInvoiceLogPage = lazyRoute('CrmInvoiceLogPage', () => import('./pages/crm/CrmInvoiceLogPage'))
+const CrmRecurringPage = lazyRoute('CrmRecurringPage', () => import('./pages/crm/CrmRecurringPage'))
+const CrmCommissionsPage = lazyRoute('CrmCommissionsPage', () => import('./pages/crm/CrmCommissionsPage'))
+const CrmInvoiceFormPage = lazyRoute('CrmInvoiceFormPage', () => import('./pages/crm/CrmInvoiceFormPage'))
+const CrmInvoiceViewPage = lazyRoute('CrmInvoiceViewPage', () => import('./pages/crm/CrmInvoiceViewPage'))
+const CrmSettingsPage = lazyRoute('CrmSettingsPage', () => import('./pages/crm/CrmSettingsPage'))
+const CrmOrganizationsPage = lazyRoute('CrmOrganizationsPage', () => import('./pages/crm/CrmOrganizationsPage'))
+const CrmPlPage = lazyRoute('CrmPlPage', () => import('./pages/crm/CrmPlPage'))
+const CrmAssetsPage = lazyRoute('CrmAssetsPage', () => import('./pages/crm/CrmAssetsPage'))
+const CrmChurnPage = lazyRoute('CrmChurnPage', () => import('./pages/crm/CrmChurnPage'))
+const CrmCommunicationPage = lazyRoute('CrmCommunicationPage', () => import('./pages/crm/CrmCommunicationPage'))
 
 export default function App() {
   return (
@@ -94,6 +139,70 @@ export default function App() {
               </RequireAuth>
             }
           />
+          {/* CRM addon: its own shell, not the personal Layout. */}
+          <Route
+            path="/crm"
+            element={
+              <RequireAuth>
+                <CrmLayout />
+              </RequireAuth>
+            }
+          >
+            <Route index element={<CrmDashboard />} />
+            <Route path="employees" element={<CrmEmployeesPage />} />
+            <Route path="employees/new" element={<CrmEmployeeFormPage />} />
+            <Route path="employees/:uuid" element={<CrmEmployeeFormPage />} />
+            <Route path="clients" element={<CrmClientsPage />} />
+            <Route path="clients/:uuid" element={<CrmClientDetailPage />} />
+            <Route path="leads" element={<CrmLeadsPage />} />
+            <Route path="leads/:uuid" element={<CrmLeadDetailPage />} />
+            <Route path="lead-log" element={<CrmLeadLogPage />} />
+            <Route path="targets" element={<CrmTargetsPage />} />
+            <Route path="dwr" element={<CrmDwrPage />} />
+            <Route path="punch" element={<CrmPunchPage />} />
+            <Route path="payments" element={<CrmPaymentsPage />} />
+            <Route path="complaints" element={<CrmComplaintsPage />} />
+            <Route path="complaint-log" element={<CrmComplaintLogPage />} />
+            <Route path="hr-policy" element={<CrmHrPolicyPage />} />
+            <Route path="incentives" element={<CrmIncentivesPage />} />
+            <Route path="complaints/:uuid" element={<CrmComplaintDetailPage />} />
+            <Route path="vendors" element={<CrmVendorsPage />} />
+            <Route path="expenses" element={<CrmExpensesPage />} />
+            <Route path="salary" element={<CrmSalaryPage />} />
+            <Route path="leaves" element={<CrmLeavesPage />} />
+            <Route path="tasks" element={<CrmTasksPage />} />
+            <Route path="approvals" element={<CrmApprovalsPage />} />
+            <Route path="newsletters" element={<CrmNewslettersPage />} />
+            <Route path="cms" element={<CrmCmsPage />} />
+            <Route path="user-log" element={<CrmUserLogPage />} />
+            <Route path="reports" element={<CrmReportsPage />} />
+            <Route path="workspace-fields" element={<CrmWorkspaceFieldsPage />} />
+            <Route path="field-requests" element={<CrmFieldRequestsPage />} />
+            <Route path="contests" element={<CrmContestsPage />} />
+            <Route path="contests/:uuid" element={<CrmContestPlayPage />} />
+            <Route path="invoices" element={<CrmInvoicesPage />} />
+            <Route path="invoice-log" element={<CrmInvoiceLogPage />} />
+            <Route path="recurring" element={<CrmRecurringPage />} />
+            <Route path="commissions" element={<CrmCommissionsPage />} />
+            <Route path="invoices/new" element={<CrmInvoiceFormPage />} />
+            <Route path="invoices/:uuid" element={<CrmInvoiceViewPage />} />
+            <Route path="invoices/:uuid/edit" element={<CrmInvoiceFormPage />} />
+            <Route path="settings" element={<CrmSettingsPage />} />
+            {/* Connect inside the CRM: the same pages as the personal side,
+                same data, just wearing the company shell. */}
+            <Route path="connect/connections" element={<ConnectionsPage />} />
+            <Route path="connect/groups" element={<GroupsPage />} />
+            <Route path="connect/messages" element={<MessagesPage />} />
+            <Route path="connect/calls" element={<CallsPage />} />
+            <Route path="connect/meetings" element={<MeetingsPage />} />
+            <Route path="connect/screen" element={<ScreenPage />} />
+            <Route path="connect/calendar" element={<CalendarPage />} />
+            <Route path="pl" element={<CrmPlPage />} />
+            <Route path="assets" element={<CrmAssetsPage />} />
+            <Route path="churn" element={<CrmChurnPage />} />
+            <Route path="communication" element={<CrmCommunicationPage />} />
+            <Route path="organizations" element={<CrmOrganizationsPage />} />
+          </Route>
           <Route
             element={
               <RequireAuth>

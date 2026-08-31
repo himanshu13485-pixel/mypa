@@ -1,0 +1,1065 @@
+import { useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlarmClock, ArrowLeft, ArrowRightLeft, Ban, Copy, CreditCard, Download, ExternalLink, FileDiff, Lock, Pencil, Percent, Plus, Printer, Repeat, Send, Trash2 } from 'lucide-react'
+import { clsx } from 'clsx'
+import { crm, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS, CRM_RECURRING_FREQUENCY_LABELS, validityMonths } from '../../api/crm'
+import { errorMessage } from '../../api/client'
+import { useToast } from '../../components/Toast'
+import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
+
+const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** "9.000" reads as 9, "2.500" as 2.5. */
+const trimRate = (v: string) => String(Number(v))
+
+
+
+export default function CrmInvoiceViewPage() {
+  const { uuid } = useParams()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const [showPayment, setShowPayment] = useState(false)
+  const [showRepeat, setShowRepeat] = useState(false)
+  const [showChangeRequest, setShowChangeRequest] = useState(false)
+
+  const { data: inv, isLoading } = useQuery({
+    queryKey: ['crm', 'invoice', uuid],
+    queryFn: () => crm.invoices.get(uuid!),
+  })
+  const { data: docMasters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
+  const workOrderFields = docMasters?.work_order_custom_fields ?? []
+  // The document prints the company's own Work Order wording.
+  const column = (key: string) =>
+    (docMasters?.work_order_method ?? []).find((c) => c.source === 'builtin' && c.key === key)
+  const columnLabel = (key: string, fallback: string) => column(key)?.label ?? fallback
+  // The document's own extra fields, if this company added any.
+  const documentFields = (docMasters?.invoice_custom_fields ?? [])
+    .map((f) => ({ label: f.label, value: inv?.custom_fields?.[f.key] }))
+    .filter((f) => f.value !== undefined && f.value !== null && f.value !== '' && f.value !== false)
+  const columnShown = (key: string) => !column(key)?.hidden
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['crm', 'invoice', uuid] })
+    queryClient.invalidateQueries({ queryKey: ['crm', 'invoices'] })
+  }
+
+  /**
+   * Download rather than print: an embedded browser refuses the print dialog
+   * ("this app doesn't support print preview"), but it will happily save a
+   * file. Print stays for a normal browser window.
+   */
+  const downloadPdf = async () => {
+    try {
+      const blob = await crm.invoices.pdf(uuid!)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${inv?.number ?? 'document'}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
+  }
+
+  // "Pay online": raised against this document, for whatever is still owed.
+  const { data: links } = useQuery({
+    queryKey: ['crm', 'payment-links', uuid],
+    queryFn: () => crm.payments.links(uuid!),
+    enabled: !!uuid,
+  })
+  const openLink = links?.data.find((l) => l.is_open) ?? null
+  const paidLink = links?.data.find((l) => l.status === 'paid') ?? null
+
+  const linkMutation = useMutation({
+    mutationFn: () => crm.payments.createLink(uuid!, {}),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'payment-links', uuid] })
+      toast(res.message, 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const copyPayLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url)
+      toast('Payment link copied.', 'success')
+    } catch {
+      toastError('Could not copy — open the link and copy it from the address bar.')
+    }
+  }
+
+  const convertMutation = useMutation({
+    mutationFn: () => crm.invoices.convert(uuid!),
+    onSuccess: (res) => {
+      toast(res.message, 'success')
+      queryClient.invalidateQueries({ queryKey: ['crm'] })
+      navigate(`/crm/invoices/${res.data.uuid}`)
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const [emailing, setEmailing] = useState(false)
+  const emailMutation = useMutation({
+    mutationFn: (payload: { to?: string; from?: 'default' | 'invoice' | 'dues'; message?: string }) =>
+      crm.invoices.email(uuid!, payload),
+    onSuccess: (res) => { toast(res.message, 'success'); setEmailing(false) },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const cancelMutation = useMutation({
+    mutationFn: () => crm.invoices.cancel(uuid!),
+    onSuccess: (res: { message?: string }) => { toast(res.message ?? 'Cancelled.', 'success'); refresh() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  if (isLoading || !inv) {
+    return <div className="flex justify-center py-20"><Spinner /></div>
+  }
+
+  const isProforma = inv.kind === 'proforma'
+  const balance = Number(inv.total) - Number(inv.amount_received || 0)
+
+  return (
+    <div className="mx-auto max-w-5xl space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <div className="flex items-center gap-2">
+          <button onClick={() => navigate(`/crm/invoices?kind=${inv.kind}`)} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+            <ArrowLeft className="size-4" />
+          </button>
+          <div>
+            <h1 className="text-xl font-semibold text-slate-900 dark:text-white">
+              {inv.number}
+              <span className="ml-2 align-middle text-xs font-medium uppercase tracking-wide text-slate-400">{isProforma ? 'Proforma' : 'Tax invoice'}</span>
+            </h1>
+            <p className="text-sm text-slate-500">
+              {inv.client?.company_name}
+              {inv.status === 'cancelled' && <span className="ml-2 font-medium text-red-500">Cancelled</span>}
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" onClick={downloadPdf}><Download className="size-4" /> Download PDF</Button>
+          <Button variant="secondary" onClick={() => setEmailing(true)}><Send className="size-4" /> Email</Button>
+          <Button variant="secondary" onClick={() => window.print()} className="hidden sm:inline-flex">
+            <Printer className="size-4" /> Print
+          </Button>
+          {inv.status !== 'cancelled' && !(isProforma && inv.converted_to) && (
+            <Button variant="secondary" onClick={() => navigate(`/crm/invoices/${inv.uuid}/edit`)}><Pencil className="size-4" /> Edit</Button>
+          )}
+          {isProforma && inv.status !== 'cancelled' && !inv.converted_to && (
+            <Button onClick={() => { if (confirm(`Convert ${inv.number} into a tax invoice?`)) convertMutation.mutate() }} disabled={convertMutation.isPending}>
+              <ArrowRightLeft className="size-4" /> Convert to invoice
+            </Button>
+          )}
+          {!isProforma && inv.status !== 'cancelled' && (
+            <Button onClick={() => setShowPayment(true)}><Plus className="size-4" /> Record payment</Button>
+          )}
+          {/* Chasing lives with the document it is about. */}
+          {!isProforma && inv.status !== 'cancelled' && inv.payment_status !== 'paid' && (
+            <Button variant="secondary" onClick={() => navigate('/crm/payments?tab=outstanding&invoice=' + inv.number)}>
+              <AlarmClock className="size-4" /> Chase payment
+            </Button>
+          )}
+          {/* A proforma is what most clients are asked to pay, so the link
+              belongs on both kinds. */}
+          {inv.status !== 'cancelled' && inv.payment_status !== 'paid' && !inv.converted_to && (
+            openLink ? (
+              <Button variant="secondary" onClick={() => copyPayLink(openLink.link_url ?? '')}>
+                <Copy className="size-4" /> Copy pay link
+              </Button>
+            ) : links?.gateway.configured ? (
+              <Button variant="secondary" onClick={() => linkMutation.mutate()} disabled={linkMutation.isPending}>
+                <CreditCard className="size-4" /> {linkMutation.isPending ? 'Asking Cashfree…' : 'Payment link'}
+              </Button>
+            ) : null
+          )}
+          {!isProforma && inv.status !== 'cancelled' && (
+            <Button variant="secondary" onClick={() => setShowChangeRequest(true)}>
+              <FileDiff className="size-4" /> Request change
+            </Button>
+          )}
+          {inv.status !== 'cancelled' && !inv.converted_to && (
+            <Button variant="secondary" onClick={() => setShowRepeat(true)}>
+              <Repeat className="size-4" /> Repeat
+            </Button>
+          )}
+          {inv.status !== 'cancelled' && inv.payments.length === 0 && (
+            <Button variant="danger" onClick={() => { if (confirm(`Cancel ${inv.number}? This cannot be undone.`)) cancelMutation.mutate() }}>
+              <Ban className="size-4" /> Cancel
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {(openLink || paidLink) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl bg-slate-50 px-4 py-2.5 text-sm dark:bg-slate-800/60 print:hidden">
+          <CreditCard className="size-4 text-emerald-500" />
+          {paidLink ? (
+            <span className="text-slate-600 dark:text-slate-300">
+              Paid online on {paidLink.paid_at?.slice(0, 16)} — {inr(paidLink.amount_paid)} through Cashfree.
+            </span>
+          ) : (
+            <>
+              <span className="text-slate-600 dark:text-slate-300">
+                Payment link for {inr(openLink!.amount)}
+                {openLink!.expires_at && <span className="text-slate-400"> · expires {openLink!.expires_at.slice(0, 10)}</span>}
+              </span>
+              <a
+                href={openLink!.link_url ?? '#'}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-emerald-600 hover:underline"
+              >
+                Open <ExternalLink className="size-3.5" />
+              </a>
+              <button onClick={() => copyPayLink(openLink!.link_url ?? '')} className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                Copy
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {(inv.converted_from || inv.converted_to) && (
+        <p className="text-sm text-slate-500 print:hidden">
+          {inv.converted_from && <>Created from proforma <Link className="font-medium text-emerald-600 hover:underline" to={`/crm/invoices/${inv.converted_from.uuid}`}>{inv.converted_from.number}</Link>.</>}
+          {inv.converted_to && <>Converted to invoice <Link className="font-medium text-emerald-600 hover:underline" to={`/crm/invoices/${inv.converted_to.uuid}`}>{inv.converted_to.number}</Link>.</>}
+        </p>
+      )}
+
+      {/* The document itself — what print captures. */}
+      <Card className="print:shadow-none print:ring-0">
+        <div className="flex flex-wrap justify-between gap-4 border-b border-slate-100 pb-4 dark:border-slate-800">
+          <div>
+            <div className="text-lg font-bold text-slate-900 dark:text-white">{inv.issuing_company?.name}</div>
+            {inv.issuing_company_full?.address && <div className="mt-0.5 max-w-xs text-xs text-slate-500">{inv.issuing_company_full.address}</div>}
+            {inv.issuing_company_full?.gstin && <div className="text-xs text-slate-500">GSTIN: {inv.issuing_company_full.gstin}</div>}
+            {inv.issuing_company_full?.pan && <div className="text-xs text-slate-500">PAN: {inv.issuing_company_full.pan}</div>}
+          </div>
+          <div className="text-right">
+            <div className="text-base font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">
+              {isProforma ? 'Proforma invoice' : 'Tax invoice'}
+            </div>
+            <div className="mt-1 text-sm"><span className="text-slate-400">No: </span><span className="font-medium">{inv.number}</span></div>
+            <div className="text-sm"><span className="text-slate-400">Date: </span>{inv.invoice_date}</div>
+            {inv.due_date && <div className="text-sm"><span className="text-slate-400">Due: </span>{inv.due_date}</div>}
+            {/* "Recurring · 2 of 12" — stamped when the copy was raised. */}
+            {inv.recurring_note && (
+              <span className="mt-1 inline-block rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                {inv.recurring_note}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-4 border-b border-slate-100 py-4 dark:border-slate-800 sm:grid-cols-2">
+          <div>
+            <div className="text-xs font-medium uppercase tracking-wide text-slate-400">Billed to</div>
+            <div className="mt-1 font-semibold text-slate-800 dark:text-slate-100">{inv.client?.company_name}</div>
+            {inv.client?.contact_person && <div className="text-sm text-slate-500">{inv.client.contact_person}</div>}
+            {inv.client_full?.address && <div className="text-sm text-slate-500">{[inv.client_full.address, inv.client_full.city, inv.client_full.state, inv.client_full.pincode].filter(Boolean).join(', ')}</div>}
+            {inv.client_full?.gst_no && <div className="text-sm text-slate-500">GSTIN: {inv.client_full.gst_no}</div>}
+          </div>
+          <div className="sm:text-right">
+            {inv.salesperson?.name && (
+              <div className="text-sm"><span className="text-slate-400">{columnLabel('member', 'Salesperson')}: </span>{inv.salesperson.name}</div>
+            )}
+            {inv.terms_of_payment && (
+              <div className="text-sm"><span className="text-slate-400">{columnLabel('terms_of_payment', 'Terms')}: </span>{inv.terms_of_payment}</div>
+            )}
+            {documentFields.map((f) => (
+              <div key={f.label} className="text-sm">
+                <span className="text-slate-400">{f.label}: </span>
+                {typeof f.value === 'boolean' ? 'Yes' : String(f.value)}
+              </div>
+            ))}
+            <div className="text-sm">
+              <span className="text-slate-400">Payment: </span>
+              <span className={clsx('font-medium', inv.payment_status === 'paid' ? 'text-emerald-600' : inv.payment_status === 'due' ? 'text-red-500' : 'text-amber-600')}>
+                {CRM_PAYMENT_STATUS_LABELS[inv.payment_status] ?? inv.payment_status}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="-mx-4 overflow-x-auto px-4">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                <th className="py-2 pr-3 font-medium">#</th>
+                <th className="py-2 pr-3 font-medium">Particulars</th>
+                {columnShown('validity') && <th className="py-2 pr-3 font-medium">{columnLabel('validity', 'Validity')}</th>}
+                <th className="py-2 pr-3 text-right font-medium">{columnLabel('qty', 'Qty')}</th>
+                <th className="py-2 pr-3 text-right font-medium">{columnLabel('unit_price', 'Rate')}</th>
+                <th className="py-2 text-right font-medium">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              {inv.items.map((it, idx) => (
+                <tr key={it.id ?? idx} className="border-b border-slate-50 align-top last:border-0 dark:border-slate-800/50">
+                  <td className="py-2.5 pr-3 text-slate-400">{idx + 1}</td>
+                  <td className="py-2.5 pr-3">
+                    <div className="font-medium text-slate-800 dark:text-slate-100">
+                      {[columnShown('membership') ? it.membership : null, columnShown('plan_name') ? it.plan_name : null]
+                        .filter(Boolean).join(' — ') || '—'}
+                    </div>
+                    {columnShown('description') && it.description && (
+                      <div className="mt-0.5 whitespace-pre-wrap text-xs text-slate-500">{it.description}</div>
+                    )}
+                    {/* The company's own Work Order method (DCW), printed
+                        with the line it belongs to. */}
+                    {workOrderFields.length > 0 && (
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500">
+                        {workOrderFields.map((f) => {
+                          const v = it.custom_fields?.[f.key]
+                          if (v === undefined || v === null || v === '' || v === false) return null
+                          return (
+                            <span key={f.key}>
+                              <span className="text-slate-400">{f.label}:</span>{' '}
+                              {typeof v === 'boolean' ? 'Yes' : String(v)}
+                            </span>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </td>
+                  {columnShown('validity') && (
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-xs text-slate-500">
+                      {it.validity_from && it.validity_to ? (
+                        <>
+                          {it.validity_from} → {it.validity_to}
+                          <span className="ml-1 text-emerald-600">
+                            ({validityMonths(it.validity_from, it.validity_to)} month{validityMonths(it.validity_from, it.validity_to) === 1 ? '' : 's'})
+                          </span>
+                        </>
+                      ) : '—'}
+                    </td>
+                  )}
+                  <td className="py-2.5 pr-3 text-right">{Number(it.qty)}</td>
+                  <td className="whitespace-nowrap py-2.5 pr-3 text-right">{inr(it.unit_price)}</td>
+                  <td className="whitespace-nowrap py-2.5 text-right font-medium">{inr(it.amount ?? 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-4 flex justify-end">
+          <div className="w-full max-w-xs space-y-1 text-sm">
+            <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{inr(inv.subtotal ?? 0)}</span></div>
+            {/* The money lines this document was raised with, in the company's
+                own wording — renaming a line later never rewrites old paper. */}
+            {(inv.tax_lines ?? []).filter((line) => Number(line.amount) > 0).map((line) => (
+              <div key={line.key} className="flex justify-between text-slate-500">
+                <span>{line.label}{line.rate ? ` @ ${trimRate(line.rate)}%` : ''}</span>
+                <span>{line.kind === 'tax' ? '' : '− '}{inr(line.amount)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between border-t border-slate-200 pt-1.5 text-base font-semibold text-slate-900 dark:border-slate-700 dark:text-white">
+              <span>Grand total</span><span>{inr(inv.total)}</span>
+            </div>
+            {inv.total_fx && <div className="flex justify-between text-xs text-slate-400"><span>{inv.fx_currency} equivalent</span><span>{Number(inv.total_fx).toLocaleString()}</span></div>}
+            {!isProforma && (
+              <>
+                <div className="flex justify-between text-emerald-600"><span>Received</span><span>{inr(inv.amount_received || 0)}</span></div>
+                <div className="flex justify-between font-medium text-red-500"><span>Balance</span><span>{inr(balance)}</span></div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* The money already received is part of the document itself — it
+            prints with the invoice, entry by entry. Managing the payments
+            (adding, removing) stays in the card below, off the paper. */}
+        {!isProforma && inv.payments.length > 0 && (
+          <div className="mt-5">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-[11px] uppercase tracking-wide text-slate-400 dark:border-slate-700">
+                  <th className="py-1.5 pr-3 font-medium">Payments received</th>
+                  <th className="py-1.5 pr-3 font-medium">Mode</th>
+                  <th className="py-1.5 pr-3 font-medium">Reference</th>
+                  <th className="py-1.5 text-right font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inv.payments.map((p) => (
+                  <tr key={p.id} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
+                    <td className="py-1.5 pr-3 text-slate-500">{p.received_at}</td>
+                    <td className="py-1.5 pr-3 text-slate-500">{p.payment_mode ?? '—'}</td>
+                    <td className="max-w-[220px] truncate py-1.5 pr-3 text-slate-500">{p.reference_no ?? '—'}</td>
+                    <td className="py-1.5 text-right font-medium text-emerald-600">
+                      {inr(p.amount)}
+                      {Number(p.charge_amount) > 0 && (
+                        <div className="text-[10px] font-normal text-slate-400">
+                          incl. {p.charge_note ?? 'collection charge'} {inr(p.charge_amount)} — net {inr(p.net_amount)}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {inv.notes && <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500 dark:border-slate-800">{inv.notes}</p>}
+      </Card>
+
+      {!isProforma && (
+        <Card className="print:hidden">
+          <h2 className="mb-3 text-sm font-semibold text-slate-800 dark:text-slate-100">Payments received</h2>
+          {inv.payments.length === 0 ? (
+            <p className="text-sm text-slate-400">Nothing received yet.</p>
+          ) : (
+            <div className="-mx-4 overflow-x-auto px-4">
+              <table className="w-full min-w-[560px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                    <th className="py-2 pr-3 font-medium">Received</th>
+                    <th className="py-2 pr-3 text-right font-medium">Client paid</th>
+                    <th className="py-2 pr-3 text-right font-medium">Charge</th>
+                    <th className="py-2 pr-3 text-right font-medium">To bank</th>
+                    <th className="py-2 pr-3 font-medium">Mode</th>
+                    <th className="py-2 pr-3 font-medium">Bank</th>
+                    <th className="py-2 pr-3 font-medium">Reference</th>
+                    <th className="py-2 font-medium" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {inv.payments.map((p) => (
+                    <tr key={p.id} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
+                      <td className="whitespace-nowrap py-2 pr-3">
+                        {p.received_at}
+                        {/* The unique payment id a bank statement reconciles by. */}
+                        {p.payment_no && <div className="text-[10px] font-medium text-emerald-600">{p.payment_no}</div>}
+                      </td>
+                      <td className="whitespace-nowrap py-2 pr-3 text-right font-medium">{inr(p.amount)}</td>
+                      <td className="whitespace-nowrap py-2 pr-3 text-right text-amber-600 dark:text-amber-400">
+                        {Number(p.charge_amount) > 0 ? inr(p.charge_amount) : '—'}
+                        {p.charge_note && <div className="text-[10px] text-slate-400">{p.charge_note}</div>}
+                      </td>
+                      <td className="whitespace-nowrap py-2 pr-3 text-right text-slate-500">{inr(p.net_amount)}</td>
+                      <td className="py-2 pr-3">{p.payment_mode ?? '—'}</td>
+                      <td className="py-2 pr-3">{p.bank_account ?? p.drawee_bank ?? '—'}</td>
+                      <td className="py-2 pr-3">{p.reference_no ?? '—'}</td>
+                      <td className="whitespace-nowrap py-2 text-right">
+                        <ChargeButton uuid={uuid!} payment={p} onDone={refresh} />
+                        <DeletePaymentButton uuid={uuid!} paymentId={p.id} onDone={refresh} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* The consolidated figures — the same block that ends the PDF: every
+          number an accountant asks for, on one card. */}
+      <Card>
+        <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Consolidated summary</h2>
+        <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+          {([
+            ['Basic (taxable) value', Number(inv.subtotal) - Number(inv.discount ?? 0)],
+            ['CGST', Number(inv.cgst ?? 0)],
+            ['SGST', Number(inv.sgst ?? 0)],
+            ['IGST', Number(inv.igst ?? 0)],
+            ['Total GST', Number(inv.cgst ?? 0) + Number(inv.sgst ?? 0) + Number(inv.igst ?? 0)],
+            ['Other tax', Number(inv.other_tax ?? 0)],
+            ['TDS', Number(inv.tds ?? 0)],
+            ['Total value (with tax)', Number(inv.total)],
+            ['Received', Number(inv.amount_received ?? 0)],
+            ['Bank / gateway charges', Number(inv.collection_charges ?? 0)],
+            ['Commission', Number(inv.sale_costs_total ?? 0)],
+            ['Due amount', Math.max(0, Number(inv.total) - Number(inv.amount_received ?? 0))],
+          ] as const).map(([label, value]) => (
+            <div key={label} className="flex items-baseline justify-between border-b border-slate-50 py-1 text-sm last:border-0 dark:border-slate-800/50">
+              <span className="text-slate-500">{label}</span>
+              <span className={
+                label === 'Due amount' && value > 0 ? 'font-semibold tabular-nums text-red-500'
+                  : label === 'Total value (with tax)' ? 'font-semibold tabular-nums'
+                    : 'tabular-nums text-slate-700 dark:text-slate-200'
+              }>
+                {inr(value)}
+              </span>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <InternalNotes invoiceUuid={inv.uuid} />
+
+      {showRepeat && (
+        <RepeatModal
+          invoiceUuid={inv.uuid}
+          number={inv.number}
+          onClose={() => setShowRepeat(false)}
+          onDone={() => setShowRepeat(false)}
+        />
+      )}
+
+      {showPayment && (
+        <PaymentModal uuid={uuid!} balance={balance} onClose={() => setShowPayment(false)} onDone={() => { setShowPayment(false); refresh() }} />
+      )}
+      {showChangeRequest && (
+        <ChangeRequestModal
+          uuid={uuid!}
+          current={{ dispatch_status: inv.dispatch_status, payment_status: inv.payment_status, due_date: inv.due_date ?? '', terms_of_payment: inv.terms_of_payment ?? '', notes: inv.notes ?? '' }}
+          onClose={() => setShowChangeRequest(false)}
+          onDone={() => { setShowChangeRequest(false); refresh() }}
+        />
+      )}
+
+      {/* Send the document by e-mail, PDF attached — the sender comes from
+          the Communication setup, choosable per send. */}
+      {emailing && (
+        <EmailModal
+          clientEmail={inv.client?.email ?? ''}
+          pending={emailMutation.isPending}
+          onSend={(payload) => emailMutation.mutate(payload)}
+          onClose={() => setEmailing(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function EmailModal({ clientEmail, pending, onSend, onClose }: {
+  clientEmail: string
+  pending: boolean
+  onSend: (payload: { to?: string; from?: 'default' | 'invoice' | 'dues'; message?: string }) => void
+  onClose: () => void
+}) {
+  const [to, setTo] = useState(clientEmail)
+  const [from, setFrom] = useState<'default' | 'invoice' | 'dues'>('invoice')
+  const [message, setMessage] = useState('')
+
+  return (
+    <Modal title="Email this document" onClose={onClose}>
+      <div className="space-y-3">
+        <div>
+          <Label>To</Label>
+          <Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="client@company.com" className="w-full" />
+        </div>
+        <div>
+          <Label>Send from</Label>
+          <Select value={from} onChange={(e) => setFrom(e.target.value as typeof from)} className="w-full">
+            <option value="invoice">Invoice sender (Communication setup)</option>
+            <option value="default">General company sender</option>
+            <option value="dues">Dues / follow-up sender</option>
+          </Select>
+          <p className="mt-1 text-xs text-slate-400">A blank choice in the Communication setup falls back to the general sender.</p>
+        </div>
+        <div>
+          <Label>Message (optional — a standard line goes otherwise)</Label>
+          <Textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} className="w-full" />
+        </div>
+        <Button className="w-full" disabled={!to || pending} onClick={() => onSend({ to, from, message: message || undefined })}>
+          {pending ? 'Sending…' : 'Send with PDF attached'}
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * A final invoice never changes directly: this proposes a diff that lands
+ * in the Approvals inbox and is applied only when someone else approves it.
+ */
+function ChangeRequestModal({ uuid, current, onClose, onDone }: {
+  uuid: string
+  current: { dispatch_status: string; payment_status: string; due_date: string; terms_of_payment: string; notes: string }
+  onClose: () => void
+  onDone: () => void
+}) {
+  const { toast, toastError } = useToast()
+  const [form, setForm] = useState({ ...current })
+  const [reason, setReason] = useState('')
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const changes: Record<string, string | null> = {}
+      for (const key of Object.keys(current) as (keyof typeof current)[]) {
+        if (form[key] !== current[key]) changes[key] = form[key] || null
+      }
+      return crm.approvals.requestInvoiceUpdate(uuid, changes, reason)
+    },
+    onSuccess: (res) => { toast(res.message, 'success'); onDone() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const dirty = (Object.keys(current) as (keyof typeof current)[]).some((k) => form[k] !== current[k])
+
+  return (
+    <Modal title="Request a change" onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-xs text-slate-400">Changed fields go for approval; the invoice updates only once approved.</p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Dispatch status</Label>
+            <Select value={form.dispatch_status} onChange={(e) => setForm((f) => ({ ...f, dispatch_status: e.target.value }))} className="w-full">
+              {Object.entries(CRM_DISPATCH_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select>
+          </div>
+          <div>
+            <Label>Payment status</Label>
+            <Select value={form.payment_status} onChange={(e) => setForm((f) => ({ ...f, payment_status: e.target.value }))} className="w-full">
+              {Object.entries(CRM_PAYMENT_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select>
+          </div>
+          <div>
+            <Label>Due date</Label>
+            <Input type="date" value={form.due_date} onChange={(e) => setForm((f) => ({ ...f, due_date: e.target.value }))} className="w-full" />
+          </div>
+          <div>
+            <Label>Terms</Label>
+            <Input value={form.terms_of_payment} onChange={(e) => setForm((f) => ({ ...f, terms_of_payment: e.target.value }))} className="w-full" />
+          </div>
+          <div className="col-span-2">
+            <Label>Notes</Label>
+            <Input value={form.notes} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} className="w-full" />
+          </div>
+        </div>
+        <div>
+          <Label>Why is this change needed?</Label>
+          <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} className="w-full" />
+        </div>
+        <Button className="w-full" disabled={!dirty || mutation.isPending} onClick={() => mutation.mutate()}>
+          {mutation.isPending ? 'Submitting…' : 'Submit for approval'}
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+function DeletePaymentButton({ uuid, paymentId, onDone }: { uuid: string; paymentId: number; onDone: () => void }) {
+  const { toastError } = useToast()
+  const mutation = useMutation({
+    mutationFn: () => crm.invoices.deletePayment(uuid, paymentId),
+    onSuccess: onDone,
+    onError: (err) => toastError(errorMessage(err)),
+  })
+  return (
+    <button onClick={() => { if (confirm('Remove this payment entry?')) mutation.mutate() }} aria-label="Remove payment" className="rounded p-1 text-slate-300 hover:text-red-500">
+      <Trash2 className="size-4" />
+    </button>
+  )
+}
+
+function PaymentModal({ uuid, balance, onClose, onDone }: { uuid: string; balance: number; onClose: () => void; onDone: () => void }) {
+  const { toastError } = useToast()
+  const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
+  const [form, setForm] = useState({
+    amount: balance > 0 ? String(balance.toFixed(2)) : '',
+    charge_amount: '',
+    charge_note: '',
+    received_at: new Date().toISOString().slice(0, 10),
+    payment_mode: '',
+    bank_account_id: '',
+    reference_no: '',
+    drawee_bank: '',
+    instrument_date: '',
+    note: '',
+  })
+
+  const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }))
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      crm.invoices.addPayment(uuid, {
+        amount: Number(form.amount),
+        charge_amount: form.charge_amount ? Number(form.charge_amount) : 0,
+        charge_note: form.charge_note || null,
+        received_at: form.received_at,
+        payment_mode: form.payment_mode || null,
+        bank_account_id: form.bank_account_id ? Number(form.bank_account_id) : null,
+        reference_no: form.reference_no || null,
+        drawee_bank: form.drawee_bank || null,
+        instrument_date: form.instrument_date || null,
+        note: form.note || null,
+      }),
+    onSuccess: onDone,
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  return (
+    <Modal title="Record payment" onClose={onClose}>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Amount the client paid (₹)</Label>
+            <Input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => set('amount', e.target.value)} className="w-full" />
+            <p className="mt-1 text-xs text-slate-400">The gross — this is what settles the invoice.</p>
+          </div>
+          <div>
+            <Label>Received on</Label>
+            <Input type="date" value={form.received_at} onChange={(e) => set('received_at', e.target.value)} className="w-full" />
+          </div>
+          <div>
+            <Label>Mode</Label>
+            <Select value={form.payment_mode} onChange={(e) => set('payment_mode', e.target.value)} className="w-full">
+              <option value="">Select</option>
+              {masters?.payment_modes.map((m) => <option key={m} value={m}>{m}</option>)}
+            </Select>
+          </div>
+          <div>
+            <Label>Into bank account</Label>
+            <Select value={form.bank_account_id} onChange={(e) => set('bank_account_id', e.target.value)} className="w-full">
+              <option value="">Select</option>
+              {masters?.bank_accounts.filter((b) => b.is_active).map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+            </Select>
+          </div>
+          {/* A gateway or bank fee is the company's cost of collecting the
+              money, not a shortfall on the sale. Naming it here keeps the
+              invoice square and puts the cost where the P&L will find it. */}
+          <div className="col-span-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Gateway / bank charge (₹)</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.charge_amount}
+                  onChange={(e) => set('charge_amount', e.target.value)}
+                  className="w-full"
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <Label>What the charge was</Label>
+                <Input
+                  value={form.charge_note}
+                  onChange={(e) => set('charge_note', e.target.value)}
+                  className="w-full"
+                  placeholder="e.g. Cashfree fee"
+                />
+              </div>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              {Number(form.charge_amount) > 0 ? (
+                <>
+                  Client pays <strong>{inr(form.amount || 0)}</strong> · charge{' '}
+                  <strong>{inr(form.charge_amount)}</strong> · <strong>{inr(Number(form.amount || 0) - Number(form.charge_amount))}</strong>{' '}
+                  reaches the bank. The invoice is settled in full and the charge is booked as an expense.
+                </>
+              ) : (
+                'Leave blank if the whole amount reached the bank.'
+              )}
+            </p>
+          </div>
+          <div>
+            <Label>Reference / cheque no.</Label>
+            <Input value={form.reference_no} onChange={(e) => set('reference_no', e.target.value)} className="w-full" />
+          </div>
+          <div>
+            <Label>Drawee bank</Label>
+            <Input value={form.drawee_bank} onChange={(e) => set('drawee_bank', e.target.value)} className="w-full" />
+          </div>
+          <div>
+            <Label>Instrument date</Label>
+            <Input type="date" value={form.instrument_date} onChange={(e) => set('instrument_date', e.target.value)} className="w-full" />
+          </div>
+          <div>
+            <Label>Note</Label>
+            <Input value={form.note} onChange={(e) => set('note', e.target.value)} className="w-full" />
+          </div>
+        </div>
+        <Button className="w-full" disabled={!form.amount || !form.received_at || mutation.isPending} onClick={() => mutation.mutate()}>
+          {mutation.isPending ? 'Saving…' : 'Record payment'}
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+
+/**
+ * Tell this document to happen again. The document itself is the template —
+ * every cycle copies it — so the modal only asks when, and what each run
+ * should send along.
+ */
+function RepeatModal({ invoiceUuid, number, onClose, onDone }: {
+  invoiceUuid: string
+  number: string
+  onClose: () => void
+  onDone: () => void
+}) {
+  const { toast, toastError } = useToast()
+  const [frequency, setFrequency] = useState('monthly')
+  const [startsOn, setStartsOn] = useState(() => {
+    const d = new Date()
+    d.setMonth(d.getMonth() + 1)
+    return d.toISOString().slice(0, 10)
+  })
+  const [endMode, setEndMode] = useState<'never' | 'date' | 'count' | 'contract'>('never')
+  const [endsOn, setEndsOn] = useState('')
+  const [count, setCount] = useState('12')
+  // Contract mode: THIS document is cycle 1 of the total.
+  const [contractTotal, setContractTotal] = useState('12')
+  const [autoEmail, setAutoEmail] = useState(false)
+  const [autoLink, setAutoLink] = useState(false)
+  const [showNote, setShowNote] = useState(true)
+
+  const saveMutation = useMutation({
+    mutationFn: () => crm.invoices.makeRecurring(invoiceUuid, {
+      frequency,
+      starts_on: startsOn,
+      ends_on: frequency !== 'once' && endMode === 'date' ? endsOn || null : null,
+      // A contract counts this document as cycle 1: the schedule owes the
+      // rest, so "12 in all" means 11 more.
+      max_occurrences: frequency === 'once' ? 1
+        : endMode === 'count' ? Number(count) || null
+        : endMode === 'contract' ? Math.max(1, (Number(contractTotal) || 2) - 1) : null,
+      counts_source: frequency !== 'once' && endMode === 'contract',
+      auto_email: autoEmail,
+      auto_payment_link: autoLink,
+      show_on_document: showNote,
+    }),
+    onSuccess: (res) => { toast(res.message, 'success'); onDone() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  return (
+    <Modal title={`Repeat ${number}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500">
+          {frequency === 'once'
+            ? 'One fresh copy of this document — same lines, same taxes — raised on the chosen date, and that is all.'
+            : 'Each cycle raises a fresh copy of this document — same lines, same taxes, dated the day it runs. To change what future cycles say, edit this document.'}
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>How often</Label>
+            <Select value={frequency} onChange={(e) => setFrequency(e.target.value)} className="w-full">
+              {Object.entries(CRM_RECURRING_FREQUENCY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select>
+          </div>
+          <div>
+            <Label>{frequency === 'once' ? 'Raise it on' : 'First run'}</Label>
+            <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} className="w-full" />
+          </div>
+        </div>
+        {/* A one-time repeat has no "until" — one copy is the whole story. */}
+        <div className={frequency === 'once' ? 'hidden' : undefined}>
+          <Label>Until</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={endMode} onChange={(e) => setEndMode(e.target.value as typeof endMode)}>
+              <option value="never">Cancelled by hand</option>
+              <option value="date">A date</option>
+              <option value="count">A number of runs</option>
+              <option value="contract">A contract — this one + the rest</option>
+            </Select>
+            {endMode === 'date' && (
+              <Input type="date" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
+            )}
+            {endMode === 'count' && (
+              <Input type="number" min="1" max="120" value={count} onChange={(e) => setCount(e.target.value)} className="w-24" />
+            )}
+            {endMode === 'contract' && (
+              <Input type="number" min="2" max="121" value={contractTotal} onChange={(e) => setContractTotal(e.target.value)} className="w-24" />
+            )}
+          </div>
+          {endMode === 'contract' && (
+            <p className="mt-1 text-xs text-slate-400">
+              {number} is 1 of {Number(contractTotal) || 12} — {Math.max(1, (Number(contractTotal) || 12) - 1)} more
+              will be raised, marked “Recurring · 2 of {Number(contractTotal) || 12}” onwards.
+            </p>
+          )}
+        </div>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input type="checkbox" checked={showNote} onChange={(e) => setShowNote(e.target.checked)} className="size-4 accent-emerald-600" />
+            {frequency === 'once'
+              ? 'Mention on the document — “Repeat of ' + number + '”'
+              : 'Mark each copy on the document' + (endMode === 'contract' ? ' — “Recurring · 2 of ' + (Number(contractTotal) || 12) + '”' : ' — “Recurring”')}
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input type="checkbox" checked={autoEmail} onChange={(e) => setAutoEmail(e.target.checked)} className="size-4 accent-emerald-600" />
+            E-mail each document to the client, PDF attached
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input type="checkbox" checked={autoLink} onChange={(e) => setAutoLink(e.target.checked)} className="size-4 accent-emerald-600" />
+            Raise a Cashfree payment link with each run
+          </label>
+          {autoLink && (
+            <p className="pl-6 text-xs text-slate-400">
+              Needs the company's Cashfree account under Billing setup. Paying the link settles the document by itself.
+            </p>
+          )}
+        </div>
+        <Button className="w-full" disabled={!startsOn || saveMutation.isPending} onClick={() => saveMutation.mutate()}>
+          {saveMutation.isPending ? 'Saving…' : 'Start repeating'}
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+
+/**
+ * The conversation behind the document. Office-only: absent from the print,
+ * the PDF and everything the client can ever hold — which is why it lives at
+ * the end of the page in its own card, never inside the document.
+ */
+function InternalNotes({ invoiceUuid }: { invoiceUuid: string }) {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const [body, setBody] = useState('')
+
+  const { data: notes } = useQuery({
+    queryKey: ['crm', 'invoice-notes', invoiceUuid],
+    queryFn: () => crm.invoices.notes(invoiceUuid),
+  })
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['crm', 'invoice-notes', invoiceUuid] })
+
+  const addMutation = useMutation({
+    mutationFn: () => crm.invoices.addNote(invoiceUuid, body.trim()),
+    onSuccess: () => { setBody(''); refresh() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (noteUuid: string) => crm.invoices.deleteNote(invoiceUuid, noteUuid),
+    onSuccess: (res) => { toast(res.message, 'success'); refresh() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  return (
+    <Card className="print:hidden">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+          <Lock className="size-4 text-amber-500" /> Internal notes
+        </h2>
+        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+          Office only — never printed or sent to the client
+        </span>
+      </div>
+
+      {(notes?.length ?? 0) > 0 && (
+        <ul className="mb-4 space-y-3">
+          {notes!.map((note) => (
+            <li key={note.uuid} className="flex items-start gap-3">
+              <div className="min-w-0 flex-1 rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800/60">
+                <div className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                    {note.by}{note.is_mine && ' (you)'}
+                  </span>
+                  <span className="text-[11px] text-slate-400">{note.at}</span>
+                </div>
+                <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{note.body}</p>
+              </div>
+              {note.can_delete && (
+                <button
+                  onClick={() => { if (confirm('Remove this note?')) deleteMutation.mutate(note.uuid) }}
+                  aria-label="Remove note"
+                  className="mt-1 rounded p-1.5 text-slate-300 hover:text-red-500"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="flex items-end gap-2">
+        <Textarea
+          rows={2}
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          placeholder="Client asked to hold dispatch till the 5th…"
+          className="min-w-0 flex-1"
+        />
+        <Button
+          disabled={!body.trim() || addMutation.isPending}
+          onClick={() => addMutation.mutate()}
+        >
+          <Send className="size-4" /> {addMutation.isPending ? 'Adding…' : 'Add note'}
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
+/**
+ * Naming the charge after the fact. A gateway's settlement report lands a
+ * day after the money, so a receipt written from a bank line has to be able
+ * to learn what it was short by — and the invoice squares up when it does.
+ */
+function ChargeButton({ uuid, payment, onDone }: {
+  uuid: string
+  payment: { id: number; amount: string; charge_amount: string; charge_note: string | null }
+  onDone: () => void
+}) {
+  const { toast, toastError } = useToast()
+  const [open, setOpen] = useState(false)
+  const [charge, setCharge] = useState(Number(payment.charge_amount) ? String(Number(payment.charge_amount)) : '')
+  const [note, setNote] = useState(payment.charge_note ?? '')
+  const [gross, setGross] = useState(String(Number(payment.amount)))
+
+  const mutation = useMutation({
+    mutationFn: () => crm.invoices.setPaymentCharge(uuid, payment.id, {
+      amount: Number(gross),
+      charge_amount: Number(charge) || 0,
+      charge_note: note || null,
+    }),
+    onSuccess: (res) => { toast(res.message, 'success'); setOpen(false); onDone() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        className="rounded p-1.5 text-slate-400 hover:text-emerald-600"
+        aria-label="Gateway charge"
+        title="Name what collecting this cost"
+      >
+        <Percent className="size-4" />
+      </button>
+
+      {open && (
+        <Modal title="What collecting this cost" onClose={() => setOpen(false)}>
+          <div className="space-y-3">
+            <p className="text-sm text-slate-500">
+              If the client paid more than reached the bank, put the gross here and name the difference. The
+              invoice settles in full — the client owes nothing — and the charge is booked as an expense.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Client paid (₹)</Label>
+                <Input type="number" min="0" step="0.01" value={gross} onChange={(e) => setGross(e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <Label>Charge (₹)</Label>
+                <Input type="number" min="0" step="0.01" value={charge} onChange={(e) => setCharge(e.target.value)} className="w-full" />
+              </div>
+              <div className="col-span-2">
+                <Label>What the charge was</Label>
+                <Input value={note} onChange={(e) => setNote(e.target.value)} className="w-full" placeholder="e.g. Cashfree fee" />
+              </div>
+            </div>
+            <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/40">
+              <span className="text-slate-500">Reaches the bank</span>
+              <span className="float-right font-semibold">{inr(Number(gross || 0) - Number(charge || 0))}</span>
+            </div>
+            <Button
+              className="w-full"
+              disabled={!gross || Number(gross) <= Number(charge || 0) || mutation.isPending}
+              onClick={() => mutation.mutate()}
+            >
+              {mutation.isPending ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+        </Modal>
+      )}
+    </>
+  )
+}

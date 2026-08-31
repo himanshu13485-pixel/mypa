@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  BarChart3, Calendar, CheckSquare, CreditCard, FileText, FolderKanban, MonitorUp,
+  BarChart3, Building2, Calendar, CheckSquare, CreditCard, FileText, FolderKanban, MonitorUp,
   FolderOpen, LayoutDashboard, LogOut, Menu, MessageCircle, Moon, MoreHorizontal, Phone,
   Briefcase, Receipt, Repeat, Settings, Shield, Star, Sun, Target, UserPlus, Users, Video, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import { auth, badges as badgesApi } from '../api/endpoints'
+import { crm as crmApi } from '../api/crm'
 import { disconnectEcho } from '../lib/echo'
 import { isStaff, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
@@ -111,6 +112,16 @@ export default function Layout() {
     refetchInterval: 30_000,
   })
 
+  // The CRM addon's only footprint in the personal app: one sidebar entry,
+  // shown to members of a CRM organization and to super admins (who manage
+  // the addon). Asked once per session — membership rarely changes mid-visit.
+  const { data: crmMe } = useQuery({
+    queryKey: ['crm', 'me'],
+    queryFn: crmApi.me,
+    staleTime: 5 * 60_000,
+  })
+  const showCrm = !!crmMe && (crmMe.enabled || crmMe.is_super_admin)
+
   const logout = async () => {
     try {
       await auth.logout()
@@ -125,6 +136,18 @@ export default function Layout() {
 
   const links = (
     <nav className="scroll-pane flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-3 pb-safe">
+      {/* The company hat sits first: for staff the CRM is the workday, the
+          personal sections come after. */}
+      {showCrm && (
+        <NavLink
+          to="/crm"
+          onClick={() => setSidebarOpen(false)}
+          className="mb-2 flex items-center gap-3 rounded-xl border border-dashed border-emerald-300 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+        >
+          <Building2 className="size-4" />
+          CRM
+        </NavLink>
+      )}
       {navSections.map((section, si) => (
         <div key={si}>
           {section.label && (
