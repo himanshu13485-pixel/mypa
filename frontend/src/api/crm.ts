@@ -1676,6 +1676,11 @@ export const crm = {
     downloadMyDocument: (documentUuid: string) =>
       api.get(`/crm/my/documents/${documentUuid}`, { responseType: 'blob' }).then((r) => r.data as Blob),
     get: (uuid: string) => api.get<{ data: CrmEmployeeFull }>(`/crm/employees/${uuid}`).then((r) => r.data.data),
+    /** Fetch an existing Netvork account (by email or username) to register. */
+    lookupAccount: (q: string) =>
+      api.get<{ data: { name: string; email: string; username: string | null; already_member: boolean } }>(
+        '/crm/employees-lookup', { params: { q } },
+      ).then((r) => r.data.data),
     create: (payload: Record<string, unknown>) => api.post(`/crm/employees`, payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/employees/${uuid}`, payload).then((r) => r.data),
     deactivate: (uuid: string) => api.delete(`/crm/employees/${uuid}`).then((r) => r.data),

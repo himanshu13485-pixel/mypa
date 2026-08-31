@@ -237,6 +237,10 @@ class CrmInvoiceScopeTest extends TestCase
 
     public function test_the_dashboard_shows_the_ledger_it_was_asked_for(): void
     {
+        // The fixtures are dated 2026-08; hold the clock in that month so
+        // the dashboard's this-month figure sees them on any real date.
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-08-25 12:00', 'Asia/Kolkata'));
+
         $this->raiseInvoice($this->headUser, 'Head Client');
         $this->raiseInvoice($this->juniorUser, 'Junior Client');
         $this->raiseInvoice($this->strangerUser, 'Stranger Client');
@@ -356,6 +360,10 @@ class CrmInvoiceScopeTest extends TestCase
 
     public function test_the_dashboard_and_reports_can_pick_one_person_too(): void
     {
+        // The fixtures are dated 2026-08; hold the clock in that month so
+        // the dashboard's this-month figure sees them on any real date.
+        $this->travelTo(\Carbon\CarbonImmutable::parse('2026-08-25 12:00', 'Asia/Kolkata'));
+
         $this->raiseInvoice($this->headUser, 'Head Client');
         $this->raiseInvoice($this->juniorUser, 'Junior Client');
 

@@ -64,6 +64,22 @@ class Member extends Model
         'letters.download' => ['group' => 'HR', 'label' => 'Download their own HR letters (offer, appointment, promotion…)'],
     ];
 
+    /**
+     * The next automatic employee code. Numbering starts at EMP-101 and
+     * continues past the highest EMP-n already issued, so hand-typed codes
+     * (any format) never collide and never reset the counter.
+     */
+    public static function nextEmployeeCode(int $organizationId): string
+    {
+        $max = (int) static::where('organization_id', $organizationId)
+            ->where('employee_code', 'like', 'EMP-%')
+            ->pluck('employee_code')
+            ->map(fn ($code) => preg_match('/^EMP-(\d+)$/i', (string) $code, $m) ? (int) $m[1] : 0)
+            ->max();
+
+        return 'EMP-' . max(101, $max + 1);
+    }
+
     protected $fillable = [
         'organization_id', 'user_id', 'crm_role', 'is_oversight', 'status', 'employee_code', 'title',
         'capabilities',

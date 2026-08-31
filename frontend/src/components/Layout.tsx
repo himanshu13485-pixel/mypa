@@ -90,7 +90,18 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const { user, clear } = useAuthStore()
+  const setUser = useAuthStore((s) => s.setUser)
   const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  /*
+   * The signed-in identity is persisted locally, but it can change on the
+   * SERVER without this browser doing anything — an admin approving a
+   * username or email change is the common case. One /me on load keeps the
+   * Settings screen telling the truth; offline, the stored copy stands.
+   */
+  useEffect(() => {
+    auth.me().then(setUser).catch(() => { /* offline: the stored copy stands */ })
+  }, [setUser])
 
   /*
    * The app scrolls inside <main>, and <main> outlives every page in it, so

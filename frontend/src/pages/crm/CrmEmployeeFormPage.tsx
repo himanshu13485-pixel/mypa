@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Download, FileText, Pencil, Plus, Trash2, UserX } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Download, FileText, Pencil, Plus, Search, Trash2, UserX } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, CRM_MODULE_LABELS, type CrmEmployeeFull } from '../../api/crm'
 import { LETTER_LABELS, letterAvailability, openLetter, type LetterType } from './letters'
@@ -87,6 +87,33 @@ export default function CrmEmployeeFormPage() {
   const [rights, setRights] = useState<Record<string, string[]>>({})
   // Grants a Subadmin holds only by name — their role covers the rest.
   const NAMED_GRANTS = ['exports.excel', 'reports.view', 'hr.policy_edit']
+
+  // The register flow's first step: everyone signs up on Netvork the normal
+  // way; the company fetches that account and fills only the employment side.
+  // 'link' fetches an existing account; 'create' is the old full form.
+  const [accountMode, setAccountMode] = useState<'link' | 'create'>('link')
+  const [lookupQ, setLookupQ] = useState('')
+  const [linked, setLinked] = useState<{ name: string; email: string; username: string | null } | null>(null)
+  const [lookingUp, setLookingUp] = useState(false)
+
+  const fetchAccount = async () => {
+    if (!lookupQ.trim()) return
+    setLookingUp(true)
+    try {
+      const found = await crm.employees.lookupAccount(lookupQ.trim())
+      if (found.already_member) {
+        toastError('This account is already an employee of this organization.')
+        return
+      }
+      setLinked(found)
+      setForm((f) => ({ ...f, name: found.name, email: found.email, password: '' }))
+      toast(`Account found — ${found.name}${found.username ? ` (@${found.username})` : ''}.`, 'success')
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setLookingUp(false)
+    }
+  }
   // The delicate acts, granted by name. Separate from the module matrix
   // because they are not "can see / can edit" — they move ownership or money.
   const [capabilities, setCapabilities] = useState<string[]>([])
@@ -290,7 +317,11 @@ export default function CrmEmployeeFormPage() {
             </Button>
           )}
           {manages && (
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+            <Button
+              onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || (!editing && accountMode === 'link' && !linked)}
+              title={!editing && accountMode === 'link' && !linked ? 'Fetch the Netvork account first' : undefined}
+            >
               {saveMutation.isPending ? 'Saving…' : editing ? 'Save changes' : 'Register'}
             </Button>
           )}
@@ -312,17 +343,65 @@ export default function CrmEmployeeFormPage() {
 
       <Section
         title="Account"
-        hint={editing ? 'Login belongs to the Netvork account; change email or password from there.' : 'An existing Netvork account with this email is linked; otherwise a new verified account is created.'}
+        hint={editing ? 'Login belongs to the Netvork account; change email or password from there.'
+          : accountMode === 'link'
+            ? 'The person signs up on Netvork first; fetch their account here and finish only the employment side.'
+            : 'A new verified Netvork account is created with this email and password.'}
       >
-        <div>
-          <Label>Full name</Label>
-          <Input value={form.name} onChange={(e) => set('name', e.target.value)} disabled={editing} className="w-full" />
-        </div>
-        <div>
-          <Label>Email (login)</Label>
-          <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} disabled={editing} className="w-full" />
-        </div>
         {!editing && (
+          <div className="sm:col-span-2 lg:col-span-3">
+            <div className="flex gap-2">
+              {([['link', 'Existing Netvork account'], ['create', 'Create a new account']] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => { setAccountMode(mode); setLinked(null) }}
+                  className={clsx(
+                    'rounded-full px-3 py-1.5 text-xs font-medium',
+                    accountMode === mode
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'
+                      : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {accountMode === 'link' && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Input
+                  value={lookupQ}
+                  onChange={(e) => setLookupQ(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchAccount() } }}
+                  placeholder="Email or username of the Netvork account"
+                  className="w-full sm:w-80"
+                />
+                <Button size="sm" variant="secondary" disabled={lookingUp || !lookupQ.trim()} onClick={fetchAccount}>
+                  <Search className="size-3.5" /> {lookingUp ? 'Fetching…' : 'Fetch account'}
+                </Button>
+                {linked && (
+                  <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    <CheckCircle2 className="size-3.5" />
+                    {linked.name}{linked.username ? ` · @${linked.username}` : ''} · {linked.email}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {(editing || accountMode === 'create' || linked) && (
+          <>
+            <div>
+              <Label>Full name</Label>
+              <Input value={form.name} onChange={(e) => set('name', e.target.value)} disabled={editing || (accountMode === 'link' && !!linked)} className="w-full" />
+            </div>
+            <div>
+              <Label>Email (login)</Label>
+              <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} disabled={editing || (accountMode === 'link' && !!linked)} className="w-full" />
+            </div>
+          </>
+        )}
+        {!editing && accountMode === 'create' && (
           <div>
             <Label>Password (for a new account)</Label>
             <Input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Min 8, letters + numbers" className="w-full" />
@@ -354,7 +433,10 @@ export default function CrmEmployeeFormPage() {
       <Section title="Employment">
         <div>
           <Label>Employee code</Label>
-          <Input value={form.employee_code} onChange={(e) => set('employee_code', e.target.value)} placeholder="EMP-001" className="w-full" />
+          <Input value={form.employee_code} onChange={(e) => set('employee_code', e.target.value)} placeholder="Automatic — EMP-101 onwards" className="w-full" />
+          {!editing && (
+            <p className="mt-1 text-xs text-slate-400">Leave blank and the next number is issued automatically.</p>
+          )}
         </div>
         <div>
           <Label>Department</Label>
@@ -723,7 +805,11 @@ export default function CrmEmployeeFormPage() {
 
       {manages && (
         <div className="flex justify-end pb-8">
-          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+          <Button
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || (!editing && accountMode === 'link' && !linked)}
+            title={!editing && accountMode === 'link' && !linked ? 'Fetch the Netvork account first' : undefined}
+          >
             {saveMutation.isPending ? 'Saving…' : editing ? 'Save changes' : 'Register'}
           </Button>
         </div>

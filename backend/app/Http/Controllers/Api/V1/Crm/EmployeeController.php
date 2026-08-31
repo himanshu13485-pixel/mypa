@@ -72,12 +72,42 @@ class EmployeeController extends Controller
         return response()->json($members);
     }
 
+    /**
+     * The register form's first step: everyone signs up on Netvork the
+     * normal way, then the company fetches that account here by email or
+     * username and only fills in the employment side. Returns just enough
+     * identity to recognise the person - never their private profile.
+     */
+    public function lookupAccount(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $q = mb_strtolower(trim($request->validate(['q' => ['required', 'string', 'max:255']])['q']));
+
+        $user = User::whereRaw('LOWER(email) = ?', [$q])
+            ->orWhereRaw('LOWER(username) = ?', [$q])
+            ->first();
+        abort_unless($user, 404, 'No Netvork account matches that email or username.');
+
+        return response()->json(['data' => [
+            'name' => $user->name,
+            'email' => $user->email,
+            'username' => $user->username,
+            'already_member' => Member::where('organization_id', $org->id)
+                ->where('user_id', $user->id)->exists(),
+        ]]);
+    }
+
     public function store(Request $request, AppIdService $appIds): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
         $data = $this->validateProfile($request, $org->id);
         if ($request->attributes->get('crm_member')?->crm_role !== 'admin') {
             unset($data['late_waived']);
+        }
+
+        // Left blank, the code numbers itself - EMP-101 onwards.
+        if (empty($data['employee_code'])) {
+            $data['employee_code'] = Member::nextEmployeeCode($org->id);
         }
 
         // Everyone sits under the company by default: a new hire reports to

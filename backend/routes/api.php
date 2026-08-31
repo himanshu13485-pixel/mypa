@@ -604,6 +604,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
              * only an admin or subadmin may write here.
              */
             Route::middleware(['crm.member', 'crm.manager'])->group(function () {
+                // Fetch an existing Netvork account to register as an employee.
+                Route::get('/employees-lookup', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'lookupAccount']);
                 Route::post('/employees', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'store']);
                 Route::put('/employees/{uuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'update']);
                 Route::post('/employees/{uuid}/salary', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'addSalary']);

@@ -51,13 +51,17 @@ class ChangeRequestController extends Controller
                     throw ValidationException::withMessages(['new_value' => ['This username is taken.']]);
                 }
                 // Cooldown between username changes (admin-configurable).
-                $cooldownDays = (int) AppSetting::get('username_change_days');
-                $lastChanged = $user->username_changed_at ?? $user->created_at;
-                $eligibleAt = $lastChanged->copy()->addDays($cooldownDays);
-                if ($eligibleAt->isFuture()) {
-                    throw ValidationException::withMessages([
-                        'new_value' => ["Usernames can be changed once every {$cooldownDays} days. You can request a change on {$eligibleAt->toFormattedDateString()}."],
-                    ]);
+                // Setting the FIRST username is not a change: an account the
+                // company registered has none, and must not wait weeks for one.
+                if ($user->username !== null) {
+                    $cooldownDays = (int) AppSetting::get('username_change_days');
+                    $lastChanged = $user->username_changed_at ?? $user->created_at;
+                    $eligibleAt = $lastChanged->copy()->addDays($cooldownDays);
+                    if ($eligibleAt->isFuture()) {
+                        throw ValidationException::withMessages([
+                            'new_value' => ["Usernames can be changed once every {$cooldownDays} days. You can request a change on {$eligibleAt->toFormattedDateString()}."],
+                        ]);
+                    }
                 }
                 break;
 

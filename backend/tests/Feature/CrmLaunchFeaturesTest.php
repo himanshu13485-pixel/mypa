@@ -638,4 +638,56 @@ class CrmLaunchFeaturesTest extends TestCase
         $this->assertCount(1, $board);
         $this->assertSame($this->empUser->name, $board[0]['name']);
     }
+
+    public function test_registering_fetches_an_existing_netvork_account_first(): void
+    {
+        $person = User::factory()->create(['name' => 'Fresh Hire', 'email' => 'hire@netvork.test', 'username' => 'freshhire']);
+        $person->settings()->create([]);
+        $person->profile()->create(['timezone' => 'UTC']);
+
+        // Fetch by email, and by username - same person either way.
+        $byEmail = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=hire@netvork.test')
+            ->assertOk()->json('data');
+        $this->assertSame('Fresh Hire', $byEmail['name']);
+        $this->assertFalse($byEmail['already_member']);
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=FRESHHIRE')
+            ->assertOk()->assertJsonPath('data.email', 'hire@netvork.test');
+
+        // A stranger to Netvork is a 404; an employee may not go fishing.
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=nobody@nowhere.test')
+            ->assertNotFound();
+        $this->actingAs($this->empUser)->getJson('/api/v1/crm/employees-lookup?q=hire@netvork.test')
+            ->assertForbidden();
+
+        // Registering with the fetched email links the account - no password.
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/employees', [
+            'name' => 'Fresh Hire', 'email' => 'hire@netvork.test', 'crm_role' => 'employee',
+        ])->assertCreated();
+        $this->assertTrue(Member::where('organization_id', $this->org->id)
+            ->where('user_id', $person->id)->exists());
+
+        // And the lookup now says so.
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=hire@netvork.test')
+            ->assertOk()->assertJsonPath('data.already_member', true);
+    }
+
+    public function test_a_blank_employee_code_numbers_itself_from_101(): void
+    {
+        $first = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/employees', [
+            'name' => 'Auto One', 'email' => 'auto1@acme.test', 'password' => 'passw0rd99', 'crm_role' => 'employee',
+        ])->assertCreated();
+        $this->assertSame('EMP-101', Member::whereHas('user', fn ($q) => $q->where('email', 'auto1@acme.test'))
+            ->value('employee_code'));
+
+        // A hand-typed higher code moves the counter past itself.
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/employees', [
+            'name' => 'Hand Typed', 'email' => 'hand@acme.test', 'password' => 'passw0rd99', 'crm_role' => 'employee',
+            'employee_code' => 'EMP-250',
+        ])->assertCreated();
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/employees', [
+            'name' => 'Auto Two', 'email' => 'auto2@acme.test', 'password' => 'passw0rd99', 'crm_role' => 'employee',
+        ])->assertCreated();
+        $this->assertSame('EMP-251', Member::whereHas('user', fn ($q) => $q->where('email', 'auto2@acme.test'))
+            ->value('employee_code'));
+    }
 }
