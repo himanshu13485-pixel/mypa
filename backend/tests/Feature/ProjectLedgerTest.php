@@ -306,4 +306,50 @@ class ProjectLedgerTest extends TestCase
         $this->assertCount(1, $filtered['people']);
         $this->assertEquals($filtered['debit'], collect($filtered['people'])->sum('debit'));
     }
+
+    public function test_the_ledger_can_be_read_as_one_persons_or_severals(): void
+    {
+        $appIds = app(\App\Services\AppIdService::class);
+        $mate = User::factory()->create(['name' => 'Harsh', 'username' => 'harsh2']);
+        $third = User::factory()->create(['name' => 'Third', 'username' => 'third2']);
+        foreach ([$this->user, $mate, $third] as $u) {
+            $appIds->generateFor($u);
+        }
+
+        $project = $this->actingAs($this->user)->postJson('/api/v1/projects', ['name' => 'Whose money'])->json('data');
+        foreach (['harsh2', 'third2'] as $appId) {
+            $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/share", [
+                'app_id' => $appId, 'permission' => 'edit',
+            ])->assertOk();
+        }
+
+        $add = fn (User $who, float $amount) => $this->actingAs($who)
+            ->postJson("/api/v1/projects/{$project['uuid']}/entries", [
+                'entry_date' => now()->toDateString(), 'description' => 'Entry',
+                'direction' => 'credit', 'amount' => $amount, 'currency' => 'INR', 'mode' => 'cash',
+            ])->assertCreated();
+
+        $add($mate, 8000);
+        $add($third, 500);
+        $add($this->user, 1500);
+
+        $url = "/api/v1/projects/{$project['uuid']}";
+
+        // One person: their entries, and totals that are only theirs.
+        $one = $this->actingAs($this->user)->getJson($url . '/summary?people=' . $mate->uuid)
+            ->assertOk()->json();
+        $this->assertEquals(8000.0, collect($one['data'])->firstWhere('currency', 'INR')['credit']);
+        $this->assertCount(1, $this->actingAs($this->user)->getJson($url . '/entries?people=' . $mate->uuid)->json('data'));
+
+        // Two people at once - the pair read together, the third left out.
+        $two = collect($this->actingAs($this->user)
+            ->getJson($url . '/summary?people=' . $mate->uuid . ',' . $third->uuid)
+            ->assertOk()->json('data'))->firstWhere('currency', 'INR');
+        $this->assertEquals(8500.0, $two['credit']);
+        $this->assertCount(2, $two['people']);
+        $this->assertEquals($two['credit'], collect($two['people'])->sum('credit'));
+
+        // The picker keeps everybody, so a chosen name can be unchosen.
+        $this->assertCount(3, $one['contributors']);
+    }
 }

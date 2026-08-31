@@ -602,7 +602,9 @@ export const projects = {
     api.put(`/projects/${uuid}/entries/${entryUuid}`, payload, pwHeaders(pw)).then((r) => r.data),
   removeEntry: (uuid: string, entryUuid: string, pw?: string) => api.delete(`/projects/${uuid}/entries/${entryUuid}`, pwHeaders(pw)),
   summary: (uuid: string, params: Record<string, unknown> = {}, pw?: string) =>
-    api.get<{ data: import('../types').ProjectSummaryRow[] }>(`/projects/${uuid}/summary`, { params, ...pwHeaders(pw) }).then((r) => r.data.data),
+    api.get<{ data: import('../types').ProjectSummaryRow[]; contributors: import('../types').ProjectContributor[] }>(
+      `/projects/${uuid}/summary`, { params, ...pwHeaders(pw) },
+    ).then((r) => r.data),
   requestPasswordReset: (uuid: string) =>
     api.post<{ message: string }>(`/projects/${uuid}/request-password-reset`).then((r) => r.data),
   resetPassword: (uuid: string, code: string, newPassword: string) =>

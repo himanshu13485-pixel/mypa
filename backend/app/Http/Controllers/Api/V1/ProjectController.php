@@ -251,7 +251,15 @@ class ProjectController extends Controller
             'people' => $byPerson->get($c['currency'], collect())->values(),
         ])->values();
 
-        return response()->json(['data' => $summary]);
+        // Everyone who has ever entered in this project, whatever the filters
+        // say — the person filter's own list, so choosing one person never
+        // removes the others from the picker.
+        $contributors = User::whereIn('id', $project->entries()->select('created_by'))
+            ->orderBy('name')
+            ->get(['uuid', 'name'])
+            ->map(fn ($u) => ['uuid' => $u->uuid, 'name' => $u->name]);
+
+        return response()->json(['data' => $summary, 'contributors' => $contributors]);
     }
 
     /** Excel-compatible CSV of the filtered entries. */
@@ -479,6 +487,12 @@ class ProjectController extends Controller
             $query->where(fn ($w) => $w->where('description', 'like', "%{$q}%")
                 ->orWhere('counterparty', 'like', "%{$q}%")
                 ->orWhere('bank_account', 'like', "%{$q}%"));
+        }
+        // Whose entries: one person, or several, by account uuid. Names are
+        // not unique enough to filter on, so the list sends uuids back.
+        $people = array_filter(explode(',', (string) $request->query('people', '')));
+        if ($people !== []) {
+            $query->whereIn('created_by', User::whereIn('uuid', $people)->select('id'));
         }
 
         return $query;

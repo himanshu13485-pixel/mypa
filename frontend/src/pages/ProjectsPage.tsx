@@ -295,7 +295,9 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
   const [pw, setPw] = useState<string | undefined>(undefined)
   const locked = !!project.has_password && pw === undefined
   const [page, setPage] = useState(1)
-  const [filters, setFilters] = useState({ date_from: '', date_to: '', mode: '', direction: '', q: '' })
+  // 'people' holds account uuids — several at once, so a shared ledger can
+  // be read as "these two, together" and not only one person at a time.
+  const [filters, setFilters] = useState({ date_from: '', date_to: '', mode: '', direction: '', q: '', people: [] as string[] })
   const [search, setSearch] = useState('')
   const [showEntry, setShowEntry] = useState(false)
   const [editEntry, setEditEntry] = useState<ProjectEntryItem | null>(null)
@@ -306,7 +308,14 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
     ...(filters.mode ? { mode: filters.mode } : {}),
     ...(filters.direction ? { direction: filters.direction } : {}),
     ...(filters.q ? { q: filters.q } : {}),
+    ...(filters.people.length ? { people: filters.people.join(',') } : {}),
   }
+
+  /** Toggle one person in (or out of) the person filter. */
+  const togglePerson = (uuid: string) => setFilters((f) => ({
+    ...f,
+    people: f.people.includes(uuid) ? f.people.filter((p) => p !== uuid) : [...f.people, uuid],
+  }))
 
   useEffect(() => setPage(1), [JSON.stringify(filters)]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -317,12 +326,14 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
     refetchInterval: 10_000,
     enabled: !locked,
   })
-  const { data: summary } = useQuery({
+  const { data: summaryData } = useQuery({
     queryKey: ['project-summary', project.uuid, params],
     queryFn: () => projectsApi.summary(project.uuid, params, pw),
     refetchInterval: 10_000,
     enabled: !locked,
   })
+  const summary = summaryData?.data
+  const contributors = summaryData?.contributors ?? []
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['project-entries', project.uuid] })
@@ -398,7 +409,17 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
             </div>
             <div className="mt-2 space-y-1.5">
               {(row.people ?? []).map((p) => (
-                <div key={p.uuid ?? p.name} className="flex items-center gap-2 text-xs">
+                /* A name is also the filter: click it to read this ledger
+                   as only theirs, click again for everybody's. */
+                <div
+                  key={p.uuid ?? p.name}
+                  onClick={() => p.uuid && togglePerson(p.uuid)}
+                  className={clsx(
+                    'flex items-center gap-2 rounded-lg px-1.5 py-0.5 text-xs',
+                    p.uuid && 'cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800',
+                    p.uuid && filters.people.includes(p.uuid) && 'bg-slate-100 dark:bg-slate-800',
+                  )}
+                >
                   <span className="min-w-0 flex-1 truncate">
                     {p.name}
                     <span className="ml-1 text-slate-400">· {p.entries} entr{p.entries === 1 ? 'y' : 'ies'}</span>
@@ -454,6 +475,39 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
             <option value="debit">Debit (out)</option>
           </Select>
         </div>
+        {/* Whose entries. Several at once — each name is a toggle, and with
+            none chosen the ledger shows everybody's. */}
+        {contributors.length > 1 && (
+          <div>
+            <Label>Person</Label>
+            <div className="flex flex-wrap gap-1">
+              {contributors.map((c) => (
+                <button
+                  key={c.uuid}
+                  type="button"
+                  onClick={() => togglePerson(c.uuid)}
+                  className={clsx(
+                    'rounded-full px-2.5 py-1.5 text-xs font-medium',
+                    filters.people.includes(c.uuid)
+                      ? 'bg-brand-600 text-white'
+                      : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+                  )}
+                >
+                  {c.name}
+                </button>
+              ))}
+              {filters.people.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setFilters({ ...filters, people: [] })}
+                  className="rounded-full px-2.5 py-1.5 text-xs font-medium text-slate-400 underline"
+                >
+                  Everyone
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <div className="flex gap-1">
           <div>
             <Label>Search</Label>

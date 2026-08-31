@@ -658,6 +658,12 @@ export interface ProjectSummaryRow {
   people: ProjectPersonRow[]
 }
 
+/** Everyone who has ever entered in a project — the person filter's list. */
+export interface ProjectContributor {
+  uuid: string
+  name: string
+}
+
 export interface ProjectPersonRow {
   uuid: string | null
   name: string
