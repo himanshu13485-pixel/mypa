@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Notifications\Concerns\BroadcastsTheStoredRow;
 use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -15,6 +16,7 @@ use Illuminate\Notifications\Notification;
  */
 class SocialNotification extends Notification implements ShouldQueue
 {
+    use BroadcastsTheStoredRow;
     use Queueable;
 
     /**
@@ -39,24 +41,36 @@ class SocialNotification extends Notification implements ShouldQueue
     ) {
     }
 
+    /**
+     * What every notification in this app gets, before preferences.
+     *
+     * 'database' is the row the bell reads. 'broadcast' is the live event
+     * that tells an already-open tab the row exists — without it the bell
+     * only found out on its next poll, so a notification could sit unseen
+     * on screen for half a minute, and considerably longer in a background
+     * tab where browsers throttle timers. The phone would buzz and the
+     * website would sit there, which is precisely how the app came to feel
+     * slower than it is.
+     *
+     * Both are cheap and neither can fail the request: the row is a local
+     * insert, and the broadcast is queued.
+     */
+    public const BELL = ['database', 'broadcast'];
+
     public static function wantsMail(object $notifiable): bool
     {
-        $prefs = $notifiable->settings?->notification_preferences ?? [];
-
         return $notifiable->email !== null
             && $notifiable->email_verified_at !== null
-            && ($prefs['email'] ?? true);
+            && ($notifiable->settings?->notificationValue('email') ?? true);
     }
 
     /** Push goes out whenever the user has subscribed a device (pref 'push' can disable). */
     public static function wantsPush(object $notifiable): bool
     {
-        $prefs = $notifiable->settings?->notification_preferences ?? [];
-
         // A browser subscription or an installed Android app — either is a
         // device that can be pushed to. The channels sort out which is which:
         // each quietly skips a user with no devices of its kind.
-        return ($prefs['push'] ?? true)
+        return ($notifiable->settings?->notificationValue('push') ?? true)
             && ($notifiable->pushSubscriptions()->exists() || $notifiable->fcmTokens()->exists());
     }
 
@@ -88,7 +102,7 @@ class SocialNotification extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         $mail = self::wantsMail($notifiable) && ! in_array($this->kind, self::NEVER_MAIL, true);
-        $via = $mail ? ['database', 'mail'] : ['database'];
+        $via = $mail ? [...self::BELL, 'mail'] : self::BELL;
 
         if (self::wantsPush($notifiable)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;

@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\MobileOtp;
+use App\Notifications\Concerns\BroadcastsTheStoredRow;
 use Illuminate\Bus\Queueable;
 use Illuminate\Notifications\Notification;
 
@@ -10,6 +11,7 @@ use Illuminate\Notifications\Notification;
  *  the code is available immediately after registration. */
 class MobileOtpNotification extends Notification
 {
+    use BroadcastsTheStoredRow;
     use Queueable;
 
     public function __construct(public MobileOtp $otp)
@@ -18,7 +20,7 @@ class MobileOtpNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        return ['database'];
+        return SocialNotification::BELL;
     }
 
     public function toDatabase(object $notifiable): array

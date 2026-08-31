@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\TaskReminder;
+use App\Notifications\Concerns\BroadcastsTheStoredRow;
 use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,6 +12,7 @@ use Illuminate\Notifications\Notification;
 
 class TaskReminderNotification extends Notification implements ShouldQueue
 {
+    use BroadcastsTheStoredRow;
     use Queueable;
 
     public function __construct(public TaskReminder $reminder)
@@ -20,7 +22,7 @@ class TaskReminderNotification extends Notification implements ShouldQueue
     public function via(object $notifiable): array
     {
         $channels = $this->reminder->channels ?? ['in_app'];
-        $via = ['database'];
+        $via = SocialNotification::BELL;
 
         if (in_array('email', $channels) && SocialNotification::wantsMail($notifiable)) {
             $via[] = 'mail';

@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\Subscription;
+use App\Notifications\Concerns\BroadcastsTheStoredRow;
 use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,6 +12,7 @@ use Illuminate\Notifications\Notification;
 
 class SubscriptionLifecycleNotification extends Notification implements ShouldQueue
 {
+    use BroadcastsTheStoredRow;
     use Queueable;
 
     public function __construct(
@@ -22,7 +24,9 @@ class SubscriptionLifecycleNotification extends Notification implements ShouldQu
 
     public function via(object $notifiable): array
     {
-        $via = SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+        $via = SocialNotification::wantsMail($notifiable)
+            ? [...SocialNotification::BELL, 'mail']
+            : SocialNotification::BELL;
 
         if (SocialNotification::wantsPush($notifiable)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;

@@ -58,9 +58,29 @@ class PushSubscriptionController extends Controller
             'content_encoding' => ['sometimes', 'string', 'max:32'],
         ]);
 
-        $request->user()->pushSubscriptions()->updateOrCreate(
+        /*
+         * Looked up by endpoint alone, not scoped to the current user.
+         *
+         * A browser holds exactly one push endpoint per site, whoever happens
+         * to be signed in — so the endpoint identifies the browser, not the
+         * account. Scoping the lookup to the user meant that signing in as
+         * somebody else on the same browser and enabling push found no row of
+         * their own, tried to insert, and hit the global unique index on
+         * endpoint_hash: a 500, and no subscription at all. It only surfaced
+         * when two accounts shared one browser, which is exactly what testing
+         * this feature involves.
+         *
+         * Reassigning the row is the correct answer rather than merely the
+         * convenient one: a browser can only receive for one account at a
+         * time, and it should be whoever most recently asked for it.
+         *
+         * registerFcm below has always done it this way. Only web push was
+         * written the other way round.
+         */
+        PushSubscription::updateOrCreate(
             ['endpoint_hash' => hash('sha256', $data['endpoint'])],
             [
+                'user_id' => $request->user()->id,
                 'endpoint' => $data['endpoint'],
                 'public_key' => $data['keys']['p256dh'],
                 'auth_token' => $data['keys']['auth'],

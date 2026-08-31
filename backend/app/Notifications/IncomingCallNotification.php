@@ -31,11 +31,9 @@ class IncomingCallNotification extends Notification
 
     public function via(object $notifiable): array
     {
-        $prefs = $notifiable->settings?->notification_preferences ?? [];
-
         // A call is the one thing worth waking someone for, but "no push"
         // still means no push.
-        if (! ($prefs['push'] ?? true)) {
+        if (! ($notifiable->settings?->notificationValue('push') ?? true)) {
             return [];
         }
 

@@ -8,6 +8,8 @@ import { notifications as notificationsApi, reminders as remindersApi, tasks as 
 import { Button, EmptyState, SkeletonList } from './ui'
 import type { AppNotification } from '../types'
 import { playChime } from '../lib/alerts'
+import { getEcho } from '../lib/echo'
+import { useAuthStore } from '../stores/auth'
 
 export default function NotificationBell() {
   const [open, setOpen] = useState(false)
@@ -17,8 +19,53 @@ export default function NotificationBell() {
   const { data: count = 0 } = useQuery({
     queryKey: ['notifications-count'],
     queryFn: notificationsApi.unreadCount,
-    refetchInterval: 30_000,
+    /*
+     * A safety net now, not the mechanism.
+     *
+     * Notifications arrive over the websocket below, so this no longer
+     * decides how quickly the bell notices anything. It stays, at a much
+     * longer interval, to cover the case the socket cannot: a tab that was
+     * asleep or offline while an event went out, which Reverb does not
+     * replay. Two minutes is cheap and catches up on the next tick.
+     */
+    refetchInterval: 120_000,
+    // The one refetch worth having on focus: coming back to the tab is
+    // exactly when a missed event would still be missing.
+    refetchOnWindowFocus: true,
   })
+
+  /*
+   * The moment a notification exists, rather than up to half a minute later.
+   *
+   * Every notification now broadcasts on the sender's own private channel as
+   * well as being stored, so an open tab hears about it immediately. Before
+   * this the bell polled on a timer and nothing else, which meant a phone
+   * could buzz while the website sat unchanged — and in a background tab,
+   * where browsers throttle timers hard, considerably longer than the
+   * thirty seconds the interval promised.
+   *
+   * Invalidating rather than reading the payload: the event says something
+   * arrived, and the queries are the single source of what it was. That
+   * also keeps the unread count honest without doing the arithmetic here.
+   */
+  const userUuid = useAuthStore((s) => s.user?.uuid)
+  useEffect(() => {
+    if (!userUuid) return
+    const echo = getEcho()
+    if (!echo) return
+
+    const channel = echo.private(`user.${userUuid}`)
+    channel.notification(() => {
+      queryClient.invalidateQueries({ queryKey: ['notifications-count'] })
+      queryClient.invalidateQueries({ queryKey: ['notifications'] })
+    })
+
+    // Only this listener. The channel itself carries calls and meeting
+    // signals too, and leaving it is not ours to do.
+    return () => {
+      channel.stopListening('.Illuminate\\Notifications\\Events\\BroadcastNotificationCreated')
+    }
+  }, [userUuid, queryClient])
 
   // Chime when new notifications arrive (not on the very first load).
   const prevCount = useRef<number | null>(null)

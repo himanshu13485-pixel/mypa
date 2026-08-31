@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\ChangeRequest;
+use App\Notifications\Concerns\BroadcastsTheStoredRow;
 use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -10,6 +11,7 @@ use Illuminate\Notifications\Notification;
 
 class ChangeRequestDecidedNotification extends Notification implements ShouldQueue
 {
+    use BroadcastsTheStoredRow;
     use Queueable;
 
     public function __construct(public ChangeRequest $changeRequest)
@@ -26,7 +28,7 @@ class ChangeRequestDecidedNotification extends Notification implements ShouldQue
      */
     public function via(object $notifiable): array
     {
-        $via = ['database'];
+        $via = SocialNotification::BELL;
 
         if (SocialNotification::wantsPush($notifiable)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;

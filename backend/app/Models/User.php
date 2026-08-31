@@ -166,6 +166,24 @@ class User extends Authenticatable implements MustVerifyEmail
         };
     }
 
+    /**
+     * Where a broadcast notification is delivered.
+     *
+     * Laravel's default is a channel named after the class and primary key —
+     * App.Models.User.{id} — which this app has no authorisation rule for and
+     * would never let anybody subscribe to. It already has the right channel:
+     * user.{uuid} is authorised in channels.php, is what calls and meeting
+     * signals already travel on, and its comment has always said
+     * "notifications" among them. It simply was not being used for any.
+     *
+     * Naming it here is what lets the bell hear a notification the moment it
+     * is created, instead of finding out on its next poll.
+     */
+    public function receivesBroadcastNotificationsOn(): string
+    {
+        return 'user.' . $this->uuid;
+    }
+
     /** Installed Android apps that can be rung. The native twin of the above. */
     public function fcmTokens(): HasMany
     {

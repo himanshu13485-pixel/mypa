@@ -8,6 +8,7 @@ import {
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import { auth, badges as badgesApi } from '../api/endpoints'
+import { ensurePushRegistered } from '../lib/alerts'
 import { disconnectEcho } from '../lib/echo'
 import { isStaff, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
@@ -119,6 +120,23 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
     applyTheme(dark)
     localStorage.setItem('mypa-theme', dark ? 'dark' : 'light')
   }, [dark])
+
+  /*
+   * Re-register this browser for push, silently, once per load.
+   *
+   * Inside Layout because Layout only renders behind the auth guard, so
+   * there is a signed-in user for the subscription to belong to. It never
+   * prompts — it returns immediately unless permission was already granted —
+   * so the cost to somebody who has not opted in is one `if`.
+   *
+   * What it buys is a subscription that repairs itself. An endpoint that
+   * expires is pruned server-side on the next failed send, and until now
+   * nothing ever put it back: the toggle went on reading "on" and no
+   * notification ever arrived again.
+   */
+  useEffect(() => {
+    void ensurePushRegistered()
+  }, [])
 
   const { data: badges } = useQuery({
     queryKey: ['badges'],

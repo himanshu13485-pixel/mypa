@@ -4,6 +4,42 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Fixed — 2026-08-31 (Push that turns itself on, and a bell that does not wait)
+
+Testing the notification work across two accounts surfaced three faults, all
+of which presented identically as "push just doesn't work" and none of which
+said so anywhere.
+
+- **A second account on the same browser broke push entirely.** A browser holds
+  one push endpoint per site regardless of who is signed in, and
+  `endpoint_hash` is globally unique — but `subscribe()` looked the row up
+  scoped to the current user. So signing in as somebody else and enabling push
+  found no row of their own, tried to insert, and hit the unique index: a 500,
+  and no subscription. The row is now looked up by endpoint alone and reassigned
+  to whoever asked most recently, which is what `registerFcm` had always done.
+- **The bell waited for a timer.** Notifications were stored and pushed but
+  never broadcast, so an open tab found out on its next 30-second poll — and
+  considerably later in a background tab, where browsers throttle timers hard.
+  A phone would buzz while the website sat unchanged. Every notification now
+  broadcasts on `user.{uuid}`, the channel calls and meeting signals already
+  use and whose comment has always listed notifications among them. The poll
+  survives at two minutes as a safety net for events a sleeping tab missed,
+  since Reverb does not replay.
+- **Push never switched itself on.** It stayed off until somebody found the
+  toggle in Settings, so people who had already granted browser permission —
+  who had already said yes — went on receiving nothing. The app now silently
+  re-registers on load whenever permission is *already* granted. It never
+  prompts; asking is still something you do on purpose. This also repairs the
+  failure that is otherwise invisible: an expired endpoint is pruned
+  server-side on the next failed send, and until now nothing put it back, so
+  the toggle read "on" forever while nothing arrived.
+- **Notification defaults now exist in one place.** They were four separate
+  `?? true` expressions rather than one stated intention — the kind of default
+  that stops being the default the first time somebody writes the fifth one
+  differently. `UserSetting::DEFAULT_NOTIFICATIONS` says it once, and an
+  unrecognised preference defaults to on, so a channel added later reaches
+  people who registered before it existed. An explicit "no" is still honoured.
+
 ### Changed — 2026-08-31 (Moving around the app stops flickering)
 
 Netvork felt choppy next to something like Teams, and none of it was the

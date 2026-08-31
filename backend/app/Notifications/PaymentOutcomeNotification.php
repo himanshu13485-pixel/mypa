@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\PaymentOrder;
+use App\Notifications\Concerns\BroadcastsTheStoredRow;
 use App\Support\Alerts;
 use App\Support\Money;
 use Illuminate\Bus\Queueable;
@@ -12,6 +13,7 @@ use Illuminate\Notifications\Notification;
 
 class PaymentOutcomeNotification extends Notification implements ShouldQueue
 {
+    use BroadcastsTheStoredRow;
     use Queueable;
 
     public function __construct(
@@ -22,7 +24,9 @@ class PaymentOutcomeNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        $via = SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+        $via = SocialNotification::wantsMail($notifiable)
+            ? [...SocialNotification::BELL, 'mail']
+            : SocialNotification::BELL;
 
         if (SocialNotification::wantsPush($notifiable)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;

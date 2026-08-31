@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\Bill;
+use App\Notifications\Concerns\BroadcastsTheStoredRow;
 use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -11,6 +12,7 @@ use Illuminate\Notifications\Notification;
 
 class BillDueNotification extends Notification implements ShouldQueue
 {
+    use BroadcastsTheStoredRow;
     use Queueable;
 
     public function __construct(public Bill $bill, public bool $alarm = false)
@@ -19,7 +21,7 @@ class BillDueNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        $via = ['database'];
+        $via = SocialNotification::BELL;
         if (SocialNotification::wantsMail($notifiable)) {
             $via[] = 'mail';
         }
