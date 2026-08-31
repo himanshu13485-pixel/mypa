@@ -11,6 +11,18 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Event extends Model
 {
+    use \App\Models\Concerns\StoresOfficeClock;
+
+    public function setStartsAtAttribute($value): void
+    {
+        $this->attributes['starts_at'] = $this->officeClock($value);
+    }
+
+    public function setEndsAtAttribute($value): void
+    {
+        $this->attributes['ends_at'] = $this->officeClock($value);
+    }
+
     use HasUuids, SoftDeletes;
 
     public const TYPES = ['event', 'meeting', 'appointment', 'birthday', 'anniversary', 'holiday'];

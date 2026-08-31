@@ -18,6 +18,18 @@ use Illuminate\Support\Str;
  */
 class Booking extends Model
 {
+    use \App\Models\Concerns\StoresOfficeClock;
+
+    public function setStartsAtAttribute($value): void
+    {
+        $this->attributes['starts_at'] = $this->officeClock($value);
+    }
+
+    public function setEndsAtAttribute($value): void
+    {
+        $this->attributes['ends_at'] = $this->officeClock($value);
+    }
+
     use HasUuids;
 
     protected $fillable = [

@@ -9,6 +9,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Meeting extends Model
 {
+    use \App\Models\Concerns\StoresOfficeClock;
+
+    public function setScheduledAtAttribute($value): void
+    {
+        $this->attributes['scheduled_at'] = $this->officeClock($value);
+    }
+
     use HasUuids;
 
     /** Presence grace: a participant silent for this long is treated as gone. */

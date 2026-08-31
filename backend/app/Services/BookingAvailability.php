@@ -175,6 +175,11 @@ class BookingAvailability
         $pad = $page->buffer_minutes;
         $periods = [];
 
+        // The rows store the app timezone's wall clock, so the range must be
+        // bound on that clock too — a Carbon binds as its OWN wall clock.
+        $from = $from->setTimezone(config('app.timezone'));
+        $to = $to->setTimezone(config('app.timezone'));
+
         $add = function (?CarbonImmutable $start, ?CarbonImmutable $end, int $fallbackMinutes) use (&$periods, $pad) {
             if (! $start) {
                 return;
