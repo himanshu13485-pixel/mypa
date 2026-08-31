@@ -4,6 +4,81 @@ All notable changes to My PA are documented here.
 
 ## [Unreleased]
 
+### Added — 2026-08-31 (Everything notifies, on the phone and on the web)
+
+The push transports were finished long before there was much to send through
+them. Web push and FCM both worked, both read the same `toPush()` payload, and
+between them they carried calls, shares and invitations — perhaps a dozen
+moments in an app that has hundreds. Everything else changed the database and
+told nobody: a colleague editing a task you are assigned to, an expense added
+to a ledger you co-own, a missed call, a payment succeeding or failing, an
+administrator suspending your account. The only way to learn any of it was to
+open the app and compare what you saw against your memory of yesterday.
+
+- **Shared expense ledgers speak.** Adding, editing or deleting an entry now
+  reaches everyone else on the project — the owner included, who is not in
+  `sharedWith` and is precisely the person who most wants to know. Someone
+  could previously post a hundred thousand rupees of expenses to a ledger you
+  co-own in complete silence. Tagged per entry, so a busy afternoon arrives as
+  the several separate things it was.
+- **Tasks report their own progress.** Status changes, edits, comments,
+  checklist items being added, ticked and removed all reach the owner and the
+  other assignees. Progress deliberately notifies only at 100: it arrives from
+  a slider, and a single drag is a run of requests.
+- **Missed calls leave word.** A ring carries a 45-second TTL — a call
+  announced ten minutes late is worse than one never announced — so a phone
+  that was off learned nothing. The missed call itself now notifies, which is
+  the part worth keeping.
+- **Group membership.** Being removed from a group, or having your role
+  changed, is now said out loud rather than discovered by finding a button
+  gone. Leaving of your own accord stays silent.
+- **Account actions.** Suspension, reactivation, role changes and manual email
+  verification notify the person they happened to. Suspension is sent after the
+  sessions are cut, on purpose: push subscriptions belong to the device, not
+  the session, so it still lands — the difference between an account that was
+  suspended and an app that mysteriously logged you out.
+- **Payments, plans and account change requests** now push. All three were
+  bell-and-email only, so the answer to "did that go through?" arrived only if
+  you went back and looked.
+- **The calendar reminds you.** `events.starts_at` was written, indexed and
+  read by nobody, so an appointment booked for Tuesday at nine passed in
+  silence — the last dated thing in the app with no reminder. A new
+  `mypa:send-event-reminders` sweep speaks up half an hour ahead (longer than a
+  meeting's ten minutes, because an appointment usually has a journey in front
+  of it), skips all-day entries so a birthday does not ring at 11:30pm, skips
+  anyone who declined, and re-arms itself when an event is moved.
+
+### Changed — 2026-08-31 (Alerts that can be told apart)
+
+- **Notification categories.** Every kind now belongs to one of five
+  categories — chat, reminders, money, activity, account — and the category
+  decides the Android channel, the urgency and how long the push is worth
+  delivering. Previously everything went out at one urgency to a channel id
+  (`default`) that the app never created, which Android quietly replaces with
+  the FCM library's own fallback: default importance, default tone, no
+  heads-up, and one useless row in Android's notification settings governing
+  all of it.
+- **Five Android channels with their own sounds**, generated as short WAV
+  assets that differ in contour rather than only pitch, because pitch alone
+  does not survive a phone speaker in a pocket. Channels are the only handle
+  Android gives a person for turning one sort of alert down without turning the
+  app off, so with everything notifying they are the feature as much as the
+  pushes are. The ids are versioned: a channel's importance and sound are fixed
+  at creation and cannot be changed by an app update.
+- **The service worker matches**, using the same vibration patterns per
+  category, so an event feels the same whether it reached you through the
+  browser or the installed app.
+- **Push titles say something.** Every notification was titled the same, so the
+  bold half of every lock-screen alert carried no information at all.
+- **Chat-rate kinds never become email.** Messages, missed calls, task activity
+  and ledger entries reach the bell and the device but not the inbox — a shared
+  project having a busy afternoon would otherwise arrive as forty emails.
+- **Every notification in the bell is now clickable.** The list understood
+  exactly one destination, a task, from when a task reminder was very nearly
+  the only thing in it. Every other row looked clickable, did nothing, and
+  quietly marked itself read. The server had always sent `action_path`; the
+  bell only had to read it.
+
 ### Fixed — 2026-08-04 (A websocket outage no longer takes the API with it)
 - Call and meeting signals broadcast synchronously, so an unreachable Reverb
   threw mid-request and answered 500. Joining a meeting failed outright even

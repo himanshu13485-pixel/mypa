@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\Subscription;
+use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -21,7 +22,36 @@ class SubscriptionLifecycleNotification extends Notification implements ShouldQu
 
     public function via(object $notifiable): array
     {
-        return SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+        $via = SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+
+        if (SocialNotification::wantsPush($notifiable)) {
+            $via[] = \App\Notifications\Channels\WebPushChannel::class;
+            $via[] = \App\Notifications\Channels\FcmChannel::class;
+        }
+
+        return $via;
+    }
+
+    public function toPush(object $notifiable): array
+    {
+        $kind = 'subscription_' . $this->event;
+
+        return [
+            'title' => $this->event === 'expired' ? 'Plan expired' : 'Plan expiring',
+            'body' => $this->message(),
+            // One per subscription: a reminder at seven days out and
+            // another at one are the same fact getting closer, so the
+            // newer one should replace the older rather than sit under it.
+            'tag' => 'subscription-' . $this->subscription->id,
+            'url' => '/pricing',
+            'kind' => $kind,
+            'channel' => Alerts::channelOf($kind),
+        ];
+    }
+
+    public function pushOptions(): array
+    {
+        return Alerts::optionsOf('subscription_' . $this->event);
     }
 
     protected function message(): string

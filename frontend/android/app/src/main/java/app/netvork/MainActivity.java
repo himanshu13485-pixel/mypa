@@ -30,6 +30,10 @@ public class MainActivity extends BridgeActivity {
         // afterwards is not in it.
         registerPlugin(CallServicePlugin.class);
         super.onCreate(savedInstanceState);
+        // Before anything can be posted to them. A channel that does not
+        // exist when a push lands is silently downgraded to the FCM
+        // library's own fallback, losing both the sound and the heads-up.
+        NotificationChannels.ensure(this);
         cancelNamedNotification(getIntent());
     }
 

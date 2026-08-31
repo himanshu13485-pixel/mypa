@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\PaymentOrder;
+use App\Support\Alerts;
 use App\Support\Money;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -21,7 +22,45 @@ class PaymentOutcomeNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        return SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+        $via = SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+
+        if (SocialNotification::wantsPush($notifiable)) {
+            $via[] = \App\Notifications\Channels\WebPushChannel::class;
+            $via[] = \App\Notifications\Channels\FcmChannel::class;
+        }
+
+        return $via;
+    }
+
+    /**
+     * Worth a buzz, both ways.
+     *
+     * A success is the answer to "did that go through?" — the question
+     * every payment leaves behind, and the reason people sat refreshing
+     * the billing page. A failure is more urgent still: nothing was taken,
+     * but nothing was bought either, and the only way to find that out was
+     * to notice the plan had not changed.
+     */
+    public function toPush(object $notifiable): array
+    {
+        $amount = '₹' . Money::toDecimalString($this->order->total_amount);
+        $kind = 'payment_' . $this->outcome;
+
+        return [
+            'title' => $this->outcome === 'successful' ? 'Payment received' : 'Payment failed',
+            'body' => $this->outcome === 'successful'
+                ? "{$amount} received — your {$this->order->plan->name} plan is active."
+                : "Your payment for the {$this->order->plan->name} plan did not complete.",
+            'tag' => 'payment-' . $this->order->uuid,
+            'url' => $this->outcome === 'successful' ? '/settings' : '/pricing',
+            'kind' => $kind,
+            'channel' => Alerts::channelOf($kind),
+        ];
+    }
+
+    public function pushOptions(): array
+    {
+        return Alerts::optionsOf('payment_' . $this->outcome);
     }
 
     public function toDatabase(object $notifiable): array

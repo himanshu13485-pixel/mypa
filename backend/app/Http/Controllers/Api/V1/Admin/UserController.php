@@ -114,6 +114,21 @@ class UserController extends Controller
         $user->tokens()->delete();
         \App\Models\AuditLog::record($request->user(), 'user.suspended', $user);
 
+        /*
+         * Sent after the sessions are cut, on purpose.
+         *
+         * The tokens are gone but the push subscriptions are not — they
+         * belong to the device, not the session — so this still lands. It
+         * is the difference between an account that was suspended and an
+         * app that mysteriously logged you out and refuses you back in.
+         */
+        $user->notify(new \App\Notifications\SocialNotification(
+            'account_suspended',
+            'Your account has been suspended. Contact support if you believe this is a mistake.',
+            [],
+            '/settings',
+        ));
+
         return response()->json(['message' => 'User suspended.']);
     }
 
@@ -123,6 +138,13 @@ class UserController extends Controller
 
         $user->update(['status' => 'active']);
         \App\Models\AuditLog::record($request->user(), 'user.activated', $user);
+
+        $user->notify(new \App\Notifications\SocialNotification(
+            'account_activated',
+            'Your account is active again. You can sign in as usual.',
+            [],
+            '/settings',
+        ));
 
         return response()->json(['message' => 'User activated.']);
     }
@@ -148,6 +170,13 @@ class UserController extends Controller
             fn ($id) => [$id => ['assigned_by' => $request->user()->id]]
         ));
         \App\Models\AuditLog::record($request->user(), 'user.roles_changed', $user, ['roles' => $data['roles']]);
+
+        $user->notify(new \App\Notifications\SocialNotification(
+            'account_roles',
+            'Your account roles were updated to: ' . implode(', ', $data['roles']) . '.',
+            [],
+            '/settings',
+        ));
 
         return response()->json([
             'message' => 'Roles updated.',
@@ -316,6 +345,13 @@ class UserController extends Controller
             \App\Models\AuditLog::record($request->user(), 'user.email_verified_manually', $user, [
                 'email' => $user->email,
             ]);
+
+            $user->notify(new \App\Notifications\SocialNotification(
+                'account_security',
+                'Your email address has been verified.',
+                [],
+                '/settings',
+            ));
         }
 
         return response()->json(['message' => 'Email marked as verified.']);

@@ -124,11 +124,35 @@ class FcmService
                 'title' => (string) ($payload['title'] ?? 'Netvork'),
                 'body' => (string) ($payload['body'] ?? ''),
             ];
+            /*
+             * The channel decides the sound, and the channel is chosen by
+             * what kind of alert this is.
+             *
+             * 'default' was a channel the app never created. Android's rule
+             * for a notification naming a channel that does not exist is to
+             * fall back to the FCM SDK's own "Miscellaneous" channel — which
+             * exists, but at default importance with the default tone, which
+             * is why every alert in the app arrived sounding identical and
+             * none of them popped as a heads-up. Naming a channel the shell
+             * actually creates is what makes a bill sound like money and a
+             * message sound like a message, and gives the user a row per kind
+             * in Android's own notification settings to turn down.
+             */
             $message['android']['notification'] = [
-                'channel_id' => 'default',
+                'channel_id' => (string) ($payload['channel'] ?? 'social_v1'),
                 // One notification per subject, replaced on re-send, exactly
                 // like the web push 'tag'.
                 'tag' => (string) ($payload['tag'] ?? ''),
+                /*
+                 * Channels carry the importance on Android 8 and newer, and
+                 * an existing channel's importance cannot be raised by an
+                 * update — but this field still decides heads-up behaviour on
+                 * older devices, which are exactly the ones least likely to
+                 * be replaced soon.
+                 */
+                'notification_priority' => ($options['urgency'] ?? null) === 'high'
+                    ? 'PRIORITY_HIGH'
+                    : 'PRIORITY_DEFAULT',
             ];
         }
 

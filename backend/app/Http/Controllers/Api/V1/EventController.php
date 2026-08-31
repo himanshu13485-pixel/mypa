@@ -104,6 +104,20 @@ class EventController extends Controller
         $participants = $data['participants'] ?? null;
         unset($data['participants']);
 
+        /*
+         * A moved event has not been reminded about yet.
+         *
+         * reminded_at is what stops the sweep sending the same reminder
+         * every minute, which means leaving it set after the start time
+         * changes would silence the new time completely — the worst
+         * outcome, because rescheduling is exactly when people rely on
+         * being told.
+         */
+        if (array_key_exists('starts_at', $data)
+            && $event->starts_at?->ne($data['starts_at'])) {
+            $data['reminded_at'] = null;
+        }
+
         $event->update($data);
 
         if ($participants !== null) {

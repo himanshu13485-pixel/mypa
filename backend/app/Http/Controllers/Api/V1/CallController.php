@@ -506,6 +506,42 @@ class CallController extends Controller
         $conversation->update(['last_message_at' => now()]);
 
         broadcast(new MessageSent($message->load(['user', 'conversation'])));
+
+        /*
+         * A missed call is the only one of these worth a notification.
+         *
+         * The ring itself is a push, but a ring is deliberately short-lived —
+         * it carries a 45-second TTL, because a call announced ten minutes
+         * late is worse than one never announced. So a phone that was off,
+         * out of signal, or simply not picked up in time was left with a line
+         * in a chat nobody had a reason to open. This is the part that
+         * survives: somebody tried to reach you, and here is who.
+         *
+         * Answered and declined calls say nothing. Both mean the person was
+         * already there for it.
+         */
+        if ($call->status !== 'missed') {
+            return;
+        }
+
+        $caller = $call->caller ?? $call->caller()->first();
+        if (! $caller) {
+            return;
+        }
+
+        $kind = $call->type === 'video' ? 'video call' : 'call';
+
+        foreach ($call->participants()->where('users.id', '!=', $caller->id)->get() as $person) {
+            $person->notify(new \App\Notifications\SocialNotification(
+                'missed_call',
+                "Missed {$kind} from {$caller->name}.",
+                ['call_uuid' => $call->uuid, 'conversation_uuid' => $conversation->uuid],
+                '/calls',
+                // Per call: two people trying you in the same hour are two
+                // callbacks you owe, not one.
+                'missed-' . $call->uuid,
+            ));
+        }
     }
 
     protected function fmtDuration(?int $seconds): string

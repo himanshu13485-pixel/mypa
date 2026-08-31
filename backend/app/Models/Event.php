@@ -17,7 +17,7 @@ class Event extends Model
 
     protected $fillable = [
         'user_id', 'group_id', 'title', 'description', 'type', 'starts_at', 'ends_at',
-        'all_day', 'location', 'meeting_link', 'color', 'repeat_config',
+        'all_day', 'location', 'meeting_link', 'color', 'repeat_config', 'reminded_at',
     ];
 
     protected function casts(): array
@@ -27,6 +27,7 @@ class Event extends Model
             'ends_at' => 'datetime',
             'all_day' => 'boolean',
             'repeat_config' => 'array',
+            'reminded_at' => 'datetime',
         ];
     }
 

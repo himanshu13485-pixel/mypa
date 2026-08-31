@@ -63,12 +63,29 @@ export default function NotificationBell() {
     },
   })
 
-  const openTask = (n: AppNotification) => {
+  /**
+   * Take the reader to whatever this notification is about.
+   *
+   * This used to understand exactly one destination — a task — because for
+   * a long time a task reminder was very nearly the only thing in here. Now
+   * that every part of the app notifies, most rows in this list were about
+   * something else entirely: an expense added to a shared ledger, a missed
+   * call, a payment, a group role. Every one of those looked clickable, said
+   * nothing when clicked, and quietly marked itself read.
+   *
+   * The server has always sent where to go — action_path is written into
+   * every notification's payload — so this only ever had to read it. The
+   * task branch stays as the fallback for the older rows already sitting in
+   * people's lists, which predate action_path.
+   */
+  const openNotification = (n: AppNotification) => {
     if (!n.read_at) markRead.mutate(n.id)
-    if (n.data.task_uuid) {
-      setOpen(false)
-      navigate(`/tasks?open=${n.data.task_uuid}`)
-    }
+
+    const to = n.data.action_path ?? (n.data.task_uuid ? `/tasks?open=${n.data.task_uuid}` : null)
+    if (!to) return
+
+    setOpen(false)
+    navigate(to)
   }
 
   return (
@@ -118,7 +135,7 @@ export default function NotificationBell() {
                       !n.read_at && 'bg-brand-50/50 dark:bg-brand-950/30',
                     )}
                   >
-                    <button className="block w-full text-left" onClick={() => openTask(n)}>
+                    <button className="block w-full text-left" onClick={() => openNotification(n)}>
                       <p className="text-sm">{n.data.message}</p>
                       <p className="mt-0.5 text-xs text-slate-400">
                         {formatDistanceToNow(new Date(n.created_at), { addSuffix: true })}

@@ -3,6 +3,7 @@
 namespace App\Notifications;
 
 use App\Models\TaskReminder;
+use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -45,7 +46,14 @@ class TaskReminderNotification extends Notification implements ShouldQueue
                 : $task->title,
             'tag' => 'task-' . $task->uuid,
             'url' => '/tasks?open=' . $task->uuid,
+            'kind' => 'task_reminder',
+            'channel' => Alerts::channelOf('task_reminder'),
         ];
+    }
+
+    public function pushOptions(): array
+    {
+        return Alerts::optionsOf('task_reminder');
     }
 
     public function toDatabase(object $notifiable): array

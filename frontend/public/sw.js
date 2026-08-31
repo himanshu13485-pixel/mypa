@@ -86,6 +86,31 @@ self.addEventListener('fetch', (event) => {
   )
 })
 
+/**
+ * What a notification feels like in a pocket.
+ *
+ * A phone face-down on a desk gives you the buzz and nothing else, and until
+ * every kind of alert started pushing, that was fine: there were two of them.
+ * Now that a chat message, a bill falling due and a colleague ticking off a
+ * checklist all arrive here, one shared pattern means the only way to know
+ * whether something needs you is to pick the phone up.
+ *
+ * These deliberately mirror the vibration patterns of the matching Android
+ * channels in NotificationChannels.java, so the same event feels the same
+ * whether it reached you through the browser or the installed app.
+ */
+const VIBRATION = {
+  messages_v1: [0, 180, 90, 180],
+  reminders_v1: [0, 250, 120, 250],
+  money_v1: [0, 400, 150, 200],
+  social_v1: [0, 200, 100, 200],
+  system_v1: [0, 300],
+}
+
+function vibrationFor(channel) {
+  return VIBRATION[channel] || VIBRATION.social_v1
+}
+
 /* ---- Web push: system notifications with sound, even when the tab is closed. */
 self.addEventListener('push', (event) => {
   let data = {}
@@ -106,7 +131,7 @@ self.addEventListener('push', (event) => {
   const call = data.kind === 'call'
 
   event.waitUntil(
-    self.registration.showNotification(data.title || 'My PA', {
+    self.registration.showNotification(data.title || 'Netvork', {
       body: data.body || '',
       tag: data.tag || undefined,
       icon: '/icons/icon.svg',
@@ -116,7 +141,7 @@ self.addEventListener('push', (event) => {
       requireInteraction: data.requireInteraction === true,
       actions: Array.isArray(data.actions) ? data.actions : undefined,
       // Sound is the device's own; vibration is ours to choose.
-      vibrate: call ? [400, 200, 400, 200, 400] : [200, 100, 200],
+      vibrate: call ? [400, 200, 400, 200, 400] : vibrationFor(data.channel),
     }),
   )
 })

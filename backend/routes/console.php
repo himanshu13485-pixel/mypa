@@ -24,6 +24,11 @@ Schedule::command('mypa:reap-meetings')->everyMinute()->withoutOverlapping();
 // Every minute, because "in ten minutes" is only true for one of them.
 Schedule::command('mypa:send-meeting-reminders')->everyMinute()->withoutOverlapping();
 
+// Half an hour before a calendar entry, for the same reason and on the same
+// cadence. Longer notice than a meeting because an appointment usually has a
+// journey in front of it.
+Schedule::command('mypa:send-event-reminders')->everyMinute()->withoutOverlapping();
+
 // Habit nudges at the time the person set, in their own timezone — so every
 // minute, because 7am is a different instant for each of them.
 Schedule::command('mypa:habit-reminders')->everyMinute()->withoutOverlapping();

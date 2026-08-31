@@ -2,6 +2,7 @@
 
 namespace App\Notifications;
 
+use App\Support\Alerts;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Notifications\Messages\MailMessage;
@@ -22,6 +23,11 @@ class SocialNotification extends Notification implements ShouldQueue
      * quietly replaces the first rather than stacking up. A chat message is
      * the opposite — every one of them is meant to arrive on its own, so the
      * caller passes a tag carrying the message's own id.
+     *
+     * $pushTitle overrides the bold first line on the device. Most callers
+     * should leave it alone: the kind already implies a title through
+     * Alerts, and a title chosen per call site is how a hundred notifications
+     * end up saying a hundred slightly different things.
      */
     public function __construct(
         public string $kind,
@@ -29,6 +35,7 @@ class SocialNotification extends Notification implements ShouldQueue
         public array $data = [],
         public ?string $actionPath = null,
         public ?string $pushTag = null,
+        public ?string $pushTitle = null,
     ) {
     }
 
@@ -59,8 +66,24 @@ class SocialNotification extends Notification implements ShouldQueue
      * Email is one message per notification with no way to collapse it, so a
      * busy chat would arrive as a busy inbox. These still reach the bell and
      * the device; they just do not land in the recipient's mail.
+     *
+     * The list grew when every action in the app started notifying. A task
+     * edited by a colleague, an expense added to a shared ledger and a
+     * checklist item ticked are all worth a glance on the phone and none of
+     * them is worth an email — a shared project with a busy afternoon would
+     * otherwise arrive as forty of them.
      */
-    private const NEVER_MAIL = ['message'];
+    private const NEVER_MAIL = [
+        'message',
+        'missed_call',
+        'task_updated',
+        'task_completed',
+        'task_comment',
+        'expense_added',
+        'expense_updated',
+        'expense_deleted',
+        'event_response',
+    ];
 
     public function via(object $notifiable): array
     {
@@ -78,11 +101,22 @@ class SocialNotification extends Notification implements ShouldQueue
     public function toPush(object $notifiable): array
     {
         return [
-            'title' => 'My PA',
+            'title' => $this->pushTitle ?? Alerts::titleOf($this->kind),
             'body' => $this->message,
             'tag' => $this->pushTag ?? 'social-' . $this->kind,
             'url' => $this->actionPath ?? '/',
+            // Carried so the device can tell a bill from a chat before it has
+            // shown either: the Android shell picks the channel from it, and
+            // the service worker picks the vibration pattern.
+            'kind' => $this->kind,
+            'channel' => Alerts::channelOf($this->kind),
         ];
+    }
+
+    /** How urgently, and for how long — decided by what kind of alert this is. */
+    public function pushOptions(): array
+    {
+        return Alerts::optionsOf($this->kind);
     }
 
     public function toDatabase(object $notifiable): array

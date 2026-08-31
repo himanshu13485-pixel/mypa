@@ -274,6 +274,9 @@ export interface AppNotification {
   type: string
   data: {
     kind: string
+    // Where clicking this should go. Written by SocialNotification for
+    // every kind; absent on rows created before it existed.
+    action_path?: string | null
     reminder_id?: number
     task_uuid?: string
     task_title?: string

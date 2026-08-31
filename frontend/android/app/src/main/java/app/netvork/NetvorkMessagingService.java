@@ -49,6 +49,18 @@ public class NetvorkMessagingService extends com.capacitorjs.plugins.pushnotific
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
         Map<String, String> data = remoteMessage.getData();
         if (!"call".equals(data.get("kind"))) {
+            /*
+             * Belt and braces with MainActivity, and not redundant.
+             *
+             * Android can start this service for a push without the activity
+             * ever having run in this process — after a reboot, or once the
+             * app has been swiped away. Capacitor's own handler below posts
+             * straight to the channel the server named, and if that channel
+             * does not exist yet the notification is quietly downgraded to
+             * the fallback channel: no custom sound, no heads-up. Creating
+             * an existing channel costs nothing and changes nothing.
+             */
+            NotificationChannels.ensure(this);
             super.onMessageReceived(remoteMessage);
             return;
         }

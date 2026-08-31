@@ -184,6 +184,8 @@ class TaskController extends Controller
         );
         if ($changed) {
             $task->logActivity($request->user(), 'updated', array_keys($changed));
+            $this->tellTheOthers($task, $request->user(), 'task_updated',
+                'changed ' . $this->readableFields(array_keys($changed)) . ' on');
         }
 
         return response()->json([
@@ -195,6 +197,10 @@ class TaskController extends Controller
     public function destroy(Request $request, Task $task): JsonResponse
     {
         abort_unless($task->user_id === $request->user()->id, 403);
+
+        // Said before the delete, while the assignees can still be read off
+        // the pivot table.
+        $this->tellTheOthers($task, $request->user(), 'task_updated', 'deleted');
 
         $task->delete();
 
@@ -220,6 +226,15 @@ class TaskController extends Controller
         $task->update($update);
         $task->logActivity($request->user(), 'status_changed', ['status' => $data['status']]);
 
+        $this->tellTheOthers(
+            $task,
+            $request->user(),
+            $data['status'] === 'completed' ? 'task_completed' : 'task_updated',
+            $data['status'] === 'completed'
+                ? 'completed'
+                : 'moved to ' . str($data['status'])->replace('_', ' ') . ':',
+        );
+
         if ($data['status'] === 'completed') {
             $this->spawnNextOccurrence($task);
         }
@@ -242,8 +257,17 @@ class TaskController extends Controller
             'completed_at' => $data['progress'] === 100 ? now() : $task->completed_at,
         ]);
 
+        /*
+         * Only 100 is worth telling anyone about.
+         *
+         * Progress arrives from a slider, so a single drag from 10 to 60 is
+         * a run of requests. Notifying each would buzz a colleague's phone a
+         * dozen times to say a bar moved. Finishing is the one value that is
+         * news, and it is the same news updateStatus sends.
+         */
         if ($data['progress'] === 100) {
             $this->spawnNextOccurrence($task);
+            $this->tellTheOthers($task, $request->user(), 'task_completed', 'completed');
         }
 
         return response()->json([
@@ -357,6 +381,9 @@ class TaskController extends Controller
             'sort_order' => ($task->checklists()->max('sort_order') ?? 0) + 1,
         ]);
 
+        $this->tellTheOthers($task, $request->user(), 'task_updated',
+            'added a checklist item to');
+
         return response()->json(['message' => 'Checklist item added.', 'data' => $item], 201);
     }
 
@@ -374,6 +401,13 @@ class TaskController extends Controller
 
         $item->update($data);
 
+        // Ticking a box is the interesting one; renaming or reordering is
+        // housekeeping, and nobody wants to hear about a drag-and-drop.
+        if (array_key_exists('is_done', $data)) {
+            $this->tellTheOthers($task, $request->user(), 'task_updated',
+                ($data['is_done'] ? 'ticked off ' : 'un-ticked ') . $this->quoted($item->title) . ' on');
+        }
+
         return response()->json(['message' => 'Checklist item updated.', 'data' => $item->fresh()]);
     }
 
@@ -382,6 +416,9 @@ class TaskController extends Controller
         $this->authorizeEdit($request, $task);
 
         $task->checklists()->findOrFail($itemId)->delete();
+
+        $this->tellTheOthers($task, $request->user(), 'task_updated',
+            'removed a checklist item from');
 
         return response()->json(['message' => 'Checklist item removed.']);
     }
@@ -405,6 +442,16 @@ class TaskController extends Controller
 
         $task->logActivity($request->user(), 'commented');
 
+        $this->tellTheOthers(
+            $task,
+            $request->user(),
+            'task_comment',
+            'commented on',
+            str($data['body'])->stripTags()->limit(80)->toString(),
+            // Per comment: a thread is meant to arrive as a thread.
+            'task-comment-' . $comment->id,
+        );
+
         return response()->json([
             'message' => 'Comment added.',
             'data' => $comment->load('user:id,uuid,name'),
@@ -412,6 +459,98 @@ class TaskController extends Controller
     }
 
     // --- Helpers ------------------------------------------------------------
+
+    /**
+     * Tell everyone else on this task what just happened to it.
+     *
+     * A task with assignees is a piece of shared work, but only two moments
+     * in its life ever said so: being handed to you, and its reminder going
+     * off. Everything in between — the due date moving, the status changing,
+     * a colleague answering your question in a comment — happened in silence,
+     * and the only way to learn any of it was to open the task and compare it
+     * against your memory of yesterday.
+     *
+     * 'Everyone else' is the owner plus the assignees, minus whoever did it.
+     * The owner is the person who will not otherwise find out, and is not in
+     * the assignee list unless they put themselves there.
+     *
+     * A task nobody else is on notifies nobody, which is most of them — this
+     * returns without a query in that case.
+     */
+    protected function tellTheOthers(
+        Task $task,
+        \App\Models\User $actor,
+        string $kind,
+        string $verb,
+        ?string $detail = null,
+        ?string $tag = null,
+    ): void {
+        $recipients = $task->assignees()->where('users.id', '!=', $actor->id)->get();
+        if ($task->user_id !== $actor->id && $task->user) {
+            $recipients->push($task->user);
+        }
+        if ($recipients->isEmpty()) {
+            return;
+        }
+
+        $line = trim("{$actor->name} {$verb} " . $this->quoted($task->title)
+            . ($detail !== null ? ': ' . $detail : '.'));
+
+        foreach ($recipients->unique('id') as $person) {
+            $person->notify(new \App\Notifications\SocialNotification(
+                $kind,
+                $line,
+                ['task_uuid' => $task->uuid],
+                '/tasks?open=' . $task->uuid,
+                // Without a tag these collapse per task, which is right: five
+                // edits to one task are one thing to go and look at.
+                $tag ?? 'task-' . $task->uuid,
+            ));
+        }
+    }
+
+    /**
+     * "the due date and the priority" — a change list a person can read.
+     *
+     * Column names do not survive being shown to people. Stripping the
+     * suffix and the underscores gets most of the way there but leaves the
+     * few that matter most reading as nonsense — due_at becomes "the due",
+     * is_important becomes "the is important" — so those are named outright.
+     */
+    protected const FIELD_NAMES = [
+        'due_at' => 'due date',
+        'start_at' => 'start date',
+        'is_important' => 'importance',
+        'is_confidential' => 'confidentiality',
+        'estimated_minutes' => 'time estimate',
+        'category_id' => 'category',
+        'repeat_config' => 'repeat schedule',
+        'contact_person' => 'contact',
+    ];
+
+    protected function readableFields(array $fields): string
+    {
+        $names = array_map(
+            fn ($f) => self::FIELD_NAMES[$f]
+                ?? str($f)->replace('_at', '')->replace('_', ' ')->trim()->toString(),
+            $fields,
+        );
+
+        if (count($names) === 1) {
+            return 'the ' . $names[0];
+        }
+
+        $last = array_pop($names);
+
+        return 'the ' . implode(', ', $names) . ' and ' . $last;
+    }
+
+    /** Curly quotes, kept in one place so every message uses the same pair. */
+    protected function quoted(string $text): string
+    {
+        return "“" . $text . "”";
+    }
+
 
     protected function validated(Request $request, ?Task $task = null): array
     {
