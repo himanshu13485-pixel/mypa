@@ -254,4 +254,56 @@ class ProjectLedgerTest extends TestCase
         $this->artisan('mypa:project-reminders')->assertSuccessful();
         $this->assertEquals(1, $this->user->notifications()->count());
     }
+
+    public function test_the_summary_splits_by_person_and_the_two_views_agree(): void
+    {
+        $appIds = app(\App\Services\AppIdService::class);
+        $mate = User::factory()->create(['name' => 'Harsh', 'username' => 'harsh1']);
+        foreach ([$this->user, $mate] as $u) {
+            $appIds->generateFor($u);
+        }
+
+        $project = $this->actingAs($this->user)->postJson('/api/v1/projects', ['name' => 'Home work'])->json('data');
+        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/share", [
+            'app_id' => 'harsh1', 'permission' => 'edit',
+        ])->assertOk();
+
+        $add = fn (User $who, string $direction, float $amount) => $this->actingAs($who)
+            ->postJson("/api/v1/projects/{$project['uuid']}/entries", [
+                'entry_date' => now()->toDateString(), 'description' => 'Person entry',
+                'direction' => $direction, 'amount' => $amount, 'currency' => 'INR', 'mode' => 'cash',
+            ])->assertCreated();
+
+        $add($mate, 'credit', 8000);
+        $add($this->user, 'debit', 4000);
+        $add($this->user, 'debit', 2000);
+
+        $inr = collect($this->actingAs($this->user)->getJson("/api/v1/projects/{$project['uuid']}/summary")
+            ->assertOk()->json('data'))->firstWhere('currency', 'INR');
+
+        // The whole project, as before.
+        $this->assertEquals(8000.0, $inr['credit']);
+        $this->assertEquals(6000.0, $inr['debit']);
+        $this->assertEquals(2000.0, $inr['net']);
+
+        // The same money, per person - two people, named, with their own sides.
+        $people = collect($inr['people'])->keyBy('name');
+        $this->assertCount(2, $people);
+        $this->assertEquals(8000.0, $people['Harsh']['credit']);
+        $this->assertEquals(0.0, $people['Harsh']['debit']);
+        $this->assertEquals(6000.0, $people[$this->user->name]['debit']);
+        $this->assertSame(2, $people[$this->user->name]['entries']);
+
+        // The point of the second box: it adds up to the first one.
+        $this->assertEquals($inr['credit'], collect($inr['people'])->sum('credit'));
+        $this->assertEquals($inr['debit'], collect($inr['people'])->sum('debit'));
+        $this->assertEquals($inr['net'], collect($inr['people'])->sum('net'));
+
+        // And a filter narrows both halves together.
+        $filtered = collect($this->actingAs($this->user)
+            ->getJson("/api/v1/projects/{$project['uuid']}/summary?direction=debit")
+            ->assertOk()->json('data'))->firstWhere('currency', 'INR');
+        $this->assertCount(1, $filtered['people']);
+        $this->assertEquals($filtered['debit'], collect($filtered['people'])->sum('debit'));
+    }
 }

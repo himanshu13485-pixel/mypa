@@ -654,6 +654,18 @@ export interface ProjectSummaryRow {
   cash: number
   bank: number
   entries: number
+  /** The same money split by whoever entered it; these add up to the row. */
+  people: ProjectPersonRow[]
+}
+
+export interface ProjectPersonRow {
+  uuid: string | null
+  name: string
+  currency: string
+  credit: number
+  debit: number
+  net: number
+  entries: number
 }
 
 export type MeetingRole = 'host' | 'cohost' | 'participant'

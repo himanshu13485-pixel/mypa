@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Project;
 use App\Models\ProjectEntry;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -216,7 +217,39 @@ class ProjectController extends Controller
             unset($c);
         }
 
-        $summary = collect($byCurrency)->map(fn ($c) => $c + ['net' => round(($c['credit'] ?? 0) - ($c['debit'] ?? 0), 2)])->values();
+        // The same money, split by whoever entered it. A shared project is
+        // several people putting figures in, and the question "who put in
+        // what" is the one the single total cannot answer. Summing every
+        // person's credit gives the project's credit exactly — the two
+        // boxes are one set of numbers cut two ways, so they must agree.
+        $perPerson = $this->filteredEntries($request, $project)
+            ->selectRaw('currency, direction, created_by, COUNT(*) as n, SUM(amount) as total')
+            ->groupBy('currency', 'direction', 'created_by')
+            ->get();
+        $names = User::whereIn('id', $perPerson->pluck('created_by')->filter()->unique())
+            ->get(['id', 'uuid', 'name'])->keyBy('id');
+
+        $people = [];
+        foreach ($perPerson as $row) {
+            $key = $row->currency . '|' . ($row->created_by ?? 0);
+            $p = &$people[$key];
+            $p['currency'] = $row->currency;
+            $p['uuid'] = $names[$row->created_by]?->uuid ?? null;
+            $p['name'] = $names[$row->created_by]?->name ?? 'Removed account';
+            $p['credit'] = ($p['credit'] ?? 0) + ($row->direction === 'credit' ? (float) $row->total : 0);
+            $p['debit'] = ($p['debit'] ?? 0) + ($row->direction === 'debit' ? (float) $row->total : 0);
+            $p['entries'] = ($p['entries'] ?? 0) + (int) $row->n;
+            unset($p);
+        }
+        $byPerson = collect($people)
+            ->map(fn ($p) => $p + ['net' => round($p['credit'] - $p['debit'], 2)])
+            ->sortByDesc('entries')
+            ->groupBy('currency');
+
+        $summary = collect($byCurrency)->map(fn ($c) => $c + [
+            'net' => round(($c['credit'] ?? 0) - ($c['debit'] ?? 0), 2),
+            'people' => $byPerson->get($c['currency'], collect())->values(),
+        ])->values();
 
         return response()->json(['data' => $summary]);
     }

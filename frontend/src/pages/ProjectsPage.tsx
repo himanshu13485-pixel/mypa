@@ -359,37 +359,74 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
   return (
     <div className="space-y-4">
       {/* Summary cards (respect the active filters) */}
-      {!!summary?.length && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {summary.map((row: ProjectSummaryRow) => (
-            <Card key={row.currency}>
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold">{row.currency}</p>
-                <p className="text-[11px] text-slate-400">{row.entries} entr{row.entries === 1 ? 'y' : 'ies'}</p>
+      {!!summary?.length && summary.map((row: ProjectSummaryRow) => (
+        /* The project's money twice over: the totals, and the same totals
+           split by whoever entered them. The two always agree. */
+        <div key={row.currency} className="grid gap-3 lg:grid-cols-2">
+          <Card>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">{row.currency}</p>
+              <p className="text-[11px] text-slate-400">{row.entries} entr{row.entries === 1 ? 'y' : 'ies'}</p>
+            </div>
+            <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
+              <div>
+                <p className="font-semibold text-emerald-600">+{row.credit.toLocaleString()}</p>
+                <p className="text-slate-400">In (credit)</p>
               </div>
-              <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
-                <div>
-                  <p className="font-semibold text-emerald-600">+{row.credit.toLocaleString()}</p>
-                  <p className="text-slate-400">In (credit)</p>
-                </div>
-                <div>
-                  <p className="font-semibold text-red-500">−{row.debit.toLocaleString()}</p>
-                  <p className="text-slate-400">Out (debit)</p>
-                </div>
-                <div>
-                  <p className={clsx('font-semibold', row.net >= 0 ? 'text-emerald-600' : 'text-red-500')}>
-                    {row.net >= 0 ? '+' : ''}{row.net.toLocaleString()}
-                  </p>
-                  <p className="text-slate-400">Net</p>
-                </div>
+              <div>
+                <p className="font-semibold text-red-500">−{row.debit.toLocaleString()}</p>
+                <p className="text-slate-400">Out (debit)</p>
               </div>
-              <p className="mt-1.5 text-center text-[11px] text-slate-400">
-                Cash {row.cash >= 0 ? '+' : ''}{row.cash.toLocaleString()} · Bank {row.bank >= 0 ? '+' : ''}{row.bank.toLocaleString()}
+              <div>
+                <p className={clsx('font-semibold', row.net >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+                  {row.net >= 0 ? '+' : ''}{row.net.toLocaleString()}
+                </p>
+                <p className="text-slate-400">Net</p>
+              </div>
+            </div>
+            <p className="mt-1.5 text-center text-[11px] text-slate-400">
+              Cash {row.cash >= 0 ? '+' : ''}{row.cash.toLocaleString()} · Bank {row.bank >= 0 ? '+' : ''}{row.bank.toLocaleString()}
+            </p>
+          </Card>
+
+          <Card>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold">By person</p>
+              <p className="text-[11px] text-slate-400">
+                {(row.people ?? []).length} {(row.people ?? []).length === 1 ? 'person' : 'people'}
               </p>
-            </Card>
-          ))}
+            </div>
+            <div className="mt-2 space-y-1.5">
+              {(row.people ?? []).map((p) => (
+                <div key={p.uuid ?? p.name} className="flex items-center gap-2 text-xs">
+                  <span className="min-w-0 flex-1 truncate">
+                    {p.name}
+                    <span className="ml-1 text-slate-400">· {p.entries} entr{p.entries === 1 ? 'y' : 'ies'}</span>
+                  </span>
+                  <span className="w-20 text-right font-medium text-emerald-600">
+                    {p.credit ? '+' + p.credit.toLocaleString() : '—'}
+                  </span>
+                  <span className="w-20 text-right font-medium text-red-500">
+                    {p.debit ? '−' + p.debit.toLocaleString() : '—'}
+                  </span>
+                  <span className={clsx('w-20 text-right font-semibold', p.net >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+                    {p.net >= 0 ? '+' : ''}{p.net.toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+            {/* Spelling out the arithmetic: these are the numbers on the left. */}
+            <div className="mt-2 flex items-center gap-2 border-t border-slate-200 pt-1.5 text-xs dark:border-slate-700">
+              <span className="min-w-0 flex-1 font-semibold">Together</span>
+              <span className="w-20 text-right font-semibold text-emerald-600">+{row.credit.toLocaleString()}</span>
+              <span className="w-20 text-right font-semibold text-red-500">−{row.debit.toLocaleString()}</span>
+              <span className={clsx('w-20 text-right font-semibold', row.net >= 0 ? 'text-emerald-600' : 'text-red-500')}>
+                {row.net >= 0 ? '+' : ''}{row.net.toLocaleString()}
+              </span>
+            </div>
+          </Card>
         </div>
-      )}
+      ))}
 
       {/* Filter bar */}
       <Card className="flex flex-wrap items-end gap-2 p-3">
