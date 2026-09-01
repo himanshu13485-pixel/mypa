@@ -20,6 +20,30 @@ class BookingPage extends Model
 {
     use HasUuids;
 
+    /*
+     * The defaults live here as well as on the table, and must.
+     *
+     * A column default is applied by the database on insert and is not read
+     * back, so a model straight out of firstOrCreate() carries null for every
+     * one of these — and the page is created by the first person ever to open
+     * it, which means the one load where these values matter was the one load
+     * that got nulls. The settings screen then showed the first option of each
+     * dropdown rather than the real default, and saving without touching them
+     * would have written those.
+     *
+     * Declared as model attributes, a new instance has them before it is
+     * saved, so what is inserted and what is handed back are the same numbers.
+     * They are duplicated with the migration by necessity; the migration is
+     * what protects rows written by anything that is not this model.
+     */
+    protected $attributes = [
+        'duration_minutes' => 30,
+        'buffer_minutes' => 0,
+        'min_notice_minutes' => 120,
+        'max_days_ahead' => 30,
+        'is_active' => false,
+    ];
+
     protected $fillable = [
         'user_id', 'slug', 'title', 'description',
         'duration_minutes', 'buffer_minutes', 'min_notice_minutes', 'max_days_ahead',

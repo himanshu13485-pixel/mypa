@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BellRing, ExternalLink, X } from 'lucide-react'
 import { crm, crmCan, type CrmMe } from '../../api/crm'
@@ -26,7 +26,17 @@ export function NewLeadAlerts({ me }: { me: CrmMe | undefined }) {
     refetchIntervalInBackground: true,
   })
 
-  const fresh = data?.data ?? []
+  /*
+   * Memoised so its identity is stable between renders.
+   *
+   * `?? []` builds a fresh array every time it runs, and an effect that
+   * depends on fresh then fires on every render rather than when the list
+   * actually changes. Nothing breaks — the setState below returns its previous
+   * value when nothing moved, so React stops there — but it is work done on a
+   * loop for no reason, and it is one careless edit away from being a real
+   * one.
+   */
+  const fresh = useMemo(() => data?.data ?? [], [data])
   const snoozeMinutes = data?.alert_minutes ?? 15
 
   // Pop up whenever an unattended lead exists and the snooze has passed.

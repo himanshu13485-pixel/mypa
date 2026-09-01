@@ -396,6 +396,7 @@ document.addEventListener('DOMContentLoaded', async function() {
 /* Netvork app wiring (page content otherwise untouched):
    1) routes the landing's own Sign in / Start free buttons into the app
    2) adds Pricing/About/Contact links into the header nav
+   2b) adds a Sign in beside Start free, for people who already have an account
    3) appends a footer row linking every site page */
 (function () {
   // Signed-in visitors landing on "/" go straight to their dashboard.
@@ -445,6 +446,40 @@ document.addEventListener('DOMContentLoaded', async function() {
     return true;
   }
 
+  /*
+   * A Sign in, in the header.
+   *
+   * The page had no way in for somebody who already has an account. Its own
+   * Sign in sits near the bottom, past the whole pitch, and the header —
+   * fixed, visible from anywhere on the page — offered only Start free. A
+   * returning user had to read a brochure to find the door, or know to type
+   * /login themselves.
+   *
+   * Cloned from a nav link rather than styled here, so it inherits whatever
+   * the design does with them and cannot drift. Brighter than its
+   * neighbours because it is an action rather than a place on the page, but
+   * still a link and not a second button: two solid buttons side by side
+   * would leave neither one obvious, and Start free is what a stranger
+   * should reach for.
+   *
+   * It carries a real href, so it can be middle-clicked or opened in a new
+   * tab like any other link. The click handler above would route it by its
+   * text alone, but only for an ordinary left click.
+   */
+  function addSignIn() {
+    if (document.getElementById('nv-nav-signin')) return true;
+    var cap = document.querySelector('a[href="#capabilities"]');
+    if (!cap || !cap.parentElement) return false;
+    var a = cap.cloneNode(false);
+    a.id = 'nv-nav-signin';
+    a.textContent = 'Sign in';
+    a.href = '/login';
+    a.style.color = 'var(--ink)';
+    a.style.whiteSpace = 'nowrap';
+    cap.parentElement.appendChild(a);
+    return true;
+  }
+
   function addFooterLinks() {
     if (document.getElementById('nv-app-links')) return true;
     if (!document.body || (document.body.innerText || '').length < 500) return false;
@@ -482,7 +517,7 @@ document.addEventListener('DOMContentLoaded', async function() {
   var tries = 0;
   var timer = setInterval(function () {
     keepIdentity();
-    var done = addFooterLinks() & addNavLinks();
+    var done = addFooterLinks() & addNavLinks() & addSignIn();
     if (done || ++tries > 40) clearInterval(timer);
   }, 500);
 })();

@@ -6,6 +6,7 @@ import { format } from 'date-fns'
 import { clsx } from 'clsx'
 import { badges as badgesApi, categories as categoriesApi, groups as groupsApi, tasks as tasksApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import { toInstant } from '../lib/localTime'
 import UserSuggest from '../components/UserSuggest'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Pager, Select, SkeletonCards,
@@ -51,7 +52,8 @@ function formToPayload(form: TaskFormState): Record<string, unknown> {
     group_uuid: form.group_uuid || null,
     priority: form.priority,
     status: form.status,
-    due_at: form.due_at ? form.due_at.replace('T', ' ') + ':00' : null,
+    // An unambiguous instant; see lib/localTime.
+    due_at: toInstant(form.due_at),
     is_important: form.is_important,
     checklist: form.checklist.filter((c) => c.title.trim()),
     tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),

@@ -1,7 +1,7 @@
 import { api } from './client'
 import type {
   AdminStats, AppNotification, BillItem, BillingQuote, BrowseResult,
-  CalendarEvent, CalendarFeedTask, CallInfo, Category, ChatMessage,
+  CalendarEvent, CalendarFeedTask, CallInfo, CallSignalPayload, Category, ChatMessage,
   CheckoutSession, Connection, ConversationItem, DashboardSummary, FileItem,
   GoalItem, GroupItem, HabitItem, InvoiceRecord, MySubscription, Note,
   Paginated, PaymentRecord, PlanInfo, ReportSummary, Task, User,
@@ -495,6 +495,14 @@ export const calls = {
   end: (uuid: string) => api.post<{ data: CallInfo }>(`/calls/${uuid}/end`).then((r) => r.data.data),
   signal: (uuid: string, signal: 'offer' | 'answer' | 'ice' | 'share' | 'record' | 'media' | 'rec-request' | 'rec-allow' | 'rec-deny', payload: Record<string, unknown>, toUuid?: string) =>
     api.post(`/calls/${uuid}/signal`, { signal, payload, ...(toUuid ? { to_uuid: toUuid } : {}) }),
+  /**
+   * The ring the websocket may have missed.
+   *
+   * Returns the same shape a `.call.signal` ring delivers, or null. Asked on
+   * load, when the tab is looked at again and when the socket reconnects.
+   */
+  incoming: () =>
+    api.get<{ data: CallSignalPayload | null }>('/calls/incoming').then((r) => r.data.data),
   invite: (uuid: string, identifier: string) =>
     api.post<{ message: string }>(`/calls/${uuid}/invite`, { identifier }).then((r) => r.data),
   heartbeat: (uuid: string) =>
