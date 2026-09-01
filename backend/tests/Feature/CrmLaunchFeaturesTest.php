@@ -720,6 +720,36 @@ class CrmLaunchFeaturesTest extends TestCase
             ->assertNotFound();
     }
 
+    /**
+     * The App ID is the number on the person's own profile screen.
+     *
+     * It is what somebody reads off a card and types in, so a lookup that
+     * knew the username and not this was refusing the identifier Netvork
+     * puts in front of people.
+     */
+    public function test_an_account_can_be_found_by_its_app_id(): void
+    {
+        $person = User::factory()->create([
+            'name' => 'Amardeep Gautam', 'email' => 'amardeep@grapmail.com', 'username' => 'amardeepgrapout',
+        ]);
+        $person->settings()->create([]);
+        $person->profile()->create(['timezone' => 'UTC']);
+        app(\App\Services\AppIdService::class)->generateFor($person);
+        $appId = $person->fresh('appId')->appId->app_id;
+
+        $found = $this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/employees-lookup?q=' . urlencode($appId))
+            ->assertOk()->json('data');
+
+        $this->assertSame('Amardeep Gautam', $found[0]['name']);
+        $this->assertSame($appId, $found[0]['app_id']);
+
+        // Part of it is enough, the same as every other field here.
+        $this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/employees-lookup?q=' . urlencode(substr($appId, 0, 4)))
+            ->assertOk()->assertJsonPath('data.0.app_id', $appId);
+    }
+
     /** A wildcard typed into the box is text, not a licence to match everyone. */
     public function test_a_percent_sign_matches_a_percent_sign(): void
     {

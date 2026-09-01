@@ -403,7 +403,7 @@ export default function CrmEmployeeFormPage() {
                   value={lookupQ}
                   onChange={(e) => setLookupQ(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void fetchAccount() } }}
-                  placeholder="Name, email or username — e.g. priyanshu"
+                  placeholder="Name, email, username or App ID — e.g. priyanshu"
                   className="w-full sm:w-80"
                 />
                 <Button size="sm" variant="secondary" disabled={lookingUp || lookupQ.trim().length < 2} onClick={fetchAccount}>
@@ -434,7 +434,9 @@ export default function CrmEmployeeFormPage() {
                             <span className="block truncate font-medium">
                               {m.name}{m.username ? ` · @${m.username}` : ''}
                             </span>
-                            <span className="block truncate text-xs text-slate-500">{m.email}</span>
+                            <span className="block truncate text-xs text-slate-500">
+                              {m.email}{m.app_id ? ` · ${m.app_id}` : ''}
+                            </span>
                           </span>
                           <span className="shrink-0 text-xs text-slate-400">
                             {m.already_member ? 'Already an employee' : 'Choose'}

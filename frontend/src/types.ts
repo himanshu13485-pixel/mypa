@@ -210,6 +210,8 @@ export interface Connection {
   user: {
     uuid: string
     name: string
+    /** The handle people actually know each other by. */
+    username?: string | null
     app_id?: string
     photo_path?: string | null
     avatar?: string | null

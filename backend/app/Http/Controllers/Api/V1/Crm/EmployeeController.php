@@ -105,22 +105,33 @@ class EmployeeController extends Controller
         // the characters, not for everything.
         $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $q) . '%';
 
-        $users = User::where('status', 'active')
+        $users = User::with('appId')->where('status', 'active')
             ->where(fn ($w) => $w
                 ->whereRaw('LOWER(email) LIKE ?', [$like])
                 ->orWhereRaw('LOWER(username) LIKE ?', [$like])
-                ->orWhereRaw('LOWER(name) LIKE ?', [$like]))
+                ->orWhereRaw('LOWER(name) LIKE ?', [$like])
+                // The App ID is what the person is called on their own
+                // profile screen, so it is what somebody reads it off and
+                // types in. Only a live one: a retired App ID names nobody.
+                ->orWhereHas('appId', fn ($a) => $a
+                    ->whereRaw('LOWER(app_id) LIKE ?', [$like])
+                    ->where('is_active', true)))
             /*
              * Whoever typed the whole username or email meant that person, so
              * they lead however many near-misses share the spelling.
              */
-            ->orderByRaw('CASE WHEN LOWER(email) = ? OR LOWER(username) = ? THEN 0 ELSE 1 END', [$q, $q])
+            ->orderByRaw(
+                'CASE WHEN LOWER(email) = ? OR LOWER(username) = ? '
+                . 'OR EXISTS (SELECT 1 FROM app_ids WHERE app_ids.user_id = users.id AND LOWER(app_ids.app_id) = ?) '
+                . 'THEN 0 ELSE 1 END',
+                [$q, $q, $q],
+            )
             ->orderBy('name')
             ->orderBy('id')
             ->limit(self::LOOKUP_LIMIT + 1)
             ->get();
 
-        abort_if($users->isEmpty(), 404, 'No Netvork account matches that name, email or username.');
+        abort_if($users->isEmpty(), 404, 'No Netvork account matches that name, email, username or App ID.');
 
         // One more was fetched than is shown, purely to know whether to say so.
         $more = $users->count() > self::LOOKUP_LIMIT;
@@ -135,6 +146,9 @@ class EmployeeController extends Controller
                 'name' => $user->name,
                 'email' => $user->email,
                 'username' => $user->username,
+                // Shown beside the name: two people called Priyanshu Kumar
+                // are told apart by this, not by their surname.
+                'app_id' => $user->appId?->app_id,
                 'already_member' => in_array($user->id, $members, true),
             ])->values(),
             'truncated' => $more,

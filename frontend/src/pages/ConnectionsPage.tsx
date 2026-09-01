@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useConnectBase } from '../lib/connectBase'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Flag, MessageSquare, Phone, Search, UserPlus, Video, X } from 'lucide-react'
+import { Check, Flag, MessageSquare, Phone, Search, Undo2, UserPlus, Video, X } from 'lucide-react'
 import { badges as badgesApi, chat, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
 import { useCalls } from '../components/CallManager'
 import { REPORT_REASONS } from '../types'
@@ -160,6 +160,13 @@ export default function ConnectionsPage() {
     onError: (err) => setSearchError(errorMessage(err)),
   })
 
+  /** Taking back a request you sent. The row is the same one either side. */
+  const retractMutation = useMutation({
+    mutationFn: (uuid: string) => connectionsApi.remove(uuid),
+    onSuccess: invalidate,
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
   const respondMutation = useMutation({
     mutationFn: ({ uuid, action }: { uuid: string; action: 'accept' | 'decline' }) =>
       connectionsApi.respond(uuid, action),
@@ -306,6 +313,7 @@ export default function ConnectionsPage() {
                       <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{c.user?.name}</p>
                       <p className="truncate text-xs text-slate-400">
+                        {c.user?.username ? `@${c.user.username} · ` : ''}
                         {c.user?.app_id} · {c.direction === 'sent' ? 'you sent this request' : 'sent you a request'}
                       </p>
                       {c.message && <p className="mt-0.5 text-xs italic text-slate-500">“{c.message}”</p>}
@@ -321,7 +329,27 @@ export default function ConnectionsPage() {
                         </Button>
                       </div>
                     ) : (
-                      <Badge value="pending" />
+                      /*
+                       * A sent request could be waited on, but not taken back
+                       * — so a request to the wrong person sat in a stranger's
+                       * list until they answered it.
+                       */
+                      <div className="flex items-center gap-2">
+                        <Badge value="pending" />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          title={`Withdraw the request to ${c.user?.name ?? 'this person'}`}
+                          disabled={retractMutation.isPending}
+                          onClick={() => {
+                            if (confirm(`Withdraw your connection request to ${c.user?.name ?? 'this person'}?`)) {
+                              retractMutation.mutate(c.uuid)
+                            }
+                          }}
+                        >
+                          <Undo2 className="size-3.5" /> Withdraw
+                        </Button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -380,10 +408,24 @@ export default function ConnectionsPage() {
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{c.user?.name}</p>
-                        <p className="truncate text-xs">
-                          {c.user?.is_online
-                            ? <span className="font-medium text-emerald-600 dark:text-emerald-400">Online</span>
-                            : <span className="text-slate-400">{c.user?.app_id}</span>}
+                        {/*
+                          * Who they are, then where they are.
+                          *
+                          * The username is how people refer to each other —
+                          * it is what you type to find them and what they put
+                          * on a card — and this row showed only the App ID,
+                          * so the one identifier everybody knows was the one
+                          * missing. Online moves to the end rather than
+                          * replacing it: being online is a passing state, and
+                          * it was displacing the name of the person.
+                          */}
+                        <p className="truncate text-xs text-slate-400">
+                          {c.user?.username && <span>@{c.user.username}</span>}
+                          {c.user?.username && c.user?.app_id && ' · '}
+                          {c.user?.app_id}
+                          {c.user?.is_online && (
+                            <span className="ml-1 font-medium text-emerald-600 dark:text-emerald-400">· Online</span>
+                          )}
                         </p>
                       </div>
                     </div>

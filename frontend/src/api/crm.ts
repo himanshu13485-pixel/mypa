@@ -388,6 +388,8 @@ export interface CrmAccountMatch {
   name: string
   email: string
   username: string | null
+  /** Two people can share a name; this is what tells them apart. */
+  app_id: string | null
   /** Already on this company's payroll — offered, but not choosable. */
   already_member: boolean
 }
