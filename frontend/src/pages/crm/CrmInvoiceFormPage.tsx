@@ -93,7 +93,15 @@ export default function CrmInvoiceFormPage() {
   // The document's own fields and money lines, as this company set them up.
   const docMethod = masters?.invoice_method ?? []
   const docFields = masters?.invoice_custom_fields ?? []
-  const taxSetup = masters?.tax_setup ?? []
+  /*
+   * Memoised, because the totals below are memoised on it.
+   *
+   * `?? []` builds a new array each render, so the useMemo that computes
+   * every invoice total listed it as a dependency that had always changed —
+   * and recomputed the whole thing on every keystroke in the form. The memo
+   * was doing nothing but adding a comparison.
+   */
+  const taxSetup = useMemo(() => masters?.tax_setup ?? [], [masters])
   const shows = (key: string) =>
     !docMethod.find((c) => c.source === 'builtin' && c.key === key)?.hidden
   const heading = (key: string, fallback: string) =>

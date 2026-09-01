@@ -35,6 +35,25 @@ class UserSetting extends Model
         'push' => true,
     ];
 
+    /*
+     * The table's defaults, stated on the model too.
+     *
+     * A column default is applied by the database on insert and never read
+     * back, so a row made by firstOrCreate() or create([]) hands back null for
+     * every one of these until something reloads it. That is not theoretical:
+     * it is exactly how the booking page came to show the first option of each
+     * dropdown instead of its real defaults, on the one load where it mattered.
+     *
+     * Nothing reads these three from the API yet, so this is insurance rather than a repair —
+     * but the trap is invisible until somebody does, and by then it looks like
+     * a bug in whatever they wrote.
+     */
+    protected $attributes = [
+        'theme' => 'system',
+        'compact_mode' => false,
+        'default_task_view' => 'list',
+    ];
+
     protected $fillable = [
         'user_id', 'theme', 'compact_mode', 'default_task_view',
         'dashboard_layout', 'notification_preferences', 'privacy',
