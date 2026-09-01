@@ -19,22 +19,25 @@ use Illuminate\Notifications\Notification;
  * the phone as well, because somebody already signed in on their phone gets
  * the code as a notification and never has to leave the login screen.
  *
- * The sender is the platform's own address — never a CRM company's mailbox.
- * A company's mailbox is for that company writing to its clients; a sign-in
- * code is Netvork writing to its own user, and the two must not be confused
- * by whoever receives it.
+ * Who it comes from depends on whose user this is. Somebody who signed up on
+ * Netvork hears from the platform, which is what this class sends. Somebody a
+ * company has taken on as an employee hears from that company's own mailbox
+ * instead — sent before this, through the company's own server, and flagged
+ * here so the same code does not arrive twice.
  */
 class SignInCodeNotification extends Notification
 {
     public function __construct(
         public MobileOtp $otp,
         public ?string $deviceName = null,
+        /** The employer's mailbox already sent it; do not send it twice. */
+        public bool $mailAlreadySent = false,
     ) {
     }
 
     public function via(object $notifiable): array
     {
-        $channels = ['mail', 'database', 'broadcast'];
+        $channels = $this->mailAlreadySent ? ['database', 'broadcast'] : ['mail', 'database', 'broadcast'];
 
         if (SocialNotification::wantsPush($notifiable)) {
             // Whichever kinds of device this person has; each channel skips

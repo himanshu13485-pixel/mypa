@@ -230,23 +230,15 @@ export default function CrmLayout() {
   }, [attendTotal, badges?.attend])
 
   /*
-   * Above the early returns, and it has to be.
+   * Opening a section is reading it: the badge goes quiet, for this
+   * member only, and the next thing a colleague does brings it back.
    *
-   * The two screens below — the loading spinner and "CRM is not enabled" —
-   * return before this point, so on the first render, while me/badges are
-   * still loading, React saw three hooks; on the next it saw four. That is
-   * the one rule hooks have, and breaking it is not a subtle degradation:
-   * every cold load of the CRM died with "Rendered more hooks than during the
-   * previous render" and showed the error boundary instead of the app. It
-   * survived only when React Query already had the answer cached and
-   * isLoading was false from the start, which is why it looked fine to anyone
-   * clicking around a warm session.
-   *
-   * Nothing here needs the loaded data: the effect's own guard already does
-   * nothing until badges arrive.
+   * Above the early returns, with every other hook. It used to sit
+   * below them, so the first render — while /crm/me was still in the
+   * air — ran one hook fewer than the render after it, and React threw
+   * #310 across the whole screen. A hook cannot be conditional, and an
+   * early return is a condition.
    */
-  // Opening a section is reading it: the badge goes quiet, for this member
-  // only, and the next thing a colleague does brings it back.
   const currentSection = SECTIONS
     .flatMap((group) => group.items)
     .find((item) => item.to && item.section && (

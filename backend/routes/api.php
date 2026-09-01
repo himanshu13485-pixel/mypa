@@ -1080,6 +1080,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::put('/masters/asset-categories', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveAssetCategories']);
                 Route::get('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'communicationSettings']);
                 Route::put('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveCommunicationSettings']);
+                // Trying a mailbox before trusting it with anything.
+                Route::post('/masters/communication/test', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'testMailbox']);
                 Route::post('/masters/bank-accounts', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeBank']);
                 Route::put('/masters/bank-accounts/{id}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'updateBank']);
             });

@@ -411,6 +411,58 @@ class MasterController extends Controller
         return response()->json(['data' => $data]);
     }
 
+    /**
+     * Try a company's mailbox before trusting it with anything.
+     *
+     * The stored secrets are used as they are, so a saved mailbox can be
+     * tested without retyping its password; a mailbox being edited can be
+     * tried by sending what is on screen. Either way nothing is written -
+     * this only ever asks questions.
+     */
+    public function testMailbox(Request $request, \App\Services\Crm\MailboxDoctor $doctor): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $data = $request->validate([
+            'check' => ['required', 'in:smtp,imap,dns,send'],
+            'company_id' => ['required', 'integer'],
+            // What is on screen, for a mailbox not saved yet. Absent, the
+            // stored one is tested.
+            'sender' => ['nullable', 'array'],
+            'to' => ['nullable', 'email'],
+        ]);
+
+        $stored = (array) data_get($org->settings, 'communication.company_senders.' . $data['company_id'], []);
+        $sender = $data['sender'] ?? [];
+
+        // A masked secret means "keep the stored one" here exactly as it
+        // does when saving, so testing an untouched mailbox works.
+        foreach (['smtp_password', 'ses_key', 'ses_secret', 'imap_password'] as $key) {
+            if (($sender[$key] ?? null) === null || ($sender[$key] ?? '') === '********') {
+                $sender[$key] = $stored[$key] ?? null;
+            } elseif (($sender[$key] ?? '') !== '') {
+                // Typed just now, so it is plain: the doctor decrypts what
+                // it is given, and a plain value survives that unchanged.
+                $sender[$key] = $sender[$key];
+            }
+        }
+        $sender = $sender + $stored;
+
+        $company = IssuingCompany::where('organization_id', $org->id)->find($data['company_id']);
+
+        $result = match ($data['check']) {
+            'smtp' => $doctor->testSmtp($sender),
+            'imap' => $doctor->testImap($sender),
+            'dns' => $doctor->checkDns($sender),
+            'send' => $doctor->sendTest(
+                $sender,
+                $data['to'] ?: (string) $request->user()->email,
+                $company?->name ?? $org->name,
+            ),
+        };
+
+        return response()->json(['data' => $result]);
+    }
+
     public function saveCommunicationSettings(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
@@ -427,6 +479,9 @@ class MasterController extends Controller
             // the company's id — grapme-mailbox style: SMTP or AWS SES.
             'company_senders' => ['nullable', 'array'],
             'company_senders.*.label' => ['nullable', 'string', 'max:255'],
+            // The one mailbox the company's own mail goes out from —
+            // reports, notices, staff sign-in codes.
+            'company_senders.*.is_report_sender' => ['nullable', 'boolean'],
             'company_senders.*.from_name' => ['nullable', 'string', 'max:255'],
             'company_senders.*.from_address' => ['nullable', 'email', 'max:255'],
             'company_senders.*.mailer' => ['nullable', \Illuminate\Validation\Rule::in(['none', 'smtp', 'ses'])],
@@ -458,6 +513,17 @@ class MasterController extends Controller
                 } elseif ($value !== null && $value !== '') {
                     $data['company_senders'][$id][$key] = \Illuminate\Support\Facades\Crypt::encryptString($value);
                 }
+            }
+        }
+
+        // One report sender, not several. The screen only ever ticks one,
+        // but a payload that arrives with two would otherwise decide the
+        // question by iteration order, differently on different days.
+        $seen = false;
+        foreach ((array) ($data['company_senders'] ?? []) as $id => $sender) {
+            if (! empty($sender['is_report_sender'])) {
+                $data['company_senders'][$id]['is_report_sender'] = ! $seen;
+                $seen = true;
             }
         }
 

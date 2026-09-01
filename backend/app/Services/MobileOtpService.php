@@ -58,9 +58,50 @@ class MobileOtpService
             'expires_at' => now()->addMinutes((int) AppSetting::get('otp_expiry_minutes')),
         ]);
 
-        $user->notify(new \App\Notifications\SignInCodeNotification($otp, $deviceName));
+        // An employee hears from their employer; everybody else hears from
+        // the platform. Sent here rather than through the notification's
+        // mail channel because it has to leave through the company's own
+        // server, not merely wear its address — an address without the
+        // server behind it fails SPF and lands in spam.
+        $throughEmployer = false;
+        if ($mailbox = \App\Services\Crm\CompanyMailer::forStaff($user)) {
+            try {
+                $mailbox['mailer']->html(
+                    $this->signInCodeHtml($otp, $deviceName),
+                    function ($m) use ($user, $mailbox, $otp) {
+                        $m->to($user->email)
+                            ->from($mailbox['address'], $mailbox['name'])
+                            ->subject('Your sign-in code: ' . $otp->code);
+                    },
+                );
+                $throughEmployer = true;
+            } catch (\Throwable) {
+                // A misconfigured company mailbox must never be the reason
+                // somebody cannot sign in. The platform sends it instead.
+                $throughEmployer = false;
+            }
+        }
+
+        $user->notify(new \App\Notifications\SignInCodeNotification($otp, $deviceName, $throughEmployer));
 
         return $otp;
+    }
+
+    /** The same words the platform's own version of this mail carries. */
+    private function signInCodeHtml(MobileOtp $otp, ?string $deviceName): string
+    {
+        $minutes = (int) now()->diffInMinutes($otp->expires_at);
+        $lines = [
+            'Your sign-in code is: <strong>' . e($otp->code) . '</strong>',
+            $deviceName
+                ? 'It was asked for by: ' . e($deviceName)
+                : 'It was asked for on a device that has not signed in before.',
+            'The code expires in ' . $minutes . ' minutes.',
+            'If this was not you, do not share the code — and change your password, '
+                . 'because somebody knows it.',
+        ];
+
+        return '<p>' . implode('</p><p>', $lines) . '</p>';
     }
 
     /** Email variant: the code goes to the NEW address (proof of ownership). */

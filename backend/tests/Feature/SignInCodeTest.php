@@ -173,4 +173,71 @@ class SignInCodeTest extends TestCase
             'identifier' => 'noaddress', 'password' => 'Password123',
         ])->assertStatus(202)->assertJsonPath('otp_required', true);
     }
+
+    public function test_an_employee_hears_from_their_employer_not_the_platform(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        // Signed up on Netvork, not yet anybody's employee: the platform
+        // sends the code, through its own mail channel.
+        $this->assertNull(\App\Services\Crm\CompanyMailer::forStaff($this->user));
+
+        // A company takes them on, and sets up its own mailbox.
+        $org = \App\Models\Crm\Organization::create(['name' => 'Acme Pvt Ltd', 'code' => 'ACME']);
+        $company = \App\Models\Crm\IssuingCompany::create([
+            'organization_id' => $org->id, 'name' => 'Acme India', 'pays_salary' => true,
+        ]);
+        \App\Models\Crm\Member::create([
+            'organization_id' => $org->id, 'user_id' => $this->user->id, 'crm_role' => 'employee',
+        ]);
+        $org->update(['settings' => ['communication' => [
+            'from_name' => 'Acme', 'from_address' => 'hr@acme.test',
+            'company_senders' => [(string) $company->id => [
+                'from_name' => 'Acme People', 'from_address' => 'people@acme.test',
+                'mailer' => 'smtp', 'smtp_host' => 'smtp.acme.test', 'smtp_port' => 587,
+            ]],
+        ]]]);
+
+        // Now their mail comes from the company that employs them.
+        $mailbox = \App\Services\Crm\CompanyMailer::forStaff($this->user->fresh());
+        $this->assertSame('people@acme.test', $mailbox['address']);
+        $this->assertSame('Acme People', $mailbox['name']);
+
+        // A company that has switched its own mail off does not switch off
+        // its employees sign-in codes - the platform sends those.
+        $settings = $org->fresh()->settings;
+        $settings['communication']['email_enabled'] = false;
+        $org->update(['settings' => $settings]);
+        $this->assertNull(\App\Services\Crm\CompanyMailer::forStaff($this->user->fresh()));
+    }
+
+    public function test_the_report_sender_decides_which_mailbox_staff_hear_from(): void
+    {
+        $org = \App\Models\Crm\Organization::create(['name' => 'Group Ltd', 'code' => 'GRP']);
+        $payroll = \App\Models\Crm\IssuingCompany::create([
+            'organization_id' => $org->id, 'name' => 'Group Payroll', 'pays_salary' => true,
+        ]);
+        $head = \App\Models\Crm\IssuingCompany::create([
+            'organization_id' => $org->id, 'name' => 'Group Head Office',
+        ]);
+        \App\Models\Crm\Member::create([
+            'organization_id' => $org->id, 'user_id' => $this->user->id, 'crm_role' => 'employee',
+        ]);
+
+        $senders = [
+            (string) $payroll->id => ['from_address' => 'payroll@group.test', 'mailer' => 'smtp', 'smtp_host' => 'smtp.group.test'],
+            (string) $head->id => ['from_address' => 'admin@group.test', 'mailer' => 'smtp', 'smtp_host' => 'smtp.group.test'],
+        ];
+        $org->update(['settings' => ['communication' => ['company_senders' => $senders]]]);
+
+        // With nothing marked, the company that pays the salaries answers.
+        $this->assertSame('payroll@group.test',
+            \App\Services\Crm\CompanyMailer::forStaff($this->user->fresh())['address']);
+
+        // Marked, the Admin's own choice wins over that inference.
+        $senders[(string) $head->id]['is_report_sender'] = true;
+        $org->update(['settings' => ['communication' => ['company_senders' => $senders]]]);
+        $this->assertSame('admin@group.test',
+            \App\Services\Crm\CompanyMailer::forStaff($this->user->fresh())['address']);
+    }
 }

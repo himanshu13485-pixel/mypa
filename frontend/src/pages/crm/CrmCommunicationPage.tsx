@@ -4,6 +4,7 @@ import { Mail, MessageCircle, Send } from 'lucide-react'
 import { crm, type CrmCommunicationSettings, type CrmCompanySender } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
+import { clsx } from 'clsx'
 import { Button, Card, Input, Label, Select, Spinner } from '../../components/ui'
 
 /**
@@ -47,8 +48,8 @@ export default function CrmCommunicationPage() {
           <Mail className="size-4 text-emerald-500" /> Company e-mail senders
         </h2>
         <p className="mt-0.5 text-xs text-slate-400">
-          Leave a field blank to fall back to the previous one — dues fall back to the general sender, and the
-          general sender to the server default.
+          The fallback, for companies with no mailbox of their own — and the place to send invoices and dues
+          chasers from different addresses. A company that has its own mailbox below ignores all of this.
         </p>
         <div className="mt-3 grid gap-3 sm:grid-cols-2">
           <div>
@@ -68,9 +69,13 @@ export default function CrmCommunicationPage() {
             <Input type="email" value={draft.dues_from_address ?? ''} onChange={(e) => set({ dues_from_address: e.target.value || null })} placeholder="recovery@company.com" className="w-full" />
           </div>
         </div>
-        <p className="mt-2 text-xs text-slate-400">
-          Sending an invoice offers the sender choice on the spot; the automatic due-payment chaser (Billing setup →
-          Payment rules) uses the dues sender when one is set.
+        {/* Which of the four layers actually sends is the question this
+            screen kept failing to answer, so it answers it. */}
+        <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/60 dark:text-slate-400">
+          <span className="font-medium">Which address is used:</span> the company&rsquo;s own mailbox first, then the
+          invoice or dues address for that kind of mail, then the general address, then the server&rsquo;s. Sending an
+          invoice still offers the choice on the spot; the automatic dues chaser (Billing setup → Payment rules)
+          uses the dues address when one is set.
         </p>
       </Card>
 
@@ -107,8 +112,14 @@ export default function CrmCommunicationPage() {
       <Card>
         <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Company senders &amp; mailboxes</h2>
         <p className="mt-0.5 text-xs text-slate-400">
-          Each registered company can carry its own from-address and its own mailbox. A company without one falls
-          back to the senders above. Passwords and keys are stored encrypted; a saved secret shows as ********.
+          A company with its own mailbox sends everything through it — invoices, dues chasers, and its
+          employees&rsquo; sign-in codes — from its own address, through its own server, which is what keeps that
+          mail out of spam. Passwords and keys are stored encrypted; a saved secret shows as ********.
+        </p>
+        <p className="mt-1 text-xs text-slate-400">
+          With several companies, mark one <span className="font-medium">Report sender</span>: that is the mailbox
+          the group&rsquo;s own mail leaves from — reports, notices and staff sign-in codes — while invoices and dues
+          still go from whichever company raised them.
         </p>
         <div className="mt-3 space-y-4">
           {(masters?.issuing_companies ?? []).map((c) => {
@@ -117,8 +128,33 @@ export default function CrmCommunicationPage() {
               company_senders: { ...(draft.company_senders ?? {}), [String(c.id)]: { ...sender, ...patch } },
             })
             return (
-              <div key={c.id} className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
-                <div className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">{c.name}</div>
+              <MailboxRow
+                key={c.id}
+                company={c}
+                companies={masters?.issuing_companies ?? []}
+                sender={sender}
+                onMakeReportSender={() => {
+                  // One at a time: choosing this one stands the others down,
+                  // so the answer to "who sends our own mail" is never two.
+                  const next = Object.fromEntries(
+                    Object.entries(draft.company_senders ?? {})
+                      .map(([id, s]) => [id, { ...s, is_report_sender: false }]),
+                  )
+                  next[String(c.id)] = { ...sender, is_report_sender: true }
+                  set({ company_senders: next })
+                }}
+                onReplicateTo={(targetId) => set({
+                  company_senders: {
+                    ...(draft.company_senders ?? {}),
+                    [String(targetId)]: { ...sender, label: (sender.label ?? '') + ' (copy)' },
+                  },
+                })}
+                onDelete={() => {
+                  const next = { ...(draft.company_senders ?? {}) }
+                  delete next[String(c.id)]
+                  set({ company_senders: next })
+                }}
+              >
                 <div className="grid gap-2 sm:grid-cols-3">
                   <div>
                     <Label>Mailbox label</Label>
@@ -191,7 +227,7 @@ export default function CrmCommunicationPage() {
                     different one. IMAP details are kept for receiving replies into the CRM when that goes live.
                   </p>
                 )}
-              </div>
+              </MailboxRow>
             )
           })}
           {(masters?.issuing_companies ?? []).length === 0 && (
@@ -203,6 +239,180 @@ export default function CrmCommunicationPage() {
       <Button className="w-full" disabled={save.isPending} onClick={() => save.mutate()}>
         {save.isPending ? 'Saving…' : 'Save communication setup'}
       </Button>
+    </div>
+  )
+}
+
+/**
+ * One company's mailbox: a line when it is set up, the form when it is not.
+ *
+ * A configured mailbox is a fact, not a form — showing eleven filled boxes
+ * for each of three companies buries the one that needs attention. So it
+ * collapses to the address, the protocol and whether it works, and opens
+ * again on Edit.
+ *
+ * The buttons are the questions an admin actually has, and each is
+ * answered by the thing itself rather than by this screen guessing: can it
+ * sign in, does a real message arrive, can it read the inbox, and will the
+ * receiving world believe mail from this address is ours.
+ */
+function MailboxRow({ company, companies, sender, onMakeReportSender, onReplicateTo, onDelete, children }: {
+  company: { id: number; name: string }
+  companies: { id: number; name: string }[]
+  sender: CrmCompanySender
+  onMakeReportSender: () => void
+  onReplicateTo: (companyId: number) => void
+  onDelete: () => void
+  children: React.ReactNode
+}) {
+  const { toast, toastError } = useToast()
+  const configured = !!sender.from_address
+  const [open, setOpen] = useState(!configured)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [result, setResult] = useState<Awaited<ReturnType<typeof crm.masterData.testMailbox>> | null>(null)
+
+  const run = async (check: 'smtp' | 'imap' | 'dns' | 'send') => {
+    setBusy(check)
+    setResult(null)
+    try {
+      const to = check === 'send'
+        ? window.prompt('Send the test message to which address?', sender.from_address ?? '')
+        : undefined
+      if (check === 'send' && !to) return
+      setResult(await crm.masterData.testMailbox({
+        check,
+        company_id: company.id,
+        // What is on screen, so a mailbox can be tried before it is saved.
+        sender: sender as unknown as Record<string, unknown>,
+        to: to ?? undefined,
+      }))
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const protocolLabel = sender.mailer === 'ses' ? 'AWS SES' : sender.mailer === 'smtp' ? 'SMTP' : 'Server default'
+
+  return (
+    <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+              {sender.label || company.name}
+            </span>
+            <span className={clsx(
+              'rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+              configured
+                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'
+                : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300',
+            )}>
+              {configured ? 'Active' : 'Not set up'}
+            </span>
+            {/* Which mailbox the company's OWN mail leaves from — reports,
+                notices, and its employees' sign-in codes — as opposed to
+                the client-facing invoice and dues mail any mailbox sends. */}
+            {sender.is_report_sender && (
+              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                ★ Admin / report sender
+              </span>
+            )}
+          </div>
+          <p className="truncate text-xs text-slate-400">
+            {configured
+              ? `${sender.from_address} · ${protocolLabel}${sender.smtp_host ? ' · ' + sender.smtp_host : ''}`
+              : `${company.name} — falls back to the general sender above`}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" variant="secondary" onClick={() => setOpen((v) => !v)}>
+            {open ? 'Done' : 'Edit'}
+          </Button>
+          {configured && (
+            <>
+              {!sender.is_report_sender && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  title="Send this company's own mail — reports, notices, staff sign-in codes — from here"
+                  onClick={() => { onMakeReportSender(); toast('Set as the report sender — press Save to keep it.', 'success') }}
+                >
+                  Report sender
+                </Button>
+              )}
+              <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run('dns')}>
+                {busy === 'dns' ? 'Checking…' : 'Check DNS auth'}
+              </Button>
+              <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run('smtp')}>
+                {busy === 'smtp' ? 'Connecting…' : 'Test connection'}
+              </Button>
+              <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run('imap')}>
+                {busy === 'imap' ? 'Reading…' : 'Test inbox (IMAP)'}
+              </Button>
+              <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run('send')}>
+                {busy === 'send' ? 'Sending…' : 'Send test email'}
+              </Button>
+              {companies.length > 1 && (
+                <Select
+                  className="w-32 py-1 text-xs"
+                  value=""
+                  onChange={(e) => {
+                    if (!e.target.value) return
+                    onReplicateTo(Number(e.target.value))
+                    toast('Copied — press Save to keep it.', 'success')
+                  }}
+                >
+                  <option value="">Replicate to…</option>
+                  {companies.filter((o) => o.id !== company.id).map((o) => (
+                    <option key={o.id} value={o.id}>{o.name}</option>
+                  ))}
+                </Select>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  if (confirm(`Remove ${company.name}'s mailbox? Its mail falls back to the general sender.`)) {
+                    onDelete()
+                    setOpen(true)
+                  }
+                }}
+              >
+                Delete
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* What the mailbox itself said, in its own words. */}
+      {result && (
+        <div className={clsx(
+          'mt-2 rounded-lg px-3 py-2 text-xs',
+          result.ok
+            ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+            : 'bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-300',
+        )}>
+          <p className="font-medium">{result.message}</p>
+          {result.checks && (
+            <div className="mt-1.5 space-y-0.5">
+              {result.checks.map((c) => (
+                <p key={c.key}>
+                  <span className="font-semibold">{c.pass ? '✓' : '✗'} {c.key}</span>
+                  <span className="ml-1 break-all opacity-80">{c.detail}</span>
+                </p>
+              ))}
+              {result.score !== undefined && (
+                <p className="pt-1 font-semibold">Deliverability score {result.score}/100</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {open && <div className="mt-3">{children}</div>}
     </div>
   )
 }
