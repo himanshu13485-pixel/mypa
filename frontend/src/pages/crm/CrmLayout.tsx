@@ -17,7 +17,7 @@ import {
   Boxes,
   Briefcase,
   Building2,
-  CalendarDays,
+  CalendarClock, CalendarDays,
   CalendarOff,
   CheckSquare,
   ClipboardCheck,
@@ -101,6 +101,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Meetings', icon: Video, to: '/crm/connect/meetings' },
     { label: 'Screen', icon: MonitorUp, to: '/crm/connect/screen' },
     { label: 'Calendar', icon: CalendarDays, to: '/crm/connect/calendar' },
+    { label: 'Book@Meetings', icon: CalendarClock, to: '/crm/connect/booking' },
   ]},
   { label: 'Sales', items: [
     { label: 'Leads', section: 'leads', icon: Filter, to: '/crm/leads', module: 'leads', badge: 'leads' },

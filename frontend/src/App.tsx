@@ -306,6 +306,7 @@ export default function App() {
             <Route path="connect/meetings" element={<MeetingsPage />} />
             <Route path="connect/screen" element={<ScreenPage />} />
             <Route path="connect/calendar" element={<CalendarPage />} />
+            <Route path="connect/booking" element={<BookingLinkPage />} />
             <Route path="pl" element={<CrmPlPage />} />
             <Route path="assets" element={<CrmAssetsPage />} />
             <Route path="churn" element={<CrmChurnPage />} />

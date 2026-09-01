@@ -40,7 +40,7 @@ const navSections: { label: string | null; items: { to: string; label: string; i
     { to: '/messages', label: 'Call/Messages', icon: MessageCircle },
     { to: '/calls', label: 'Call Logs', icon: Phone },
     { to: '/meetings', label: 'Meetings', icon: Video },
-    { to: '/booking', label: 'Booking link', icon: CalendarClock },
+    { to: '/booking', label: 'Book@Meetings', icon: CalendarClock },
     { to: '/screen', label: 'Screen', icon: MonitorUp },
   ]},
   { label: 'Workspace', items: [

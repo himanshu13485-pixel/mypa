@@ -52,7 +52,7 @@ export default function BookingLinkPage() {
   if (isLoading || !form) {
     return (
       <div className="space-y-4">
-        <h1 className="text-xl font-semibold tracking-tight">Booking link</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Book@Meetings</h1>
         <Card><SkeletonList rows={4} avatar={false} /></Card>
       </div>
     )
@@ -72,7 +72,7 @@ export default function BookingLinkPage() {
   return (
     <div className="max-w-3xl space-y-4">
       <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-        <CalendarClock className="size-5 text-brand-600" /> Booking link
+        <CalendarClock className="size-5 text-brand-600" /> Book@Meetings
       </h1>
 
       <Card>
