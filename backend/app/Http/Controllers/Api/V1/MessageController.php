@@ -64,6 +64,13 @@ class MessageController extends Controller
                 : 'This message could not be delivered.');
         }
 
+        // An announcement group: everybody reads it, the people running it
+        // write. Checked here rather than hidden in the UI, because a
+        // closed group that only looks closed is not closed.
+        if ($conversation->group?->only_admins_post && ! $conversation->group->canManage($me)) {
+            abort(403, 'Only the admins of this group can post here.');
+        }
+
         $maxKb = (int) config('mypa.files.max_upload_kb');
 
         $data = $request->validate([
@@ -216,7 +223,17 @@ class MessageController extends Controller
         $scope = $request->query('for', 'me');
 
         if ($scope === 'everyone') {
-            abort_unless($message->user_id === $me->id, 403, 'You can only delete your own messages for everyone.');
+            /*
+             * Your own message, or anything at all in a group you run.
+             *
+             * Somebody has to be able to take down what should not have
+             * been said, and in a group of two hundred that person is not
+             * going to be the author. Outside a group it stays your own
+             * messages only: nobody moderates a private conversation.
+             */
+            $moderates = $conversation->group?->canManage($me) ?? false;
+            abort_unless($message->user_id === $me->id || $moderates, 403,
+                'You can only delete your own messages for everyone.');
             if (! $message->trashed()) {
                 // Remove stored attachment data as well.
                 foreach ($message->attachments as $attachment) {

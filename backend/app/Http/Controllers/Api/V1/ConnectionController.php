@@ -136,6 +136,27 @@ class ConnectionController extends Controller
             $query->where('status', $status);
         }
 
+        /*
+         * Searching the people you already know.
+         *
+         * Asked of the database, not of the page: the list is paginated at
+         * twenty, so a filter applied in the browser could only ever search
+         * the twenty already on screen — which is why looking for a
+         * colleague by name found nothing the moment the address book grew
+         * past a page. The other person is whichever side of the row is not
+         * you, so both sides are searched.
+         */
+        if ($q = trim((string) $request->query('q'))) {
+            $like = '%' . str_replace(['%', '_'], ['\%', '\_'], mb_strtolower($q)) . '%';
+            $matches = fn ($w) => $w->whereRaw('LOWER(name) LIKE ?', [$like])
+                ->orWhereRaw('LOWER(username) LIKE ?', [$like])
+                ->orWhereHas('appId', fn ($a) => $a->whereRaw('LOWER(app_id) LIKE ?', [$like]));
+
+            $query->where(fn ($w) => $w
+                ->whereHas('requester', fn ($r) => $r->whereKeyNot($me->id)->where($matches))
+                ->orWhereHas('addressee', fn ($a) => $a->whereKeyNot($me->id)->where($matches)));
+        }
+
         return ConnectionResource::collection($query->latest()->paginate(20));
     }
 

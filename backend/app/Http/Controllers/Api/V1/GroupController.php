@@ -91,6 +91,8 @@ class GroupController extends Controller
             'description' => ['nullable', 'string', 'max:500'],
             'icon' => ['nullable', 'string', 'max:64'],
             'color' => ['nullable', 'string', 'max:16'],
+            // An announcement group: everybody reads, the admins write.
+            'only_admins_post' => ['sometimes', 'boolean'],
         ]);
 
         $group->update($data);
@@ -234,6 +236,10 @@ class GroupController extends Controller
             'color' => $group->color,
             'is_owner' => $group->owner_id === $request->user()->id,
             'my_role' => $group->roleOf($request->user()),
+            // Whether this is a conversation or an announcement board, and
+            // whether the reader is one of the people who may post to it.
+            'only_admins_post' => (bool) $group->only_admins_post,
+            'i_manage' => $group->canManage($request->user()),
             'members_count' => $group->members_count ?? $group->members()->count(),
             'tasks_count' => $group->tasks_count ?? 0,
             'created_at' => $group->created_at,

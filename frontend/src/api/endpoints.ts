@@ -116,8 +116,11 @@ export const connections = {
     api.get<{ data: { uuid: string; name: string; username?: string | null; app_id: string; photo_path?: string | null; avatar?: string | null; is_connected: boolean }[] }>(
       '/app-id/search', { params: { q } },
     ).then((r) => r.data.data),
-  list: (status?: string) =>
-    api.get<Paginated<Connection>>('/connections', { params: status ? { status } : {} }).then((r) => r.data),
+  /** `q` searches the whole address book, not the page already loaded. */
+  list: (status?: string, q?: string) =>
+    api.get<Paginated<Connection>>('/connections', {
+      params: { ...(status ? { status } : {}), ...(q ? { q } : {}) },
+    }).then((r) => r.data),
   send: (app_id: string, message?: string) => api.post('/connections', { app_id, message }),
   respond: (uuid: string, action: 'accept' | 'decline') => api.put(`/connections/${uuid}`, { action }),
   remove: (uuid: string) => api.delete(`/connections/${uuid}`),

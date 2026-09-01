@@ -60,18 +60,19 @@ class AppIdService
     }
 
     /**
-     * Search for people to connect with, by part of a username or App ID.
+     * Search for people to connect with, by part of a name, username or App ID.
      *
      * Exact lookup answers "I have their handle". This answers the question
-     * people actually arrive with — they remember a piece of it. Somebody
-     * registered as harshgrapout is found by "grapout", which exact matching
-     * never did.
+     * people actually arrive with — they remember a piece of it, or they
+     * only ever knew the person's name. Somebody registered as harshgrapout
+     * is found by "grapout", and Priyanshu is found by "Priyanshu".
      *
-     * Deliberately narrow about what a fragment may match. A username and an
-     * App ID are public handles, so matching part of one gives away nothing
-     * the whole one did not. An e-mail address is not a handle: it still has
-     * to be typed in full, or this becomes a way to read the address book of
-     * the whole platform three letters at a time.
+     * Deliberately narrow about what a fragment may match. A name, a
+     * username and an App ID are what one colleague knows another by, and
+     * matching part of one gives away nothing the whole one did not. An
+     * e-mail address is not like that: it still has to be typed in full, or
+     * this becomes a way to read the address book of the whole platform
+     * three letters at a time.
      *
      * Every candidate goes through the same privacy gate as a direct lookup,
      * so being findable by fragment is never broader than being findable.
@@ -97,6 +98,11 @@ class AppIdService
             ->whereKeyNot($viewer->id)
             ->where(fn ($q) => $q
                 ->whereRaw('LOWER(username) LIKE ?', [$like])
+                // A name, because that is what people type when looking for
+                // a colleague. The typeahead on the same box already
+                // matched names; the button beside it did not, so pressing
+                // Enter found nobody the dropdown had just offered.
+                ->orWhereRaw('LOWER(name) LIKE ?', [$like])
                 ->orWhereHas('appId', fn ($a) => $a->where('is_active', true)
                     ->whereRaw('LOWER(app_id) LIKE ?', [$like])))
             ->orderBy('username')
