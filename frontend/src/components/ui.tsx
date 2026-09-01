@@ -1,6 +1,7 @@
 import { clsx } from 'clsx'
 import type { ButtonHTMLAttributes, CSSProperties, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { AlertTriangle, Inbox, RefreshCw, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
 
 /**
  * These controls default to full width, but `w-full` and a caller's `w-32` are
@@ -389,7 +390,17 @@ export function Modal({
   children: ReactNode
   wide?: boolean
 }) {
-  return (
+  /*
+   * Rendered at the document root, never where it was written.
+   *
+   * A dialog is fixed to the viewport, but "the viewport" stops being the
+   * reference the moment any ancestor carries a transform, a filter or a
+   * filling animation — it becomes that ancestor's box instead, and the
+   * dialog is quietly cut down to the size of whatever it happened to be
+   * nested in. Portalling to <body> puts every dialog outside every page's
+   * subtree, so the question cannot arise again.
+   */
+  return createPortal(
     // Bottom sheet on a phone (thumb reaches the controls, and a tall form
     // scrolls inside the sheet instead of pushing the page around); a centred
     // dialog from sm up.
@@ -420,7 +431,8 @@ export function Modal({
         </div>
         <div className="scroll-pane pb-safe min-h-0 flex-1 overflow-y-auto p-5 sm:overflow-visible">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 

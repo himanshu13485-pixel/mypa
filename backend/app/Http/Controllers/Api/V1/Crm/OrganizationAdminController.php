@@ -151,6 +151,39 @@ class OrganizationAdminController extends Controller
         ]]);
     }
 
+    /**
+     * Switch the addon off for good: the organization and everything filed
+     * under it - members, leads, clients, invoices, payroll - go together,
+     * because a CRM without its own records is not a thing anyone wants.
+     *
+     * Two rails, because this cannot be undone. It has to be suspended
+     * first, which is a deliberate second visit rather than a slip of the
+     * mouse on a live company; and the code has to be typed back, so the
+     * row being deleted is the row that was read. The Netvork accounts
+     * themselves are untouched - people keep their logins and their
+     * personal side, they simply stop being employees of this company.
+     */
+    public function destroy(Request $request, Organization $organization): JsonResponse
+    {
+        $data = $request->validate(['confirm' => ['required', 'string']]);
+
+        abort_if($organization->status !== 'suspended', 422,
+            'Suspend the organization first. Deleting a live CRM takes its whole history with it.');
+        abort_if(! hash_equals($organization->code, trim($data['confirm'])), 422,
+            'The code did not match, so nothing was deleted.');
+
+        $name = $organization->name;
+        $counts = [
+            'members' => Member::where('organization_id', $organization->id)->count(),
+            'code' => $organization->code,
+        ];
+
+        \App\Models\AuditLog::record($request->user(), 'crm.organization_deleted', $organization, $counts);
+        $organization->delete();
+
+        return response()->json(['message' => $name . ' and its CRM records have been deleted.']);
+    }
+
     public function update(Request $request, Organization $organization): JsonResponse
     {
         $data = $request->validate([

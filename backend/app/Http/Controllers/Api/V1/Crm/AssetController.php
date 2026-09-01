@@ -70,7 +70,7 @@ class AssetController extends Controller
                 'allocated' => $all->where('status', 'allocated')->count(),
                 'damaged' => $all->where('status', 'damaged')->count(),
             ],
-            'categories' => Asset::CATEGORIES,
+            'categories' => $org->assetCategories(),
             'manages' => $this->manages($me),
             'can_delete' => $me->crm_role === 'admin' || ($this->manages($me) && $me->can('assets', 'delete')),
         ]);

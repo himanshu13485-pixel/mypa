@@ -690,4 +690,158 @@ class CrmLaunchFeaturesTest extends TestCase
         $this->assertSame('EMP-251', Member::whereHas('user', fn ($q) => $q->where('email', 'auto2@acme.test'))
             ->value('employee_code'));
     }
+
+    public function test_the_company_keeps_its_own_asset_category_list(): void
+    {
+        // Out of the box, the built-in list.
+        $before = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/assets')
+            ->assertOk()->json('categories');
+        $this->assertContains('Laptop', $before);
+
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/masters/asset-categories', [
+            'categories' => ['Laptop', 'Tablet', '  Router  ', 'Tablet', ''],
+        ])->assertOk();
+
+        // Tidied on the way in: trimmed, de-duplicated, blanks dropped.
+        $saved = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/masters/asset-categories')
+            ->assertOk()->json('data.categories');
+        $this->assertSame(['Laptop', 'Tablet', 'Router'], $saved);
+
+        // The Add-to-stock dropdown reads the company's list now.
+        $this->assertSame($saved, $this->actingAs($this->adminUser)->getJson('/api/v1/crm/assets')
+            ->assertOk()->json('categories'));
+
+        // Emptied, it falls back rather than leaving nowhere to file a laptop.
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/masters/asset-categories', [
+            'categories' => [],
+        ])->assertOk();
+        $this->assertContains('Laptop', $this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/masters/asset-categories')->json('data.categories'));
+
+        // An employee may read the list but never rewrite it.
+        $this->actingAs($this->empUser)->putJson('/api/v1/crm/masters/asset-categories', [
+            'categories' => ['Nope'],
+        ])->assertForbidden();
+    }
+
+    public function test_an_invoice_mail_copies_the_salesperson_and_whoever_else_is_named(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        $company = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Acme Billing']);
+        $client = \App\Models\Crm\Client::create([
+            'organization_id' => $this->org->id, 'company_name' => 'Buyer Ltd',
+            'email' => 'buyer@client.test', 'created_by' => $this->adminUser->id,
+        ]);
+        // The salesperson raises it, so the document is theirs.
+        $this->emp->update(['rights' => $this->emp->rights + ['invoices' => ['view', 'create'], 'clients' => ['view']]]);
+        $uuid = $this->actingAs($this->empUser)->postJson('/api/v1/crm/invoices', [
+            'kind' => 'invoice', 'issuing_company_id' => $company->id, 'client_uuid' => $client->uuid,
+            'invoice_date' => now()->toDateString(),
+            'items' => [['plan_name' => 'Plan A', 'qty' => 1, 'unit_price' => 1000]],
+        ])->assertCreated()->json('data.uuid');
+
+        // The salesperson's address rides on the document, so the dialog can
+        // offer them a copy without a second request.
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/invoices/' . $uuid)
+            ->assertOk()->assertJsonPath('data.salesperson.email', $this->empUser->email);
+
+        $sent = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices/' . $uuid . '/email', [
+            'cc' => [$this->empUser->email, 'accounts@client.test', 'buyer@client.test'],
+        ])->assertOk();
+
+        // Copied to the salesperson and to the address named on the spot,
+        // but never a second copy to the client it is already going to.
+        $sent->assertJsonFragment(['message' => 'Invoice ' . \App\Models\Crm\Invoice::where('uuid', $uuid)->value('number')
+            . ' sent to buyer@client.test, copied to ' . $this->empUser->email . ', accounts@client.test.']);
+
+        // The trail keeps the same list, so who saw a document is answerable.
+        $logged = \App\Models\Crm\ActivityLog::where('action', 'invoice.emailed')->latest('id')->value('changes');
+        $this->assertSame($this->empUser->email . ', accounts@client.test', $logged['cc']);
+
+        // A malformed address stops the send rather than half-sending it.
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices/' . $uuid . '/email', [
+            'cc' => ['not-an-address'],
+        ])->assertStatus(422);
+    }
+
+    public function test_a_punch_records_what_it_was_made_on_and_how_far_from_the_office(): void
+    {
+        Carbon::setTestNow('2026-09-02 10:05:00');
+
+        // No office registered: the device is still recorded, the place is
+        // not asked for, and nothing about location is shown.
+        $this->actingAs($this->empUser)
+            ->withHeaders(['User-Agent' => 'Mozilla/5.0 (Linux; Android 14) Mobile Safari/537.36'])
+            ->postJson('/api/v1/crm/punch/in')
+            ->assertCreated()
+            ->assertJsonPath('data.in_device', 'mobile')
+            ->assertJsonPath('data.in_distance_m', null);
+
+        // The company registers its office and asks punches to say where
+        // they were made.
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/hr-policy', [
+            'work_start' => '10:00', 'work_end' => '19:00', 'grace_minutes' => 15,
+            'half_day_after_minutes' => 180, 'half_day_hours' => 4, 'full_day_hours' => 8,
+            'week_off_days' => [0], 'probation_days' => 180, 'monthly_leave_credit' => 1,
+            'encash_unused_leave' => true, 'financial_year_start_month' => 4,
+            'office_lat' => 28.6139, 'office_lng' => 77.2090,
+            'office_radius_m' => 200, 'punch_needs_location' => true,
+        ])->assertOk();
+
+        Carbon::setTestNow('2026-09-03 10:05:00');
+
+        // A punch that will not say where it is made is refused now.
+        $this->actingAs($this->empUser)->postJson('/api/v1/crm/punch/in')->assertStatus(422);
+
+        // One from home is accepted and recorded as what it is: far away.
+        $punch = $this->actingAs($this->empUser)
+            ->withHeaders(['X-Netvork-App' => '1'])
+            ->postJson('/api/v1/crm/punch/in', ['latitude' => 28.7041, 'longitude' => 77.1025])
+            ->assertCreated()->json('data');
+
+        $this->assertSame('app', $punch['in_device']);
+        // Roughly 14 km across Delhi - the number the manager gets to ask about.
+        $this->assertGreaterThan(10000, $punch['in_distance_m']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_waived_person_is_never_absent_for_not_punching(): void
+    {
+        Carbon::setTestNow('2026-09-04 18:00:00');
+
+        // A Wednesday and a Thursday with no punches at all.
+        $absent = collect($this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/punch?date_from=2026-09-02&date_to=2026-09-03&member=' . $this->emp->uuid)
+            ->assertOk()->json('data'))->pluck('status');
+        $this->assertSame(['absent', 'absent'], $absent->values()->all());
+
+        // The Admin waives the clock for this person - a director does not
+        // clock in, and their working days are not absences.
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/employees/' . $this->emp->uuid, [
+            'name' => 'Emp', 'crm_role' => 'employee', 'punch_waived' => true,
+        ])->assertOk();
+        $this->assertTrue($this->emp->fresh()->punch_waived);
+
+        $waived = collect($this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/punch?date_from=2026-09-02&date_to=2026-09-03&member=' . $this->emp->uuid)
+            ->assertOk()->json('data'));
+        $this->assertSame(['present', 'present'], $waived->pluck('status')->values()->all());
+        $this->assertSame('punch_waived', $waived->first()['status_source']);
+
+        // A Sunday is still a week off, not a working day made present.
+        $sunday = collect($this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/punch?date_from=2026-09-06&date_to=2026-09-06&member=' . $this->emp->uuid)
+            ->assertOk()->json('data'))->first();
+        $this->assertSame('week_off', $sunday['status']);
+
+        // The waiver is the Admin's: a Subadmin's payload cannot move it.
+        $this->actingAs($this->subUser)->putJson('/api/v1/crm/employees/' . $this->emp->uuid, [
+            'name' => 'Emp', 'crm_role' => 'employee', 'punch_waived' => false,
+        ])->assertOk();
+        $this->assertTrue($this->emp->fresh()->punch_waived);
+
+        Carbon::setTestNow();
+    }
 }

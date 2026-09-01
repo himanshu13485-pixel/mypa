@@ -49,6 +49,7 @@ interface FormState {
   bank_account_name: string
   team_member_uuids: string[]
   late_waived: boolean
+  punch_waived: boolean
   note: string
   salary_amount: string
   salary_from: string
@@ -63,7 +64,7 @@ const EMPTY: FormState = {
   joined_at: '', probation_days: '', resigned_at: '', is_salesperson: false,
   pf_no: '', esi_no: '', pan_no: '', aadhaar_no: '',
   bank_name: '', bank_account_no: '', bank_ifsc: '', bank_account_name: '',
-  team_member_uuids: [], late_waived: false, note: '', salary_amount: '', salary_from: '',
+  team_member_uuids: [], late_waived: false, punch_waived: false, note: '', salary_amount: '', salary_from: '',
 }
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -171,6 +172,7 @@ export default function CrmEmployeeFormPage() {
       bank_account_name: existing.bank_account_name ?? '',
       team_member_uuids: (existing.team ?? []).map((t) => t.uuid),
       late_waived: !!existing.late_waived,
+      punch_waived: !!existing.punch_waived,
       note: existing.note ?? '',
     })
     setRights(existing.rights && !Array.isArray(existing.rights) ? { ...existing.rights } : {})
@@ -219,6 +221,7 @@ export default function CrmEmployeeFormPage() {
     // The waiver rides only when the Admin holds the pen — the server
     // ignores it from anyone else anyway.
     late_waived: form.late_waived,
+    punch_waived: form.punch_waived,
     rights: form.crm_role === 'admin' ? undefined : rights,
     // A Subadmin keeps only the by-name grants (exports, reports); the
     // rest of the list their role already carries. Admin needs none.
@@ -506,6 +509,33 @@ export default function CrmEmployeeFormPage() {
         {me?.member?.crm_role !== 'admin' && existing?.late_waived && existing?.uuid === me?.member?.uuid && (
           <p className="flex items-end pb-2 text-xs font-medium text-emerald-600">
             Late waived off — your late arrivals are marked Present.
+          </p>
+        )}
+        {/* The punch waiver: for the people the clock was never about — a
+            director, a founder — so the register stops calling their
+            working days absences and payroll stops docking for them. */}
+        {me?.member?.crm_role === 'admin' && (
+          <div className="flex items-end pb-2">
+            <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={form.punch_waived}
+                onChange={(e) => set('punch_waived', e.target.checked)}
+                className="mt-0.5 size-4 accent-emerald-600"
+              />
+              <span>
+                Punch in / out waived off
+                <span className="block text-xs text-slate-400">
+                  This person does not clock in. Working days count as Present without a punch, so the
+                  register and the payroll stop treating them as absences. Admin only.
+                </span>
+              </span>
+            </label>
+          </div>
+        )}
+        {me?.member?.crm_role !== 'admin' && existing?.punch_waived && existing?.uuid === me?.member?.uuid && (
+          <p className="flex items-end pb-2 text-xs font-medium text-emerald-600">
+            Punch waived off — you do not need to clock in or out.
           </p>
         )}
         {!editing && (

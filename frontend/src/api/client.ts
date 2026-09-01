@@ -2,6 +2,7 @@ import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
 import { disconnectEcho } from '../lib/echo'
 import { clearGuestPass, readGuestPass } from '../lib/guestPass'
+import { readDeviceToken } from '../lib/deviceTrust'
 
 export const api = axios.create({
   baseURL: '/api/v1',
@@ -9,6 +10,18 @@ export const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
+  /*
+   * This browser's proof that it has answered a sign-in code before.
+   *
+   * Sent on the login call alone. It is not an authorisation — it only
+   * spares a known device the second step — so it has no business riding
+   * along with every other request in the app.
+   */
+  const deviceToken = readDeviceToken()
+  if (deviceToken && config.url === '/auth/login') {
+    config.headers['X-Device-Token'] = deviceToken
+  }
+
   const token = useAuthStore.getState().token
   if (token) {
     config.headers.Authorization = `Bearer ${token}`

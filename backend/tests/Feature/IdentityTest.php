@@ -149,6 +149,10 @@ class IdentityTest extends TestCase
 
     public function test_login_by_username_and_email_but_not_mobile(): void
     {
+        // Not about sign-in codes: this test signs in only to get at what
+        // it is really checking, so the second step is switched off.
+        \App\Models\AppSetting::set('login_otp_mode', 'off');
+
         $this->register(['mobile' => '+919876543210'])->assertCreated();
 
         foreach (['ashak', 'ASHAK', 'asha@example.com'] as $identifier) {
@@ -181,7 +185,7 @@ class IdentityTest extends TestCase
         $this->actingAs($viewer)
             ->getJson('/api/v1/app-id/search?q=ashak')
             ->assertOk()
-            ->assertJsonPath('data.username', 'ashak');
+            ->assertJsonPath('data.0.username', 'ashak');
 
         // Mobile numbers are records-only — searching one finds nothing.
         $this->actingAs($viewer)
@@ -205,7 +209,7 @@ class IdentityTest extends TestCase
         $first->assertOk()->assertJsonPath('data.suggestion', 'himanshusachdeva');
 
         // Take the suggestion, then the next person with the same name gets a suffix.
-        $this->register(['username' => 'himanshusachdeva', 'mobile' => '9812340001'])->assertCreated();
+        $this->register(['username' => 'himanshusachdeva', 'mobile' => '+919812340001'])->assertCreated();
 
         $second = $this->getJson('/api/v1/auth/suggest-username?name=' . urlencode('Himanshu Sachdeva'));
         $second->assertOk()->assertJsonPath('data.suggestion', 'himanshusachdeva1');
@@ -221,6 +225,10 @@ class IdentityTest extends TestCase
 
     public function test_email_change_via_otp_after_approval(): void
     {
+        // Not about sign-in codes: this test signs in only to get at what
+        // it is really checking, so the second step is switched off.
+        \App\Models\AppSetting::set('login_otp_mode', 'off');
+
         $this->register()->assertCreated();
         $user = $this->verifiedUser('ashak');
         $this->assertEquals('asha@example.com', $user->email);
@@ -495,5 +503,21 @@ class IdentityTest extends TestCase
             ->assertJsonPath('data.messages', 0)
             ->assertJsonPath('data.calls', 0)
             ->assertJsonPath('data.connections', 0);
+    }
+
+    public function test_a_mobile_number_is_kept_in_one_international_shape(): void
+    {
+        // The form sends a dialling code and then the number, so a column
+        // holding four different formats stops being possible.
+        $this->register(['mobile' => '+919812345678'])->assertCreated();
+        $this->assertSame('+919812345678', User::where('username', 'ashak')->value('mobile'));
+
+        // A bare national number is refused: whose 9812345678 is it?
+        $this->register([
+            'email' => 'other@example.com', 'username' => 'otherk', 'mobile' => '9812345678',
+        ])->assertStatus(422)->assertJsonValidationErrors('mobile');
+
+        // And it stays optional - most people never fill it in.
+        $this->register(['email' => 'nomob@example.com', 'username' => 'nomobk'])->assertCreated();
     }
 }

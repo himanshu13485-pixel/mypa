@@ -7,6 +7,7 @@ import NetvorkMark from '../../components/Logo'
 import { useAuthStore } from '../../stores/auth'
 import { Button, ErrorNote, Input, Label } from '../../components/ui'
 import { returnState, returnTo } from '../../lib/returnTo'
+import { forgetDevice, rememberDevice } from '../../lib/deviceTrust'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -20,6 +21,10 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [codeSent, setCodeSent] = useState(false)
+  // The password was right and a code went out. Until it is answered there
+  // is no token, so nothing about being signed in has happened yet.
+  const [signInChallenge, setSignInChallenge] = useState<{ sentTo: string } | null>(null)
+  const [rememberDeviceChoice, setRememberDeviceChoice] = useState(true)
   const [info, setInfo] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -30,7 +35,16 @@ export default function Login() {
     setLoading(true)
     try {
       const res = await auth.login({ identifier, password, device_name: 'web' })
-      setAuth(res.token, res.data)
+
+      // A device this account has not signed in on before is asked for a
+      // code as well; a device it has is let straight through.
+      if (res.otp_required) {
+        setSignInChallenge({ sentTo: res.sent_to ?? 'your email' })
+        setInfo(res.message ?? null)
+        return
+      }
+
+      setAuth(res.token!, res.data!)
       navigate(next, { replace: true })
     } catch (err) {
       const message = errorMessage(err)
@@ -39,6 +53,30 @@ export default function Login() {
       if (message.includes('no password')) {
         setMode('otp')
       }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const submitSignInCode = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await auth.verifySignIn({
+        identifier: identifier.trim(),
+        code,
+        device_name: 'web',
+        remember_device: rememberDeviceChoice,
+      })
+      // Handed over once and only here: this browser can skip the code
+      // next time, but never the password.
+      if (res.device_token) rememberDevice(res.device_token)
+      else forgetDevice()
+      setAuth(res.token, res.data)
+      navigate(next, { replace: true })
+    } catch (err) {
+      setError(errorMessage(err))
     } finally {
       setLoading(false)
     }
@@ -88,6 +126,60 @@ export default function Login() {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          {/*
+            * The second step, on a device this account has not used before.
+            * It replaces the form rather than sitting under it: the password
+            * is already accepted, and the only thing left to do is this.
+            */}
+          {signInChallenge ? (
+            <form onSubmit={submitSignInCode} className="space-y-4">
+              <div>
+                <h2 className="text-sm font-semibold">Check it&rsquo;s you</h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  We sent a code to <span className="font-medium">{signInChallenge.sentTo}</span>. If you are
+                  already signed in on your phone, it is in your notifications too.
+                </p>
+              </div>
+              <ErrorNote message={error} />
+              <div>
+                <Label>Sign-in code</Label>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  autoFocus
+                  required
+                />
+              </div>
+              <label className="flex items-start gap-2 text-xs text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={rememberDeviceChoice}
+                  onChange={(e) => setRememberDeviceChoice(e.target.checked)}
+                  className="mt-0.5 size-4 accent-brand-600"
+                />
+                <span>
+                  Remember this device
+                  <span className="block text-slate-400">
+                    Untick on a shared or public computer — then a code is asked for every time.
+                  </span>
+                </span>
+              </label>
+              <Button type="submit" className="w-full" disabled={loading || code.length < 6}>
+                {loading ? 'Checking…' : 'Sign in'}
+              </Button>
+              <button
+                type="button"
+                className="w-full text-center text-xs text-slate-400 hover:text-slate-600"
+                onClick={() => { setSignInChallenge(null); setCode(''); setInfo(null); setError(null) }}
+              >
+                Use a different account
+              </button>
+            </form>
+          ) : (
+          <>
           {/* Mode toggle */}
           <div className="mb-4 flex rounded-lg border border-slate-200 p-0.5 text-sm dark:border-slate-700">
             {(['password', 'otp'] as const).map((m) => (
@@ -185,6 +277,8 @@ export default function Login() {
               </>
             )}
           </form>
+          </>
+          )}
         </div>
       </div>
     </div>

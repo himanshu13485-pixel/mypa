@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Models\Conversation;
 use App\Models\Group;
+use App\Models\Message;
 use App\Services\AppIdService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ConversationController extends Controller
 {
@@ -117,6 +119,48 @@ class ConversationController extends Controller
         return response()->json(['message' => 'ok']);
     }
 
+    /**
+     * How long this conversation keeps what is said in it.
+     *
+     * Off by default, and off for every conversation that already exists: a
+     * chat that quietly deletes its own history is the kind of surprise
+     * nobody forgives, so it only ever starts because somebody in the room
+     * chose it. The setting belongs to the conversation, not to one member —
+     * a message that vanished for one person and not the other is not what
+     * anybody means by disappearing messages.
+     */
+    public function setRetention(Request $request, Conversation $conversation): JsonResponse
+    {
+        abort_unless($conversation->hasMember($request->user()), 403);
+
+        $data = $request->validate([
+            // Null keeps everything; the rest are the offered spans, in hours.
+            'auto_delete_hours' => ['nullable', 'integer', Rule::in([24, 168, 720])],
+        ]);
+
+        $hours = $data['auto_delete_hours'] ?? null;
+        $conversation->update(['auto_delete_hours' => $hours]);
+
+        // Said out loud, in the room. Everyone whose words are now on a
+        // timer deserves to be told, and to see who set it.
+        $labels = [24 => '24 hours', 168 => '7 days', 720 => '30 days'];
+        Message::create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $request->user()->id,
+            'type' => 'text',
+            'body' => $hours
+                ? '🕓 ' . $request->user()->name . ' set messages to delete themselves after ' . $labels[$hours] . '.'
+                : '🕓 ' . $request->user()->name . ' turned automatic deletion off — messages are kept from now on.',
+        ]);
+
+        return response()->json([
+            'message' => $hours
+                ? 'Messages older than ' . $labels[$hours] . ' will be deleted.'
+                : 'Messages are kept.',
+            'data' => ['auto_delete_hours' => $hours],
+        ]);
+    }
+
     public function toggleMute(Request $request, Conversation $conversation): JsonResponse
     {
         abort_unless($conversation->hasMember($request->user()), 403);
@@ -214,6 +258,9 @@ class ConversationController extends Controller
             'unread_count' => $unread,
             'is_muted' => $myPivot?->muted_at !== null,
             'is_archived' => $myPivot?->archived_at !== null,
+            // Null unless somebody in the room set a span; the chat
+            // header reads it to say what is happening to these words.
+            'auto_delete_hours' => $conversation->auto_delete_hours,
             'last_message_at' => $conversation->last_message_at,
         ];
     }

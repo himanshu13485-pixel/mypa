@@ -145,6 +145,19 @@ class AttendanceCalendar
         } elseif ($day->isFuture()) {
             $status = null;
             $source = 'future';
+        } elseif ($member->punch_waived) {
+            /*
+             * The clock is not this person's measure.
+             *
+             * A director does not punch, and a register that called every
+             * one of their working days an absence would be wrong twice
+             * over: wrong on the screen, and wrong in the payroll, which
+             * counts absences and docks for them. A working day is present
+             * unless something else — a holiday, a week off, approved leave
+             * — has already said otherwise above.
+             */
+            $status = 'present';
+            $source = 'punch_waived';
         } else {
             $status = 'absent';
         }

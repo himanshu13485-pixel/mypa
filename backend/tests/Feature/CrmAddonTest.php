@@ -300,4 +300,64 @@ class CrmAddonTest extends TestCase
             ->assertJsonPath('total', 0);
         $this->actingAs($rivalBoss)->getJson("/api/v1/crm/clients/{$clientUuid}")->assertNotFound();
     }
+
+    public function test_the_crm_appears_only_once_somebody_is_made_an_employee(): void
+    {
+        // Everybody signs up on Netvork the ordinary way, and the addon is
+        // nowhere in sight until a company puts them on its books.
+        $person = $this->makeUser('newjoiner@netvork.test');
+        $this->actingAs($person)->getJson('/api/v1/crm/me')
+            ->assertOk()
+            ->assertJsonPath('data.enabled', false)
+            ->assertJsonPath('data.is_super_admin', false)
+            ->assertJsonPath('data.organization', null);
+
+        // The company's admin registers them as an employee.
+        $this->actingAs($this->orgAdmin)->postJson('/api/v1/crm/employees', [
+            'name' => 'New Joiner', 'email' => 'newjoiner@netvork.test', 'crm_role' => 'employee',
+        ])->assertCreated();
+
+        $this->actingAs($person)->getJson('/api/v1/crm/me')
+            ->assertOk()
+            ->assertJsonPath('data.enabled', true)
+            ->assertJsonPath('data.organization.code', 'ACME');
+
+        // And it goes away again when the company suspends its CRM.
+        $this->org->update(['status' => 'suspended']);
+        $this->actingAs($person)->getJson('/api/v1/crm/me')
+            ->assertOk()->assertJsonPath('data.enabled', false);
+    }
+
+    public function test_deleting_an_organization_needs_it_suspended_and_the_code_typed_back(): void
+    {
+        $employee = $this->makeUser('worker@acme.test');
+        Member::create([
+            'organization_id' => $this->org->id, 'user_id' => $employee->id, 'crm_role' => 'employee',
+        ]);
+        $url = '/api/v1/admin/crm/organizations/' . $this->org->uuid;
+
+        // A live company cannot be deleted at all, whatever is typed.
+        $this->actingAs($this->superAdmin)->deleteJson($url, ['confirm' => 'ACME'])
+            ->assertStatus(422);
+
+        $this->org->update(['status' => 'suspended']);
+
+        // Suspended, but the wrong code still deletes nothing.
+        $this->actingAs($this->superAdmin)->deleteJson($url, ['confirm' => 'acme-typo'])
+            ->assertStatus(422);
+        $this->assertDatabaseHas('crm_organizations', ['id' => $this->org->id]);
+
+        // Nobody but a super admin may do this.
+        $this->actingAs($this->orgAdmin)->deleteJson($url, ['confirm' => 'ACME'])->assertForbidden();
+
+        // Right code, suspended company: the CRM and its records go...
+        $this->actingAs($this->superAdmin)->deleteJson($url, ['confirm' => 'ACME'])->assertOk();
+        $this->assertDatabaseMissing('crm_organizations', ['id' => $this->org->id]);
+        $this->assertDatabaseMissing('crm_members', ['user_id' => $employee->id]);
+
+        // ...and the people keep their Netvork accounts and their login.
+        $this->assertDatabaseHas('users', ['id' => $employee->id]);
+        $this->actingAs($employee)->getJson('/api/v1/crm/me')
+            ->assertOk()->assertJsonPath('data.enabled', false);
+    }
 }

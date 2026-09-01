@@ -362,8 +362,8 @@ export default function CalendarPage() {
             className="space-y-4"
           >
             <ErrorNote message={error} />
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="sm:col-span-2">
                 <Label>Title</Label>
                 <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required autoFocus />
               </div>
@@ -376,7 +376,7 @@ export default function CalendarPage() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div>
                 <Label>Starts</Label>
                 <Input type="datetime-local" value={form.starts_at} onChange={(e) => setForm({ ...form, starts_at: e.target.value })} required />

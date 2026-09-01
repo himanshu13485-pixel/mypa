@@ -144,22 +144,9 @@ export interface AdminPlan {
   subscriptions_count?: number
 }
 
-export const ISD_CODES: { code: string; label: string }[] = [
-  { code: '+91', label: '🇮🇳 India (+91)' },
-  { code: '+1', label: '🇺🇸 USA/Canada (+1)' },
-  { code: '+44', label: '🇬🇧 UK (+44)' },
-  { code: '+971', label: '🇦🇪 UAE (+971)' },
-  { code: '+966', label: '🇸🇦 Saudi Arabia (+966)' },
-  { code: '+65', label: '🇸🇬 Singapore (+65)' },
-  { code: '+61', label: '🇦🇺 Australia (+61)' },
-  { code: '+49', label: '🇩🇪 Germany (+49)' },
-  { code: '+33', label: '🇫🇷 France (+33)' },
-  { code: '+81', label: '🇯🇵 Japan (+81)' },
-  { code: '+86', label: '🇨🇳 China (+86)' },
-  { code: '+880', label: '🇧🇩 Bangladesh (+880)' },
-  { code: '+94', label: '🇱🇰 Sri Lanka (+94)' },
-  { code: '+977', label: '🇳🇵 Nepal (+977)' },
-]
+// The dialling codes used to live here, fourteen of them, chosen by
+// guesswork about who would sign up. All 245 now live in lib/countries.ts,
+// generated from libphonenumber rather than typed.
 
 export interface ChecklistItem {
   id: number
@@ -536,6 +523,8 @@ export interface ConversationItem {
   unread_count: number
   is_muted: boolean
   is_archived: boolean
+  /** Disappearing messages: null keeps everything, else a span in hours. */
+  auto_delete_hours?: number | null
   last_message_at?: string | null
 }
 

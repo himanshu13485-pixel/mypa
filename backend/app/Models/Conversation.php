@@ -13,7 +13,7 @@ class Conversation extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['type', 'group_id', 'name', 'created_by', 'last_message_at'];
+    protected $fillable = ['type', 'group_id', 'name', 'auto_delete_hours', 'created_by', 'last_message_at'];
 
     protected function casts(): array
     {

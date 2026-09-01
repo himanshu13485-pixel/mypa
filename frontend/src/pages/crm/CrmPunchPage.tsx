@@ -40,6 +40,13 @@ function Clock() {
   return <span className="font-mono text-3xl font-semibold tabular-nums text-slate-900 dark:text-white">{now.toLocaleTimeString('en-GB')}</span>
 }
 
+/** What a punch was made on, in words a person reads rather than a slug. */
+const DEVICE_LABELS: Record<string, string> = {
+  app: 'Phone app',
+  mobile: 'Mobile browser',
+  desktop: 'Desktop',
+}
+
 export default function CrmPunchPage() {
   const { me } = useOutletContext<{ me: CrmMe | undefined }>()
   // Attendance is personal, like salary: only the Admin/Subadmin read
@@ -72,8 +79,27 @@ export default function CrmPunchPage() {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['crm', 'punch'] })
 
+  /**
+   * Where the punch is being made, when the company asked for it.
+   *
+   * Asked of the browser at the moment of punching rather than watched in
+   * the background: a phone that reports its position all day is tracking
+   * somebody, and the register only ever needs the one moment. A refusal
+   * is passed on as a refusal — the server decides whether the company
+   * insists, which keeps that policy in one place.
+   */
+  const whereAmI = (): Promise<{ latitude: number; longitude: number } | undefined> =>
+    new Promise((resolve) => {
+      if (!today?.config.location || !navigator.geolocation) return resolve(undefined)
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        () => resolve(undefined),
+        { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 },
+      )
+    })
+
   const inMutation = useMutation({
-    mutationFn: crm.punch.punchIn,
+    mutationFn: async () => crm.punch.punchIn(await whereAmI()),
     onSuccess: (res) => { refresh(); toast(res.message, 'success') },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -95,7 +121,11 @@ export default function CrmPunchPage() {
       <div>
         <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Punch report</h1>
         <p className="text-sm text-slate-500">
-          Office opens {today?.config.start ?? '10:00'} with {today?.config.grace_minutes ?? 15} min grace — the server stamps the time and IP.
+          Office opens {today?.config.start ?? '10:00'} with {today?.config.grace_minutes ?? 15} min grace — the server stamps
+          the time, the IP and what you punched from
+          {today?.config.location && (today.config.location.required
+            ? ', and this company asks where you are punching from'
+            : ', and records where you are punching from when you allow it')}.
         </p>
       </div>
 
@@ -108,7 +138,9 @@ export default function CrmPunchPage() {
           <div>
             <Clock />
             <div className="mt-0.5 text-sm text-slate-500">
-              {punch?.punch_in ? <>In at <span className="font-medium">{punch.punch_in}</span></> : 'Not punched in yet'}
+              {punch?.punch_in ? <>In at <span className="font-medium">{punch.punch_in}</span></>
+                : today?.punch_waived ? 'Punching is waived for you — your working days count as Present'
+                  : 'Not punched in yet'}
               {punch?.punch_out && <> · out at <span className="font-medium">{punch.punch_out}</span> ({punch.hours} h)</>}
               {punch && <span className={clsx('ml-2', punchBadge(punch.status))}>{CRM_PUNCH_STATUS_LABELS[punch.status]}</span>}
             </div>
@@ -213,8 +245,22 @@ export default function CrmPunchPage() {
                     <td className="whitespace-nowrap py-2.5 pr-3 font-medium">{p.punch_in ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 font-medium">{p.punch_out ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right">{p.hours ?? '—'}</td>
-                    <td className="max-w-[140px] truncate py-2.5 pr-3 text-xs text-slate-400" title={p.in_ip ?? ''}>
+                    <td className="max-w-[160px] truncate py-2.5 pr-3 text-xs text-slate-400" title={p.in_ip ?? ''}>
                       {p.in_ip ?? '—'}
+                      {/* What it was punched on, and — where the company
+                          registered an office — how far from it. A phone
+                          punching in from three kilometres away is the
+                          thing a manager wants to see without asking. */}
+                      {(p.in_device || p.in_distance_m !== null) && (
+                        <span className="block">
+                          {p.in_device && DEVICE_LABELS[p.in_device]}
+                          {p.in_distance_m !== null && p.in_distance_m !== undefined && (
+                            <span className={clsx('ml-1', p.in_distance_m > 500 && 'font-medium text-amber-600 dark:text-amber-400')}>
+                              · {p.in_distance_m < 1000 ? `${p.in_distance_m} m` : `${(p.in_distance_m / 1000).toFixed(1)} km`} away
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td className={clsx(
                       'max-w-[140px] truncate py-2.5 pr-3 text-xs',

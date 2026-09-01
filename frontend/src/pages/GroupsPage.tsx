@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
+import { useConnectBase } from '../lib/connectBase'
 import { CheckSquare, Plus, Trash2, UserPlus, Users } from 'lucide-react'
 import { badges as badgesApi, groups as groupsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
@@ -24,6 +25,7 @@ import { GROUP_TYPES, type GroupItem } from '../types'
 import { Avatar } from '../lib/avatars'
 
 export default function GroupsPage() {
+  const connectBase = useConnectBase()
   const queryClient = useQueryClient()
 
   // Attending this section clears its share notifications.
@@ -127,7 +129,7 @@ export default function GroupsPage() {
                   <CheckSquare className="size-3.5" /> Group tasks
                 </Link>
                 <Link
-                  to={`/messages?group=${group.uuid}`}
+                  to={`${connectBase}/messages?group=${group.uuid}`}
                   className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline"
                 >
                   <Users className="size-3.5" /> Group chat

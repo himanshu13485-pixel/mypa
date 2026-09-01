@@ -433,7 +433,7 @@ function PlanEditModal({ plan, onClose, onSaved }: { plan: AdminPlan; onClose: (
     <Modal title={`Edit plan — ${plan.name}`} onClose={onClose} wide>
       <div className="space-y-4">
         <ErrorNote message={error} />
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div>
             <Label>Monthly price (₹)</Label>
             <Input type="number" min={0} step="0.01" value={form.monthly_price} onChange={(e) => setForm({ ...form, monthly_price: e.target.value })} />

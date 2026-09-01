@@ -102,7 +102,7 @@ class EmployeeController extends Controller
         $org = $request->attributes->get('crm_org');
         $data = $this->validateProfile($request, $org->id);
         if ($request->attributes->get('crm_member')?->crm_role !== 'admin') {
-            unset($data['late_waived']);
+            unset($data['late_waived'], $data['punch_waived']);
         }
 
         // Left blank, the code numbers itself - EMP-101 onwards.
@@ -208,7 +208,7 @@ class EmployeeController extends Controller
                 'permanent_address', 'permanent_phone', 'personal_email', 'pf_no', 'esi_no',
                 'pan_no', 'aadhaar_no', 'bank_name', 'bank_account_no', 'bank_ifsc',
                 'bank_account_name', 'note', 'probation_days', 'probation_ends_on',
-                'late_waived', 'resigned_at',
+                'late_waived', 'punch_waived', 'resigned_at',
             ] as $field) {
                 $data[$field] = null;
             }
@@ -229,10 +229,10 @@ class EmployeeController extends Controller
 
         $data = $this->validateProfile($request, $org->id, $member->id);
 
-        // The late waiver is the Admin's alone — a Subadmin's payload
-        // simply does not carry it.
+        // Both waivers are the Admin's alone — a Subadmin's payload simply
+        // does not carry them.
         if ($request->attributes->get('crm_member')?->crm_role !== 'admin') {
-            unset($data['late_waived']);
+            unset($data['late_waived'], $data['punch_waived']);
         }
 
         // The last admin cannot demote or deactivate themselves out of the org.
@@ -454,8 +454,9 @@ class EmployeeController extends Controller
             // Null means "whatever the HR Policy says"; a number here is a
             // deliberate exception for this person, and is logged as one.
             'probation_days' => ['nullable', 'integer', 'min:0', 'max:1095'],
-            // The Admin's late waiver — only the Admin may move it.
+            // The Admin's waivers — only the Admin may move either.
             'late_waived' => ['nullable', 'boolean'],
+            'punch_waived' => ['nullable', 'boolean'],
             'resigned_at' => ['nullable', 'date', 'after_or_equal:joined_at'],
             'is_salesperson' => ['nullable', 'boolean'],
             'pf_no' => ['nullable', 'string', 'max:64'],
@@ -590,6 +591,7 @@ class EmployeeController extends Controller
             'joined_at' => $m->joined_at?->toDateString(),
             'probation_days' => $m->probation_days,
             'late_waived' => (bool) $m->late_waived,
+            'punch_waived' => (bool) $m->punch_waived,
             'probation_ends_on' => $m->probationEndsOn(
                 (int) $m->organization?->hrPolicy()['probation_days']
             )?->toDateString(),

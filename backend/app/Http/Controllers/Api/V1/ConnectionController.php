@@ -62,7 +62,13 @@ class ConnectionController extends Controller
             $others = \App\Models\User::with(['settings', 'appId', 'profile'])
                 ->where('status', 'active')
                 ->whereNotIn('id', $connectionIds->merge([$me->id]))
-                ->where(fn ($w) => $w->where(fn ($n) => $match($n))
+                // Strangers are found by their public handles — name,
+                // username, App ID. An address has to be typed in full:
+                // matching part of one turns this box into a way to read
+                // the platform's address book three letters at a time.
+                ->where(fn ($w) => $w->where('name', 'like', "%{$q}%")
+                    ->orWhere('username', 'like', "%{$q}%")
+                    ->orWhereRaw('LOWER(email) = ?', [mb_strtolower($q)])
                     ->orWhereHas('appId', fn ($a) => $a->where('app_id', 'like', "%{$q}%")->where('is_active', true)))
                 ->orderBy('name')
                 // Over-fetch: the privacy filter below runs in PHP, so some of

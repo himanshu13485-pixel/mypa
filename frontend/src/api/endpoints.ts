@@ -13,8 +13,20 @@ import type {
 export const auth = {
   register: (payload: Record<string, unknown>) =>
     api.post<{ data: User; token: string; mobile_verification_pending?: boolean }>('/auth/register', payload).then((r) => r.data),
+  /**
+   * The password step. A 202 with otp_required means the password was
+   * right and a code has been sent — the token comes from verifySignIn.
+   */
   login: (payload: { identifier: string; password: string; device_name?: string }) =>
-    api.post<{ data: User; token: string; must_change_password?: boolean }>('/auth/login', payload).then((r) => r.data),
+    api.post<{
+      data?: User; token?: string; must_change_password?: boolean
+      otp_required?: boolean; sent_to?: string; expires_in_minutes?: number; message?: string
+    }>('/auth/login', payload).then((r) => r.data),
+  /** The code step, which also earns this device its trust token. */
+  verifySignIn: (payload: { identifier: string; code: string; device_name?: string; remember_device?: boolean }) =>
+    api.post<{ data: User; token: string; device_token?: string; must_change_password?: boolean }>(
+      '/auth/login/verify', payload,
+    ).then((r) => r.data),
   verifyMobile: (code: string) => api.post('/auth/mobile/verify', { code }),
   resendMobileOtp: () => api.post('/auth/mobile/resend-otp'),
   verifyEmailOtp: (code: string) => api.post('/auth/email/verify-otp', { code }),
@@ -99,8 +111,9 @@ export const categories = {
 // --- Connections & App ID ---------------------------------------------------
 
 export const connections = {
+  /** Part of a username or App ID is enough; an address must be whole. */
   search: (q: string) =>
-    api.get<{ data: { uuid: string; name: string; app_id: string; photo_path?: string | null; avatar?: string | null; is_connected: boolean } }>(
+    api.get<{ data: { uuid: string; name: string; username?: string | null; app_id: string; photo_path?: string | null; avatar?: string | null; is_connected: boolean }[] }>(
       '/app-id/search', { params: { q } },
     ).then((r) => r.data.data),
   list: (status?: string) =>
@@ -454,6 +467,11 @@ export const chat = {
   markRead: (uuid: string) => api.post(`/conversations/${uuid}/read`),
   typing: (uuid: string) => api.post(`/conversations/${uuid}/typing`),
   toggleMute: (uuid: string) => api.post(`/conversations/${uuid}/mute`),
+  /** Disappearing messages: null keeps everything, or 24 / 168 / 720 hours. */
+  setRetention: (uuid: string, hours: number | null) =>
+    api.post<{ message: string; data: { auto_delete_hours: number | null } }>(
+      `/conversations/${uuid}/retention`, { auto_delete_hours: hours },
+    ).then((r) => r.data),
   attachmentUrl: (uuid: string, attachmentId: number) => `/api/v1/conversations/${uuid}/attachments/${attachmentId}`,
 }
 

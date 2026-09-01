@@ -62,3 +62,7 @@ Schedule::command('crm:generate-recurring')->dailyAt('07:30')->withoutOverlappin
 // The paid-leave accrual: one day a month to everyone past probation, and
 // on 1 April the year just ended is closed out and paid.
 Schedule::command('crm:credit-leaves')->monthlyOn(1, '00:20')->withoutOverlapping();
+
+// Disappearing messages. Hourly is close enough for spans measured in days,
+// and a conversation with no span set is never touched.
+Schedule::command('chat:purge-expired')->hourly()->withoutOverlapping();

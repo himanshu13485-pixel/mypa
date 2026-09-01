@@ -34,6 +34,12 @@ class PunchController extends Controller
             'grace_minutes' => (int) $hr['grace_minutes'],
             'half_day_after_minutes' => (int) $hr['half_day_after_minutes'],
             'half_day_hours' => (float) $hr['half_day_hours'],
+            // Whether the punch button should ask the browser where it is.
+            // A company that never registered an office asks for nothing.
+            'location' => ($hr['office_lat'] ?? null) === null ? null : [
+                'required' => (bool) ($hr['punch_needs_location'] ?? false),
+                'radius_m' => (int) ($hr['office_radius_m'] ?? 200),
+            ],
         ];
     }
 
@@ -52,6 +58,10 @@ class PunchController extends Controller
             'today' => now()->toDateString(),
             'config' => $this->config($org),
             'punch' => $punch ? $this->serialize($punch) : null,
+            // Some people are not measured by the clock. They keep the
+            // buttons — a director who wants to punch may — but the screen
+            // stops implying they have forgotten something.
+            'punch_waived' => (bool) $me->punch_waived,
         ]]);
     }
 
@@ -87,7 +97,38 @@ class PunchController extends Controller
             $status = 'present';
         }
 
-        $values = ['punch_in' => $now, 'in_ip' => $request->ip(), 'status' => $status, 'status_source' => 'auto'];
+        // What this punch can honestly say about where it came from. The
+        // device kind is read from the request rather than taken from the
+        // client's word for it; the place is asked for only when the company
+        // registered an office, and insisted on only when it said so.
+        $origin = app(\App\Services\Crm\PunchOrigin::class);
+        $office = $origin->office($org);
+        $where = $request->validate([
+            'latitude' => ['nullable', 'numeric', 'between:-90,90'],
+            'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+        ]);
+
+        $distance = null;
+        if ($office && isset($where['latitude'], $where['longitude'])) {
+            $distance = $origin->metresBetween(
+                (float) $where['latitude'], (float) $where['longitude'],
+                $office['lat'], $office['lng'],
+            );
+        }
+        if ($office && $office['required'] && $distance === null) {
+            abort(422, 'This company records where punches are made from — allow location and try again.');
+        }
+
+        $values = [
+            'punch_in' => $now,
+            'in_ip' => $request->ip(),
+            'in_device' => $origin->deviceKind($request),
+            'in_lat' => $where['latitude'] ?? null,
+            'in_lng' => $where['longitude'] ?? null,
+            'in_distance_m' => $distance,
+            'status' => $status,
+            'status_source' => 'auto',
+        ];
         if ($existing) {
             $existing->update($values);
             $punch = $existing;
@@ -122,7 +163,11 @@ class PunchController extends Controller
         }
 
         $now = now();
-        $updates = ['punch_out' => $now, 'out_ip' => $request->ip()];
+        $updates = [
+            'punch_out' => $now,
+            'out_ip' => $request->ip(),
+            'out_device' => app(\App\Services\Crm\PunchOrigin::class)->deviceKind($request),
+        ];
 
         // A short day becomes a half day — unless an admin already ruled.
         $hours = $punch->punch_in->diffInMinutes($now) / 60;
@@ -294,6 +339,12 @@ class PunchController extends Controller
             'hours' => $p->hours(),
             'in_ip' => $p->in_ip,
             'out_ip' => $p->out_ip,
+            // How the punch was made, and how far from the office it was
+            // made — shown in the report so a manager can ask, rather than
+            // acted on here, because neither of these is a verdict.
+            'in_device' => $p->in_device,
+            'out_device' => $p->out_device,
+            'in_distance_m' => $p->in_distance_m,
             'status' => $p->status,
             'status_source' => $p->status_source,
             'note' => $p->note,

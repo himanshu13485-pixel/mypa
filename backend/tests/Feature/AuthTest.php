@@ -56,11 +56,22 @@ class AuthTest extends TestCase
     public function test_user_can_login_with_correct_credentials(): void
     {
         $user = User::factory()->create(['password' => 'Password123']);
+        $user->settings()->create([]);
 
+        // A device this account has never signed in on is asked for a code
+        // as well as the password, so the password alone yields no token.
         $this->postJson('/api/v1/auth/login', [
             'email' => $user->email,
             'password' => 'Password123',
-        ])->assertOk()->assertJsonStructure(['token']);
+        ])->assertStatus(202)->assertJsonPath('otp_required', true);
+
+        $code = \App\Models\MobileOtp::where('user_id', $user->id)
+            ->where('purpose', 'login')->value('code');
+
+        $this->postJson('/api/v1/auth/login/verify', [
+            'identifier' => $user->email,
+            'code' => $code,
+        ])->assertOk()->assertJsonStructure(['token', 'device_token']);
     }
 
     public function test_login_fails_with_wrong_password(): void
@@ -101,6 +112,10 @@ class AuthTest extends TestCase
 
     public function test_user_can_change_password(): void
     {
+        // Not about sign-in codes: this test signs in only to get at what
+        // it is really checking, so the second step is switched off.
+        \App\Models\AppSetting::set('login_otp_mode', 'off');
+
         $user = User::factory()->create(['password' => 'OldPassword1']);
         $token = $user->createToken('web')->plainTextToken;
 

@@ -60,6 +60,60 @@ class AppIdService
     }
 
     /**
+     * Search for people to connect with, by part of a username or App ID.
+     *
+     * Exact lookup answers "I have their handle". This answers the question
+     * people actually arrive with — they remember a piece of it. Somebody
+     * registered as harshgrapout is found by "grapout", which exact matching
+     * never did.
+     *
+     * Deliberately narrow about what a fragment may match. A username and an
+     * App ID are public handles, so matching part of one gives away nothing
+     * the whole one did not. An e-mail address is not a handle: it still has
+     * to be typed in full, or this becomes a way to read the address book of
+     * the whole platform three letters at a time.
+     *
+     * Every candidate goes through the same privacy gate as a direct lookup,
+     * so being findable by fragment is never broader than being findable.
+     *
+     * @return \Illuminate\Support\Collection<int, User>
+     */
+    public function searchVisibleUsers(string $term, User $viewer, int $limit = 10): \Illuminate\Support\Collection
+    {
+        $term = trim($term);
+
+        // An exact handle answers first, and at any length.
+        $exact = $this->findVisibleUser($term, $viewer);
+
+        // Fragments start at three characters: "a" is not a search, it is a
+        // request for the user table. An address is matched whole, never part.
+        if (mb_strlen($term) < 3 || str_contains($term, '@')) {
+            return collect($exact && $exact->id !== $viewer->id ? [$exact] : []);
+        }
+
+        $like = '%' . str_replace(['%', '_'], ['\%', '\_'], mb_strtolower($term)) . '%';
+        $candidates = User::with(['settings', 'profile', 'appId'])
+            ->where('status', 'active')
+            ->whereKeyNot($viewer->id)
+            ->where(fn ($q) => $q
+                ->whereRaw('LOWER(username) LIKE ?', [$like])
+                ->orWhereHas('appId', fn ($a) => $a->where('is_active', true)
+                    ->whereRaw('LOWER(app_id) LIKE ?', [$like])))
+            ->orderBy('username')
+            ->limit($limit * 3)
+            ->get()
+            ->filter(fn (User $candidate) => $this->findVisibleUser(
+                $candidate->username ?: ($candidate->appId?->app_id ?? ''), $viewer,
+            ) !== null);
+
+        return collect($exact && $exact->id !== $viewer->id ? [$exact] : [])
+            ->concat($candidates)
+            ->unique('id')
+            ->take($limit)
+            ->values();
+    }
+
+    /**
      * Find a user by App ID, respecting the target's privacy settings.
      * Returns null when not found, inactive, or hidden from the viewer.
      */
