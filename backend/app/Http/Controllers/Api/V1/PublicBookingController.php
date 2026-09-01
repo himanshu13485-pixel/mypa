@@ -94,7 +94,16 @@ class PublicBookingController extends Controller
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'max:255'],
             'note' => ['nullable', 'string', 'max:2000'],
-            'timezone' => ['nullable', 'string', 'max:64', 'timezone'],
+            /*
+             * all_with_bc, matching registration and the profile.
+             *
+             * Browsers report whatever their ICU build calls the zone, and
+             * plenty still say Asia/Calcutta rather than Asia/Kolkata. The
+             * plain rule accepts only canonical names, so every one of those
+             * visitors was refused outright with "the timezone field must be
+             * a valid timezone" — a booking page nobody in India could use.
+             */
+            'timezone' => ['nullable', 'string', 'max:64', 'timezone:all_with_bc'],
         ]);
 
         $booking = $this->bookings->book($page, CarbonImmutable::parse($data['starts_at'])->utc(), $data);

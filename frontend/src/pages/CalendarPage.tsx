@@ -9,6 +9,7 @@ import { clsx } from 'clsx'
 import { Link } from 'react-router-dom'
 import { badges as badgesApi, events as eventsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import { toInstant } from '../lib/localTime'
 import UserSuggest from '../components/UserSuggest'
 import {
   Button,
@@ -87,8 +88,10 @@ export default function CalendarPage() {
         title: form.title,
         description: form.description || null,
         type: form.type,
-        starts_at: form.starts_at.replace('T', ' ') + ':00',
-        ends_at: form.ends_at ? form.ends_at.replace('T', ' ') + ':00' : null,
+        // An unambiguous instant, so the server never has to guess which
+        // 14:00 was meant from a timezone saved on the account.
+        starts_at: toInstant(form.starts_at),
+        ends_at: toInstant(form.ends_at),
         all_day: form.all_day,
         location: form.location || null,
         meeting_link: form.meeting_link || null,

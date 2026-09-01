@@ -9,6 +9,7 @@ import {
   meetings as meetingsApi, tasks as tasksApi,
 } from '../api/endpoints'
 import { playChime } from '../lib/alerts'
+import { toInstant } from '../lib/localTime'
 import { useCalls } from './CallManager'
 import { Button, Input, Label, Select } from './ui'
 import { TASK_PRIORITIES } from '../types'
@@ -986,7 +987,7 @@ export default function VoiceAssistant() {
                         type="datetime-local"
                         value={result.data.task.due_at ? result.data.task.due_at.replace(' ', 'T').slice(0, 16) : ''}
                         onChange={(e) =>
-                          updateTask({ due_at: e.target.value ? e.target.value.replace('T', ' ') + ':00' : undefined })
+                          updateTask({ due_at: toInstant(e.target.value) ?? undefined })
                         }
                       />
                     </div>

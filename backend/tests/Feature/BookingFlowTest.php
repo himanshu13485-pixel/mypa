@@ -403,4 +403,52 @@ class BookingFlowTest extends TestCase
         // While the host's own side is guarded.
         $this->getJson('/api/v1/booking-page')->assertUnauthorized();
     }
+    // ---- Bugs found by using it --------------------------------------------
+
+    public function test_a_page_reports_its_defaults_the_very_first_time_it_is_opened(): void
+    {
+        $newcomer = User::factory()->create(['username' => 'firsttimer']);
+        $newcomer->settings()->create([]);
+
+        /*
+         * This is the request that CREATES the row, and it was the one that
+         * returned nulls for every number — because a column default is
+         * applied by the database on insert and never read back, so the model
+         * firstOrCreate() hands over has none of them.
+         *
+         * The one load where these values matter is the first, since that is
+         * when somebody sets the page up: the settings screen showed the first
+         * option of each dropdown instead of the real default.
+         */
+        $data = $this->actingAs($newcomer)->getJson('/api/v1/booking-page')->assertOk()->json('data');
+
+        $this->assertSame(30, $data['duration_minutes']);
+        $this->assertSame(0, $data['buffer_minutes']);
+        $this->assertSame(120, $data['min_notice_minutes']);
+        $this->assertSame(30, $data['max_days_ahead']);
+    }
+
+    public function test_a_browser_reporting_a_legacy_timezone_name_can_still_book(): void
+    {
+        Notification::fake();
+        Mail::fake();
+
+        /*
+         * Browsers report whatever their ICU build calls the zone, and plenty
+         * still say Asia/Calcutta rather than Asia/Kolkata. Laravel's plain
+         * `timezone` rule accepts only canonical names, so this was a flat 422
+         * — a booking page that nobody in India could get past. Registration
+         * and the profile had always used all_with_bc; this had not.
+         */
+        $this->book(['timezone' => 'Asia/Calcutta'])->assertCreated();
+
+        $this->assertSame('Asia/Calcutta', Booking::firstOrFail()->guest_timezone);
+    }
+
+    public function test_nonsense_in_the_timezone_field_is_still_refused(): void
+    {
+        // Loosening the rule must not mean accepting anything at all.
+        $this->book(['timezone' => 'Middle/Earth'])->assertStatus(422);
+    }
+
 }
