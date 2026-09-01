@@ -106,6 +106,41 @@ class SignInCodeTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_a_code_that_has_run_out_can_be_replaced_without_starting_over(): void
+    {
+        Notification::fake();
+
+        $this->login()->assertStatus(202);
+        $first = MobileOtp::where('user_id', $this->user->id)->where('purpose', 'login')->firstOrFail();
+
+        // The code lasts ten minutes and somebody came back after lunch.
+        // Asking again is the same call: the password is what earns a code,
+        // which is why there is no endpoint that will post one to whoever is
+        // named — that would be a way to pester anybody by e-mail address.
+        $this->travel(11)->minutes();
+        $again = $this->login()->assertStatus(202);
+        $this->assertTrue($again->json('otp_required'));
+
+        $second = MobileOtp::where('user_id', $this->user->id)
+            ->where('purpose', 'login')
+            ->whereNull('consumed_at')
+            ->firstOrFail();
+
+        $this->assertNotSame($first->id, $second->id);
+
+        // Exactly one live code at a time: the old one is retired as the new
+        // one is issued, so a queue of codes cannot build up behind a slow
+        // mail server with any of them still working.
+        $this->assertNotNull($first->fresh()->consumed_at);
+        $this->postJson('/api/v1/auth/login/verify', [
+            'identifier' => 'harshgrapout', 'code' => $first->code,
+        ])->assertStatus(422);
+
+        $this->postJson('/api/v1/auth/login/verify', [
+            'identifier' => 'harshgrapout', 'code' => $second->code,
+        ])->assertOk()->assertJsonStructure(['token']);
+    }
+
     public function test_a_shared_computer_can_refuse_to_be_remembered(): void
     {
         $this->login()->assertStatus(202);
