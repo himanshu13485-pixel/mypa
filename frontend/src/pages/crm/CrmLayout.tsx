@@ -229,6 +229,30 @@ export default function CrmLayout() {
     } catch { /* notifications blocked — the badge still shows */ }
   }, [attendTotal, badges?.attend])
 
+  /*
+   * Opening a section is reading it: the badge goes quiet, for this
+   * member only, and the next thing a colleague does brings it back.
+   *
+   * Above the early returns, with every other hook. It used to sit
+   * below them, so the first render — while /crm/me was still in the
+   * air — ran one hook fewer than the render after it, and React threw
+   * #310 across the whole screen. A hook cannot be conditional, and an
+   * early return is a condition.
+   */
+  const currentSection = SECTIONS
+    .flatMap((group) => group.items)
+    .find((item) => item.to && item.section && (
+      location.pathname === item.to.split('?')[0]
+      || location.pathname.startsWith(item.to.split('?')[0] + '/')
+    ))?.section
+
+  useEffect(() => {
+    if (!currentSection || !badges?.sections?.[currentSection]) return
+    crm.markSectionSeen(currentSection)
+      .then(() => queryClient.invalidateQueries({ queryKey: ['crm', 'badges'] }))
+      .catch(() => { /* a badge that lingers is not worth an error */ })
+  }, [currentSection, badges?.sections, queryClient])
+
   if (isLoading) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-slate-100 dark:bg-slate-950">
@@ -270,22 +294,6 @@ export default function CrmLayout() {
     return [...want.entries()].every(([key, value]) =>
       (have.get(key) ?? (key === 'kind' ? 'invoice' : null)) === value)
   }
-
-  // Opening a section is reading it: the badge goes quiet, for this member
-  // only, and the next thing a colleague does brings it back.
-  const currentSection = SECTIONS
-    .flatMap((group) => group.items)
-    .find((item) => item.to && item.section && (
-      location.pathname === item.to.split('?')[0]
-      || location.pathname.startsWith(item.to.split('?')[0] + '/')
-    ))?.section
-
-  useEffect(() => {
-    if (!currentSection || !badges?.sections?.[currentSection]) return
-    crm.markSectionSeen(currentSection)
-      .then(() => queryClient.invalidateQueries({ queryKey: ['crm', 'badges'] }))
-      .catch(() => { /* a badge that lingers is not worth an error */ })
-  }, [currentSection, badges?.sections, queryClient])
 
   const linkClass = (isActive: boolean) =>
     clsx(
