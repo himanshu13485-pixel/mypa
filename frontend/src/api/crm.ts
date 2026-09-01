@@ -2452,6 +2452,8 @@ export interface CrmChurnReport {
 
 export interface CrmCompanySender {
   label?: string | null
+  /** The one mailbox the company's own mail goes out from. */
+  is_report_sender?: boolean | null
   from_name?: string | null
   from_address?: string | null
   mailer?: 'none' | 'smtp' | 'ses'

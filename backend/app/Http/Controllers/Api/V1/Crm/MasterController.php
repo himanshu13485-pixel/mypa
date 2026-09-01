@@ -479,6 +479,9 @@ class MasterController extends Controller
             // the company's id — grapme-mailbox style: SMTP or AWS SES.
             'company_senders' => ['nullable', 'array'],
             'company_senders.*.label' => ['nullable', 'string', 'max:255'],
+            // The one mailbox the company's own mail goes out from —
+            // reports, notices, staff sign-in codes.
+            'company_senders.*.is_report_sender' => ['nullable', 'boolean'],
             'company_senders.*.from_name' => ['nullable', 'string', 'max:255'],
             'company_senders.*.from_address' => ['nullable', 'email', 'max:255'],
             'company_senders.*.mailer' => ['nullable', \Illuminate\Validation\Rule::in(['none', 'smtp', 'ses'])],
@@ -510,6 +513,17 @@ class MasterController extends Controller
                 } elseif ($value !== null && $value !== '') {
                     $data['company_senders'][$id][$key] = \Illuminate\Support\Facades\Crypt::encryptString($value);
                 }
+            }
+        }
+
+        // One report sender, not several. The screen only ever ticks one,
+        // but a payload that arrives with two would otherwise decide the
+        // question by iteration order, differently on different days.
+        $seen = false;
+        foreach ((array) ($data['company_senders'] ?? []) as $id => $sender) {
+            if (! empty($sender['is_report_sender'])) {
+                $data['company_senders'][$id]['is_report_sender'] = ! $seen;
+                $seen = true;
             }
         }
 

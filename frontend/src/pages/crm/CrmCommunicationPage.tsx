@@ -116,6 +116,11 @@ export default function CrmCommunicationPage() {
           employees&rsquo; sign-in codes — from its own address, through its own server, which is what keeps that
           mail out of spam. Passwords and keys are stored encrypted; a saved secret shows as ********.
         </p>
+        <p className="mt-1 text-xs text-slate-400">
+          With several companies, mark one <span className="font-medium">Report sender</span>: that is the mailbox
+          the group&rsquo;s own mail leaves from — reports, notices and staff sign-in codes — while invoices and dues
+          still go from whichever company raised them.
+        </p>
         <div className="mt-3 space-y-4">
           {(masters?.issuing_companies ?? []).map((c) => {
             const sender: CrmCompanySender = draft.company_senders?.[String(c.id)] ?? {}
@@ -128,6 +133,16 @@ export default function CrmCommunicationPage() {
                 company={c}
                 companies={masters?.issuing_companies ?? []}
                 sender={sender}
+                onMakeReportSender={() => {
+                  // One at a time: choosing this one stands the others down,
+                  // so the answer to "who sends our own mail" is never two.
+                  const next = Object.fromEntries(
+                    Object.entries(draft.company_senders ?? {})
+                      .map(([id, s]) => [id, { ...s, is_report_sender: false }]),
+                  )
+                  next[String(c.id)] = { ...sender, is_report_sender: true }
+                  set({ company_senders: next })
+                }}
                 onReplicateTo={(targetId) => set({
                   company_senders: {
                     ...(draft.company_senders ?? {}),
@@ -241,10 +256,11 @@ export default function CrmCommunicationPage() {
  * sign in, does a real message arrive, can it read the inbox, and will the
  * receiving world believe mail from this address is ours.
  */
-function MailboxRow({ company, companies, sender, onReplicateTo, onDelete, children }: {
+function MailboxRow({ company, companies, sender, onMakeReportSender, onReplicateTo, onDelete, children }: {
   company: { id: number; name: string }
   companies: { id: number; name: string }[]
   sender: CrmCompanySender
+  onMakeReportSender: () => void
   onReplicateTo: (companyId: number) => void
   onDelete: () => void
   children: React.ReactNode
@@ -295,6 +311,14 @@ function MailboxRow({ company, companies, sender, onReplicateTo, onDelete, child
             )}>
               {configured ? 'Active' : 'Not set up'}
             </span>
+            {/* Which mailbox the company's OWN mail leaves from — reports,
+                notices, and its employees' sign-in codes — as opposed to
+                the client-facing invoice and dues mail any mailbox sends. */}
+            {sender.is_report_sender && (
+              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">
+                ★ Admin / report sender
+              </span>
+            )}
           </div>
           <p className="truncate text-xs text-slate-400">
             {configured
@@ -308,6 +332,16 @@ function MailboxRow({ company, companies, sender, onReplicateTo, onDelete, child
           </Button>
           {configured && (
             <>
+              {!sender.is_report_sender && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  title="Send this company's own mail — reports, notices, staff sign-in codes — from here"
+                  onClick={() => { onMakeReportSender(); toast('Set as the report sender — press Save to keep it.', 'success') }}
+                >
+                  Report sender
+                </Button>
+              )}
               <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run('dns')}>
                 {busy === 'dns' ? 'Checking…' : 'Check DNS auth'}
               </Button>

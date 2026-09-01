@@ -33,12 +33,13 @@ class CompanyMailer
      * company's own server, which is also the only way it passes SPF and
      * DKIM for that domain rather than landing in spam.
      *
-     * Which company, when a group runs several: the one that pays the
-     * salaries, because that is the one that employs people. Failing that,
-     * the only company with a mailbox at all — an unambiguous answer or no
-     * answer, never a guess between two. Failing both, the company's
-     * general sender; and if the company has set none of this up, null,
-     * and the platform sends as before.
+     * Which mailbox, when a group runs several: the one the Admin marked
+     * as the report sender, because an answer somebody chose beats one
+     * this code inferred. Failing that, the company that pays the salaries,
+     * since that is the one that employs people; failing that, the only
+     * company with a mailbox at all — an unambiguous answer or none, never
+     * a guess between two. Failing all of it, the company's general sender;
+     * and if nothing is set up, null, and the platform sends as before.
      *
      * @return array{mailer: Mailer, address: string, name: string}|null
      */
@@ -64,9 +65,16 @@ class CompanyMailer
         }
 
         $senders = (array) ($comm['company_senders'] ?? []);
-        $employer = \App\Models\Crm\IssuingCompany::where('organization_id', $org->id)
-            ->where('pays_salary', true)->first();
-        $sender = $employer ? ($senders[(string) $employer->id] ?? null) : null;
+
+        // The Admin's own answer first: the mailbox marked as the one the
+        // company's internal and administrative mail goes out from.
+        $sender = collect($senders)->first(fn ($s) => ! empty($s['is_report_sender']));
+
+        if (! $sender) {
+            $employer = \App\Models\Crm\IssuingCompany::where('organization_id', $org->id)
+                ->where('pays_salary', true)->first();
+            $sender = $employer ? ($senders[(string) $employer->id] ?? null) : null;
+        }
 
         if (! $sender) {
             $withMailbox = collect($senders)->filter(fn ($s) => ($s['mailer'] ?? 'none') !== 'none');

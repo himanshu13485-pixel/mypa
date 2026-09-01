@@ -845,6 +845,26 @@ class CrmLaunchFeaturesTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_only_one_mailbox_can_be_the_report_sender(): void
+    {
+        $a = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Alpha']);
+        $b = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Beta']);
+
+        // A payload claiming two would otherwise let iteration order decide
+        // who sends the company's own mail, differently on different days.
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/masters/communication', [
+            'company_senders' => [
+                (string) $a->id => ['from_address' => 'a@x.test', 'is_report_sender' => true],
+                (string) $b->id => ['from_address' => 'b@x.test', 'is_report_sender' => true],
+            ],
+        ])->assertOk();
+
+        $saved = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/masters/communication')
+            ->assertOk()->json('data.company_senders');
+        $this->assertTrue((bool) $saved[$a->id]['is_report_sender']);
+        $this->assertFalse((bool) $saved[$b->id]['is_report_sender']);
+    }
+
     public function test_a_mailbox_can_be_tried_before_it_is_trusted(): void
     {
         $co = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Acme Mail']);

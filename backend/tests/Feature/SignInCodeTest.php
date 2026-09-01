@@ -210,4 +210,34 @@ class SignInCodeTest extends TestCase
         $org->update(['settings' => $settings]);
         $this->assertNull(\App\Services\Crm\CompanyMailer::forStaff($this->user->fresh()));
     }
+
+    public function test_the_report_sender_decides_which_mailbox_staff_hear_from(): void
+    {
+        $org = \App\Models\Crm\Organization::create(['name' => 'Group Ltd', 'code' => 'GRP']);
+        $payroll = \App\Models\Crm\IssuingCompany::create([
+            'organization_id' => $org->id, 'name' => 'Group Payroll', 'pays_salary' => true,
+        ]);
+        $head = \App\Models\Crm\IssuingCompany::create([
+            'organization_id' => $org->id, 'name' => 'Group Head Office',
+        ]);
+        \App\Models\Crm\Member::create([
+            'organization_id' => $org->id, 'user_id' => $this->user->id, 'crm_role' => 'employee',
+        ]);
+
+        $senders = [
+            (string) $payroll->id => ['from_address' => 'payroll@group.test', 'mailer' => 'smtp', 'smtp_host' => 'smtp.group.test'],
+            (string) $head->id => ['from_address' => 'admin@group.test', 'mailer' => 'smtp', 'smtp_host' => 'smtp.group.test'],
+        ];
+        $org->update(['settings' => ['communication' => ['company_senders' => $senders]]]);
+
+        // With nothing marked, the company that pays the salaries answers.
+        $this->assertSame('payroll@group.test',
+            \App\Services\Crm\CompanyMailer::forStaff($this->user->fresh())['address']);
+
+        // Marked, the Admin's own choice wins over that inference.
+        $senders[(string) $head->id]['is_report_sender'] = true;
+        $org->update(['settings' => ['communication' => ['company_senders' => $senders]]]);
+        $this->assertSame('admin@group.test',
+            \App\Services\Crm\CompanyMailer::forStaff($this->user->fresh())['address']);
+    }
 }
