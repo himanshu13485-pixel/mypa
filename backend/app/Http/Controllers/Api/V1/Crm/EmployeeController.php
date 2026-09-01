@@ -72,29 +72,73 @@ class EmployeeController extends Controller
         return response()->json($members);
     }
 
+    /** Names are not unique, so a search can only ever answer with a shortlist. */
+    private const LOOKUP_LIMIT = 20;
+
     /**
      * The register form's first step: everyone signs up on Netvork the
-     * normal way, then the company fetches that account here by email or
-     * username and only fills in the employment side. Returns just enough
-     * identity to recognise the person - never their private profile.
+     * normal way, then the company fetches that account here and only fills
+     * in the employment side. Returns just enough identity to recognise the
+     * person - never their private profile.
+     *
+     * Matching is partial and covers the name as well, because whoever is
+     * registering a new hire knows them as "Priyanshu" and not as
+     * priyanshuyadav@… — an exact-username box asks the company to already
+     * know the answer it came here for. Several Priyanshus therefore come
+     * back together and the person choosing decides, which is the honest
+     * shape of the question: two people can share a name.
      */
     public function lookupAccount(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
-        $q = mb_strtolower(trim($request->validate(['q' => ['required', 'string', 'max:255']])['q']));
 
-        $user = User::whereRaw('LOWER(email) = ?', [$q])
-            ->orWhereRaw('LOWER(username) = ?', [$q])
-            ->first();
-        abort_unless($user, 404, 'No Netvork account matches that email or username.');
+        /*
+         * Two characters at the least. This is an ordinary search over every
+         * Netvork account, so a single letter would hand back a slice of the
+         * whole directory to anyone who can register an employee.
+         */
+        $q = mb_strtolower(trim($request->validate([
+            'q' => ['required', 'string', 'min:2', 'max:255'],
+        ])['q']));
 
-        return response()->json(['data' => [
-            'name' => $user->name,
-            'email' => $user->email,
-            'username' => $user->username,
-            'already_member' => Member::where('organization_id', $org->id)
-                ->where('user_id', $user->id)->exists(),
-        ]]);
+        // LIKE's own wildcards, escaped: a search for "50%" is a search for
+        // the characters, not for everything.
+        $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $q) . '%';
+
+        $users = User::where('status', 'active')
+            ->where(fn ($w) => $w
+                ->whereRaw('LOWER(email) LIKE ?', [$like])
+                ->orWhereRaw('LOWER(username) LIKE ?', [$like])
+                ->orWhereRaw('LOWER(name) LIKE ?', [$like]))
+            /*
+             * Whoever typed the whole username or email meant that person, so
+             * they lead however many near-misses share the spelling.
+             */
+            ->orderByRaw('CASE WHEN LOWER(email) = ? OR LOWER(username) = ? THEN 0 ELSE 1 END', [$q, $q])
+            ->orderBy('name')
+            ->orderBy('id')
+            ->limit(self::LOOKUP_LIMIT + 1)
+            ->get();
+
+        abort_if($users->isEmpty(), 404, 'No Netvork account matches that name, email or username.');
+
+        // One more was fetched than is shown, purely to know whether to say so.
+        $more = $users->count() > self::LOOKUP_LIMIT;
+        $users = $users->take(self::LOOKUP_LIMIT);
+
+        $members = Member::where('organization_id', $org->id)
+            ->whereIn('user_id', $users->pluck('id'))
+            ->pluck('user_id')->all();
+
+        return response()->json([
+            'data' => $users->map(fn ($user) => [
+                'name' => $user->name,
+                'email' => $user->email,
+                'username' => $user->username,
+                'already_member' => in_array($user->id, $members, true),
+            ])->values(),
+            'truncated' => $more,
+        ]);
     }
 
     public function store(Request $request, AppIdService $appIds): JsonResponse

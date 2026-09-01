@@ -645,13 +645,14 @@ class CrmLaunchFeaturesTest extends TestCase
         $person->settings()->create([]);
         $person->profile()->create(['timezone' => 'UTC']);
 
-        // Fetch by email, and by username - same person either way.
+        // Fetch by email, and by username - same person either way. The
+        // answer is a shortlist now, because a name can match more than one.
         $byEmail = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=hire@netvork.test')
             ->assertOk()->json('data');
-        $this->assertSame('Fresh Hire', $byEmail['name']);
-        $this->assertFalse($byEmail['already_member']);
+        $this->assertSame('Fresh Hire', $byEmail[0]['name']);
+        $this->assertFalse($byEmail[0]['already_member']);
         $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=FRESHHIRE')
-            ->assertOk()->assertJsonPath('data.email', 'hire@netvork.test');
+            ->assertOk()->assertJsonPath('data.0.email', 'hire@netvork.test');
 
         // A stranger to Netvork is a 404; an employee may not go fishing.
         $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=nobody@nowhere.test')
@@ -668,7 +669,66 @@ class CrmLaunchFeaturesTest extends TestCase
 
         // And the lookup now says so.
         $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=hire@netvork.test')
-            ->assertOk()->assertJsonPath('data.already_member', true);
+            ->assertOk()->assertJsonPath('data.0.already_member', true);
+    }
+
+    /**
+     * Half a name is what the company actually has.
+     *
+     * Whoever registers a new hire knows them as "Priyanshu", not as
+     * priyanshuyadav@… — so the search that only answered to the whole
+     * username was asking for the thing it was being asked for.
+     */
+    public function test_searching_half_a_name_finds_everybody_who_matches(): void
+    {
+        foreach ([
+            ['Priyanshu Yadav', 'py@netvork.test', 'priyanshuyadav'],
+            ['Priyanshu Sharma', 'ps@netvork.test', 'priyanshusharma'],
+            ['Rahul Verma', 'rv@netvork.test', 'rahulverma'],
+        ] as [$name, $email, $username]) {
+            $person = User::factory()->create(['name' => $name, 'email' => $email, 'username' => $username]);
+            $person->settings()->create([]);
+            $person->profile()->create(['timezone' => 'UTC']);
+        }
+
+        $found = $this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/employees-lookup?q=priyanshu')
+            ->assertOk()->json('data');
+
+        $this->assertCount(2, $found);
+        $this->assertEqualsCanonicalizing(
+            ['Priyanshu Yadav', 'Priyanshu Sharma'],
+            array_column($found, 'name'),
+        );
+
+        // The whole username still means that person, and leads the list.
+        $exact = $this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/employees-lookup?q=priyanshusharma')
+            ->assertOk()->json('data');
+        $this->assertSame('Priyanshu Sharma', $exact[0]['name']);
+
+        // Half an email address works the same way.
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=netvork.test')
+            ->assertOk()->assertJsonCount(3, 'data');
+
+        // One letter is not a search, it is a directory dump.
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=p')
+            ->assertStatus(422);
+
+        // Nobody at all is still a 404, not an empty list dressed as success.
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=zzzznobody')
+            ->assertNotFound();
+    }
+
+    /** A wildcard typed into the box is text, not a licence to match everyone. */
+    public function test_a_percent_sign_matches_a_percent_sign(): void
+    {
+        $person = User::factory()->create(['name' => 'Fifty Percent', 'email' => 'fifty@netvork.test', 'username' => 'fiftypc']);
+        $person->settings()->create([]);
+        $person->profile()->create(['timezone' => 'UTC']);
+
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=' . urlencode('%%'))
+            ->assertNotFound();
     }
 
     public function test_a_blank_employee_code_numbers_itself_from_101(): void

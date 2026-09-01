@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2, Download, FileText, Pencil, Plus, Search, Trash2, UserX } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, CRM_MODULE_LABELS, type CrmEmployeeFull } from '../../api/crm'
+import { crm, CRM_MODULE_LABELS, type CrmAccountMatch, type CrmEmployeeFull } from '../../api/crm'
 import { LETTER_LABELS, letterAvailability, openLetter, type LetterType } from './letters'
 import CrmCompensationCard from './CrmCompensationCard'
 import { errorMessage } from '../../api/client'
@@ -94,22 +94,49 @@ export default function CrmEmployeeFormPage() {
   // 'link' fetches an existing account; 'create' is the old full form.
   const [accountMode, setAccountMode] = useState<'link' | 'create'>('link')
   const [lookupQ, setLookupQ] = useState('')
-  const [linked, setLinked] = useState<{ name: string; email: string; username: string | null } | null>(null)
+  const [linked, setLinked] = useState<CrmAccountMatch | null>(null)
   const [lookingUp, setLookingUp] = useState(false)
+  /*
+   * The shortlist the search came back with.
+   *
+   * Null means nobody has searched yet, which is a different thing from a
+   * search that found nobody — the first shows no list, the second says so.
+   */
+  const [matches, setMatches] = useState<CrmAccountMatch[] | null>(null)
+  const [truncated, setTruncated] = useState(false)
+
+  /** Take one of the results and fill the form from it. */
+  const pickAccount = (found: CrmAccountMatch) => {
+    if (found.already_member) {
+      toastError('This account is already an employee of this organization.')
+      return
+    }
+    setLinked(found)
+    setMatches(null)
+    setForm((f) => ({ ...f, name: found.name, email: found.email, password: '' }))
+    toast(`Account linked — ${found.name}${found.username ? ` (@${found.username})` : ''}.`, 'success')
+  }
 
   const fetchAccount = async () => {
-    if (!lookupQ.trim()) return
+    if (lookupQ.trim().length < 2) return
     setLookingUp(true)
+    setLinked(null)
     try {
       const found = await crm.employees.lookupAccount(lookupQ.trim())
-      if (found.already_member) {
-        toastError('This account is already an employee of this organization.')
+      setTruncated(found.truncated)
+
+      /*
+       * One match and nothing to choose between: linking it is what the
+       * person was going to do anyway, and a list of one is a click asking
+       * to be told something it already knows.
+       */
+      if (found.data.length === 1 && !found.data[0].already_member) {
+        pickAccount(found.data[0])
         return
       }
-      setLinked(found)
-      setForm((f) => ({ ...f, name: found.name, email: found.email, password: '' }))
-      toast(`Account found — ${found.name}${found.username ? ` (@${found.username})` : ''}.`, 'success')
+      setMatches(found.data)
     } catch (err) {
+      setMatches([])
       toastError(errorMessage(err))
     } finally {
       setLookingUp(false)
@@ -375,18 +402,57 @@ export default function CrmEmployeeFormPage() {
                 <Input
                   value={lookupQ}
                   onChange={(e) => setLookupQ(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); fetchAccount() } }}
-                  placeholder="Email or username of the Netvork account"
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void fetchAccount() } }}
+                  placeholder="Name, email or username — e.g. priyanshu"
                   className="w-full sm:w-80"
                 />
-                <Button size="sm" variant="secondary" disabled={lookingUp || !lookupQ.trim()} onClick={fetchAccount}>
-                  <Search className="size-3.5" /> {lookingUp ? 'Fetching…' : 'Fetch account'}
+                <Button size="sm" variant="secondary" disabled={lookingUp || lookupQ.trim().length < 2} onClick={fetchAccount}>
+                  <Search className="size-3.5" /> {lookingUp ? 'Searching…' : 'Search accounts'}
                 </Button>
                 {linked && (
                   <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
                     <CheckCircle2 className="size-3.5" />
                     {linked.name}{linked.username ? ` · @${linked.username}` : ''} · {linked.email}
                   </span>
+                )}
+                {/*
+                  * The shortlist. Names are not unique — two Priyanshus are a
+                  * normal Tuesday — so the search answers with everyone it
+                  * matched and the person registering says which.
+                  */}
+                {matches !== null && matches.length > 0 && (
+                  <ul className="w-full divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
+                    {matches.map((m) => (
+                      <li key={m.email}>
+                        <button
+                          type="button"
+                          disabled={m.already_member}
+                          onClick={() => pickAccount(m)}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm enabled:hover:bg-slate-50 disabled:opacity-60 dark:enabled:hover:bg-slate-800"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">
+                              {m.name}{m.username ? ` · @${m.username}` : ''}
+                            </span>
+                            <span className="block truncate text-xs text-slate-500">{m.email}</span>
+                          </span>
+                          <span className="shrink-0 text-xs text-slate-400">
+                            {m.already_member ? 'Already an employee' : 'Choose'}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {matches !== null && matches.length === 0 && !lookingUp && (
+                  <p className="w-full text-xs text-slate-500">
+                    Nobody on Netvork matches that. They need an account before they can be registered here.
+                  </p>
+                )}
+                {truncated && matches !== null && matches.length > 0 && (
+                  <p className="w-full text-xs text-slate-400">
+                    Showing the first {matches.length}. Add more of the name to narrow it down.
+                  </p>
                 )}
               </div>
             )}
