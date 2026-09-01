@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useConnectBase } from '../lib/connectBase'
-import { CheckSquare, Plus, Trash2, UserPlus, Users } from 'lucide-react'
+import { CheckSquare, Pencil, Plus, Trash2, UserPlus, Users } from 'lucide-react'
 import { badges as badgesApi, groups as groupsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
@@ -43,6 +43,8 @@ export default function GroupsPage() {
   const [memberAppId, setMemberAppId] = useState('')
   const [memberRole, setMemberRole] = useState('member')
   const [error, setError] = useState<string | null>(null)
+  /** The group's name while it is being edited; null when nobody is editing. */
+  const [rename, setRename] = useState<string | null>(null)
 
   const { data: list, isLoading, isError, error: loadError, refetch } = useQuery({ queryKey: ['groups'], queryFn: groupsApi.list })
 
@@ -64,10 +66,43 @@ export default function GroupsPage() {
     onError: (err) => setError(errorMessage(err)),
   })
 
+  /*
+   * Several people at once.
+   *
+   * The field is comma-separated, and adding a family of four was four
+   * rounds of type-search-pick-submit. Each is still its own request — the
+   * server takes one person at a time — but one that fails does not stop the
+   * rest, because "Priya is already in this group" is no reason to leave
+   * Rahul out. Whoever did not make it comes back named.
+   */
   const addMemberMutation = useMutation({
-    mutationFn: () => groupsApi.addMember(detail!.uuid, memberAppId, memberRole),
+    mutationFn: async () => {
+      const handles = memberAppId.split(',').map((h) => h.trim()).filter(Boolean)
+      if (!handles.length) return { added: 0, failed: [] as string[] }
+
+      const results = await Promise.allSettled(
+        handles.map((handle) => groupsApi.addMember(detail!.uuid, handle, memberRole)),
+      )
+      return {
+        added: results.filter((r) => r.status === 'fulfilled').length,
+        failed: handles.filter((_, i) => results[i].status === 'rejected'),
+      }
+    },
+    onSuccess: ({ added, failed }) => {
+      // Only what failed stays in the box, so the retry is one click.
+      setMemberAppId(failed.join(', '))
+      setError(failed.length
+        ? `Added ${added}. Could not add: ${failed.join(', ')}.`
+        : null)
+      refreshDetail(detail!.uuid)
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const renameMutation = useMutation({
+    mutationFn: (name: string) => groupsApi.update(detail!.uuid, { name }),
     onSuccess: () => {
-      setMemberAppId('')
+      setRename(null)
       refreshDetail(detail!.uuid)
     },
     onError: (err) => setError(errorMessage(err)),
@@ -189,6 +224,48 @@ export default function GroupsPage() {
       {detail && (
         <Modal title={detail.name} onClose={() => setDetail(null)} wide>
           <div className="space-y-4">
+            {/*
+              * The name, editable in place.
+              *
+              * A group outlives the reason it was named — the project it was
+              * for gets renamed, the family gets a nickname — and until now
+              * the only way to change it was to delete the group and lose
+              * every message in it.
+              */}
+            {canManage && (
+              rename === null ? (
+                <button
+                  type="button"
+                  onClick={() => { setError(null); setRename(detail.name) }}
+                  className="-mx-1 flex items-center gap-1.5 rounded-lg px-1 text-left text-base font-semibold hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  {detail.name}
+                  <Pencil className="size-3.5 shrink-0 text-slate-400" />
+                </button>
+              ) : (
+                <form
+                  className="flex gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    const name = rename.trim()
+                    if (!name || name === detail.name) { setRename(null); return }
+                    renameMutation.mutate(name)
+                  }}
+                >
+                  <Input
+                    autoFocus
+                    value={rename}
+                    onChange={(e) => setRename(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Escape') setRename(null) }}
+                    maxLength={255}
+                    className="flex-1"
+                  />
+                  <Button type="submit" size="sm" disabled={renameMutation.isPending}>Save</Button>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setRename(null)}>Cancel</Button>
+                </form>
+              )
+            )}
+
             <div className="flex items-center justify-between">
               <p className="text-xs capitalize text-slate-400">
                 {detail.type} group · your role: {detail.my_role}
@@ -308,7 +385,8 @@ export default function GroupsPage() {
                       pushed out by the role dropdown on a narrow dialog. */}
                   <div className="min-w-0 flex-1 basis-full sm:basis-auto">
                     <UserSuggest
-                      placeholder="name, username, email or App ID"
+                      multi
+                      placeholder="name, username, email or App ID — separate with commas"
                       value={memberAppId}
                       onChange={setMemberAppId}
                       required
@@ -324,7 +402,8 @@ export default function GroupsPage() {
                   </Button>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  Start typing to search — you do not have to be connected first.
+                  Start typing to search — you do not have to be connected first. Pick several and they
+                  all join with the role above.
                 </p>
               </form>
             )}

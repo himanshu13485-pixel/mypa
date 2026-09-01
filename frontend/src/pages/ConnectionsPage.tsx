@@ -98,9 +98,28 @@ export default function ConnectionsPage() {
       .catch((err) => toastError(errorMessage(err)))
   }
 
+  /*
+   * Who is ticked, by uuid.
+   *
+   * Not by App ID: that is what gets sent, but it is null for an account
+   * whose App ID has not been issued yet, and a set keyed on null holds one
+   * entry for everybody. The uuid is the row's own identity.
+   */
+  const [chosen, setChosen] = useState<Set<string>>(new Set())
+
+  const toggleChosen = (uuid: string) => setChosen((prev) => {
+    const next = new Set(prev)
+    if (!next.delete(uuid)) next.add(uuid)
+    return next
+  })
+
+  /** The handle the server can resolve — App ID when there is one, else the username. */
+  const handleOf = (p: { app_id: string | null; username?: string | null }) => p.app_id ?? p.username ?? ''
+
   const search = async () => {
     setSearchError(null)
     setResult(null)
+    setChosen(new Set())
     try {
       setResult(await connectionsApi.search(query))
     } catch (err) {
@@ -108,10 +127,33 @@ export default function ConnectionsPage() {
     }
   }
 
+  /*
+   * Everyone you ticked, in one go.
+   *
+   * Finding six colleagues and then sending six requests one at a time is
+   * the same search repeated six times. Each request is still its own call —
+   * the server takes one person at a time — but one refusal does not sink
+   * the others, and whoever failed is named rather than silently skipped.
+   */
   const sendMutation = useMutation({
-    mutationFn: (app_id: string) => connectionsApi.send(app_id),
-    onSuccess: () => {
+    mutationFn: async (appIds: string[]) => {
+      const results = await Promise.allSettled(appIds.map((id) => connectionsApi.send(id)))
+      return {
+        sent: results.filter((r) => r.status === 'fulfilled').length,
+        failed: appIds.filter((_, i) => results[i].status === 'rejected'),
+      }
+    },
+    onSuccess: ({ sent, failed }) => {
       invalidate()
+      // Whoever failed stays ticked, so the retry is one click.
+      setChosen(new Set(
+        (result ?? []).filter((p) => failed.includes(handleOf(p))).map((p) => p.uuid),
+      ))
+      if (failed.length) {
+        setSearchError(`Sent ${sent}. Could not send to ${failed.length} of them.`)
+        return
+      }
+      setSearchError(null)
       setResult(null)
       setQuery('')
     },
@@ -194,6 +236,17 @@ export default function ConnectionsPage() {
             {result?.map((person) => (
               <div key={person.uuid} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <div className="flex min-w-0 items-center gap-3">
+                  {/* Ticking is for the people you can actually ask; someone
+                      you already know has nothing to send. */}
+                  {!person.is_connected && (
+                    <input
+                      type="checkbox"
+                      checked={chosen.has(person.uuid)}
+                      onChange={() => toggleChosen(person.uuid)}
+                      aria-label={`Select ${person.name}`}
+                      className="size-4 shrink-0 accent-brand-600"
+                    />
+                  )}
                   <Avatar name={person.name} photoPath={person.photo_path} avatar={person.avatar} size={38} />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{person.name}</p>
@@ -203,12 +256,35 @@ export default function ConnectionsPage() {
                 {person.is_connected ? (
                   <Badge value="accepted" />
                 ) : (
-                  <Button size="sm" onClick={() => sendMutation.mutate(person.app_id)} disabled={sendMutation.isPending}>
+                  <Button size="sm" onClick={() => sendMutation.mutate([handleOf(person)])} disabled={sendMutation.isPending}>
                     <UserPlus className="size-3.5" /> Connect
                   </Button>
                 )}
               </div>
             ))}
+
+            {/* One request per person is still a click each; this is the row
+                for when you meant all of them. */}
+            {chosen.size > 0 && (
+              <div className="mt-2 flex items-center justify-between gap-3 rounded-lg bg-brand-50 px-3 py-2 dark:bg-brand-500/10">
+                <span className="text-xs font-medium">{chosen.size} selected</span>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => setChosen(new Set())}>
+                    Clear
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={sendMutation.isPending}
+                    onClick={() => sendMutation.mutate(
+                      (result ?? []).filter((p) => chosen.has(p.uuid)).map(handleOf).filter(Boolean),
+                    )}
+                  >
+                    <UserPlus className="size-3.5" />
+                    {sendMutation.isPending ? 'Sending…' : `Connect with ${chosen.size}`}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       </div>

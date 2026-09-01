@@ -196,6 +196,20 @@ h3 {
  */
 .route-enter {
   animation: route-enter 180ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
+
+  /*
+   * The wrapper has to carry <main>'s height, not just its content's.
+   *
+   * A page that fills the window asks for it with h-full, and a percentage
+   * height needs a parent with a definite one to resolve against. This
+   * wrapper sits between <main> and every page, so while it was auto-height
+   * the chat's h-full column resolved to auto and grew as tall as the
+   * thread: the message list stopped scrolling inside itself, the whole page
+   * scrolled instead, and the box you type into sat below the fold. A page
+   * taller than the window still overflows and <main> still scrolls it, so
+   * nothing else changes.
+   */
+  height: 100%;
 }
 
 /*

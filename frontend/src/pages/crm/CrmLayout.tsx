@@ -429,7 +429,17 @@ export default function CrmLayout() {
     // CallProvider here too: the Connect suite lives inside the CRM shell,
     // so calls must ring and connect without leaving it.
     <CallProvider>
-    <div className="flex min-h-dvh bg-slate-100 dark:bg-slate-950">
+    {/*
+      * A shell the height of the window, scrolling inside itself.
+      *
+      * It used to be min-h-dvh and let the document scroll, which meant
+      * <main> had no height of its own — so a page asking for h-full got
+      * auto, and the chat grew as tall as its thread instead of scrolling
+      * inside it: the box you type into ended up below the fold. Now <main>
+      * owns the scrolling, exactly as the personal shell does, and the two
+      * headers above it stay put for free.
+      */}
+    <div className="flex h-dvh overflow-hidden bg-slate-100 dark:bg-slate-950">
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-800 bg-slate-900 text-slate-300 md:flex">
         {sidebar}
       </aside>
@@ -460,7 +470,7 @@ export default function CrmLayout() {
           menu itself lives in the drawer, as it does on the personal side.
           The old scrolling strip of thirty pills could only ever show four
           of them, so the rest of the CRM was off the side of the screen. */}
-      <div className="flex min-w-0 flex-1 flex-col md:pl-60">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col md:pl-60">
         <header className="pt-safe sticky top-0 z-30 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900 md:hidden">
           <button
             onClick={() => setMenuOpen(true)}
@@ -498,7 +508,7 @@ export default function CrmLayout() {
         <div className="sticky top-0 z-20 hidden items-center justify-end gap-1 border-b border-slate-200 bg-white/90 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 md:flex">
           <NotificationBell />
         </div>
-        <main className="min-w-0 flex-1 p-4 sm:p-6">
+        <main className="scroll-pane min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
           <Outlet context={{ me }} />
           {/* The follow-up nag rides the shell so it fires on every screen. */}
           <LeadFollowUpAlerts me={me} />
