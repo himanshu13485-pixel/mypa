@@ -255,6 +255,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const { show: showSelf, attach: attachSelf } = useSelfView()
   const callRef = useRef<ActiveCall | null>(null)
   callRef.current = activeCall
+  // Mirrored for the same reason callRef is: the recovery check below runs
+  // from event listeners and an await, where the captured state would be
+  // whatever it was when the listener was bound.
+  const incomingRef = useRef<CallSignalPayload | null>(null)
+  incomingRef.current = incoming
 
   /** Apply any ICE candidates that arrived early for this peer. */
   const flushPendingIce = useCallback((peerUuid: string) => {
@@ -713,6 +718,81 @@ export function CallProvider({ children }: { children: ReactNode }) {
     cleanup()
     if (uuid) calls.end(uuid).catch(() => undefined)
   }, [cleanup])
+
+  /*
+   * Ask whether we are being rung, in case the ring never arrived.
+   *
+   * A ring is one fire-and-forget websocket event. If this browser's socket
+   * was down at that instant — a laptop that had slept, a tab open since
+   * yesterday whose connection had quietly dropped, a wifi blip — the event
+   * is simply gone. Reverb does not replay, and nothing ever asked again.
+   * Meanwhile the callee's phone rang perfectly well, because push is a
+   * separate path that Google queues and retries. That mismatch is the
+   * whole reported bug: their phone rings and the desktop sits there.
+   *
+   * Three moments are worth asking at, and they are the three where
+   * something could have been missed: arriving, coming back to the tab, and
+   * the socket reconnecting. The server only answers with a ring from the
+   * last 45 seconds, so this can never resurrect an old one.
+   *
+   * It defers to the websocket rather than competing with it: nothing is
+   * shown if a call is already active or a ring is already on screen, and
+   * the payload is deliberately the same shape, so both paths end up in the
+   * same state.
+   */
+  const recoverMissedRing = useCallback(async () => {
+    if (callRef.current || incomingRef.current) return
+    try {
+      const ring = await calls.incoming()
+      if (ring && !callRef.current && !incomingRef.current) setIncoming(ring)
+    } catch {
+      /* offline, or signed out mid-flight; the socket is still the main path */
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!user?.uuid) return
+
+    void recoverMissedRing()
+
+    const onVisible = () => { if (document.visibilityState === 'visible') void recoverMissedRing() }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+
+    // The socket coming back is the strongest hint that something was
+    // missed while it was away.
+    const socket = getEcho()?.connector?.pusher?.connection
+    const onConnected = (state: { current?: string }) => {
+      if (state?.current === 'connected') void recoverMissedRing()
+    }
+    socket?.bind('state_change', onConnected)
+
+    /*
+     * And a slow check while the tab is being looked at.
+     *
+     * The events above cover a socket that went away and came back. They do
+     * not cover the nastier case: a socket that still reports itself
+     * connected while its private-channel subscription has quietly lapsed —
+     * an expired token at re-auth time is enough. Nothing fires then, so
+     * somebody sitting and watching the screen would go on seeing nothing
+     * while their phone rang.
+     *
+     * Twenty seconds because a ring is only worth answering for
+     * forty-five, so this cannot miss one; and only while visible, so a
+     * forgotten background tab costs nothing. It is one small request, and
+     * it stops as soon as a call is actually up.
+     */
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void recoverMissedRing()
+    }, 20_000)
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+      socket?.unbind('state_change', onConnected)
+      window.clearInterval(poll)
+    }
+  }, [user?.uuid, recoverMissedRing])
 
   // Personal channel: call signals
   useEffect(() => {

@@ -410,6 +410,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/calls/config', [CallController::class, 'config'])
             ->middleware(\App\Http\Middleware\ResolveMeetingGuest::class);
         Route::get('/calls/history', [CallController::class, 'history']);
+        // The recovery path for a ring whose websocket event never landed.
+        Route::get('/calls/incoming', [CallController::class, 'incoming']);
         Route::post('/conversations/{conversation}/calls', [CallController::class, 'initiate']);
         Route::post('/calls/{call}/respond', [CallController::class, 'respond']);
         Route::post('/calls/{call}/end', [CallController::class, 'end']);

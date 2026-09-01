@@ -416,6 +416,62 @@ class CallController extends Controller
         }
     }
 
+    /**
+     * Am I being rung right now?
+     *
+     * A ring is one fire-and-forget websocket event. If the browser's socket
+     * happened to be down at that instant — a laptop that had slept, a tab
+     * open since yesterday whose connection dropped, a wifi blip — the event
+     * is gone: Reverb does not replay, and nothing here ever asked again. The
+     * phone still rang, because push is a separate path that Google queues and
+     * retries, which is exactly the reported symptom: their phone rings and the
+     * desktop sits there.
+     *
+     * So the client asks. On load, when the tab is looked at again, and when
+     * the socket reconnects — the three moments when it might have missed
+     * something.
+     *
+     * Bounded by the same 45 seconds a ring push is given to live. A 'ringing'
+     * call is never reaped (only 'ongoing' ones are, since a ring has no
+     * heartbeat yet), so without that bound this would happily surface a call
+     * from last Tuesday whose caller closed their tab.
+     *
+     * Only calls I was invited to and have not joined: my own outgoing calls
+     * are 'joined' from the moment they are created.
+     */
+    public function incoming(Request $request): JsonResponse
+    {
+        $me = $request->user();
+
+        $call = Call::with(['conversation', 'caller'])
+            ->where('status', 'ringing')
+            ->where('started_at', '>=', now()->subSeconds(Call::PRESENCE_TIMEOUT_SECONDS))
+            ->whereHas('participants', fn ($q) => $q->where('users.id', $me->id)
+                ->where('call_participants.status', 'invited'))
+            ->latest('started_at')
+            ->first();
+
+        if (! $call || ! $call->conversation || ! $call->caller) {
+            return response()->json(['data' => null]);
+        }
+
+        /*
+         * Deliberately the same shape the websocket delivers, down to the
+         * 'signal' key, so the client hands it to the very same handler. Two
+         * shapes for one thing is how the two drift apart and the recovery
+         * path quietly stops matching the path it is meant to recover.
+         */
+        return response()->json(['data' => [
+            'call_uuid' => $call->uuid,
+            'conversation_uuid' => $call->conversation->uuid,
+            'call_type' => $call->type,
+            'from_uuid' => $call->caller->uuid,
+            'from_name' => $call->caller->name,
+            'signal' => 'ring',
+            'payload' => [],
+        ]]);
+    }
+
     public function history(Request $request): JsonResponse
     {
         $me = $request->user();
