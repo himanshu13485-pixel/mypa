@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { clsx } from 'clsx'
 import { useConnectBase } from '../lib/connectBase'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Flag, MessageSquare, Phone, Search, Undo2, UserPlus, Video, X } from 'lucide-react'
@@ -66,9 +67,12 @@ export default function ConnectionsPage() {
    */
   const livePresence = usePresenceMap()
 
+  /** Raise the people who can answer right now to the top of the list. */
+  const [onlineFirst, setOnlineFirst] = useState(false)
+
   const { data: list, isLoading } = useQuery({
-    queryKey: ['connections', searchTerm],
-    queryFn: () => connectionsApi.list(undefined, searchTerm || undefined),
+    queryKey: ['connections', searchTerm, onlineFirst],
+    queryFn: () => connectionsApi.list(undefined, searchTerm || undefined, onlineFirst),
     refetchInterval: 60_000,
   })
   const { data: qr } = useQuery({ queryKey: ['my-qr'], queryFn: profile.myQr })
@@ -179,13 +183,51 @@ export default function ConnectionsPage() {
   })
 
   const pending = list?.data.filter((c) => c.status === 'pending') ?? []
-  const accepted = list?.data.filter((c) => c.status === 'accepted') ?? []
+  const accepted = useMemo(
+    () => list?.data.filter((c) => c.status === 'accepted') ?? [],
+    [list],
+  )
+
+  /*
+   * The order, taken once and then held.
+   *
+   * Ranking on every refresh would be the wrong kind of correct. Presence
+   * moves — somebody steps away, somebody comes back — and the list refetches
+   * on a minute and hears about changes over the socket in between, so a live
+   * re-sort would slide rows out from under the pointer that was on its way
+   * to one. You would aim at Harsh and call Karishma.
+   *
+   * So the server's ranking is snapshotted the first time it arrives and every
+   * later response is laid out to match it. Anybody new goes on the end rather
+   * than being inserted somewhere the eye is not. Unticking and ticking again
+   * is how you ask for a fresh one, and leaving the page does it for you.
+   */
+  const [heldOrder, setHeldOrder] = useState<string[] | null>(null)
+
+  useEffect(() => {
+    // A different question deserves a different answer: turning the ranking
+    // off, or searching, throws the old order away.
+    setHeldOrder(null)
+  }, [onlineFirst, searchTerm])
+
+  useEffect(() => {
+    if (!onlineFirst || heldOrder || accepted.length === 0) return
+    setHeldOrder(accepted.map((c) => c.uuid))
+  }, [onlineFirst, heldOrder, accepted])
 
   // Filtering the people you already know, which is a different question from
   // the App ID search above — that one goes looking for strangers.
   // The server searched names, usernames and App IDs across the whole list,
   // so what came back is already the answer.
-  const shown = accepted
+  const shown = useMemo(() => {
+    if (!onlineFirst || !heldOrder) return accepted
+
+    const place = new Map(heldOrder.map((uuid, i) => [uuid, i]))
+
+    return [...accepted].sort(
+      (a, b) => (place.get(a.uuid) ?? Number.MAX_SAFE_INTEGER) - (place.get(b.uuid) ?? Number.MAX_SAFE_INTEGER),
+    )
+  }, [accepted, heldOrder, onlineFirst])
 
   /**
    * Ring somebody straight from the list.
@@ -363,7 +405,38 @@ export default function ConnectionsPage() {
           </Card>
 
           <Card className="min-w-0">
-            <h2 className="mb-2 text-sm font-semibold">My connections</h2>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold">My connections</h2>
+              {/*
+                * Reachable first.
+                *
+                * The count is what makes it a decision rather than a
+                * gamble — two out of thirty is worth a click, nought out of
+                * thirty is worth knowing before you make it — and it counts
+                * everybody, not the page on screen, because people who are
+                * not on the page yet are the ones this exists to surface.
+                */}
+              {accepted.length > 0 && (
+                <button
+                  type="button"
+                  aria-pressed={onlineFirst}
+                  title={onlineFirst
+                    ? 'Showing reachable people first. The order is held still while this is on — untick and tick again to re-rank.'
+                    : 'Put the people who can answer right now at the top'}
+                  onClick={() => setOnlineFirst((v) => !v)}
+                  className={clsx(
+                    'tap inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                    onlineFirst
+                      ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+                      : 'border-slate-200 text-slate-500 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600',
+                  )}
+                >
+                  <span className={clsx('size-2 rounded-full', onlineFirst ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-slate-600')} />
+                  Online first
+                  {typeof list?.online_count === 'number' && ` (${list.online_count})`}
+                </button>
+              )}
+            </div>
             {accepted.length > 0 && (
               <div className="relative mb-3">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />

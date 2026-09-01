@@ -9,6 +9,8 @@ use App\Services\AppIdService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 
 class ConnectionController extends Controller
 {
@@ -129,8 +131,14 @@ class ConnectionController extends Controller
     {
         $me = $request->user();
 
-        $query = Connection::with(['requester.appId', 'requester.profile', 'addressee.appId', 'addressee.profile'])
-            ->where(fn ($q) => $q->where('requester_id', $me->id)->orWhere('addressee_id', $me->id));
+        // settings comes along because the resource asks every row whether its
+        // owner allows their presence to be seen. It was being lazy-loaded one
+        // row at a time — twenty extra queries a page, to answer twenty
+        // questions that could have been asked once.
+        $query = Connection::with([
+            'requester.appId', 'requester.profile', 'requester.settings',
+            'addressee.appId', 'addressee.profile', 'addressee.settings',
+        ])->where(fn ($q) => $q->where('requester_id', $me->id)->orWhere('addressee_id', $me->id));
 
         if ($status = $request->query('status')) {
             $query->where('status', $status);
@@ -157,7 +165,120 @@ class ConnectionController extends Controller
                 ->orWhereHas('addressee', fn ($a) => $a->whereKeyNot($me->id)->where($matches)));
         }
 
-        return ConnectionResource::collection($query->latest()->paginate(20));
+        /*
+         * Reachable people first, when asked for.
+         *
+         * Ranked here rather than in SQL for one reason: presenceState() is
+         * the method the dot itself is drawn from, and a CASE expression
+         * rebuilding that ladder in SQL would be a second copy of it — one
+         * that drifts the first time the thresholds move, and puts somebody
+         * at the top of the list with a red dot beside their name.
+         *
+         * Which means fetching the set rather than a page of it. That is fine
+         * at the size this list actually is — people you have deliberately
+         * connected to — and guarded above the point where it stops being
+         * fine, where the plain paginated query takes over again and the
+         * ordering is simply not offered.
+         */
+        $rows = $query->latest()->limit(self::RANK_LIMIT + 1)->get();
+
+        if ($rows->count() > self::RANK_LIMIT) {
+            return ConnectionResource::collection($query->latest()->paginate(20));
+        }
+
+        $onlineCount = $rows
+            ->filter(fn ($c) => $c->status === 'accepted' && $this->presenceRank($c, $me) === self::RANK_ONLINE)
+            ->count();
+
+        if ($request->boolean('online_first')) {
+            // sortBy is stable in PHP 8, so everybody inside a bucket keeps
+            // the order they already had — newest first. The toggle changes
+            // which group you are in, never where you sit within it.
+            $rows = $rows->sortBy(fn ($c) => $this->sortRank($c, $me))->values();
+        }
+
+        $perPage = 20;
+        $page = LengthAwarePaginator::resolveCurrentPage();
+
+        $paginator = new LengthAwarePaginator(
+            $rows->forPage($page, $perPage)->values(),
+            $rows->count(),
+            $perPage,
+            $page,
+            ['path' => Paginator::resolveCurrentPath(), 'query' => $request->query()],
+        );
+
+        // Alongside the list rather than inside its meta, which belongs to the
+        // paginator. It is what the toggle labels itself with, so it has to be
+        // the count across everybody — not the count on this page, which is
+        // the number the toggle exists to stop you having to trust.
+        return ConnectionResource::collection($paginator)
+            ->additional(['online_count' => $onlineCount]);
+    }
+
+    /** Where the three states sort. Online first, and the rest in order. */
+    protected const RANK_ONLINE = 0;
+
+    protected const RANK_AWAY = 1;
+
+    protected const RANK_UNREACHABLE = 2;
+
+    /**
+     * Past this many rows the ordering is not offered at all.
+     *
+     * Ranking means holding the whole set in memory, and an address book that
+     * large is not one anybody is scanning for a green dot anyway — they are
+     * searching it, which the query above already does in SQL.
+     */
+    protected const RANK_LIMIT = 500;
+
+    /**
+     * How reachable the other person is, as far as this viewer may know.
+     *
+     * The privacy check is the whole subtlety here. Somebody who set their
+     * online status to 'nobody' must not sort into the first bucket, because
+     * position is itself an answer: floating them to the top of a list headed
+     * "online first" would say they are online just as plainly as a green dot
+     * would, and the setting would be defeated by the ordering rather than
+     * honoured by the display. They sort with the people who are not known to
+     * be reachable, which — from where the viewer stands — is what they are.
+     *
+     * 'connections' needs no test in this list. Everybody in it is a
+     * connection; that is what the list is.
+     */
+    protected function presenceRank(Connection $connection, \App\Models\User $me): int
+    {
+        $other = $connection->requester_id === $me->id ? $connection->addressee : $connection->requester;
+
+        if (! $other) {
+            return self::RANK_UNREACHABLE;
+        }
+
+        if (($other->settings?->privacyValue('online_status_visibility') ?? 'connections') === 'nobody') {
+            return self::RANK_UNREACHABLE;
+        }
+
+        return match ($other->presenceState()) {
+            'online' => self::RANK_ONLINE,
+            'away' => self::RANK_AWAY,
+            default => self::RANK_UNREACHABLE,
+        };
+    }
+
+    /**
+     * The same rank, with requests held clear of it.
+     *
+     * A pending request is not a person you are choosing between — it is a
+     * question waiting for an answer, and it is drawn in a card of its own.
+     * Sorting it by presence would be sorting the wrong list; worse, sorting
+     * it to the back could push it off the first page and out of a card that
+     * has no second one. It leads instead, and keeps the order it had.
+     */
+    protected function sortRank(Connection $connection, \App\Models\User $me): int
+    {
+        return $connection->status === 'accepted'
+            ? $this->presenceRank($connection, $me)
+            : -1;
     }
 
     public function store(Request $request, AppIdService $appIds): JsonResponse

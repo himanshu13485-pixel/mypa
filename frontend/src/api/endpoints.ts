@@ -117,9 +117,16 @@ export const connections = {
       '/app-id/search', { params: { q } },
     ).then((r) => r.data.data),
   /** `q` searches the whole address book, not the page already loaded. */
-  list: (status?: string, q?: string) =>
-    api.get<Paginated<Connection>>('/connections', {
-      params: { ...(status ? { status } : {}), ...(q ? { q } : {}) },
+  list: (status?: string, q?: string, onlineFirst?: boolean) =>
+    api.get<Paginated<Connection> & { online_count?: number }>('/connections', {
+      params: {
+        ...(status ? { status } : {}),
+        ...(q ? { q } : {}),
+        // Ranked by the server, because the list is a page at a time: sorting
+        // in the browser could only ever raise the twenty already on screen,
+        // and the whole point is the people who are not on it yet.
+        ...(onlineFirst ? { online_first: 1 } : {}),
+      },
     }).then((r) => r.data),
   send: (app_id: string, message?: string) => api.post('/connections', { app_id, message }),
   respond: (uuid: string, action: 'accept' | 'decline') => api.put(`/connections/${uuid}`, { action }),
