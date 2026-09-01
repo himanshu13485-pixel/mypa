@@ -411,6 +411,58 @@ class MasterController extends Controller
         return response()->json(['data' => $data]);
     }
 
+    /**
+     * Try a company's mailbox before trusting it with anything.
+     *
+     * The stored secrets are used as they are, so a saved mailbox can be
+     * tested without retyping its password; a mailbox being edited can be
+     * tried by sending what is on screen. Either way nothing is written -
+     * this only ever asks questions.
+     */
+    public function testMailbox(Request $request, \App\Services\Crm\MailboxDoctor $doctor): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $data = $request->validate([
+            'check' => ['required', 'in:smtp,imap,dns,send'],
+            'company_id' => ['required', 'integer'],
+            // What is on screen, for a mailbox not saved yet. Absent, the
+            // stored one is tested.
+            'sender' => ['nullable', 'array'],
+            'to' => ['nullable', 'email'],
+        ]);
+
+        $stored = (array) data_get($org->settings, 'communication.company_senders.' . $data['company_id'], []);
+        $sender = $data['sender'] ?? [];
+
+        // A masked secret means "keep the stored one" here exactly as it
+        // does when saving, so testing an untouched mailbox works.
+        foreach (['smtp_password', 'ses_key', 'ses_secret', 'imap_password'] as $key) {
+            if (($sender[$key] ?? null) === null || ($sender[$key] ?? '') === '********') {
+                $sender[$key] = $stored[$key] ?? null;
+            } elseif (($sender[$key] ?? '') !== '') {
+                // Typed just now, so it is plain: the doctor decrypts what
+                // it is given, and a plain value survives that unchanged.
+                $sender[$key] = $sender[$key];
+            }
+        }
+        $sender = $sender + $stored;
+
+        $company = IssuingCompany::where('organization_id', $org->id)->find($data['company_id']);
+
+        $result = match ($data['check']) {
+            'smtp' => $doctor->testSmtp($sender),
+            'imap' => $doctor->testImap($sender),
+            'dns' => $doctor->checkDns($sender),
+            'send' => $doctor->sendTest(
+                $sender,
+                $data['to'] ?: (string) $request->user()->email,
+                $company?->name ?? $org->name,
+            ),
+        };
+
+        return response()->json(['data' => $result]);
+    }
+
     public function saveCommunicationSettings(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');

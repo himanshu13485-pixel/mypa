@@ -844,4 +844,43 @@ class CrmLaunchFeaturesTest extends TestCase
 
         Carbon::setTestNow();
     }
+
+    public function test_a_mailbox_can_be_tried_before_it_is_trusted(): void
+    {
+        $co = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Acme Mail']);
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/masters/communication', [
+            'company_senders' => [(string) $co->id => [
+                'from_address' => 'billing@example.com', 'mailer' => 'smtp',
+                'smtp_host' => 'smtp.invalid.test', 'smtp_port' => 587, 'smtp_password' => 'secret',
+            ]],
+        ])->assertOk();
+
+        // A host that does not exist comes back as a failure with the
+        // server own complaint, not as a 500.
+        $smtp = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/masters/communication/test', [
+            'check' => 'smtp', 'company_id' => $co->id,
+        ])->assertOk()->json('data');
+        $this->assertFalse($smtp['ok']);
+        $this->assertNotEmpty($smtp['message']);
+
+        // No IMAP host set is answered plainly rather than attempted.
+        $imap = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/masters/communication/test', [
+            'check' => 'imap', 'company_id' => $co->id,
+        ])->assertOk()->json('data');
+        $this->assertFalse($imap['ok']);
+        $this->assertStringContainsString('IMAP host', $imap['message']);
+
+        // The DNS check reads the from-address domain and reports all three.
+        $dns = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/masters/communication/test', [
+            'check' => 'dns', 'company_id' => $co->id,
+        ])->assertOk()->json('data');
+        $this->assertSame('example.com', $dns['domain']);
+        $this->assertSame(['SPF', 'DKIM', 'DMARC'], collect($dns['checks'])->pluck('key')->all());
+        $this->assertIsInt($dns['score']);
+
+        // Testing is the Admin/Subadmin's, like the rest of this screen.
+        $this->actingAs($this->empUser)->postJson('/api/v1/crm/masters/communication/test', [
+            'check' => 'dns', 'company_id' => $co->id,
+        ])->assertForbidden();
+    }
 }

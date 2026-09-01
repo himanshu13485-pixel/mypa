@@ -2313,6 +2313,17 @@ export const crm = {
     api.get<{ data: CrmChurnReport }>('/crm/churn', { params: { months, member } }).then((r) => r.data.data),
 
   masterData: {
+    /** Try a company's mailbox: sign in, send, read, and check its DNS. */
+    testMailbox: (payload: {
+      check: 'smtp' | 'imap' | 'dns' | 'send'
+      company_id: number
+      sender?: Record<string, unknown>
+      to?: string
+    }) =>
+      api.post<{ data: {
+        ok: boolean; message: string; score?: number; domain?: string
+        checks?: { key: string; pass: boolean; detail: string }[]
+      } }>('/crm/masters/communication/test', payload).then((r) => r.data.data),
     /** The Office Assets category list — the company's own words. */
     assetCategories: () =>
       api.get<{ data: { categories: string[] } }>('/crm/masters/asset-categories').then((r) => r.data.data.categories),
