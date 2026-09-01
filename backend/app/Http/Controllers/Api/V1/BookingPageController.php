@@ -46,6 +46,23 @@ class BookingPageController extends Controller
             'max_days_ahead' => ['sometimes', 'integer', 'min:1', 'max:365'],
             'is_active' => ['sometimes', 'boolean'],
 
+            /*
+             * Which room the link books into.
+             *
+             * The URL is required when the provider is not Netvork's own,
+             * because a page that says "Google Meet" with nothing behind it
+             * would take bookings and send guests nowhere. It is checked
+             * against the real host so a typo cannot quietly point the whole
+             * page at somebody else's site.
+             */
+            'meeting_provider' => ['sometimes', 'in:netvork,google_meet'],
+            'external_meeting_url' => [
+                'exclude_if:meeting_provider,netvork',
+                'required_if:meeting_provider,google_meet',
+                'nullable', 'string', 'max:512', 'url:https',
+                'regex:/^https:\/\/meet\.google\.com\/[A-Za-z0-9?=&_\-\/]+$/',
+            ],
+
             // The whole week arrives at once and replaces what was there. A
             // person edits their availability as a shape, not as a list of
             // rows, and diffing it would be work in aid of nothing.
@@ -143,6 +160,8 @@ class BookingPageController extends Controller
             'min_notice_minutes' => $page->min_notice_minutes,
             'max_days_ahead' => $page->max_days_ahead,
             'is_active' => $page->is_active,
+            'meeting_provider' => $page->meeting_provider,
+            'external_meeting_url' => $page->external_meeting_url,
             'timezone' => $page->timezone(),
             'hours' => $page->hours->map(fn ($h) => [
                 'weekday' => $h->weekday,
@@ -164,6 +183,7 @@ class BookingPageController extends Controller
             'guest_timezone' => $booking->guest_timezone,
             'status' => $booking->status,
             'meeting_code' => $booking->meeting?->code,
+            'meeting_url' => $booking->meeting_url,
         ];
     }
 }

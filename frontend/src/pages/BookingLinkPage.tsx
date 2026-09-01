@@ -172,6 +172,40 @@ export default function BookingLinkPage() {
             </Select>
           </div>
         </div>
+
+        {/*
+          * Where the meeting is held.
+          *
+          * Someone who lives in Google Meet all day should not have to send
+          * guests to a second room they do not use. Netvork stays the
+          * default, and the link box only appears once it is needed — an
+          * empty field on a screen nobody asked it of is just noise.
+          */}
+        <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700">
+          <Label>Meet in</Label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Select
+              value={form.meeting_provider}
+              onChange={(e) => set('meeting_provider', e.target.value as BookingPageConfig['meeting_provider'])}
+            >
+              <option value="netvork">A Netvork meeting</option>
+              <option value="google_meet">Google Meet</option>
+            </Select>
+            {form.meeting_provider === 'google_meet' && (
+              <Input
+                value={form.external_meeting_url ?? ''}
+                onChange={(e) => set('external_meeting_url', e.target.value)}
+                placeholder="https://meet.google.com/abc-defg-hij"
+                maxLength={512}
+              />
+            )}
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {form.meeting_provider === 'google_meet'
+              ? 'Everyone who books gets this same link. Use a room you keep open — Google Meet has no waiting room by default, so back-to-back guests could overlap.'
+              : 'A fresh room with its own password is made for each booking, and the link goes out with the confirmation.'}
+          </p>
+        </div>
       </Card>
 
       <Card>
@@ -243,6 +277,8 @@ export default function BookingLinkPage() {
               buffer_minutes: form.buffer_minutes,
               min_notice_minutes: form.min_notice_minutes,
               max_days_ahead: form.max_days_ahead,
+              meeting_provider: form.meeting_provider,
+              external_meeting_url: form.external_meeting_url,
               hours: form.hours,
             })}
           >

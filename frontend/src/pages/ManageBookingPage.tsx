@@ -112,10 +112,13 @@ export default function ManageBookingPage() {
                 <a href={it.meeting.join_url} className="mt-1 block break-all text-sm text-brand-600 underline">
                   {it.meeting.join_url}
                 </a>
-                <p className="mt-2 text-sm">
-                  Password:{' '}
-                  <span className="font-mono text-base font-semibold tracking-[0.2em]">{it.meeting.passcode}</span>
-                </p>
+                {/* Nothing to type when the room is somebody else's. */}
+                {it.meeting.passcode && (
+                  <p className="mt-2 text-sm">
+                    Password:{' '}
+                    <span className="font-mono text-base font-semibold tracking-[0.2em]">{it.meeting.passcode}</span>
+                  </p>
+                )}
               </div>
             ) : null}
           </div>

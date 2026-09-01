@@ -33,7 +33,7 @@ class Booking extends Model
     use HasUuids;
 
     protected $fillable = [
-        'booking_page_id', 'host_id', 'meeting_id', 'event_id',
+        'booking_page_id', 'host_id', 'meeting_id', 'meeting_url', 'event_id',
         'name', 'email', 'note', 'guest_timezone',
         'starts_at', 'ends_at', 'manage_token',
         'status', 'cancelled_at', 'cancelled_by',

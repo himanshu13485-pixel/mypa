@@ -323,13 +323,23 @@ function Booked({ booking }: { booking: BookingDetail }) {
               <a href={booking.meeting.join_url} className="mt-1 block break-all text-sm text-brand-600 underline">
                 {booking.meeting.join_url}
               </a>
-              <p className="mt-2 text-sm">
-                Meeting password:{' '}
-                <span className="font-mono text-base font-semibold tracking-[0.2em]">{booking.meeting.passcode}</span>
-              </p>
-              <p className="mt-1 text-xs text-slate-400">
-                No account needed — open the link, enter the password and your name.
-              </p>
+              {/* A Google Meet link has no password, and offering an empty
+                  one to copy sends people looking for a box that is not there. */}
+              {booking.meeting.passcode ? (
+                <>
+                  <p className="mt-2 text-sm">
+                    Meeting password:{' '}
+                    <span className="font-mono text-base font-semibold tracking-[0.2em]">{booking.meeting.passcode}</span>
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    No account needed — open the link, enter the password and your name.
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-xs text-slate-400">
+                  Open the link at the time above. It is {booking.host_name}'s own meeting room.
+                </p>
+              )}
             </div>
           )}
         </div>

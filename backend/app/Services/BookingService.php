@@ -64,7 +64,20 @@ class BookingService
         $title = $page->title ?: "Meeting with {$guest['name']}";
 
         $booking = DB::transaction(function () use ($page, $host, $start, $end, $guest, $title) {
-            $meeting = Meeting::create([
+            /*
+             * Where this booking is met.
+             *
+             * A host who runs on Google Meet has given us a link, and standing
+             * up a Netvork room beside it would only be a second door nobody
+             * opens — the guest gets one address, the host's own. Netvork
+             * remains the default, and the room is made the moment it is
+             * needed rather than kept waiting for one.
+             */
+            $external = $page->meeting_provider !== 'netvork'
+                ? trim((string) $page->external_meeting_url)
+                : '';
+
+            $meeting = $external === '' ? Meeting::create([
                 'host_id' => $host->id,
                 'code' => Meeting::generateCode(),
                 'title' => $title,
@@ -73,7 +86,11 @@ class BookingService
                 'passcode' => $this->passcode(),
                 'scheduled_at' => $start,
                 'status' => 'scheduled',
-            ]);
+            ]) : null;
+
+            $link = $meeting
+                ? rtrim((string) config('mypa.frontend_url'), '/') . '/meetings/room/' . $meeting->code
+                : $external;
 
             /*
              * The calendar entry, so the booking appears where the host looks.
@@ -90,13 +107,14 @@ class BookingService
                 'starts_at' => $start,
                 'ends_at' => $end,
                 'all_day' => false,
-                'meeting_link' => rtrim((string) config('mypa.frontend_url'), '/') . '/meetings/room/' . $meeting->code,
+                'meeting_link' => $link,
             ]);
 
             return Booking::create([
                 'booking_page_id' => $page->id,
                 'host_id' => $host->id,
-                'meeting_id' => $meeting->id,
+                'meeting_id' => $meeting?->id,
+                'meeting_url' => $external ?: null,
                 'event_id' => $event->id,
                 'name' => $guest['name'],
                 'email' => $guest['email'],

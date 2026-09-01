@@ -204,11 +204,26 @@ class PublicBookingController extends Controller
             'status' => $booking->status,
             'host_name' => $booking->host?->name,
             'slug' => $booking->page?->slug,
-            'meeting' => $booking->meeting ? [
-                'code' => $booking->meeting->code,
-                'passcode' => $booking->meeting->passcode,
-                'join_url' => rtrim((string) config('mypa.frontend_url'), '/') . '/join/' . $booking->meeting->code,
-            ] : null,
+            /*
+             * One shape for both kinds of room. A booking met somewhere else
+             * has a link and nothing to type, so code and passcode are null
+             * and the screen showing this must not promise a password box.
+             */
+            'meeting' => match (true) {
+                (bool) $booking->meeting_url => [
+                    'provider' => 'google_meet',
+                    'code' => null,
+                    'passcode' => null,
+                    'join_url' => $booking->meeting_url,
+                ],
+                (bool) $booking->meeting => [
+                    'provider' => 'netvork',
+                    'code' => $booking->meeting->code,
+                    'passcode' => $booking->meeting->passcode,
+                    'join_url' => rtrim((string) config('mypa.frontend_url'), '/') . '/join/' . $booking->meeting->code,
+                ],
+                default => null,
+            },
         ];
     }
 }

@@ -806,6 +806,9 @@ export interface BookingPageConfig {
   min_notice_minutes: number
   max_days_ahead: number
   is_active: boolean
+  /** Which room the link books into. Netvork's own, or the host's Google Meet. */
+  meeting_provider: 'netvork' | 'google_meet'
+  external_meeting_url: string | null
   timezone: string
   hours: BookingHour[]
 }
@@ -821,6 +824,8 @@ export interface BookingRow {
   guest_timezone: string
   status: 'confirmed' | 'cancelled'
   meeting_code: string | null
+  /** Set instead of meeting_code when the booking was met somewhere else. */
+  meeting_url: string | null
 }
 
 /** What a stranger sees before booking: no more than the link already gave. */
@@ -845,5 +850,15 @@ export interface BookingDetail {
   status: 'confirmed' | 'cancelled'
   host_name: string
   slug: string
-  meeting: { code: string; passcode: string; join_url: string } | null
+  /*
+   * One shape for both kinds of room. A meeting held somewhere else has a
+   * link and nothing to type, so code and passcode come back null and the
+   * screen must not offer a password to copy.
+   */
+  meeting: {
+    provider: 'netvork' | 'google_meet'
+    code: string | null
+    passcode: string | null
+    join_url: string
+  } | null
 }

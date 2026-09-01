@@ -42,12 +42,13 @@ class BookingPage extends Model
         'min_notice_minutes' => 120,
         'max_days_ahead' => 30,
         'is_active' => false,
+        'meeting_provider' => 'netvork',
     ];
 
     protected $fillable = [
         'user_id', 'slug', 'title', 'description',
         'duration_minutes', 'buffer_minutes', 'min_notice_minutes', 'max_days_ahead',
-        'is_active',
+        'is_active', 'meeting_provider', 'external_meeting_url',
     ];
 
     protected function casts(): array

@@ -82,20 +82,33 @@ class BookingUpdate extends Mailable
             ? "Your meeting with <b>{$host}</b> has been moved. It is now:"
             : "Your {$minutes}-minute meeting with <b>{$host}</b> is confirmed for:";
 
-        $join = $booking->meeting
-            ? "{$front}/join/{$booking->meeting->code}"
-            : $front;
-        $passcode = e((string) $booking->meeting?->passcode);
-
-        $room = $booking->meeting
-            ? <<<HTML
+        /*
+         * The host's own meeting link, when they have one, is the whole
+         * answer: it carries no Netvork password, and telling a guest to
+         * "enter the password" on a Google Meet screen that has no such box
+         * is worse than saying nothing.
+         */
+        if ($booking->meeting_url) {
+            $join = e($booking->meeting_url);
+            $room = <<<HTML
+            <p><b>Joining</b><br>
+            <a href="{$join}">{$join}</a></p>
+            <p style="color:#64748b;font-size:12px">Open the link at the time above. It is the host's
+            own meeting room.</p>
+            HTML;
+        } elseif ($booking->meeting) {
+            $join = "{$front}/join/{$booking->meeting->code}";
+            $passcode = e((string) $booking->meeting->passcode);
+            $room = <<<HTML
             <p><b>Joining</b><br>
             <a href="{$join}">{$join}</a><br>
             Meeting password: <b style="letter-spacing:2px">{$passcode}</b></p>
             <p style="color:#64748b;font-size:12px">You do not need an account — open the link, enter
             the password and your name.</p>
-            HTML
-            : '';
+            HTML;
+        } else {
+            $room = '';
+        }
 
         $html = <<<HTML
         <p>Hello {$booking->name},</p>
