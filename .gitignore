@@ -1,0 +1,3 @@
+
+# Built APKs. A 7 MB binary belongs beside a release, not in the history.
+*.apk

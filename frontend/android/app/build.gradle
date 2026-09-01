@@ -7,8 +7,12 @@ android {
         applicationId "app.netvork"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        // Bumped per build that ships native code. The web app inside updates
+        // itself on every deploy, so this number only ever answers "which
+        // shell am I running" — which is the question asked when a native
+        // fix, like a call notification that stands itself down, is missing.
+        versionCode 2
+        versionName "1.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
