@@ -4,7 +4,7 @@ import type {
   CalendarEvent, CalendarFeedTask, CallInfo, CallSignalPayload, Category, ChatMessage,
   CheckoutSession, Connection, ConversationItem, DashboardSummary, FileItem,
   GoalItem, GroupItem, HabitItem, InvoiceRecord, MySubscription, Note,
-  Paginated, PaymentRecord, PlanInfo, ReportSummary, Task, User,
+  Paginated, PaymentRecord, PlanInfo, PresenceState, ReportSummary, Task, User,
   BookingDetail, BookingHour, BookingPageConfig, BookingRow, PublicBookingPage,
 } from '../types'
 
@@ -480,10 +480,33 @@ export const chat = {
 
 // --- Calls ------------------------------------------------------------------
 
+export interface ConversationMember {
+  uuid: string
+  name: string
+  username: string | null
+  is_me: boolean
+  photo_path?: string | null
+  avatar?: string | null
+  /** Their role in the group behind this chat; null in a direct one. */
+  role?: 'owner' | 'admin' | 'manager' | 'member' | 'viewer' | null
+  presence?: PresenceState | null
+  /**
+   * Whether the person reading may take this one out — decided by the
+   * server, because the rule is three rules: the owner never, yourself
+   * always, anybody else only if you manage the group.
+   */
+  can_remove?: boolean
+}
+
 export const conversationMembers = (uuid: string) =>
-  api.get<{ data: { uuid: string; name: string; username: string | null; is_me: boolean; photo_path?: string | null; avatar?: string | null }[] }>(
-    `/conversations/${uuid}/members`,
-  ).then((r) => r.data.data)
+  api.get<{ data: ConversationMember[] }>(`/conversations/${uuid}/members`).then((r) => r.data.data)
+
+/**
+ * Take somebody out of a group chat — which takes them out of the group.
+ * The chat is the group's; there is no third thing to be a member of.
+ */
+export const removeConversationMember = (uuid: string, userUuid: string) =>
+  api.delete<{ message: string }>(`/conversations/${uuid}/members/${userUuid}`).then((r) => r.data)
 
 export const calls = {
   config: () =>

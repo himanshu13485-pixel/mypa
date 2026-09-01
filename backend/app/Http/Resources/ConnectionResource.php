@@ -39,6 +39,18 @@ class ConnectionResource extends JsonResource
                  * "there is a green dot beside their name".
                  */
                 'is_online' => $other->isOnlineFor($me),
+                /*
+                 * The same answer with its middle state kept.
+                 *
+                 * A boolean could only ever say here or not here, so somebody
+                 * who had wandered off looked exactly like somebody who had
+                 * closed the app — and the dot beside their name said they
+                 * were gone when a message would still have reached them.
+                 * 'online', 'away', 'offline', or null when they have chosen
+                 * not to say, which is a fourth thing again: no dot, rather
+                 * than a dot claiming they are out.
+                 */
+                'presence' => $other->presenceFor($me),
             ] : null,
             'responded_at' => $this->responded_at,
             'created_at' => $this->created_at,

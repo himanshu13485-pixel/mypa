@@ -1,3 +1,12 @@
+/**
+ * Where somebody is: here, stepped away, or gone.
+ *
+ * Null is a fourth answer and not a synonym for 'offline' — it means the
+ * person has hidden their status, and showing them as gone would be answering
+ * a question they declined.
+ */
+export type PresenceState = 'online' | 'away' | 'offline'
+
 export interface User {
   uuid: string
   name: string
@@ -217,6 +226,12 @@ export interface Connection {
     avatar?: string | null
     /** Using the app now — already filtered by their privacy setting server-side. */
     is_online?: boolean
+    /**
+     * The same answer with its middle state kept: here, stepped away, or
+     * gone. Null when they have hidden their status, which is not the same
+     * as being gone and draws no dot at all.
+     */
+    presence?: PresenceState | null
   } | null
   responded_at?: string | null
   created_at: string
@@ -524,7 +539,21 @@ export interface ConversationItem {
   type: 'direct' | 'group'
   name: string
   group_uuid?: string | null
-  other_user?: { uuid: string; username?: string | null; app_id?: string; photo_path?: string | null; avatar?: string | null } | null
+  other_user?: {
+    uuid: string
+    username?: string | null
+    app_id?: string
+    photo_path?: string | null
+    avatar?: string | null
+    /** Here, away, gone — or null when they have hidden it. */
+    presence?: PresenceState | null
+    /**
+     * When they were last actually here. Null when they have hidden their
+     * last seen, and null when they have never opened the app — the line is
+     * left off either way rather than filled with a guess.
+     */
+    last_seen_at?: string | null
+  } | null
   members_count: number
   unread_count: number
   is_muted: boolean

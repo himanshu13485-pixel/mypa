@@ -8,6 +8,7 @@ import { calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
+import { usePresenceFeed } from '../lib/presence'
 import { holdMicrophoneInBackground, nativeAudioDevices, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
 import { PickUserModal } from './UserSuggest'
 import { useToast } from './Toast'
@@ -181,6 +182,16 @@ function CircleButton({ on, danger, label, onClick, children }: {
 export function CallProvider({ children }: { children: ReactNode }) {
   const user = useAuthStore((s) => s.user)
   const { toast, toastError } = useToast()
+  /*
+   * Presence rides along here rather than in a shell of its own.
+   *
+   * It needs exactly what this provider needs — to be mounted once, on every
+   * page, in both the personal app and the CRM — and this is the only thing
+   * that already is. It also wants the same private channel the call signals
+   * below are listening on, so putting it anywhere else would mean a second
+   * subscription to say the same thing.
+   */
+  usePresenceFeed()
   /** Whether this browser can capture a screen — not whether it looks like a phone. */
   const canShareScreen = screenShareSupported()
   /** iPhone has no fullscreen for anything but a bare video element. */

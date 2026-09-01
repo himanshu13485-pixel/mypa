@@ -23,6 +23,8 @@ import {
   Textarea,
 } from '../components/ui'
 import { Avatar } from '../lib/avatars'
+import { PresenceDot, PresenceLabel } from '../components/PresenceDot'
+import { resolvePresence, usePresenceMap } from '../lib/presence'
 
 export default function ConnectionsPage() {
   const navigate = useNavigate()
@@ -54,16 +56,19 @@ export default function ConnectionsPage() {
     return () => clearTimeout(id)
   }, [filter])
 
+  /*
+   * Whatever the sockets have said since this page opened.
+   *
+   * Arriving, stepping away and leaving all announce themselves now, so the
+   * poll below has stopped being how a dot changes and is only the backstop
+   * for the one case nothing announces: a browser that stopped talking
+   * without saying goodbye — asleep, crashed, or killed.
+   */
+  const livePresence = usePresenceMap()
+
   const { data: list, isLoading } = useQuery({
     queryKey: ['connections', searchTerm],
     queryFn: () => connectionsApi.list(undefined, searchTerm || undefined),
-    /*
-     * Presence goes stale on its own — somebody closing their laptop sends
-     * nothing — so the dots need re-asking rather than invalidating. A minute
-     * against the server's two-minute window means a dot is wrong for well
-     * under a minute, and only while this page is open: refetchInterval stops
-     * when the tab is in the background.
-     */
     refetchInterval: 60_000,
   })
   const { data: qr } = useQuery({ queryKey: ['my-qr'], queryFn: profile.myQr })
@@ -399,12 +404,7 @@ export default function ConnectionsPage() {
                           the name, so it stays put however the row wraps. */}
                       <div className="relative shrink-0">
                         <Avatar name={c.user?.name} photoPath={c.user?.photo_path} avatar={c.user?.avatar} size={38} />
-                        {c.user?.is_online && (
-                          <span
-                            title="Online now"
-                            className="absolute -bottom-0.5 -right-0.5 size-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900"
-                          />
-                        )}
+                        <PresenceDot state={resolvePresence(livePresence, c.user?.uuid, c.user?.presence)} />
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{c.user?.name}</p>
@@ -415,16 +415,28 @@ export default function ConnectionsPage() {
                           * it is what you type to find them and what they put
                           * on a card — and this row showed only the App ID,
                           * so the one identifier everybody knows was the one
-                          * missing. Online moves to the end rather than
-                          * replacing it: being online is a passing state, and
-                          * it was displacing the name of the person.
+                          * missing. Presence goes on the end rather than in
+                          * place of it: where somebody is right now is a
+                          * passing thing, and it was displacing the name of
+                          * the person.
+                          *
+                          * Three words rather than one, and the separator
+                          * comes with them: away and gone have as much right
+                          * to this line as online, and a row that only ever
+                          * spoke up for green could not tell somebody who had
+                          * stepped out from somebody who had never arrived.
                           */}
                         <p className="truncate text-xs text-slate-400">
                           {c.user?.username && <span>@{c.user.username}</span>}
                           {c.user?.username && c.user?.app_id && ' · '}
                           {c.user?.app_id}
-                          {c.user?.is_online && (
-                            <span className="ml-1 font-medium text-emerald-600 dark:text-emerald-400">· Online</span>
+                          {resolvePresence(livePresence, c.user?.uuid, c.user?.presence) && (
+                            <>
+                              {' · '}
+                              <PresenceLabel
+                                state={resolvePresence(livePresence, c.user?.uuid, c.user?.presence)}
+                              />
+                            </>
                           )}
                         </p>
                       </div>

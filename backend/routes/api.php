@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\V1\FileController;
 use App\Http\Controllers\Api\V1\GroupController;
 use App\Http\Controllers\Api\V1\NoteController;
 use App\Http\Controllers\Api\V1\NotificationController;
+use App\Http\Controllers\Api\V1\PresenceController;
 use App\Http\Controllers\Api\V1\ReminderController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\ProfileController;
@@ -378,6 +379,18 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::delete('/groups/{group}/members/{userUuid}', [GroupController::class, 'removeMember']);
         Route::get('/groups/{group}/tasks', [GroupController::class, 'tasks']);
 
+        // Presence. The heartbeat is frequent by design — every 45 seconds
+        // from every open tab — so it gets its own bucket rather than eating
+        // the shared allowance, and is exempt from TrackActivity: it reports
+        // whether anybody is there, so it must not itself count as somebody
+        // being there.
+        Route::post('/presence', [PresenceController::class, 'beat'])
+            ->withoutMiddleware('throttle:180,1')
+            ->middleware('throttle:120,1');
+        Route::post('/presence/leaving', [PresenceController::class, 'leaving'])
+            ->withoutMiddleware('throttle:180,1')
+            ->middleware('throttle:120,1');
+
         // Chat
         Route::get('/conversations', [ConversationController::class, 'index']);
         Route::post('/conversations', [ConversationController::class, 'store']);
@@ -393,6 +406,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/conversations/{conversation}/mute', [ConversationController::class, 'toggleMute']);
         Route::post('/conversations/{conversation}/archive', [ConversationController::class, 'toggleArchive']);
         Route::get('/conversations/{conversation}/members', [ConversationController::class, 'members']);
+        // Removing somebody from a group chat is removing them from the
+        // group — the chat is the group's, not a guest list of its own.
+        Route::delete('/conversations/{conversation}/members/{userUuid}', [ConversationController::class, 'removeMember']);
         Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index']);
         Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
         Route::put('/conversations/{conversation}/messages/{message}', [MessageController::class, 'update']);
