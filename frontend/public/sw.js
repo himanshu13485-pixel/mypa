@@ -130,6 +130,43 @@ self.addEventListener('push', (event) => {
    */
   const call = data.kind === 'call'
 
+  /*
+   * The call is over: take the ringing notification down.
+   *
+   * A call notification is posted with requireInteraction and no timeout,
+   * which is right while it is ringing and wrong the moment it stops. The
+   * websocket 'end' signal only reaches an open tab, and this notification
+   * exists precisely for the times there is not one — so a caller who hung
+   * up left a permanent "incoming call" sitting on the desktop, offering
+   * Answer and Decline for a call that had been over for hours.
+   *
+   * Answered or declined elsewhere leaves nothing behind: the person dealt
+   * with it and does not need telling twice. Nobody answering leaves a
+   * quiet missed-call note in its place — which also keeps the browser's
+   * side of the bargain, since a push is supposed to show something.
+   */
+  if (data.kind === 'call_cancel') {
+    event.waitUntil((async () => {
+      const tagged = await self.registration.getNotifications({ tag: data.tag || undefined })
+      for (const note of tagged) note.close()
+
+      if (data.reason !== 'handled') {
+        await self.registration.showNotification(data.title || 'Missed call', {
+          body: data.body || '',
+          tag: data.tag || undefined,
+          icon: '/icons/icon.svg',
+          badge: '/icons/icon.svg',
+          data: { url: data.url || '/calls', kind: 'missed_call' },
+          // Everything the ring was, inverted: it is news, not a summons.
+          requireInteraction: false,
+          renotify: false,
+          silent: true,
+        })
+      }
+    })())
+    return
+  }
+
   event.waitUntil(
     self.registration.showNotification(data.title || 'Netvork', {
       body: data.body || '',

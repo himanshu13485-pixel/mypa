@@ -134,6 +134,14 @@ class CallController extends Controller
 
         $isGroup = $call->conversation->type !== 'direct';
         $call->participants()->updateExistingPivot($me->id, ['status' => 'declined']);
+
+        /*
+         * The phone that was declined on clears its own notification in
+         * DeclineReceiver. This is for the person's other devices, which
+         * were rung too and have heard nothing about it.
+         */
+        $this->stopRinging($call->load(['conversation', 'caller']), collect([$me]), 'handled');
+
         if (! $isGroup) {
             $call->update(['status' => 'declined', 'ended_at' => now()]);
             $this->logCallToChat($call->fresh(['conversation']));
@@ -194,6 +202,16 @@ class CallController extends Controller
             }
             $call->participants()->updateExistingPivot($me->id, ['status' => 'joined', 'joined_at' => now()]);
 
+            /*
+             * Answering on the phone leaves the laptop ringing.
+             *
+             * The ring went to every device this person has and only the one
+             * they picked up knows about it. 'handled' rather than 'missed':
+             * they did not miss this call, they are on it, so nothing should
+             * be left behind claiming otherwise.
+             */
+            $this->stopRinging($call->load(['conversation', 'caller']), collect([$me]), 'handled');
+
             // Everyone already in the call learns about the newcomer; the
             // newcomer gets the list of joined peers to send offers to.
             $joined = $call->participants()
@@ -219,6 +237,9 @@ class CallController extends Controller
 
         // Decline: a ringing direct call dies; a live call keeps going.
         $call->participants()->updateExistingPivot($me->id, ['status' => 'declined']);
+
+        // Declining on one device silences this person's others.
+        $this->stopRinging($call->load(['conversation', 'caller']), collect([$me]), 'handled');
         if (! $isGroup && $call->status === 'ringing') {
             $call->update(['status' => 'declined', 'ended_at' => now()]);
             $this->logCallToChat($call->fresh(['conversation']));
@@ -266,11 +287,20 @@ class CallController extends Controller
         }
 
         if (in_array($call->status, ['ringing', 'ongoing'])) {
+            /*
+             * Read before the status changes: stillRinging() asks who is
+             * 'invited', which is exactly the set whose phones are making a
+             * noise at this moment.
+             */
+            $ringing = $this->stillRinging($call, $me->id);
+
             $call->update([
                 'status' => $call->status === 'ringing' ? 'missed' : 'ended',
                 'ended_at' => now(),
             ]);
             $this->logCallToChat($call->fresh(['conversation']));
+
+            $this->stopRinging($loaded, $ringing, 'missed');
         }
 
         foreach ($remaining as $peer) {
@@ -405,6 +435,49 @@ class CallController extends Controller
      * everyone else. Delivery failures are swallowed by the channel — a call
      * must not fail to start because a browser vendor's push service is slow.
      */
+    /**
+     * Tell devices that are still ringing to stop.
+     *
+     * The ring went out by push because the app may be closed, and a closed
+     * app hears nothing on the websocket — so the 'end' signal sent alongside
+     * this reaches an open tab and nobody else. Without this, the notification
+     * stayed: on Android looping its ringtone under FLAG_INSISTENT until the
+     * 45-second timeout, on the web sitting there under requireInteraction
+     * until somebody clicked it, however long that took.
+     *
+     * Best-effort by construction. Ending a call must not fail because
+     * somebody's push endpoint has gone stale, so every failure is logged and
+     * swallowed exactly like the ring's.
+     */
+    protected function stopRinging(Call $call, \Illuminate\Support\Collection $users, string $reason): void
+    {
+        foreach ($users as $user) {
+            if (! $user) {
+                continue;
+            }
+            try {
+                $user->notify(new \App\Notifications\CallOverNotification($call, $reason));
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('[call] cancel push failed', ['reason' => $e->getMessage()]);
+            }
+        }
+    }
+
+    /**
+     * Everyone whose devices are still ringing for this call.
+     *
+     * 'invited' is the pivot state between being rung and doing something
+     * about it, so it is exactly the set holding a live notification. The
+     * person who caused the call to end is excluded — theirs is already gone.
+     */
+    protected function stillRinging(Call $call, ?int $exceptUserId = null): \Illuminate\Support\Collection
+    {
+        return $call->participants()
+            ->wherePivot('status', 'invited')
+            ->when($exceptUserId, fn ($q) => $q->where('users.id', '!=', $exceptUserId))
+            ->get();
+    }
+
     protected function ring(Call $call, \App\Models\User $from, \Illuminate\Support\Collection $to, bool $isGroup, ?string $groupName): void
     {
         foreach ($to as $callee) {

@@ -48,6 +48,30 @@ public class NetvorkMessagingService extends com.capacitorjs.plugins.pushnotific
     @Override
     public void onMessageReceived(@NonNull RemoteMessage remoteMessage) {
         Map<String, String> data = remoteMessage.getData();
+
+        /*
+         * The call is over — clear the ring rather than drawing anything.
+         *
+         * This has to be handled before everything below, and it is the
+         * message that was missing entirely: the websocket 'end' signal only
+         * reaches an app that is running, and the whole reason this
+         * notification exists is that the app is not. So when the caller
+         * hung up, nothing here ever heard about it and the notification
+         * stayed — ringing, because it carries FLAG_INSISTENT, until the
+         * 45-second timeout expired on its own.
+         *
+         * The id is derived from the call uuid exactly as it was when the
+         * ring was posted, which is what lets this cancel that one.
+         */
+        if ("call_cancel".equals(data.get("kind"))) {
+            String cancelUuid = data.get("call_uuid");
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null && cancelUuid != null) {
+                manager.cancel(cancelUuid.hashCode());
+            }
+            return;
+        }
+
         if (!"call".equals(data.get("kind"))) {
             /*
              * Belt and braces with MainActivity, and not redundant.

@@ -119,7 +119,15 @@ class FcmService
          * Everything else keeps the block: those notifications are fine plain,
          * and the block needs no native code to show.
          */
-        if (($payload['kind'] ?? null) !== 'call') {
+        /*
+         * 'call_cancel' joins calls on the data-only side, and must.
+         *
+         * Its whole job is to clear the ringing notification the shell drew
+         * itself. Attaching a notification block would have Android draw a
+         * second one announcing the end of the call, beside the ringing one
+         * it was sent to silence — the opposite of the point.
+         */
+        if (! in_array($payload['kind'] ?? null, ['call', 'call_cancel'], true)) {
             $message['notification'] = [
                 'title' => (string) ($payload['title'] ?? 'Netvork'),
                 'body' => (string) ($payload['body'] ?? ''),
