@@ -390,6 +390,8 @@ export interface CrmAccountMatch {
   username: string | null
   /** Two people can share a name; this is what tells them apart. */
   app_id: string | null
+  /** Somebody the person registering already knows. Shown first, and labelled. */
+  connected: boolean
   /** Already on this company's payroll — offered, but not choosable. */
   already_member: boolean
 }
@@ -1705,9 +1707,12 @@ export const crm = {
      * A shortlist, not an answer: "priyanshu" matches every Priyanshu, and
      * which one is meant is a question only the person asking can settle.
      */
-    lookupAccount: (q: string) =>
+    lookupAccount: (q?: string) =>
       api.get<{ data: CrmAccountMatch[]; truncated: boolean }>(
-        '/crm/employees-lookup', { params: { q } },
+        // No search: the admin's own connections, which is who a company is
+        // usually registering. The parameter is dropped rather than sent
+        // empty, because an empty string is a search for nothing.
+        '/crm/employees-lookup', { params: q ? { q } : {} },
       ).then((r) => r.data),
     create: (payload: Record<string, unknown>) => api.post(`/crm/employees`, payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/employees/${uuid}`, payload).then((r) => r.data),

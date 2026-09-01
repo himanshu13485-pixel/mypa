@@ -117,31 +117,64 @@ export default function CrmEmployeeFormPage() {
     toast(`Account linked — ${found.name}${found.username ? ` (@${found.username})` : ''}.`, 'success')
   }
 
-  const fetchAccount = async () => {
-    if (lookupQ.trim().length < 2) return
+  const fetchAccount = async (term = lookupQ, announce = true) => {
+    const q = term.trim()
+    if (q !== '' && q.length < 2) return
     setLookingUp(true)
     setLinked(null)
     try {
-      const found = await crm.employees.lookupAccount(lookupQ.trim())
+      const found = await crm.employees.lookupAccount(q || undefined)
       setTruncated(found.truncated)
 
       /*
        * One match and nothing to choose between: linking it is what the
        * person was going to do anyway, and a list of one is a click asking
        * to be told something it already knows.
+       *
+       * Only when they searched, though. The list that arrives on its own is
+       * an address book, and an address book with one name in it must not
+       * decide the answer for somebody who has not asked a question yet.
        */
-      if (found.data.length === 1 && !found.data[0].already_member) {
+      if (announce && q !== '' && found.data.length === 1 && !found.data[0].already_member) {
         pickAccount(found.data[0])
         return
       }
       setMatches(found.data)
     } catch (err) {
       setMatches([])
-      toastError(errorMessage(err))
+      if (announce) toastError(errorMessage(err))
     } finally {
       setLookingUp(false)
     }
   }
+
+  /*
+   * The people you already know, before you have typed anything.
+   *
+   * The box opened empty and silent, so registering a colleague began by
+   * guessing at their spelling. Netvork's own add-connection box has always
+   * led with your connections; this is the same list, in the place that
+   * needs it most.
+   */
+  useEffect(() => {
+    if (editing || accountMode !== 'link') return
+    void fetchAccount('', false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing, accountMode])
+
+  /*
+   * Searching as they type, a beat behind. The button still works for
+   * anybody who reaches for it, but nobody should have to press it to see
+   * whether the name they are typing exists.
+   */
+  useEffect(() => {
+    if (editing || accountMode !== 'link') return
+    const q = lookupQ.trim()
+    if (q !== '' && q.length < 2) return
+    const t = setTimeout(() => { void fetchAccount(lookupQ, false) }, 350)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lookupQ, editing, accountMode])
   // The delicate acts, granted by name. Separate from the module matrix
   // because they are not "can see / can edit" — they move ownership or money.
   const [capabilities, setCapabilities] = useState<string[]>([])
@@ -406,7 +439,7 @@ export default function CrmEmployeeFormPage() {
                   placeholder="Name, email, username or App ID — e.g. priyanshu"
                   className="w-full sm:w-80"
                 />
-                <Button size="sm" variant="secondary" disabled={lookingUp || lookupQ.trim().length < 2} onClick={fetchAccount}>
+                <Button size="sm" variant="secondary" disabled={lookingUp} onClick={() => void fetchAccount()}>
                   <Search className="size-3.5" /> {lookingUp ? 'Searching…' : 'Search accounts'}
                 </Button>
                 {linked && (
@@ -420,6 +453,11 @@ export default function CrmEmployeeFormPage() {
                   * normal Tuesday — so the search answers with everyone it
                   * matched and the person registering says which.
                   */}
+                {matches !== null && matches.length > 0 && (
+                  <p className="w-full text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                    {lookupQ.trim() ? 'Matches' : 'Your connections'}
+                  </p>
+                )}
                 {matches !== null && matches.length > 0 && (
                   <ul className="w-full divide-y divide-slate-200 overflow-hidden rounded-xl border border-slate-200 dark:divide-slate-700 dark:border-slate-700">
                     {matches.map((m) => (
@@ -439,7 +477,9 @@ export default function CrmEmployeeFormPage() {
                             </span>
                           </span>
                           <span className="shrink-0 text-xs text-slate-400">
-                            {m.already_member ? 'Already an employee' : 'Choose'}
+                            {m.already_member
+                              ? 'Already an employee'
+                              : m.connected ? 'Connected · Choose' : 'Choose'}
                           </span>
                         </button>
                       </li>
@@ -448,7 +488,9 @@ export default function CrmEmployeeFormPage() {
                 )}
                 {matches !== null && matches.length === 0 && !lookingUp && (
                   <p className="w-full text-xs text-slate-500">
-                    Nobody on Netvork matches that. They need an account before they can be registered here.
+                    {lookupQ.trim()
+                      ? 'Nobody on Netvork matches that. They need an account before they can be registered here.'
+                      : 'You have no connections yet — search by name, email, username or App ID to find the account.'}
                   </p>
                 )}
                 {truncated && matches !== null && matches.length > 0 && (

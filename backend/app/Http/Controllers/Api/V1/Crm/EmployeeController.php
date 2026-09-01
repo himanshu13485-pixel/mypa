@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Crm;
 
 use App\Http\Controllers\Controller;
 use App\Models\Crm\ActivityLog;
+use App\Models\Connection;
 use App\Models\Crm\Document;
 use App\Models\Crm\Member;
 use App\Models\Crm\SalaryRecord;
@@ -97,16 +98,43 @@ class EmployeeController extends Controller
          * Netvork account, so a single letter would hand back a slice of the
          * whole directory to anyone who can register an employee.
          */
-        $q = mb_strtolower(trim($request->validate([
-            'q' => ['required', 'string', 'min:2', 'max:255'],
-        ])['q']));
+        $valid = $request->validate([
+            'q' => ['nullable', 'string', 'min:2', 'max:255'],
+        ]);
+        $q = mb_strtolower(trim((string) ($valid['q'] ?? '')));
 
-        // LIKE's own wildcards, escaped: a search for "50%" is a search for
-        // the characters, not for everything.
-        $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $q) . '%';
+        $me = $request->user();
 
-        $users = User::with('appId')->where('status', 'active')
-            ->where(fn ($w) => $w
+        /*
+         * The people this admin already knows.
+         *
+         * Netvork's own add-connection box leads with these, and a company
+         * registering staff is almost always registering people it is
+         * connected to — so they lead here too, and with no search typed at
+         * all they are the whole list. An empty box that offers nothing is a
+         * box asking you to guess.
+         */
+        $connectionIds = Connection::where('status', 'accepted')
+            ->where(fn ($w) => $w->where('requester_id', $me->id)->orWhere('addressee_id', $me->id))
+            ->get(['requester_id', 'addressee_id'])
+            ->flatMap(fn ($c) => [$c->requester_id, $c->addressee_id])
+            ->unique()
+            ->reject(fn ($id) => $id === $me->id)
+            ->values()
+            ->all();
+
+        $users = User::with('appId')->where('status', 'active')->whereKeyNot($me->id);
+
+        if ($q === '') {
+            // Nothing typed: this is the address book, not a search of
+            // everybody, so it never reaches past the people they know.
+            $users->whereIn('id', $connectionIds);
+        } else {
+            // LIKE's own wildcards, escaped: a search for "50%" is a search
+            // for the characters, not for everything.
+            $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $q) . '%';
+
+            $users->where(fn ($w) => $w
                 ->whereRaw('LOWER(email) LIKE ?', [$like])
                 ->orWhereRaw('LOWER(username) LIKE ?', [$like])
                 ->orWhereRaw('LOWER(name) LIKE ?', [$like])
@@ -116,22 +144,36 @@ class EmployeeController extends Controller
                 ->orWhereHas('appId', fn ($a) => $a
                     ->whereRaw('LOWER(app_id) LIKE ?', [$like])
                     ->where('is_active', true)))
-            /*
-             * Whoever typed the whole username or email meant that person, so
-             * they lead however many near-misses share the spelling.
-             */
-            ->orderByRaw(
-                'CASE WHEN LOWER(email) = ? OR LOWER(username) = ? '
-                . 'OR EXISTS (SELECT 1 FROM app_ids WHERE app_ids.user_id = users.id AND LOWER(app_ids.app_id) = ?) '
-                . 'THEN 0 ELSE 1 END',
-                [$q, $q, $q],
-            )
+                /*
+                 * Whoever typed the whole username or email meant that
+                 * person, so they lead however many near-misses share the
+                 * spelling.
+                 */
+                ->orderByRaw(
+                    'CASE WHEN LOWER(email) = ? OR LOWER(username) = ? '
+                    . 'OR EXISTS (SELECT 1 FROM app_ids WHERE app_ids.user_id = users.id AND LOWER(app_ids.app_id) = ?) '
+                    . 'THEN 0 ELSE 1 END',
+                    [$q, $q, $q],
+                );
+        }
+
+        $users = $users
+            // Someone you know beats a stranger of the same name.
+            ->orderByRaw($connectionIds === []
+                ? '1'
+                : 'CASE WHEN users.id IN (' . implode(',', array_fill(0, count($connectionIds), '?')) . ') THEN 0 ELSE 1 END',
+                $connectionIds)
             ->orderBy('name')
             ->orderBy('id')
             ->limit(self::LOOKUP_LIMIT + 1)
             ->get();
 
-        abort_if($users->isEmpty(), 404, 'No Netvork account matches that name, email, username or App ID.');
+        /*
+         * An empty address book is not an error — there is simply nobody to
+         * show yet, and the screen says so. A search that found nobody still
+         * is: it was a question with an answer of no.
+         */
+        abort_if($users->isEmpty() && $q !== '', 404, 'No Netvork account matches that name, email, username or App ID.');
 
         // One more was fetched than is shown, purely to know whether to say so.
         $more = $users->count() > self::LOOKUP_LIMIT;
@@ -150,6 +192,8 @@ class EmployeeController extends Controller
                 // are told apart by this, not by their surname.
                 'app_id' => $user->appId?->app_id,
                 'already_member' => in_array($user->id, $members, true),
+                // Labelled, the way the add-connection box labels its own.
+                'connected' => in_array($user->id, $connectionIds, true),
             ])->values(),
             'truncated' => $more,
         ]);

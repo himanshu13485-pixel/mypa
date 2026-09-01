@@ -750,6 +750,50 @@ class CrmLaunchFeaturesTest extends TestCase
             ->assertOk()->assertJsonPath('data.0.app_id', $appId);
     }
 
+    /**
+     * The box that opens with your address book already in it.
+     *
+     * Registering a colleague began by guessing at their spelling, on a
+     * screen that knew perfectly well who the admin is connected to.
+     */
+    public function test_the_lookup_offers_your_connections_before_you_type(): void
+    {
+        $known = User::factory()->create(['name' => 'Kanika', 'username' => 'kanikagrapout']);
+        $known->settings()->create([]);
+        $known->profile()->create(['timezone' => 'UTC']);
+        \App\Models\Connection::create([
+            'requester_id' => $this->adminUser->id,
+            'addressee_id' => $known->id,
+            'status' => 'accepted',
+            'responded_at' => now(),
+        ]);
+
+        $stranger = User::factory()->create(['name' => 'Kanika Stranger', 'username' => 'kanikaelsewhere']);
+        $stranger->settings()->create([]);
+        $stranger->profile()->create(['timezone' => 'UTC']);
+
+        // Nothing typed: the address book, and only the address book.
+        $book = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup')
+            ->assertOk()->json('data');
+        $this->assertSame(['Kanika'], array_column($book, 'name'));
+        $this->assertTrue($book[0]['connected']);
+
+        // Typed: everybody who matches, but somebody you know leads.
+        $found = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup?q=kanika')
+            ->assertOk()->json('data');
+        $this->assertCount(2, $found);
+        $this->assertSame('Kanika', $found[0]['name']);
+        $this->assertTrue($found[0]['connected']);
+        $this->assertFalse($found[1]['connected']);
+    }
+
+    /** An admin who knows nobody gets an empty book, not an error. */
+    public function test_an_empty_address_book_is_not_a_failure(): void
+    {
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/employees-lookup')
+            ->assertOk()->assertJsonCount(0, 'data');
+    }
+
     /** A wildcard typed into the box is text, not a licence to match everyone. */
     public function test_a_percent_sign_matches_a_percent_sign(): void
     {
