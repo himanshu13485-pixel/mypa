@@ -6,6 +6,7 @@ import NetvorkMark from '../../components/Logo'
 import { auth } from '../../api/endpoints'
 import { useAuthStore } from '../../stores/auth'
 import { Button, ErrorNote, Input, Label, Select } from '../../components/ui'
+import { DEFAULT_DIAL, MobileField } from '../../components/MobileField'
 import { returnState, returnTo } from '../../lib/returnTo'
 
 export default function Register() {
@@ -23,6 +24,7 @@ export default function Register() {
     password: '',
     password_confirmation: '',
     mobile: '',
+    country_code: DEFAULT_DIAL,
     account_type: 'personal',
   })
   const [usernameTouched, setUsernameTouched] = useState(false)
@@ -83,7 +85,7 @@ export default function Register() {
     try {
       const res = await auth.register({
         ...form,
-        mobile: form.mobile || null,
+        mobile: form.mobile ? form.country_code + form.mobile : null,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         device_name: 'web',
       })
@@ -193,23 +195,19 @@ export default function Register() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Mobile (optional, for records)</Label>
-                <Input
-                  type="tel"
-                  placeholder="+919876543210"
-                  value={form.mobile}
-                  onChange={(e) => set('mobile', e.target.value)}
-                />
-              </div>
-              <div>
-                <Label>Account type</Label>
-                <Select value={form.account_type} onChange={(e) => set('account_type', e.target.value)}>
-                  <option value="personal">Personal</option>
-                  <option value="business">Business</option>
-                </Select>
-              </div>
+            <MobileField
+              countryCode={form.country_code}
+              number={form.mobile}
+              onCountryCode={(code) => set('country_code', code)}
+              onNumber={(national) => set('mobile', national)}
+            />
+
+            <div>
+              <Label>Account type</Label>
+              <Select value={form.account_type} onChange={(e) => set('account_type', e.target.value)}>
+                <option value="personal">Personal</option>
+                <option value="business">Business</option>
+              </Select>
             </div>
 
             <Button type="submit" disabled={loading || usernameStatus === 'taken'} className="w-full">

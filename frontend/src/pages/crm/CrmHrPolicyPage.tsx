@@ -144,6 +144,44 @@ function PolicyCard({ policy, canEdit }: { policy: CrmHrPolicy; canEdit: boolean
         {field('lates_per_half_day', 'Late policy — lates per half day', 'Every this-many lates in a month cost half a day’s pay, automatically, in salary. 0 switches the rule off. (Default: 4 lates = 1 half day.)', { type: 'number', min: 0, max: 31 })}
       </div>
 
+      {/*
+        * Where the office is.
+        *
+        * A punch from a phone proves a phone was used, not that anybody was
+        * at work. Registering the office lets the register say how far away
+        * each punch was made — and, if the company wants, refuse one that
+        * will not say. Left empty, none of this is asked or shown, which is
+        * the right default for a company whose people work from anywhere.
+        */}
+      <div className="mt-4">
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Where punches are made</h3>
+        <p className="mt-0.5 text-xs text-slate-400">
+          Optional. With the office registered, every punch records how far from it that person was —
+          shown in the report, never acted on by itself. Leave the coordinates empty to ask nothing.
+        </p>
+        <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {field('office_lat', 'Office latitude', 'From any maps app — right-click the office, copy the first number.', { type: 'number', step: 'any' })}
+          {field('office_lng', 'Office longitude', 'The second number from the same pair.', { type: 'number', step: 'any' })}
+          {field('office_radius_m', 'Office radius (metres)', 'How far from that point still counts as at the office.', { type: 'number', min: 20, max: 20000 })}
+        </div>
+        <label className="mt-2 flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={!!draft.punch_needs_location}
+            disabled={!canEdit}
+            onChange={(e) => set('punch_needs_location', e.target.checked as never)}
+            className="mt-0.5 size-4 accent-emerald-600"
+          />
+          <span>
+            Require a location to punch in
+            <span className="block text-xs text-slate-400">
+              A punch that will not say where it came from is refused. Only worth switching on once the
+              coordinates above are right — and it does need everyone to allow location in their browser.
+            </span>
+          </span>
+        </label>
+      </div>
+
       <div className="mt-4">
         <Label>Weekly off</Label>
         <div className="mt-1 flex flex-wrap gap-1.5">

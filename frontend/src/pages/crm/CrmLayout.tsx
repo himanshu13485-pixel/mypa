@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { LeadFollowUpAlerts } from './LeadFollowUpAlerts'
 import { NewLeadAlerts } from './NewLeadAlerts'
@@ -31,6 +31,7 @@ import {
   LifeBuoy,
   ListChecks,
   Mail,
+  Menu,
   MessageSquare,
   MonitorUp,
   PhoneCall,
@@ -48,6 +49,7 @@ import {
   Users,
   Video,
   Wallet,
+  X,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
@@ -161,6 +163,8 @@ export default function CrmLayout() {
   const location = useLocation()
   const queryClient = useQueryClient()
   const { data: me, isLoading } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  // The phone menu: the same list as the sidebar, behind the three lines.
+  const [menuOpen, setMenuOpen] = useState(false)
 
   // Take the company hat off: back to the Super Admin's own context and
   // the organizations screen, with nothing cached under the old hat.
@@ -307,12 +311,14 @@ export default function CrmLayout() {
         : 'text-slate-300 hover:bg-white/5 hover:text-white',
     )
 
-  return (
-    // CallProvider here too: the Connect suite lives inside the CRM shell,
-    // so calls must ring and connect without leaving it.
-    <CallProvider>
-    <div className="flex min-h-dvh bg-slate-100 dark:bg-slate-950">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-800 bg-slate-900 text-slate-300 md:flex">
+  /*
+   * The menu itself, written once. The desktop rail and the phone drawer
+   * are two frames around this same list — so an entry added here appears
+   * in both, in the same group and the same order, which is the whole
+   * point of a menu somebody has learned.
+   */
+  const sidebar = (
+    <>
         <div className="flex items-center gap-2.5 px-5 pb-3 pt-5">
           <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-500 font-bold text-white">N</div>
           <div className="text-sm font-semibold text-white">Netvork CRM</div>
@@ -423,52 +429,76 @@ export default function CrmLayout() {
             </div>
           )}
         </nav>
+    </>
+  )
+
+  return (
+    // CallProvider here too: the Connect suite lives inside the CRM shell,
+    // so calls must ring and connect without leaving it.
+    <CallProvider>
+    <div className="flex min-h-dvh bg-slate-100 dark:bg-slate-950">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-800 bg-slate-900 text-slate-300 md:flex">
+        {sidebar}
       </aside>
 
-      {/* Phone: a slim top bar instead of the sidebar — built modules only. */}
-      <div className="flex min-w-0 flex-1 flex-col md:pl-60">
-        <div className="sticky top-0 z-30 flex items-center justify-end border-b border-slate-200 bg-white px-4 py-1.5 dark:border-slate-800 dark:bg-slate-900 md:hidden">
-          <NotificationBell />
+      {/* The same menu on a phone, behind the three lines — one list, one
+          order, whichever size the screen is. */}
+      {menuOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
+          <aside
+            onClick={(e) => { if ((e.target as HTMLElement).closest('a')) setMenuOpen(false) }}
+            className="pt-safe absolute inset-y-0 left-0 flex h-full w-72 max-w-[85vw] flex-col overflow-hidden bg-slate-900 text-slate-300 shadow-lift"
+          >
+            <button
+              onClick={() => setMenuOpen(false)}
+              aria-label="Close menu"
+              className="absolute right-3 top-4 z-10 rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"
+            >
+              <X className="size-5" />
+            </button>
+            {sidebar}
+          </aside>
         </div>
-        <header className="sticky top-[41px] z-20 flex items-center gap-2 overflow-x-auto border-b border-slate-200 bg-white px-4 py-2.5 dark:border-slate-800 dark:bg-slate-900 md:hidden">
-          <button onClick={() => navigate('/')} aria-label="Switch to personal workspace" className="shrink-0 rounded p-1.5 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
-            <ArrowLeftRight className="size-4" />
+      )}
+
+
+      {/* Phone: the three lines, the bell, and the workspace switch — the
+          menu itself lives in the drawer, as it does on the personal side.
+          The old scrolling strip of thirty pills could only ever show four
+          of them, so the rest of the CRM was off the side of the screen. */}
+      <div className="flex min-w-0 flex-1 flex-col md:pl-60">
+        <header className="pt-safe sticky top-0 z-30 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900 md:hidden">
+          <button
+            onClick={() => setMenuOpen(true)}
+            aria-label="Open menu"
+            className="relative rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+          >
+            <Menu className="size-5" />
+            {/* Work waiting behind a closed menu still says so. */}
+            {attendTotal > 0 && (
+              <span className="absolute right-1 top-1 size-2 rounded-full bg-red-500" />
+            )}
           </button>
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+            {me?.organization?.name ?? 'Netvork CRM'}
+          </span>
           {me?.member?.is_oversight && (
             <button
               onClick={exitOversight}
-              className="shrink-0 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
+              className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:bg-amber-500/15 dark:text-amber-400"
             >
-              Exit to Super Admin
+              Exit
             </button>
           )}
-          {SECTIONS.flatMap((s) => s.items)
-            .filter((i) => i.to && visible(me, i))
-            .concat(me?.is_super_admin && !me?.member?.is_oversight
-              ? [{ label: 'Organizations', icon: Building2, to: '/crm/organizations' }]
-              : [])
-            .map((item) => (
-              <NavLink
-                key={item.label}
-                to={item.to!}
-                end={item.to === '/crm'}
-                className={({ isActive }) =>
-                  clsx(
-                    'shrink-0 rounded-full px-3 py-1.5 text-xs font-medium',
-                    isActive && !item.to!.includes('?')
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'
-                      : 'text-slate-600 dark:text-slate-300',
-                  )
-                }
-              >
-                {item.label}
-                {(item as NavItem).badge && (attend[(item as NavItem).badge!] ?? 0) > 0 && (
-                  <span className="ml-1 font-semibold text-red-500">
-                    ({attend[(item as NavItem).badge!]})
-                  </span>
-                )}
-              </NavLink>
-            ))}
+          <button
+            onClick={() => navigate('/')}
+            aria-label="Switch to personal workspace"
+            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            <ArrowLeftRight className="size-4" />
+          </button>
+          <NotificationBell />
         </header>
         {/* The CRM has its own shell, so it needs its own bell — the same
             one the rest of Netvork uses, reading the same notifications. */}

@@ -179,8 +179,23 @@ h3 {
   }
 }
 
+/*
+ * `backwards`, deliberately, not `both`.
+ *
+ * A forwards fill keeps the animation applied to this element forever, and an
+ * element carrying a filling transform animation becomes the containing block
+ * for its `position: fixed` descendants. Every dialog in the app is rendered
+ * inside the page, so each one stopped being measured against the viewport and
+ * was measured against the page's content box instead: on a short page the
+ * backdrop covered only the top few hundred pixels and the dialog itself was
+ * cut off at the bottom of the content.
+ *
+ * The final keyframe is the element's natural state anyway, so nothing needs
+ * to persist after the animation ends. `backwards` covers the frame before it
+ * starts and then stops applying, which is all this ever wanted.
+ */
 .route-enter {
-  animation: route-enter 180ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+  animation: route-enter 180ms cubic-bezier(0.22, 0.61, 0.36, 1) backwards;
 }
 
 /*

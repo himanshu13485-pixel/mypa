@@ -355,6 +355,39 @@ class MasterController extends Controller
      * from — the general one, and optional separate senders for invoices
      * and for due-payment follow-ups — plus the channel switches.
      */
+    /** The Office Assets category list this company files stock under. */
+    public function assetCategories(Request $request): JsonResponse
+    {
+        return response()->json(['data' => [
+            'categories' => $request->attributes->get('crm_org')->assetCategories(),
+        ]]);
+    }
+
+    public function saveAssetCategories(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $data = $request->validate([
+            'categories' => ['present', 'array', 'max:100'],
+            'categories.*' => ['nullable', 'string', 'max:64'],
+        ]);
+
+        // Tidied on the way in: blanks dropped, duplicates collapsed, order
+        // kept as typed. An empty list means "use the built-in one" rather
+        // than a company with nowhere to file a laptop.
+        $clean = collect($data['categories'])
+            ->map(fn ($c) => trim($c))->filter()->unique()->values()->all();
+
+        $settings = $org->settings ?? [];
+        $settings['assets'] = ['categories' => $clean];
+        $org->update(['settings' => $settings]);
+
+        ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'settings.assets', $org, [
+            'categories' => count($clean),
+        ]);
+
+        return response()->json(['message' => 'Asset categories saved.', 'data' => ['categories' => $org->fresh()->assetCategories()]]);
+    }
+
     public function communicationSettings(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');

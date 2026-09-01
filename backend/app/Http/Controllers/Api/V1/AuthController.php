@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
+use App\Models\AppSetting;
 use App\Models\LoginHistory;
+use App\Models\TrustedDevice;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\AppIdService;
@@ -28,7 +30,9 @@ class AuthController extends Controller
             'username' => ['required', 'string', 'min:4', 'max:20', 'regex:/^[a-zA-Z0-9]+$/'],
             'password' => ['required', 'confirmed', PasswordRule::min(8)->letters()->numbers()],
             // Mobile is optional, records-only (never a login or search identity).
-            'mobile' => ['nullable', 'string', 'max:32'],
+            // A country code and then the number, which is what the form
+            // now sends: one shape in the column instead of four.
+            'mobile' => ['nullable', 'string', 'max:32', 'regex:/^[+][1-9][0-9]{6,16}$/'],
             'date_of_birth' => ['nullable', 'date', 'before:today'],
             'gender' => ['nullable', 'string', 'max:32'],
             'country' => ['nullable', 'string', 'max:64'],
@@ -221,18 +225,175 @@ class AuthController extends Controller
             ]);
         }
 
+        $this->requireAnEmail($user);
+
+        // The password says the right thing is known. A code says the right
+        // person knows it — asked on a device that has never signed in
+        // before, which is the moment a stolen password gets used.
+        if ($this->needsSignInCode($request, $user)) {
+            return $this->askForSignInCode($request, $user);
+        }
+
+        return $this->signIn($request, $user, $credentials['device_name'] ?? 'web');
+    }
+
+    /**
+     * No e-mail, no sign-in.
+     *
+     * The address is what a sign-in code goes to, what a forgotten password
+     * is recovered through, and how the account is told that somebody signed
+     * in as them. An account without one cannot be secured or recovered —
+     * it can only be lost — so the door stays shut until it has one.
+     *
+     * The message says what to do about it rather than only that it failed,
+     * because the person reading it cannot fix this alone.
+     */
+    private function requireAnEmail(User $user): void
+    {
+        if ($user->email !== null) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'identifier' => ['This account has no e-mail address, and sign-in now needs one — '
+                . 'a code is sent there every time a new device is used. Ask your admin to add one to the account.'],
+        ]);
+    }
+
+    /**
+     * Does this sign-in need a code as well as the password?
+     *
+     * Three settings, because companies differ: 'off' is the old behaviour,
+     * 'always' asks every time, and the default asks once per device and
+     * then remembers it. The default is the one people actually live with —
+     * a code on every login is a code people find a way around.
+     */
+    private function needsSignInCode(Request $request, User $user): bool
+    {
+        $mode = AppSetting::get('login_otp_mode');
+
+        // No 'no e-mail' escape here any more: requireAnEmail() has already
+        // turned such an account away, so a code always has somewhere to go.
+        if ($mode === 'off') {
+            return false;
+        }
+        if ($mode === 'always') {
+            return true;
+        }
+
+        return TrustedDevice::findLive($user, $request->header('X-Device-Token')) === null;
+    }
+
+    /**
+     * Send the code and say so — without saying anything a stranger could
+     * use. The address is masked: somebody with a stolen password should
+     * not learn the mailbox to attack next.
+     */
+    private function askForSignInCode(Request $request, User $user): JsonResponse
+    {
+        $otp = app(\App\Services\MobileOtpService::class)->issueSignInCode(
+            $user,
+            $request->input('device_name') ?: $this->describeDevice($request),
+        );
+
+        return response()->json([
+            'message' => 'Enter the code we sent to ' . $this->maskEmail($user->email) . '.',
+            'otp_required' => true,
+            'sent_to' => $this->maskEmail($user->email),
+            'expires_in_minutes' => (int) now()->diffInMinutes($otp->expires_at),
+        ], 202);
+    }
+
+    /**
+     * The second half of a password login: the code, and from here on this
+     * device is trusted so the next sign-in is one step again.
+     */
+    public function verifySignInCode(Request $request, \App\Services\MobileOtpService $otps): JsonResponse
+    {
+        $data = $request->validate([
+            'identifier' => ['required', 'string', 'max:255'],
+            'code' => ['required', 'string', 'max:8'],
+            'device_name' => ['nullable', 'string', 'max:255'],
+            // Ticked off on a shared machine, this device is not remembered.
+            'remember_device' => ['nullable', 'boolean'],
+        ]);
+
+        $user = $this->resolveUser(trim($data['identifier']));
+        if (! $user || $user->status === 'suspended') {
+            throw ValidationException::withMessages(['code' => ['That code is not valid.']]);
+        }
+
+        $this->requireAnEmail($user);
+
+        try {
+            $otps->verify($user, $data['code'], 'login');
+        } catch (ValidationException $e) {
+            throw ValidationException::withMessages(['code' => ['That code is wrong or has expired.']]);
+        }
+
+        $deviceToken = null;
+        if ($data['remember_device'] ?? true) {
+            [, $deviceToken] = TrustedDevice::issueFor(
+                $user,
+                ($data['device_name'] ?? null) ?: $this->describeDevice($request),
+                $request->ip(),
+                (int) AppSetting::get('trusted_device_days'),
+            );
+        }
+
+        return $this->signIn($request, $user, $data['device_name'] ?? 'web', $deviceToken);
+    }
+
+    /** Everything a completed sign-in does, however it was completed. */
+    private function signIn(Request $request, User $user, string $deviceName, ?string $deviceToken = null): JsonResponse
+    {
         $user->update(['last_login_at' => now()]);
 
-        $token = $user->createToken($credentials['device_name'] ?? 'web')->plainTextToken;
+        $token = $user->createToken($deviceName)->plainTextToken;
 
         $this->recordLogin($request, $user);
 
-        return response()->json([
+        return response()->json(array_filter([
             'message' => 'Login successful.',
             'data' => new UserResource($user->load(['profile', 'settings', 'appId', 'roles'])),
             'token' => $token,
+            // Handed over once. The browser keeps it; the server keeps only
+            // a hash, so this is the single moment it exists in the clear.
+            'device_token' => $deviceToken,
             'must_change_password' => (bool) $user->force_password_change,
-        ]);
+        ], fn ($v) => $v !== null));
+    }
+
+    /** Something the recipient of the code will recognise as themselves. */
+    private function describeDevice(Request $request): string
+    {
+        $agent = (string) $request->userAgent();
+        $platform = match (true) {
+            str_contains($agent, 'Android') => 'Android',
+            preg_match('/iPhone|iPad|iOS/i', $agent) === 1 => 'iOS',
+            str_contains($agent, 'Windows') => 'Windows',
+            str_contains($agent, 'Mac OS') => 'Mac',
+            str_contains($agent, 'Linux') => 'Linux',
+            default => 'an unrecognised device',
+        };
+        $browser = match (true) {
+            str_contains($agent, 'Edg/') => 'Edge',
+            str_contains($agent, 'Chrome') => 'Chrome',
+            str_contains($agent, 'Firefox') => 'Firefox',
+            str_contains($agent, 'Safari') => 'Safari',
+            default => 'an app',
+        };
+
+        return $browser . ' on ' . $platform;
+    }
+
+    /** h***h@grapmail.com — enough to recognise, not enough to attack. */
+    private function maskEmail(string $email): string
+    {
+        [$name, $domain] = array_pad(explode('@', $email, 2), 2, '');
+        $kept = mb_substr($name, 0, 1) . str_repeat('*', max(1, mb_strlen($name) - 2)) . mb_substr($name, -1);
+
+        return $domain === '' ? $kept : $kept . '@' . $domain;
     }
 
     /**
@@ -252,7 +413,7 @@ class AuthController extends Controller
             ->where('created_at', '>=', now()->subMinutes(15))
             ->count() < 3;
 
-        if ($user && $user->status !== 'suspended' && $withinCap) {
+        if ($user && $user->status !== 'suspended' && $user->email !== null && $withinCap) {
             // Login codes travel through the app inbox; mobile may be absent.
             $otps->issue($user, $user->mobile ?? 'app-inbox', 'login');
         }

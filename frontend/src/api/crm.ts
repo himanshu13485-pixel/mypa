@@ -372,6 +372,8 @@ export interface CrmEmployee {
   probation_days: number | null
   /** The Admin's late waiver: lateness never counted, marked Present. */
   late_waived?: boolean
+  /** The clock is not this person's measure — no punch, never absent. */
+  punch_waived?: boolean
   probation_ends_on: string | null
   on_probation: boolean
   resigned_at: string | null
@@ -483,7 +485,7 @@ export interface CrmInvoiceRow {
   due_date?: string | null
   client: { uuid: string; company_name: string; contact_person: string | null; email?: string | null } | null
   issuing_company?: { id: number; name: string } | null
-  salesperson?: { uuid: string; name: string | null } | null
+  salesperson?: { uuid: string; name: string | null; email?: string | null } | null
   currency: string
   subtotal?: string
   total: string
@@ -864,6 +866,11 @@ export interface CrmPunchRow {
   hours: number | null
   in_ip: string | null
   out_ip: string | null
+  /** What made the punch: 'app', 'mobile' or 'desktop'. */
+  in_device?: string | null
+  out_device?: string | null
+  /** Metres from the registered office, when the company registered one. */
+  in_distance_m?: number | null
   status: string
   status_source: 'auto' | 'punch' | 'manual' | 'holiday' | 'week_off' | 'leave'
   holiday_name: string | null
@@ -924,6 +931,11 @@ export interface CrmHrPolicy extends CrmStatutoryRates {
   day_schedule?: Record<string, CrmDaySchedule | null>
   /** Every N lates in a month cost half a day's pay; 0 = off. */
   lates_per_half_day?: number
+  /** Where the office is; null/empty means the company asks for no location. */
+  office_lat?: number | string | null
+  office_lng?: number | string | null
+  office_radius_m?: number | null
+  punch_needs_location?: boolean
   /** Standard run for spread incentive plans; each plan may override. */
   incentive_spread_months: number
   /** No incentive until the client has paid in full; releases itself on payment. */
@@ -1825,8 +1837,10 @@ export const crm = {
 
   punch: {
     today: () =>
-      api.get<{ data: { today: string; config: { start: string; grace_minutes: number; half_day_hours: number }; punch: CrmPunchRow | null } }>('/crm/punch/today').then((r) => r.data.data),
-    punchIn: () => api.post<{ message: string; data: CrmPunchRow }>('/crm/punch/in').then((r) => r.data),
+      api.get<{ data: { today: string; config: { start: string; grace_minutes: number; half_day_hours: number; location: { required: boolean; radius_m: number } | null }; punch: CrmPunchRow | null; punch_waived?: boolean } }>('/crm/punch/today').then((r) => r.data.data),
+    /** The place rides along when the company asked for it. */
+    punchIn: (where?: { latitude: number; longitude: number }) =>
+      api.post<{ message: string; data: CrmPunchRow }>('/crm/punch/in', where ?? {}).then((r) => r.data),
     punchOut: () => api.post<{ message: string; data: CrmPunchRow }>('/crm/punch/out').then((r) => r.data),
     list: (params: Record<string, string | number | undefined>) =>
       api.get<Paginated<CrmPunchRow> & { summary: CrmPunchSummary }>('/crm/punch', { params }).then((r) => r.data),
@@ -2242,7 +2256,7 @@ export const crm = {
     setPaymentCharge: (uuid: string, id: number, payload: Record<string, unknown>) =>
       api.put<{ message: string }>(`/crm/invoices/${uuid}/payments/${id}/charge`, payload).then((r) => r.data),
     /** Send the document to the client, PDF attached — sender chosen in Communication setup. */
-    email: (uuid: string, payload: { to?: string; from?: 'default' | 'invoice' | 'dues'; message?: string }) =>
+    email: (uuid: string, payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string }) =>
       api.post<{ message: string }>(`/crm/invoices/${uuid}/email`, payload).then((r) => r.data),
   },
 
@@ -2299,6 +2313,12 @@ export const crm = {
     api.get<{ data: CrmChurnReport }>('/crm/churn', { params: { months, member } }).then((r) => r.data.data),
 
   masterData: {
+    /** The Office Assets category list — the company's own words. */
+    assetCategories: () =>
+      api.get<{ data: { categories: string[] } }>('/crm/masters/asset-categories').then((r) => r.data.data.categories),
+    saveAssetCategories: (categories: string[]) =>
+      api.put<{ message: string; data: { categories: string[] } }>('/crm/masters/asset-categories', { categories })
+        .then((r) => r.data),
     saveCompany: (payload: Record<string, unknown>, id?: number) =>
       id ? api.put(`/crm/masters/issuing-companies/${id}`, payload).then((r) => r.data)
         : api.post('/crm/masters/issuing-companies', payload).then((r) => r.data),
@@ -2339,6 +2359,9 @@ export const crm = {
 
   organizations: {
     list: () => api.get<{ data: CrmOrganizationRow[] }>('/admin/crm/organizations').then((r) => r.data.data),
+    /** Switch the addon off for good — suspended first, code typed back. */
+    remove: (uuid: string, confirm: string) =>
+      api.delete<{ message: string }>(`/admin/crm/organizations/${uuid}`, { data: { confirm } }).then((r) => r.data),
     create: (payload: Record<string, unknown>) => api.post('/admin/crm/organizations', payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/admin/crm/organizations/${uuid}`, payload).then((r) => r.data),
     enter: (uuid: string) =>

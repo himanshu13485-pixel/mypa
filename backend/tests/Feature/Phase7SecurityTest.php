@@ -29,6 +29,10 @@ class Phase7SecurityTest extends TestCase
 
     public function test_forced_password_change_flag_flows_through_login_and_clears(): void
     {
+        // Not about sign-in codes: this test signs in only to get at what
+        // it is really checking, so the second step is switched off.
+        \App\Models\AppSetting::set('login_otp_mode', 'off');
+
         $this->user->update(['password' => 'Default123', 'force_password_change' => true]);
 
         $login = $this->postJson('/api/v1/auth/login', [

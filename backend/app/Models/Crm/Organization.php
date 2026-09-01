@@ -152,6 +152,13 @@ class Organization extends Model
         // 0 turns the rule off.
         'lates_per_half_day' => 4,
         'work_end' => '19:00',
+        // Where the office is, and whether a punch has to prove it is
+        // there. Unset by default: a company that has not registered a
+        // place is not suddenly told everybody is punching from home.
+        'office_lat' => null,
+        'office_lng' => null,
+        'office_radius_m' => 200,
+        'punch_needs_location' => false,
         // Arrive after start + grace and the day is Late.
         'grace_minutes' => 15,
         // Arrive this far past the start and lateness stops being lateness.
@@ -253,6 +260,20 @@ class Organization extends Model
      * How often a due lead nags the screen again if nobody attends it.
      * The Admin turns this knob; 15 minutes is the default.
      */
+    /**
+     * The Office Assets category list. The built-in list is where every
+     * company starts; once one of them edits it, theirs is the list. Kept
+     * in settings rather than a table: it is a handful of words, and the
+     * assets themselves store the category they were filed under, so an
+     * edit here never rewrites history.
+     */
+    public function assetCategories(): array
+    {
+        $own = array_values(array_filter((array) data_get($this->settings, 'assets.categories', [])));
+
+        return $own !== [] ? $own : \App\Models\Crm\Asset::CATEGORIES;
+    }
+
     public function leadAlertMinutes(): int
     {
         return max(5, min(120, (int) (data_get($this->settings, 'leads.alert_minutes') ?: 15)));

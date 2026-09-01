@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useConnectBase } from '../lib/connectBase'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Flag, MessageSquare, Phone, Search, UserPlus, Video, X } from 'lucide-react'
 import { badges as badgesApi, chat, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
@@ -23,6 +25,8 @@ import {
 import { Avatar } from '../lib/avatars'
 
 export default function ConnectionsPage() {
+  const navigate = useNavigate()
+  const connectBase = useConnectBase()
   const { toast, toastError } = useToast()
   const queryClient = useQueryClient()
   const { startCall } = useCalls()
@@ -164,7 +168,7 @@ export default function ConnectionsPage() {
           <div className="flex gap-2">
             <div className="flex-1">
               <UserSuggest
-                placeholder="username or email"
+                placeholder="part of a username, or an App ID / email"
                 value={query}
                 onChange={setQuery}
                 onEnter={search}
@@ -176,24 +180,26 @@ export default function ConnectionsPage() {
           </div>
           <div className="mt-3">
             <ErrorNote message={searchError} />
-            {result && (
-              <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
+            {/* However many people match — a fragment of a username finds
+                everybody who has it, and the reader picks their colleague. */}
+            {result?.map((person) => (
+              <div key={person.uuid} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 dark:border-slate-700">
                 <div className="flex min-w-0 items-center gap-3">
-                  <Avatar name={result.name} photoPath={result.photo_path} avatar={result.avatar} size={38} />
+                  <Avatar name={person.name} photoPath={person.photo_path} avatar={person.avatar} size={38} />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{result.name}</p>
-                    <p className="truncate text-xs text-slate-400">@{(result as { username?: string }).username ?? result.app_id}</p>
+                    <p className="truncate text-sm font-medium">{person.name}</p>
+                    <p className="truncate text-xs text-slate-400">@{person.username ?? person.app_id}</p>
                   </div>
                 </div>
-                {result.is_connected ? (
+                {person.is_connected ? (
                   <Badge value="accepted" />
                 ) : (
-                  <Button size="sm" onClick={() => sendMutation.mutate(result.app_id)} disabled={sendMutation.isPending}>
+                  <Button size="sm" onClick={() => sendMutation.mutate(person.app_id)} disabled={sendMutation.isPending}>
                     <UserPlus className="size-3.5" /> Connect
                   </Button>
                 )}
               </div>
-            )}
+            ))}
           </div>
         </Card>
       </div>
@@ -326,7 +332,7 @@ export default function ConnectionsPage() {
                           size="sm"
                           variant="secondary"
                           title={`Message ${c.user.name}`}
-                          onClick={() => { window.location.href = `/messages?start=${c.user!.app_id}` }}
+                          onClick={() => navigate(`${connectBase}/messages?start=${c.user!.app_id}`)}
                         >
                           <MessageSquare className="size-3.5" />
                         </Button>

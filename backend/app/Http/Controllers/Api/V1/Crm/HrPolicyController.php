@@ -79,6 +79,12 @@ class HrPolicyController extends Controller
             'day_schedule.*.end' => ['required_with:day_schedule.*', 'date_format:H:i'],
             // Every N lates in a month cost half a day's pay; 0 = off.
             'lates_per_half_day' => ['nullable', 'integer', 'min:0', 'max:31'],
+            // Where the office is, so a punch can say whether it was made
+            // there. Left empty, nothing about location is asked or shown.
+            'office_lat' => ['nullable', 'numeric', 'between:-90,90'],
+            'office_lng' => ['nullable', 'numeric', 'between:-180,180'],
+            'office_radius_m' => ['nullable', 'integer', 'min:20', 'max:20000'],
+            'punch_needs_location' => ['nullable', 'boolean'],
             'week_off_days.*' => ['integer', 'min:0', 'max:6'],
             'probation_days' => ['required', 'integer', 'min:0', 'max:1095'],
             'monthly_leave_credit' => ['required', 'numeric', 'min:0', 'max:5'],

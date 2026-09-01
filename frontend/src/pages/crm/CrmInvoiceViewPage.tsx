@@ -103,7 +103,7 @@ export default function CrmInvoiceViewPage() {
 
   const [emailing, setEmailing] = useState(false)
   const emailMutation = useMutation({
-    mutationFn: (payload: { to?: string; from?: 'default' | 'invoice' | 'dues'; message?: string }) =>
+    mutationFn: (payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string }) =>
       crm.invoices.email(uuid!, payload),
     onSuccess: (res) => { toast(res.message, 'success'); setEmailing(false) },
     onError: (err) => toastError(errorMessage(err)),
@@ -520,6 +520,7 @@ export default function CrmInvoiceViewPage() {
       {emailing && (
         <EmailModal
           clientEmail={inv.client?.email ?? ''}
+          salesperson={inv.salesperson ?? null}
           pending={emailMutation.isPending}
           onSend={(payload) => emailMutation.mutate(payload)}
           onClose={() => setEmailing(false)}
@@ -529,15 +530,32 @@ export default function CrmInvoiceViewPage() {
   )
 }
 
-function EmailModal({ clientEmail, pending, onSend, onClose }: {
+function EmailModal({ clientEmail, salesperson, pending, onSend, onClose }: {
   clientEmail: string
+  salesperson: { name: string | null; email?: string | null } | null
   pending: boolean
-  onSend: (payload: { to?: string; from?: 'default' | 'invoice' | 'dues'; message?: string }) => void
+  onSend: (payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string }) => void
   onClose: () => void
 }) {
   const [to, setTo] = useState(clientEmail)
+  // The salesperson is copied by default — it is their client, and their
+  // record of what was sent. Unticking is a decision, not an oversight.
+  const [copySalesperson, setCopySalesperson] = useState(!!salesperson?.email)
+  const [extras, setExtras] = useState<string[]>([])
+  const [nextExtra, setNextExtra] = useState('')
   const [from, setFrom] = useState<'default' | 'invoice' | 'dues'>('invoice')
   const [message, setMessage] = useState('')
+
+  const addExtra = () => {
+    const address = nextExtra.trim()
+    if (!address || extras.includes(address)) return
+    setExtras([...extras, address])
+    setNextExtra('')
+  }
+  const cc = [
+    ...(copySalesperson && salesperson?.email ? [salesperson.email] : []),
+    ...extras,
+  ]
 
   return (
     <Modal title="Email this document" onClose={onClose}>
@@ -545,6 +563,46 @@ function EmailModal({ clientEmail, pending, onSend, onClose }: {
         <div>
           <Label>To</Label>
           <Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="client@company.com" className="w-full" />
+        </div>
+
+        {/* Who else sees it, asked every time — the right answer changes per
+            send: the client's accounts person this month, a colleague next. */}
+        <div>
+          <Label>Copy to</Label>
+          {salesperson?.email && (
+            <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={copySalesperson}
+                onChange={(e) => setCopySalesperson(e.target.checked)}
+                className="size-4 accent-emerald-600"
+              />
+              {salesperson.name ?? 'Salesperson'} <span className="text-slate-400">· {salesperson.email}</span>
+            </label>
+          )}
+          {extras.map((address) => (
+            <div key={address} className="mt-1 flex items-center gap-2 text-sm">
+              <span className="min-w-0 flex-1 truncate">{address}</span>
+              <button
+                type="button"
+                onClick={() => setExtras(extras.filter((a) => a !== address))}
+                className="rounded px-2 py-0.5 text-xs text-slate-400 hover:text-red-500"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <div className="mt-2 flex gap-2">
+            <Input
+              type="email"
+              value={nextExtra}
+              onChange={(e) => setNextExtra(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExtra() } }}
+              placeholder="accounts@client.com"
+              className="w-full"
+            />
+            <Button type="button" variant="secondary" onClick={addExtra} disabled={!nextExtra.trim()}>Add</Button>
+          </div>
         </div>
         <div>
           <Label>Send from</Label>
@@ -559,8 +617,10 @@ function EmailModal({ clientEmail, pending, onSend, onClose }: {
           <Label>Message (optional — a standard line goes otherwise)</Label>
           <Textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} className="w-full" />
         </div>
-        <Button className="w-full" disabled={!to || pending} onClick={() => onSend({ to, from, message: message || undefined })}>
-          {pending ? 'Sending…' : 'Send with PDF attached'}
+        <Button className="w-full" disabled={!to || pending} onClick={() => onSend({ to, cc, from, message: message || undefined })}>
+          {pending ? 'Sending…' : cc.length
+            ? `Send with PDF, copying ${cc.length} ${cc.length === 1 ? 'person' : 'people'}`
+            : 'Send with PDF attached'}
         </Button>
       </div>
     </Modal>

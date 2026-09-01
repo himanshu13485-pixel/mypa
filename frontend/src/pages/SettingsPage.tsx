@@ -8,7 +8,7 @@ import { AVATAR_GROUPS } from '../lib/avatars'
 import { disablePush, enablePush, getPushSubscription, getSoundPrefs, playChime, pushSupported, setSoundPrefs } from '../lib/alerts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { auth, identity as identityApi, profile as profileApi, subscription as subscriptionApi } from '../api/endpoints'
-import { ISD_CODES } from '../types'
+import { MobileField } from '../components/MobileField'
 import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card, ErrorNote, Input, Label, Select } from '../components/ui'
@@ -93,24 +93,29 @@ function IdentityCard() {
             <option value="email">{user?.email ? 'Email' : 'Add email'}</option>
           </Select>
         </div>
-        {type === 'mobile' && (
-          <div>
-            <Label>Country</Label>
-            <Select className="w-36" value={countryCode} onChange={(e) => setCountryCode(e.target.value)}>
-              {ISD_CODES.map(({ code, label }) => (
-                <option key={code} value={code}>{label}</option>
-              ))}
-            </Select>
+        {/* A number is a country and then digits — the same field the
+            sign-up form uses, so a number typed once is typed the same way
+            every time it is typed again. */}
+        {type === 'mobile' ? (
+          <div className="min-w-64 flex-1">
+            <MobileField
+              label="New number"
+              countryCode={countryCode}
+              number={newValue}
+              onCountryCode={setCountryCode}
+              onNumber={setNewValue}
+            />
+          </div>
+        ) : (
+          <div className="min-w-44 flex-1">
+            <Label>New value</Label>
+            <Input
+              value={newValue}
+              onChange={(e) => setNewValue(e.target.value)}
+              placeholder={type === 'username' ? 'newusername' : 'you@mail.com'}
+            />
           </div>
         )}
-        <div className="min-w-44 flex-1">
-          <Label>New value</Label>
-          <Input
-            value={newValue}
-            onChange={(e) => setNewValue(e.target.value)}
-            placeholder={type === 'username' ? 'newusername' : type === 'mobile' ? '9876543210' : 'you@mail.com'}
-          />
-        </div>
         <Button onClick={() => requestMutation.mutate()} disabled={requestMutation.isPending || !newValue.trim()}>
           Request change
         </Button>

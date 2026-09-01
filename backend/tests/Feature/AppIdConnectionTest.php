@@ -34,7 +34,7 @@ class AppIdConnectionTest extends TestCase
         $this->actingAs($this->alice)
             ->getJson('/api/v1/app-id/search?q=' . $this->bob->appId->app_id)
             ->assertOk()
-            ->assertJsonPath('data.name', 'Bob');
+            ->assertJsonPath('data.0.name', 'Bob');
     }
 
     public function test_search_respects_privacy_nobody(): void

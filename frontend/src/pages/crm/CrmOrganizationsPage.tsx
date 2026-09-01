@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Building2, LogIn, Pencil, Plus, Users } from 'lucide-react'
+import { Building2, LogIn, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, getCrmOrg, setCrmOrg, type CrmOrganizationRow } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -43,6 +43,7 @@ export default function CrmOrganizationsPage() {
   })
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmOrganizationRow | null>(null)
+  const [deleting, setDeleting] = useState<CrmOrganizationRow | null>(null)
   const [viewing, setViewing] = useState<CrmOrganizationRow | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({ name: '', code: '', admin_name: '', admin_email: '', admin_password: '' })
@@ -149,6 +150,14 @@ export default function CrmOrganizationsPage() {
                         >
                           {o.status === 'active' ? 'Suspend' : 'Activate'}
                         </Button>
+                        {/* Only a suspended company can be deleted: taking a
+                            live CRM off the air is its own decision, made
+                            first. */}
+                        {o.status !== 'active' && (
+                          <Button size="sm" variant="danger" onClick={() => setDeleting(o)}>
+                            <Trash2 className="size-3.5" /> Delete
+                          </Button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -203,6 +212,9 @@ export default function CrmOrganizationsPage() {
 
       {editing && (
         <EditOrgModal org={editing} onClose={() => setEditing(null)} onDone={() => { setEditing(null); refresh() }} />
+      )}
+      {deleting && (
+        <DeleteOrgModal org={deleting} onClose={() => setDeleting(null)} onDone={() => { setDeleting(null); refresh() }} />
       )}
       {viewing && <OrgMembersModal org={viewing} onClose={() => setViewing(null)} />}
     </div>
@@ -280,6 +292,51 @@ function OrgMembersModal({ org, onClose }: { org: CrmOrganizationRow; onClose: (
           </div>
         </div>
       )}
+    </Modal>
+  )
+}
+
+/**
+ * Deleting a company's CRM. The code has to be typed back before the button
+ * works: it makes the row being deleted the row that was read, which is the
+ * whole point when three companies in a list share most of a name.
+ */
+function DeleteOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClose: () => void; onDone: () => void }) {
+  const { toast, toastError } = useToast()
+  const [confirm, setConfirm] = useState('')
+
+  const removeMutation = useMutation({
+    mutationFn: () => crm.organizations.remove(org.uuid, confirm),
+    onSuccess: (res) => { toast(res.message, 'success'); onDone() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  return (
+    <Modal title={`Delete ${org.name}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          This deletes the company's whole CRM — its {org.members} member{org.members === 1 ? '' : 's'},
+          and every lead, client, invoice, payment and payroll record filed under it. It cannot be undone.
+        </p>
+        <p className="text-sm text-slate-500">
+          The Netvork accounts themselves are not touched: people keep their logins and their personal
+          workspace, they simply stop being employees of this company.
+        </p>
+        <div>
+          <Label>Type the code <span className="font-mono text-slate-700 dark:text-slate-200">{org.code}</span> to confirm</Label>
+          <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={org.code} className="w-full" />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button
+            variant="danger"
+            disabled={confirm.trim() !== org.code || removeMutation.isPending}
+            onClick={() => removeMutation.mutate()}
+          >
+            {removeMutation.isPending ? 'Deleting…' : 'Delete for good'}
+          </Button>
+        </div>
+      </div>
     </Modal>
   )
 }

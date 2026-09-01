@@ -13,7 +13,9 @@ class Punch extends Model
 
     protected $fillable = [
         'organization_id', 'member_id', 'work_date', 'punch_in', 'punch_out',
-        'in_ip', 'out_ip', 'status', 'status_source', 'note',
+        'in_ip', 'out_ip', 'in_device', 'out_device',
+        'in_lat', 'in_lng', 'in_distance_m',
+        'status', 'status_source', 'note',
     ];
 
     protected function casts(): array

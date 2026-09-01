@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Check, CheckCheck, ChevronLeft, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Search, Send,
+  Check, CheckCheck, ChevronLeft, Clock, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Search, Send,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
 import { badges as badgesApi, conversationMembers, reportsApi } from '../api/endpoints'
@@ -21,6 +21,19 @@ import type { ChatMessage, ConversationItem } from '../types'
 import { Avatar } from '../lib/avatars'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
+
+/**
+ * How long a conversation keeps what is said in it. Off is the default and
+ * has to stay the default: nobody's history disappears unless somebody in
+ * the room asks for it.
+ */
+const RETENTION_LABELS: Record<number, string> = { 24: '24 hours', 168: '7 days', 720: '30 days' }
+const RETENTION_CHOICES: { hours: number | null; label: string; hint: string }[] = [
+  { hours: null, label: 'Keep everything', hint: 'Nothing is deleted — the default.' },
+  { hours: 24, label: 'Delete after 24 hours', hint: 'Yesterday is gone by this time tomorrow.' },
+  { hours: 168, label: 'Delete after 7 days', hint: 'A week of history, no more.' },
+  { hours: 720, label: 'Delete after 30 days', hint: 'A month of history, no more.' },
+]
 
 /**
  * Render message text with any http(s) URLs as clickable links (meeting
@@ -180,6 +193,7 @@ export default function MessagesPage() {
    */
   const [search, setSearch] = useState('')
   const [searching, setSearching] = useState(false)
+  const [retentionOpen, setRetentionOpen] = useState(false)
   const query = searching ? search.trim() : ''
 
   const { data: messages, isLoading: loadingThread } = useQuery({
@@ -480,6 +494,18 @@ export default function MessagesPage() {
       {showMembers && selected && (
                 <MembersModal conversationUuid={selected.uuid} onClose={() => setShowMembers(false)} />
               )}
+              {retentionOpen && selected && (
+                <RetentionModal
+                  conversationUuid={selected.uuid}
+                  current={selected.auto_delete_hours ?? null}
+                  onClose={() => setRetentionOpen(false)}
+                  onSaved={() => {
+                    setRetentionOpen(false)
+                    queryClient.invalidateQueries({ queryKey: ['conversations'] })
+                    queryClient.invalidateQueries({ queryKey: ['messages', selected.uuid] })
+                  }}
+                />
+              )}
               <div className="flex gap-1">
                 <Button
                   size="sm"
@@ -488,6 +514,18 @@ export default function MessagesPage() {
                   onClick={() => setSearching((v) => !v)}
                 >
                   <Search className="size-4" />
+                </Button>
+                {/* Disappearing messages. Lit when a span is set, so the
+                    room can see at a glance that it is on. */}
+                <Button
+                  size="sm"
+                  variant={selected.auto_delete_hours ? 'primary' : 'ghost'}
+                  title={selected.auto_delete_hours
+                    ? `Messages delete themselves after ${RETENTION_LABELS[selected.auto_delete_hours] ?? 'a while'}`
+                    : 'Auto-delete messages'}
+                  onClick={() => setRetentionOpen(true)}
+                >
+                  <Clock className="size-4" />
                 </Button>
                 <Button
                   size="sm"
@@ -828,6 +866,65 @@ function AudioAttachment({ conversationUuid, attachmentId, duration, own }: {
   }
 
   return <audio controls autoPlay src={src} className="mt-1 h-9 max-w-full" />
+}
+
+/**
+ * Choosing how long this conversation keeps things. The setting is the
+ * room's, not one member's, so the dialog says so plainly and everyone is
+ * told in the thread when it changes.
+ */
+function RetentionModal({ conversationUuid, current, onClose, onSaved }: {
+  conversationUuid: string
+  current: number | null
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [pending, setPending] = useState<number | null | 'busy'>(null)
+
+  const choose = async (hours: number | null) => {
+    setPending('busy')
+    try {
+      await chat.setRetention(conversationUuid, hours)
+      onSaved()
+    } finally {
+      setPending(null)
+    }
+  }
+
+  return (
+    <Modal title="Auto-delete messages" onClose={onClose}>
+      <div className="space-y-2">
+        <p className="text-sm text-slate-500">
+          This applies to everyone in the conversation, and older messages go for good — attachments
+          included. Everybody here is told in the thread when it changes.
+        </p>
+        {RETENTION_CHOICES.map((choice) => {
+          const active = (choice.hours ?? null) === current
+
+          return (
+            <button
+              key={String(choice.hours)}
+              type="button"
+              disabled={pending === 'busy'}
+              onClick={() => choose(choice.hours)}
+              className={clsx(
+                'flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left text-sm',
+                active
+                  ? 'bg-brand-50 text-brand-700 ring-1 ring-brand-200 dark:bg-brand-500/10 dark:text-brand-300 dark:ring-brand-500/30'
+                  : 'bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/60 dark:hover:bg-slate-800',
+              )}
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">{choice.label}</span>
+                <span className="block text-xs text-slate-400">{choice.hint}</span>
+              </span>
+              {active && <Check className="mt-0.5 size-4 shrink-0" />}
+            </button>
+          )
+        })}
+      </div>
+    </Modal>
+  )
 }
 
 function MembersModal({ conversationUuid, onClose }: { conversationUuid: string; onClose: () => void }) {

@@ -245,8 +245,8 @@ export default function NotesPage() {
             className="space-y-4"
           >
             <ErrorNote message={error} />
-            <div className="grid grid-cols-3 gap-3">
-              <div className="col-span-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="sm:col-span-2">
                 <Label>Title</Label>
                 <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required autoFocus />
               </div>
@@ -309,7 +309,7 @@ export default function NotesPage() {
               </div>
             )}
 
-            <div className="grid grid-cols-3 items-end gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:items-end">
               <div>
                 <Label>Color</Label>
                 <input
@@ -328,7 +328,7 @@ export default function NotesPage() {
                   placeholder="Protect this note"
                 />
               </div>
-              <label className="flex items-center gap-2 pb-2 text-sm">
+              <label className="flex items-center gap-2 text-sm sm:pb-2">
                 <input
                   type="checkbox"
                   checked={form.is_pinned}

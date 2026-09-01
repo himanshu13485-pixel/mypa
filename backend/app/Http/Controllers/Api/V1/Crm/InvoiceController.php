@@ -46,7 +46,7 @@ class InvoiceController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
 
-        $query = Invoice::with(['client:id,uuid,company_name,contact_person', 'issuingCompany:id,name', 'member.user:id,name'])
+        $query = Invoice::with(['client:id,uuid,company_name,contact_person', 'issuingCompany:id,name', 'member.user:id,name,email'])
             ->where('organization_id', $org->id)
             // Own ledger only, unless you run the company.
             ->visibleTo($me)
@@ -124,7 +124,7 @@ class InvoiceController extends Controller
         if ($scope === 'team') {
             $bySalesperson = (clone $query)
                 ->where('status', '!=', 'cancelled')
-                ->with('member.user:id,name')
+                ->with('member.user:id,name,email')
                 ->withSum('payments as received', 'amount')
                 ->get(['id', 'member_id', 'total'])
                 ->groupBy('member_id')
@@ -209,7 +209,7 @@ class InvoiceController extends Controller
 
         return response()->json([
             'message' => ($invoice->kind === 'proforma' ? 'Proforma invoice ' : 'Invoice ') . $invoice->number . ' created.',
-            'data' => $this->serialize($invoice->fresh()->load(['client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name'])),
+            'data' => $this->serialize($invoice->fresh()->load(['client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email'])),
         ], 201);
     }
 
@@ -217,7 +217,7 @@ class InvoiceController extends Controller
     {
         $invoice = $this->find($request, $uuid)->load([
             'client', 'issuingCompany', 'items', 'taxes', 'payments.bankAccount:id,label',
-            'member.user:id,name', 'convertedFrom:id,uuid,number', 'convertedTo:id,uuid,number,converted_from_id',
+            'member.user:id,name,email', 'convertedFrom:id,uuid,number', 'convertedTo:id,uuid,number,converted_from_id',
         ]);
 
         return response()->json(['data' => $this->serialize($invoice, full: true)]);
@@ -249,7 +249,7 @@ class InvoiceController extends Controller
 
         return response()->json([
             'message' => 'Saved.',
-            'data' => $this->serialize($invoice->fresh()->load(['client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name'])),
+            'data' => $this->serialize($invoice->fresh()->load(['client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email'])),
         ]);
     }
 
@@ -484,7 +484,7 @@ class InvoiceController extends Controller
     public function pdf(Request $request, string $uuid)
     {
         $invoice = $this->find($request, $uuid)->load([
-            'client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name', 'payments',
+            'client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email', 'payments',
         ]);
 
         return $this->documentPdf($invoice)
@@ -499,17 +499,31 @@ class InvoiceController extends Controller
     public function email(Request $request, string $uuid): JsonResponse
     {
         $invoice = $this->find($request, $uuid)->load([
-            'client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name', 'payments',
+            'client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email', 'payments',
         ]);
         $org = $request->attributes->get('crm_org');
 
         $data = $request->validate([
             'to' => ['nullable', 'email'],
+            // Everyone else who should see it. The salesperson is offered by
+            // default, and whoever sends decides who else — the accounts
+            // person the client asked for, a colleague, themselves.
+            'cc' => ['nullable', 'array', 'max:10'],
+            'cc.*' => ['email'],
             'from' => ['nullable', \Illuminate\Validation\Rule::in(['default', 'invoice', 'dues'])],
             'message' => ['nullable', 'string', 'max:2000'],
         ]);
         $to = $data['to'] ?? $invoice->client?->email;
         abort_unless($to, 422, 'The client has no e-mail on file — enter one to send to.');
+
+        // Nobody twice, and no copy to the address it is already going to.
+        $cc = collect($data['cc'] ?? [])
+            ->map(fn ($a) => trim($a))
+            ->filter()
+            ->unique(fn ($a) => mb_strtolower($a))
+            ->reject(fn ($a) => strcasecmp($a, $to) === 0)
+            ->values()
+            ->all();
 
         // The issuing company's own sender/mailbox first; the chosen
         // purpose-level sender when the company has none.
@@ -532,8 +546,9 @@ class InvoiceController extends Controller
 
         $pdf = $this->documentPdf($invoice);
         try {
-            $mailer->html(nl2br(e(implode("\n", $lines))), function ($m) use ($to, $label, $invoice, $pdf, $fromAddress, $fromName) {
+            $mailer->html(nl2br(e(implode("\n", $lines))), function ($m) use ($to, $cc, $label, $invoice, $pdf, $fromAddress, $fromName) {
                 $m->to($to)
+                    ->cc($cc)
                     ->from($fromAddress, $fromName)
                     ->subject($label . ' ' . $invoice->number)
                     ->attachData($pdf->output(), str_replace(['/', '\\', ' '], '-', $invoice->number) . '.pdf', ['mime' => 'application/pdf']);
@@ -545,10 +560,12 @@ class InvoiceController extends Controller
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'invoice.emailed', $invoice, [
             'number' => $invoice->number,
             'to' => $to,
+            'cc' => implode(', ', $cc),
             'from' => $fromAddress,
         ]);
 
-        return response()->json(['message' => $label . ' ' . $invoice->number . ' sent to ' . $to . '.']);
+        return response()->json(['message' => $label . ' ' . $invoice->number . ' sent to ' . $to
+            . ($cc !== [] ? ', copied to ' . implode(', ', $cc) : '') . '.']);
     }
 
     /** One PDF builder for downloads and e-mails alike. */
@@ -632,7 +649,7 @@ class InvoiceController extends Controller
             ->visibleTo($me)
             ->where('kind', $kind);
 
-        $query = ActivityLog::with('member.user:id,name')
+        $query = ActivityLog::with('member.user:id,name,email')
             ->where('organization_id', $org->id)
             ->where('subject_type', (new Invoice)->getMorphClass())
             ->whereIn('subject_id', (clone $documents)->select('id'));
@@ -1124,7 +1141,13 @@ class InvoiceController extends Controller
                 'email' => $i->client->email,
             ] : null,
             'issuing_company' => $i->issuingCompany?->only(['id', 'name']),
-            'salesperson' => $i->member ? ['uuid' => $i->member->uuid, 'name' => $i->member->user?->name] : null,
+            // The e-mail dialog offers the salesperson a copy of what
+            // went to their client, so it needs their address too.
+            'salesperson' => $i->member ? [
+                'uuid' => $i->member->uuid,
+                'name' => $i->member->user?->name,
+                'email' => $i->member->user?->email,
+            ] : null,
             'currency' => $i->currency,
             'subtotal' => $i->subtotal,
             'total' => $i->total,

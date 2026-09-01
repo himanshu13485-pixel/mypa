@@ -9,28 +9,38 @@ use Illuminate\Http\Request;
 
 class AppIdController extends Controller
 {
+    /**
+     * Who can I connect with? Part of a handle is enough — the person who
+     * remembers "grapout" finds harshgrapout, which is how anybody actually
+     * remembers a colleague's username.
+     */
     public function search(Request $request, AppIdService $appIds): JsonResponse
     {
-        $request->validate(['q' => ['required', 'string', 'max:32']]);
+        $request->validate(['q' => ['required', 'string', 'max:64']]);
 
-        $user = $appIds->findVisibleUser($request->query('q'), $request->user());
+        $matches = $appIds->searchVisibleUsers($request->query('q'), $request->user());
 
-        if (! $user) {
-            return response()->json(['data' => null, 'message' => 'No user found for that username, email, or App ID.'], 404);
+        if ($matches->isEmpty()) {
+            return response()->json([
+                'data' => [],
+                'message' => 'Nobody found. Try more of their username, or their App ID or e-mail in full.',
+            ], 404);
         }
 
-        $photoVisible = $user->settings?->privacyValue('profile_photo_visibility') !== 'nobody';
-
         return response()->json([
-            'data' => [
-                'uuid' => $user->uuid,
-                'name' => $user->name,
-                'username' => $user->username,
-                'app_id' => $user->appId?->app_id,
-                'photo_path' => $photoVisible ? $user->profile?->photo_path : null,
-                'avatar' => $photoVisible ? $user->profile?->avatar : null,
-                'is_connected' => $appIds->areConnected($request->user(), $user),
-            ],
+            'data' => $matches->map(function ($user) use ($appIds, $request) {
+                $photoVisible = $user->settings?->privacyValue('profile_photo_visibility') !== 'nobody';
+
+                return [
+                    'uuid' => $user->uuid,
+                    'name' => $user->name,
+                    'username' => $user->username,
+                    'app_id' => $user->appId?->app_id,
+                    'photo_path' => $photoVisible ? $user->profile?->photo_path : null,
+                    'avatar' => $photoVisible ? $user->profile?->avatar : null,
+                    'is_connected' => $appIds->areConnected($request->user(), $user),
+                ];
+            })->values(),
         ]);
     }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useConnectBase } from '../lib/connectBase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { MessageCircle, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Users, Video } from 'lucide-react'
 import { format } from 'date-fns'
@@ -14,6 +15,7 @@ export default function CallsPage() {
   const { activeCall, joinCall, startCall } = useCalls()
   const { toastError } = useToast()
   const navigate = useNavigate()
+  const connectBase = useConnectBase()
   const [page, setPage] = useState(1)
   const [joining, setJoining] = useState<string | null>(null)
   const [params, setParams] = useSearchParams()
@@ -194,7 +196,7 @@ export default function CallsPage() {
                       size="sm"
                       variant="secondary"
                       title="Open the conversation"
-                      onClick={() => navigate(`/messages?conversation=${call.conversation_uuid}`)}
+                      onClick={() => navigate(`${connectBase}/messages?conversation=${call.conversation_uuid}`)}
                     >
                       <MessageCircle className="size-3.5" />
                     </Button>

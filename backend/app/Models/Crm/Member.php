@@ -86,7 +86,7 @@ class Member extends Model
         'department', 'designation', 'batch', 'father_name', 'father_phone',
         'mother_name', 'mother_phone', 'dob', 'gender', 'present_address',
         'present_phone', 'office_phone', 'permanent_address', 'permanent_phone',
-        'personal_email', 'joined_at', 'probation_days', 'late_waived', 'resigned_at', 'is_salesperson', 'incentive_needs_payment', 'pf_no',
+        'personal_email', 'joined_at', 'probation_days', 'late_waived', 'punch_waived', 'resigned_at', 'is_salesperson', 'incentive_needs_payment', 'pf_no',
         'esi_no', 'pan_no', 'aadhaar_no', 'bank_name', 'bank_account_no',
         'bank_ifsc', 'bank_account_name', 'reporting_to', 'rights', 'note',
     ];
@@ -99,6 +99,7 @@ class Member extends Model
             'resigned_at' => 'date',
             'is_salesperson' => 'boolean',
             'late_waived' => 'boolean',
+            'punch_waived' => 'boolean',
             'incentive_needs_payment' => 'boolean',
             'is_oversight' => 'boolean',
             'rights' => 'array',

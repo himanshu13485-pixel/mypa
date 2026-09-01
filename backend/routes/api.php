@@ -149,6 +149,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
         Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
         Route::post('/auth/otp/request', [AuthController::class, 'requestLoginOtp']);
+        // The second step of a password login, when a code was asked for.
+        Route::post('/auth/login/verify', [AuthController::class, 'verifySignInCode']);
         Route::post('/auth/otp/login', [AuthController::class, 'loginWithOtp']);
     });
 
@@ -386,6 +388,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/conversations/{conversation}/typing', [ConversationController::class, 'typing'])
             ->withoutMiddleware('throttle:180,1')
             ->middleware('throttle:600,1');
+        // Disappearing messages: off unless somebody in the room says so.
+        Route::post('/conversations/{conversation}/retention', [ConversationController::class, 'setRetention']);
         Route::post('/conversations/{conversation}/mute', [ConversationController::class, 'toggleMute']);
         Route::post('/conversations/{conversation}/archive', [ConversationController::class, 'toggleArchive']);
         Route::get('/conversations/{conversation}/members', [ConversationController::class, 'members']);
@@ -1071,6 +1075,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::put('/masters/fx-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveFxSettings']);
                 Route::get('/masters/birthday-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'birthdaySettings']);
                 Route::put('/masters/birthday-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveBirthdaySettings']);
+                // The Office Assets category list, edited in Billing setup.
+                Route::get('/masters/asset-categories', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'assetCategories']);
+                Route::put('/masters/asset-categories', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveAssetCategories']);
                 Route::get('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'communicationSettings']);
                 Route::put('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveCommunicationSettings']);
                 Route::post('/masters/bank-accounts', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeBank']);
@@ -1083,6 +1090,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::get('/organizations', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'index']);
             Route::post('/organizations', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'store']);
             Route::put('/organizations/{organization}', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'update']);
+            Route::delete('/organizations/{organization}', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'destroy']);
             Route::get('/organizations/{organization}/members', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'members']);
             Route::post('/organizations/{organization}/enter', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'enter']);
             // DCW approvals across every company.
