@@ -87,4 +87,47 @@ class ConnectionSearchTest extends TestCase
         $this->person('Ab Person', 'abperson', 'ab@netvork.test');
         $this->actingAs($me)->getJson('/api/v1/app-id/search?q=ab')->assertNotFound();
     }
+
+    public function test_a_colleague_is_found_by_name_across_the_whole_address_book(): void
+    {
+        $me = $this->person('Seeker', 'seeker', 'seeker@netvork.test');
+        $priyanshu = $this->person('Priyanshu Verma', 'pverma', 'pv@netvork.test');
+
+        // The name is what one colleague knows another by, and the search
+        // button now matches it — the dropdown beside it always did.
+        $this->actingAs($me)->getJson('/api/v1/app-id/search?q=Priyanshu')
+            ->assertOk()->assertJsonPath('data.0.username', 'pverma');
+
+        // Connect them, then bury them under a page of other connections.
+        \App\Models\Connection::create([
+            'requester_id' => $me->id, 'addressee_id' => $priyanshu->id, 'status' => 'accepted',
+        ]);
+        foreach (range(1, 25) as $i) {
+            $other = $this->person('Filler ' . $i, 'filler' . $i, 'f' . $i . '@netvork.test');
+            \App\Models\Connection::create([
+                'requester_id' => $me->id, 'addressee_id' => $other->id, 'status' => 'accepted',
+            ]);
+        }
+
+        // The address book is bigger than a page, which is the whole point:
+        // whatever the first page happens to hold, it is not all of them.
+        $firstPage = $this->actingAs($me)->getJson('/api/v1/connections')->assertOk();
+        $this->assertCount(20, $firstPage->json('data'));
+        $this->assertSame(26, $firstPage->json('meta.total'));
+
+        // Searching finds them wherever they are, because the server does it.
+        $found = collect($this->actingAs($me)->getJson('/api/v1/connections?q=priyanshu')
+            ->assertOk()->json('data'));
+        $this->assertCount(1, $found);
+        $this->assertSame('Priyanshu Verma', $found->first()['user']['name']);
+
+        // The App ID works the same way. Not asserted as exactly one: an ID
+        // is a substring of longer IDs, so NV-2 legitimately also finds
+        // NV-20 — the point is that theirs is among them.
+        $byAppId = collect($this->actingAs($me)
+            ->getJson('/api/v1/connections?q=' . $priyanshu->appId->app_id)->json('data'));
+        $this->assertTrue($byAppId->pluck('user.name')->contains('Priyanshu Verma'));
+        $this->assertCount(0, $this->actingAs($me)
+            ->getJson('/api/v1/connections?q=nobodyhere')->json('data'));
+    }
 }

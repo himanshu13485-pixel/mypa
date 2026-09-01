@@ -192,6 +192,9 @@ export default function GroupsPage() {
             <div className="flex items-center justify-between">
               <p className="text-xs capitalize text-slate-400">
                 {detail.type} group · your role: {detail.my_role}
+                {detail.only_admins_post && (
+                  <span className="ml-1 font-medium text-amber-600">· announcements only</span>
+                )}
               </p>
               <Link
                 to={`/tasks?group=${detail.uuid}`}
@@ -201,6 +204,31 @@ export default function GroupsPage() {
                 <CheckSquare className="size-3.5" /> Group tasks
               </Link>
             </div>
+
+            {/* An announcement group: everybody reads it, the admins write.
+                Enforced on the server too — a closed group that is only
+                closed in the interface is not closed. */}
+            {canManage && (
+              <label className="flex items-start gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
+                <input
+                  type="checkbox"
+                  checked={!!detail.only_admins_post}
+                  onChange={(e) => {
+                    groupsApi.update(detail.uuid, { only_admins_post: e.target.checked })
+                      .then(() => refreshDetail(detail.uuid))
+                      .catch(() => { /* the checkbox springs back on refresh */ })
+                  }}
+                  className="mt-0.5 size-4 accent-brand-600"
+                />
+                <span>
+                  Only admins can post
+                  <span className="block text-xs text-slate-400">
+                    Everybody still reads the group and gets its notifications; only owners and admins
+                    can write. Admins can also delete anyone&rsquo;s message here.
+                  </span>
+                </span>
+              </label>
+            )}
 
             <div>
               <h3 className="mb-2 text-sm font-semibold">Members</h3>

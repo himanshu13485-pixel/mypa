@@ -40,9 +40,23 @@ export default function ConnectionsPage() {
   const [calling, setCalling] = useState<string | null>(null)
   const [reporting, setReporting] = useState<{ identifier: string; name: string; reason: string; details: string } | null>(null)
 
+  /*
+   * The filter is a question for the server.
+   *
+   * The list arrives twenty at a time, so filtering it here could only ever
+   * search the twenty on screen — which is why looking for a colleague by
+   * name came back empty the moment somebody had more than a page of
+   * connections. Debounced, because it is a request per keystroke otherwise.
+   */
+  const [searchTerm, setSearchTerm] = useState('')
+  useEffect(() => {
+    const id = setTimeout(() => setSearchTerm(filter.trim()), 300)
+    return () => clearTimeout(id)
+  }, [filter])
+
   const { data: list, isLoading } = useQuery({
-    queryKey: ['connections'],
-    queryFn: () => connectionsApi.list(),
+    queryKey: ['connections', searchTerm],
+    queryFn: () => connectionsApi.list(undefined, searchTerm || undefined),
     /*
      * Presence goes stale on its own — somebody closing their laptop sends
      * nothing — so the dots need re-asking rather than invalidating. A minute
@@ -115,14 +129,9 @@ export default function ConnectionsPage() {
 
   // Filtering the people you already know, which is a different question from
   // the App ID search above — that one goes looking for strangers.
-  const needle = filter.trim().toLowerCase()
-  const shown = needle
-    // Name and App ID: the two things the row actually shows, and the App ID
-    // is the identifier people quote to each other.
-    ? accepted.filter((c) =>
-        (c.user?.name ?? '').toLowerCase().includes(needle)
-        || (c.user?.app_id ?? '').toLowerCase().includes(needle))
-    : accepted
+  // The server searched names, usernames and App IDs across the whole list,
+  // so what came back is already the answer.
+  const shown = accepted
 
   /**
    * Ring somebody straight from the list.

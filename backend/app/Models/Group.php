@@ -19,7 +19,7 @@ class Group extends Model
     /** Roles allowed to manage members and edit the group. */
     public const MANAGER_ROLES = ['owner', 'admin'];
 
-    protected $fillable = ['owner_id', 'name', 'type', 'description', 'icon', 'color'];
+    protected $fillable = ['owner_id', 'name', 'type', 'description', 'icon', 'color', 'only_admins_post'];
 
     public function uniqueIds(): array
     {
@@ -29,6 +29,11 @@ class Group extends Model
     public function getRouteKeyName(): string
     {
         return 'uuid';
+    }
+
+    protected function casts(): array
+    {
+        return ['only_admins_post' => 'boolean'];
     }
 
     public function owner(): BelongsTo

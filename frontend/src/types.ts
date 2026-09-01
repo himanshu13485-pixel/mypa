@@ -358,6 +358,10 @@ export interface GroupItem {
   color?: string | null
   is_owner: boolean
   my_role: string | null
+  /** An announcement group: everybody reads it, the admins write. */
+  only_admins_post?: boolean
+  /** Whether the reader is one of the people running it. */
+  i_manage?: boolean
   members_count: number
   tasks_count: number
   created_at?: string
