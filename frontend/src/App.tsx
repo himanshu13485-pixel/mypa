@@ -60,6 +60,7 @@ const PaymentStatusPage = lazyRoute('PaymentStatusPage', () => import('./pages/P
 // The CRM addon: its own shell and route tree, fully apart from the personal app.
 const CrmLayout = lazyRoute('CrmLayout', () => import('./pages/crm/CrmLayout'))
 const CrmDashboard = lazyRoute('CrmDashboard', () => import('./pages/crm/CrmDashboard'))
+const CrmOverviewPage = lazyRoute('CrmOverviewPage', () => import('./pages/crm/CrmOverviewPage'))
 const CrmEmployeesPage = lazyRoute('CrmEmployeesPage', () => import('./pages/crm/CrmEmployeesPage'))
 const CrmEmployeeFormPage = lazyRoute('CrmEmployeeFormPage', () => import('./pages/crm/CrmEmployeeFormPage'))
 const CrmClientsPage = lazyRoute('CrmClientsPage', () => import('./pages/crm/CrmClientsPage'))
@@ -301,6 +302,7 @@ export default function App() {
             <Route path="invoices/new" element={<CrmInvoiceFormPage />} />
             <Route path="invoices/:uuid" element={<CrmInvoiceViewPage />} />
             <Route path="invoices/:uuid/edit" element={<CrmInvoiceFormPage />} />
+            <Route path="overview" element={<CrmOverviewPage />} />
             <Route path="settings" element={<CrmSettingsPage />} />
             {/* Connect inside the CRM: the same pages as the personal side,
                 same data, just wearing the company shell. */}

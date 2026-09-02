@@ -319,21 +319,18 @@ class ConversationController extends Controller
         // online-status one, so the Settings toggle for it did nothing at all.
         // Both also honour 'connections', which was previously ignored — only
         // 'nobody' had any effect.
-        $visibleTo = function (string $key, string $fallback) use ($other, $me): bool {
-            if (! $other) {
-                return true;
-            }
-            $pref = $other->settings?->privacyValue($key) ?? $fallback;
+        /*
+         * Both halves of the question, and reciprocally.
+         *
+         * Whoever hides their own is not shown anybody else's — a setting
+         * that takes without giving is an advantage, not a privacy setting.
+         * The rule lives on the model so this screen and every other one
+         * answer the same way.
+         */
+        $visibleTo = fn (string $key): bool => ! $other || $other->presenceVisibleTo($me, $key);
 
-            return match ($pref) {
-                'nobody' => false,
-                'connections' => app(AppIdService::class)->areConnected($me, $other),
-                default => true,
-            };
-        };
-
-        $onlineVisible = $visibleTo('online_status_visibility', 'connections');
-        $lastSeenVisible = $visibleTo('last_seen_visibility', 'connections');
+        $onlineVisible = $visibleTo('online_status_visibility');
+        $lastSeenVisible = $visibleTo('last_seen_visibility');
 
         return [
             'uuid' => $conversation->uuid,

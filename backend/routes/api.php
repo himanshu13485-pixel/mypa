@@ -638,6 +638,12 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::middleware('crm.member')->group(function () {
                 Route::get('/masters', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'masters']);
                 Route::get('/dashboard', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'dashboard']);
+                /*
+                 * The company as it is right now: who is here, what is
+                 * running, and the standing numbers. Company-wide, so
+                 * the controller holds it to admins and subadmins.
+                 */
+                Route::get('/overview', [\App\Http\Controllers\Api\V1\Crm\OverviewController::class, 'show']);
                 Route::get('/badges', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'badges']);
             // "I have looked at this section" — the sidebar badge goes quiet.
             Route::post('/sections/{section}/seen', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'markSectionSeen']);

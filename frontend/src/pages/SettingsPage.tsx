@@ -404,14 +404,29 @@ function DangerZone() {
   )
 }
 
-const PRIVACY_FIELDS: { key: string; label: string }[] = [
+const PRIVACY_FIELDS: { key: string; label: string; note?: string }[] = [
   { key: 'who_can_find_me', label: 'Who can find me by App ID' },
   { key: 'who_can_connect', label: 'Who can send connection requests' },
   { key: 'who_can_message', label: 'Who can message me' },
   { key: 'who_can_call', label: 'Who can call me' },
   { key: 'profile_photo_visibility', label: 'Who can view my profile photo' },
-  { key: 'online_status_visibility', label: 'Who can see my online status' },
-  { key: 'last_seen_visibility', label: 'Who can see my last seen' },
+  /*
+   * The trade said out loud.
+   *
+   * These two are reciprocal — set to Nobody and you stop seeing everybody
+   * else's as well. Finding that out by noticing the dots have gone is the
+   * kind of thing people report as a bug, when it is the setting working.
+   */
+  {
+    key: 'online_status_visibility',
+    label: 'Who can see my online status',
+    note: 'Set to Nobody and you will not see anyone else’s either.',
+  },
+  {
+    key: 'last_seen_visibility',
+    label: 'Who can see my last seen',
+    note: 'Set to Nobody and you will not see anyone else’s either.',
+  },
 ]
 
 export default function SettingsPage() {
@@ -601,7 +616,7 @@ export default function SettingsPage() {
       <Card>
         <h2 className="mb-3 text-sm font-semibold">Privacy</h2>
         <div className="grid gap-3 sm:grid-cols-2">
-          {PRIVACY_FIELDS.map(({ key, label }) => (
+          {PRIVACY_FIELDS.map(({ key, label, note }) => (
             <div key={key}>
               <Label>{label}</Label>
               <Select value={privacy[key] ?? 'everyone'} onChange={(e) => setPrivacy({ ...privacy, [key]: e.target.value })}>
@@ -609,6 +624,12 @@ export default function SettingsPage() {
                 <option value="connections">My connections</option>
                 <option value="nobody">Nobody</option>
               </Select>
+              {/* Only where it changes what you get back, and only once it
+                  applies — a warning about a setting you have not chosen is
+                  noise on every other row. */}
+              {note && privacy[key] === 'nobody' && (
+                <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">{note}</p>
+              )}
             </div>
           ))}
         </div>

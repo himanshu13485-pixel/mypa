@@ -243,13 +243,44 @@ class User extends Authenticatable implements MustVerifyEmail
             return $this->presenceState();
         }
 
-        $visible = match ($this->settings?->privacyValue('online_status_visibility') ?? 'connections') {
+        return $this->presenceVisibleTo($viewer, 'online_status_visibility')
+            ? $this->presenceState()
+            : null;
+    }
+
+    /**
+     * May $viewer see this person's presence, under $key?
+     *
+     * Two conditions, and the second is the one people expect without being
+     * able to name it: whoever hides their own is not shown anybody else's.
+     *
+     * A setting that takes without giving is not a privacy setting, it is an
+     * advantage — you would see who is at their desk while they could not see
+     * you, which is precisely the arrangement the person switching it off was
+     * trying to prevent for themselves. Every messenger that has ever shipped
+     * this setting made it reciprocal, and for the same reason.
+     *
+     * Only 'nobody' costs you the view. 'connections' is not hiding; it is
+     * answering a narrower question, and it goes on being answered both ways.
+     */
+    public function presenceVisibleTo(?self $viewer, string $key = 'online_status_visibility'): bool
+    {
+        if (! $viewer) {
+            return false;
+        }
+        if ($viewer->id === $this->id) {
+            return true;
+        }
+
+        if (($viewer->settings?->privacyValue($key) ?? 'connections') === 'nobody') {
+            return false;
+        }
+
+        return match ($this->settings?->privacyValue($key) ?? 'connections') {
             'nobody' => false,
             'connections' => app(\App\Services\AppIdService::class)->areConnected($viewer, $this),
             default => true,
         };
-
-        return $visible ? $this->presenceState() : null;
     }
 
     /**
@@ -305,7 +336,17 @@ class User extends Authenticatable implements MustVerifyEmail
             return [];
         }
 
-        return self::whereIn('id', $ids)->pluck('uuid')->all();
+        /*
+         * And not to anybody who hides their own.
+         *
+         * The read paths already answer null for them, but a live broadcast
+         * would arrive anyway and their screen would light up with dots the
+         * API refuses to confirm — the setting would look like it worked
+         * until the page was reloaded.
+         */
+        return self::with('settings')->whereIn('id', $ids)->get()
+            ->reject(fn (self $viewer) => ($viewer->settings?->privacyValue('online_status_visibility') ?? 'connections') === 'nobody')
+            ->pluck('uuid')->all();
     }
 
     /**

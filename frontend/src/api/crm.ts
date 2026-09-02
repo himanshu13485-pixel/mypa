@@ -384,6 +384,40 @@ export interface CrmEmployee {
 }
 
 /** One Netvork account the employee search turned up. */
+/** The company as it is right now, for whoever runs it. */
+export interface CrmOverview {
+  members: {
+    uuid: string
+    name: string | null
+    employee_code: string | null
+    designation: string | null
+    avatar: string | null
+    photo_path: string | null
+    /** At the screen in the last few minutes. */
+    online: boolean
+    /** Started their day and has not punched out. A different fact from online. */
+    punched_in: boolean
+    last_active_at: string | null
+  }[]
+  meetings: {
+    uuid: string
+    code: string
+    title: string | null
+    host: string | null
+    started_at: string | null
+    participants: number
+  }[]
+  overview: {
+    members_total: number
+    members_active: number
+    punched_in_today: number
+    on_leave_today: number
+    clients_active: number
+    leads_open: number
+    approvals_pending: number
+  }
+}
+
 export interface CrmAccountMatch {
   name: string
   email: string
@@ -1687,6 +1721,9 @@ export const crm = {
   badges: () => api.get<{ data: CrmBadges }>('/crm/badges').then((r) => r.data.data),
   markSectionSeen: (section: string) =>
     api.post<{ message: string }>(`/crm/sections/${section}/seen`).then((r) => r.data),
+  /** Who is here, what is running, and the standing numbers. Admins only. */
+  overview: () => api.get<{ data: CrmOverview }>('/crm/overview').then((r) => r.data.data),
+
   masters: () => api.get<{ data: CrmMasters }>('/crm/masters').then((r) => r.data.data),
   dashboard: (scope?: 'mine' | 'team', salesperson?: string) =>
     api.get<{ data: CrmDashboard }>('/crm/dashboard', { params: { scope, salesperson: salesperson || undefined } })

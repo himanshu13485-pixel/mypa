@@ -254,7 +254,12 @@ class ConnectionController extends Controller
             return self::RANK_UNREACHABLE;
         }
 
-        if (($other->settings?->privacyValue('online_status_visibility') ?? 'connections') === 'nobody') {
+        /*
+         * The same rule as everywhere else, including its reciprocal half:
+         * somebody who hides their own presence sorts nobody by it, because
+         * they are not shown anybody's.
+         */
+        if (! $other->presenceVisibleTo($me)) {
             return self::RANK_UNREACHABLE;
         }
 

@@ -17,6 +17,7 @@ import {
   Boxes,
   Briefcase,
   Building2,
+  Activity,
   CalendarClock, CalendarDays,
   CalendarOff,
   CheckSquare,
@@ -85,6 +86,8 @@ interface NavItem {
 const SECTIONS: { label: string; items: NavItem[] }[] = [
   { label: 'Work', items: [
     { label: 'Dashboard', icon: LayoutDashboard, to: '/crm' },
+    // Who is here and what is running — company-wide, so admins only.
+    { label: 'Overview', icon: Activity, to: '/crm/overview', adminOnly: true },
     { label: 'My DWR', section: 'dwr', icon: NotebookPen, to: '/crm/dwr' },
     { label: 'Punch', section: 'punch', icon: Fingerprint, to: '/crm/punch' },
     { label: 'Tasks', section: 'tasks', icon: CheckSquare, to: '/crm/tasks', badge: 'tasks' },
