@@ -138,8 +138,21 @@ class OverviewController extends Controller
                 ->distinct('member_id')->count('member_id'),
             'clients_active' => \App\Models\Crm\Client::where('organization_id', $org->id)
                 ->where('status', 'active')->count(),
+            /*
+             * The column is lead_status, and the states are this app's own.
+             *
+             * This read `status` and excluded 'won' and 'lost' — a column
+             * that does not exist and two values this app has never had. It
+             * threw on MySQL and, worse, did not on SQLite: SQLite falls back
+             * to treating a double-quoted identifier it cannot resolve as a
+             * string literal, so the WHERE became a constant and the test
+             * suite reported a healthy zero.
+             *
+             * Open means still worth chasing — the same two states the
+             * dashboard's own follow-up count uses.
+             */
             'leads_open' => \App\Models\Crm\Lead::where('organization_id', $org->id)
-                ->whereNotIn('status', ['won', 'lost'])->count(),
+                ->whereIn('lead_status', ['unattended', 'follow_up'])->count(),
             'approvals_pending' => \App\Models\Crm\Approval::where('organization_id', $org->id)
                 ->where('status', 'pending')->count(),
         ];

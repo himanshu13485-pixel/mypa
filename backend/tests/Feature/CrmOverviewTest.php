@@ -182,6 +182,33 @@ class CrmOverviewTest extends TestCase
         $this->assertCount(0, $this->overview()->assertOk()->json('data.meetings'));
     }
 
+    /**
+     * Real rows, not just zeroes.
+     *
+     * The first version of this test asserted only counts that happened to be
+     * zero, so a query against a column that does not exist reported a healthy
+     * zero and passed. SQLite hides that — it falls back to treating an
+     * unresolvable double-quoted identifier as a string literal — while MySQL
+     * throws, which is how this reached production as a 500.
+     */
+    public function test_open_leads_are_counted_on_the_real_column(): void
+    {
+        foreach ([
+            ['unattended', 1], ['follow_up', 1], ['closed', 0], ['not_interested', 0], ['transferred', 0],
+        ] as [$state, $counts]) {
+            \App\Models\Crm\Lead::create([
+                'organization_id' => $this->org->id,
+                'lead_no' => 'L-' . $state,
+                'company_name' => 'Lead in ' . $state,
+                'lead_status' => $state,
+                'created_by' => $this->admin->id,
+            ]);
+        }
+
+        // Two of the five are still worth chasing.
+        $this->assertSame(2, $this->overview()->assertOk()->json('data.overview.leads_open'));
+    }
+
     public function test_the_standing_numbers_add_up(): void
     {
         Approval::create([
