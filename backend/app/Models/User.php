@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Auth\Notifications\ResetPassword as ResetPasswordNotification;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -234,6 +235,41 @@ class User extends Authenticatable implements MustVerifyEmail
      * hides it from everyone, 'connections' from strangers, 'everyone' from
      * no one.
      */
+    /**
+     * The password reset link, out of the right mailbox.
+     *
+     * Laravel sends this through the default mailer. For somebody whose
+     * account belongs to a company with its own SMTP that is the platform
+     * writing about their work account — from an address they do not
+     * recognise, and failing their own domain's SPF and DKIM, which is
+     * exactly the mail a spam filter eats. A reset link nobody receives is a
+     * person locked out.
+     *
+     * Their employer's mailbox when there is one, the platform's otherwise,
+     * and the platform's again if the company's server refuses: a
+     * misconfigured mailbox must never be the reason somebody cannot get
+     * back into their account.
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        $notification = new ResetPasswordNotification($token);
+
+        if ($mailbox = \App\Services\Crm\CompanyMailer::forStaff($this)) {
+            try {
+                $mail = $notification->toMail($this);
+                $mail->from($mailbox['address'], $mailbox['name']);
+
+                $mailbox['mailer']->send($mail->to($this->email));
+
+                return;
+            } catch (\Throwable) {
+                // Fall through to the platform.
+            }
+        }
+
+        $this->notify($notification);
+    }
+
     public function presenceFor(?self $viewer): ?string
     {
         if (! $viewer) {

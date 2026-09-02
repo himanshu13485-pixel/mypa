@@ -448,14 +448,28 @@ class AuthController extends Controller
             ->count() < 3;
 
         if ($user && $user->status !== 'suspended' && $user->email !== null && $withinCap) {
-            // Login codes travel through the app inbox; mobile may be absent.
-            $otps->issue($user, $user->mobile ?? 'app-inbox', 'login');
+            /*
+             * Emailed, because the person asking is locked out.
+             *
+             * This used to call issue(), whose notification goes to the
+             * database and the broadcast channel and nowhere else — the
+             * in-app bell. You have to be signed in to read the bell, and
+             * everybody who presses "Sign in with a code" is by definition
+             * not signed in. The code was delivered to the one place its
+             * reader could not reach.
+             *
+             * issueSignInCode() is the path the password login's second step
+             * already used: it emails, through the employer's own mailbox for
+             * company staff and the platform's for everybody else, and still
+             * rings the bell for any device already signed in.
+             */
+            $otps->issueSignInCode($user);
         }
 
         // Uniform response — never leak whether the identifier exists or
         // whether the cap was hit.
         return response()->json([
-            'message' => 'If the account exists, a login code has been sent to its app inbox.',
+            'message' => 'If the account exists, a sign-in code has been emailed to it.',
         ]);
     }
 
