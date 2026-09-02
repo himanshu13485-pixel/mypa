@@ -520,6 +520,20 @@ export const chat = {
     api.get<{ data: ChatMessage[] }>(`/conversations/${uuid}/messages`, { params }).then((r) => r.data.data),
   send: (uuid: string, payload: FormData | Record<string, unknown>) =>
     api.post<{ data: ChatMessage }>(`/conversations/${uuid}/messages`, payload).then((r) => r.data.data),
+  /**
+   * The same message again, in somebody else's thread.
+   *
+   * Several at once, because forwarding one thing to three people is one
+   * decision, not three. What comes back names the threads it reached and
+   * the ones it could not — an announcement group you cannot post in refuses
+   * quietly rather than failing the other nine.
+   */
+  forward: (uuid: string, messageUuid: string, conversation_uuids: string[]) =>
+    api.post<{ message: string; data: { sent: string[]; refused: string[] } }>(
+      `/conversations/${uuid}/messages/${messageUuid}/forward`,
+      { conversation_uuids },
+    ).then((r) => r.data),
+
   edit: (uuid: string, messageUuid: string, body: string) =>
     api.put<{ data: ChatMessage }>(`/conversations/${uuid}/messages/${messageUuid}`, { body }).then((r) => r.data.data),
   remove: (uuid: string, messageUuid: string, scope: 'me' | 'everyone') =>

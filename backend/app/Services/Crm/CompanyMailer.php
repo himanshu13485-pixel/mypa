@@ -66,20 +66,7 @@ class CompanyMailer
 
         $senders = (array) ($comm['company_senders'] ?? []);
 
-        // The Admin's own answer first: the mailbox marked as the one the
-        // company's internal and administrative mail goes out from.
-        $sender = collect($senders)->first(fn ($s) => ! empty($s['is_report_sender']));
-
-        if (! $sender) {
-            $employer = \App\Models\Crm\IssuingCompany::where('organization_id', $org->id)
-                ->where('pays_salary', true)->first();
-            $sender = $employer ? ($senders[(string) $employer->id] ?? null) : null;
-        }
-
-        if (! $sender) {
-            $withMailbox = collect($senders)->filter(fn ($s) => ($s['mailer'] ?? 'none') !== 'none');
-            $sender = $withMailbox->count() === 1 ? $withMailbox->first() : null;
-        }
+        $sender = (new self($org))->houseMailbox();
 
         $address = ($sender['from_address'] ?? null) ?: ($comm['from_address'] ?? null);
         if (! $address) {
@@ -91,6 +78,42 @@ class CompanyMailer
             'address' => $address,
             'name' => ($sender['from_name'] ?? null) ?: (($comm['from_name'] ?? null) ?: $org->name),
         ];
+    }
+
+    /**
+     * The company's own mailbox, when the mail is not any one company's.
+     *
+     * A newsletter, a staff notification, a sign-in code: none of them belong
+     * to an issuing company, and until this existed they all left through the
+     * platform's default server. A company that has gone to the trouble of
+     * setting up its own SMTP has said where its mail comes from, and meant
+     * all of it — not only the invoices.
+     *
+     * Which one, when a group runs several: the mailbox an Admin marked as
+     * the report sender, because an answer somebody chose beats one this code
+     * inferred. Failing that the company that pays the salaries, since that
+     * is the one that employs people. Failing that the only company with a
+     * mailbox at all — an unambiguous answer or none, never a guess between
+     * two.
+     */
+    public function houseMailbox(): ?array
+    {
+        $senders = (array) ($this->settings()['company_senders'] ?? []);
+
+        $chosen = collect($senders)->first(fn ($s) => ! empty($s['is_report_sender']));
+
+        if (! $chosen) {
+            $employer = \App\Models\Crm\IssuingCompany::where('organization_id', $this->org->id)
+                ->where('pays_salary', true)->first();
+            $chosen = $employer ? ($senders[(string) $employer->id] ?? null) : null;
+        }
+
+        if (! $chosen) {
+            $withMailbox = collect($senders)->filter(fn ($s) => ($s['mailer'] ?? 'none') !== 'none');
+            $chosen = $withMailbox->count() === 1 ? $withMailbox->first() : null;
+        }
+
+        return is_array($chosen) ? $chosen : null;
     }
 
     /** The whole Communication setup, defaults filled. */
@@ -114,9 +137,20 @@ class CompanyMailer
         abort_unless((bool) ($comm['email_enabled'] ?? true), 422,
             'The Email channel is switched off in the Communication setup.');
 
+        /*
+         * The named company's mailbox, or the company's own.
+         *
+         * Falling straight through to the platform's server whenever no
+         * issuing company was named is what sent newsletters and staff mail
+         * out as Netvork from a company that had configured its own SMTP —
+         * failing that company's SPF and DKIM, and arriving from an address
+         * their recipients do not recognise.
+         */
         $sender = $issuingCompanyId !== null
             ? ((array) ($comm['company_senders'] ?? []))[(string) $issuingCompanyId] ?? null
             : null;
+
+        $sender ??= $this->houseMailbox();
 
         // The address: the company's own, else the purpose-level one, else
         // the general one, else the server default.

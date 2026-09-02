@@ -578,6 +578,8 @@ export interface ChatMessage {
   attachments: { id: number; name: string; mime_type?: string | null; size: number; duration_seconds?: number | null }[]
   reactions: { emoji: string; count: number; mine: boolean }[]
   edited_at?: string | null
+  /** Passed on rather than written here. */
+  is_forwarded?: boolean
   created_at: string
 }
 

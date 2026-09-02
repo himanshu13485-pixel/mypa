@@ -23,12 +23,14 @@ class Message extends Model
 
     protected $fillable = [
         'conversation_id', 'user_id', 'type', 'body', 'reply_to_id', 'edited_at',
+        'is_forwarded',
     ];
 
     protected function casts(): array
     {
         return [
             'edited_at' => 'datetime',
+            'is_forwarded' => 'boolean',
         ];
     }
 
@@ -92,6 +94,14 @@ class Message extends Model
             'body' => $deletedForEveryone ? null : $this->body,
             'is_deleted' => $deletedForEveryone,
             'is_own' => $this->user_id === $viewer->id,
+            /*
+             * Passed on, not written here.
+             *
+             * "The meeting is cancelled" carries one weight from the person
+             * who decided it and another from somebody relaying it, and a
+             * forward reads exactly like the first unless it is marked.
+             */
+            'is_forwarded' => (bool) $this->is_forwarded,
             'sender' => $this->relationLoaded('user') && $this->user ? [
                 'uuid' => $this->user->uuid,
                 'name' => $this->user->name,

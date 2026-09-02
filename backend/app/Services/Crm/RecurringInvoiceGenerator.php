@@ -235,8 +235,20 @@ class RecurringInvoiceGenerator
                 ->where('is_active', true)->orderBy('id')->first(),
         ])->setPaper('a4');
 
-        Mail::html(nl2br(e(implode("\n", $lines))), function ($message) use ($client, $invoice, $pdf) {
-            $message->to($client->email)
+        /*
+         * Through the issuing company's own mailbox.
+         *
+         * The invoice screen has always sent this way; the recurring
+         * generator did not, so the same invoice arrived from a different
+         * address depending on whether a person pressed send or a schedule
+         * did — and the scheduled one failed the sending domain's SPF.
+         */
+        $resolved = (new CompanyMailer($invoice->organization))
+            ->resolve($invoice->issuing_company_id, 'invoice');
+
+        $resolved['mailer']->html(nl2br(e(implode("\n", $lines))), function ($message) use ($client, $invoice, $pdf, $resolved) {
+            $message->from($resolved['address'], $resolved['name'])
+                ->to($client->email)
                 ->subject(($invoice->kind === 'proforma' ? 'Proforma invoice ' : 'Invoice ') . $invoice->number)
                 ->attachData($pdf->output(), str_replace(['/', '\\', ' '], '-', $invoice->number) . '.pdf', [
                     'mime' => 'application/pdf',

@@ -448,6 +448,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
         Route::put('/conversations/{conversation}/messages/{message}', [MessageController::class, 'update']);
         Route::delete('/conversations/{conversation}/messages/{messageUuid}', [MessageController::class, 'destroy']);
+        // The same message again, in somebody else's thread.
+        Route::post('/conversations/{conversation}/messages/{messageUuid}/forward', [MessageController::class, 'forward']);
         Route::post('/conversations/{conversation}/messages/{message}/react', [MessageController::class, 'react']);
         Route::get('/conversations/{conversation}/attachments/{attachmentId}', [MessageController::class, 'downloadAttachment']);
 

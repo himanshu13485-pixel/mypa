@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Search, Send,
+  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Forward, Mic, Paperclip, Pencil, Phone, Plus, Reply,
+  Search, Send,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
 import { badges as badgesApi, conversationMembers, removeConversationMember, reportsApi } from '../api/endpoints'
@@ -168,7 +169,7 @@ export default function MessagesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const { startCall } = useCalls()
-  const { toastError } = useToast()
+  const { toast, toastError } = useToast()
   const [showMembers, setShowMembers] = useState(false)
   const [params, setParams] = useSearchParams()
   const [selected, setSelected] = useState<ConversationItem | null>(null)
@@ -183,6 +184,9 @@ export default function MessagesPage() {
   const [unseen, setUnseen] = useState(0)
   /** Whose profile is open, if any. */
   const [viewingPerson, setViewingPerson] = useState<string | null>(null)
+  /** The message being passed along, and where to. */
+  const [forwarding, setForwarding] = useState<ChatMessage | null>(null)
+  const [pickedChats, setPickedChats] = useState<Set<string>>(new Set())
   /*
    * The messages known to have been seen, by uuid.
    *
@@ -443,6 +447,24 @@ export default function MessagesPage() {
     setUnseen(0)
   }
 
+  const forwardMutation = useMutation({
+    mutationFn: () => chat.forward(selected!.uuid, forwarding!.uuid, [...pickedChats]),
+    onSuccess: (res) => {
+      setForwarding(null)
+      setPickedChats(new Set())
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      // Named, not swallowed: an announcement group refuses quietly on the
+      // server, and a silent no here would read as a send that worked.
+      toast(
+        res.data.refused.length
+          ? `${res.message} ${res.data.refused.length} could not be posted to.`
+          : res.message,
+        res.data.refused.length ? 'error' : 'success',
+      )
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
   const send = () => {
     if (editing) {
       if (draft.trim()) {
@@ -636,6 +658,58 @@ export default function MessagesPage() {
               </div>
               {viewingPerson && (
         <PersonModal uuid={viewingPerson} onClose={() => setViewingPerson(null)} />
+      )}
+
+      {/*
+        * Where to pass it along to.
+        *
+        * Several at once, because forwarding one thing to three people is one
+        * decision rather than three — and the thread it came from is left out
+        * of the list, since sending a message back into its own conversation
+        * is never what anybody meant.
+        */}
+      {forwarding && (
+        <Modal title="Forward to" onClose={() => setForwarding(null)}>
+          <div className="space-y-3">
+            <p className="rounded-lg bg-slate-100 p-2 text-xs text-slate-500 dark:bg-slate-800">
+              {forwarding.body
+                ? forwarding.body.slice(0, 140)
+                : `${forwarding.attachments?.length ?? 0} attachment(s)`}
+            </p>
+
+            <div className="max-h-64 space-y-1 overflow-y-auto">
+              {(conversations?.data ?? [])
+                .filter((c) => c.uuid !== selected?.uuid)
+                .map((c) => (
+                  <label key={c.uuid} className="flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-brand-600"
+                      checked={pickedChats.has(c.uuid)}
+                      onChange={() => {
+                        const next = new Set(pickedChats)
+                        if (!next.delete(c.uuid)) next.add(c.uuid)
+                        setPickedChats(next)
+                      }}
+                    />
+                    <span className="truncate">{c.name}</span>
+                  </label>
+                ))}
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setForwarding(null)}>Cancel</Button>
+              <Button
+                disabled={pickedChats.size === 0 || forwardMutation.isPending}
+                onClick={() => forwardMutation.mutate()}
+              >
+                {forwardMutation.isPending
+                  ? 'Sending…'
+                  : `Forward${pickedChats.size ? ` to ${pickedChats.size}` : ''}`}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
       {showNewChat && (
         <PickUserModal
@@ -836,6 +910,10 @@ export default function MessagesPage() {
                         </>
                       )}
                       <p className={clsx('mt-0.5 flex items-center justify-end gap-1 text-[10px]', m.is_own ? 'text-white/70' : 'text-slate-400')}>
+                        {/* "The meeting is cancelled" carries one weight from
+                            the person who decided it and another from somebody
+                            passing it on. */}
+                        {m.is_forwarded && 'forwarded · '}
                         {m.edited_at && 'edited · '}
                         {timeLabel(m.created_at)}
                         {m.is_own && !m.is_deleted && (
@@ -874,6 +952,13 @@ export default function MessagesPage() {
                         </button>
                         <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Reply" onClick={() => { setReplyTo(m); setEditing(null) }}>
                           <Reply className="size-3.5" />
+                        </button>
+                        <button
+                          className="rounded p-1 text-slate-400 hover:text-brand-600"
+                          title="Forward"
+                          onClick={() => { setForwarding(m); setPickedChats(new Set()) }}
+                        >
+                          <Forward className="size-3.5" />
                         </button>
                         {m.is_own && m.type === 'text' && withinEditWindow(m.created_at) && (
                           <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Edit" onClick={() => { setEditing(m); setDraft(m.body ?? ''); setReplyTo(null) }}>

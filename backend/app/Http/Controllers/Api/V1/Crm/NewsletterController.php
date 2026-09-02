@@ -78,12 +78,24 @@ class NewsletterController extends Controller
             abort(422, 'The chosen audience has no email addresses.');
         }
 
+        /*
+         * Out of the company's own mailbox, not the platform's.
+         *
+         * A newsletter belongs to no single issuing company, and that used to
+         * mean it left as Netvork — from an address the recipient does not
+         * recognise, and failing the SPF and DKIM records of the domain it
+         * claims to be from. Resolved once, outside the loop: it is the same
+         * mailbox for every recipient.
+         */
+        $resolved = (new \App\Services\Crm\CompanyMailer($newsletter->organization))->resolve(null);
+
         $sent = 0;
         $failed = 0;
         foreach ($recipients as $email) {
             try {
-                Mail::html($newsletter->body, function ($message) use ($email, $newsletter) {
-                    $message->to($email)->subject($newsletter->subject);
+                $resolved['mailer']->html($newsletter->body, function ($message) use ($email, $newsletter, $resolved) {
+                    $message->from($resolved['address'], $resolved['name'])
+                        ->to($email)->subject($newsletter->subject);
                 });
                 $sent++;
             } catch (\Throwable) {

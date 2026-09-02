@@ -37,6 +37,12 @@ class Newsletter extends Model
         return 'uuid';
     }
 
+    /** Whose mailbox this leaves from, when the company has one of its own. */
+    public function organization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class, 'organization_id');
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');

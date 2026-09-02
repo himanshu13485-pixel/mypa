@@ -194,6 +194,112 @@ class MessageController extends Controller
         };
     }
 
+    /**
+     * The same message again, in somebody else's thread.
+     *
+     * Copying text out and pasting it into three chats is how this was done,
+     * which loses the attachments and takes three trips. The forward keeps
+     * both and takes one.
+     *
+     * What it does not do is carry the reply it was part of, or who sent it
+     * to you. A quoted reply means nothing in a conversation that never saw
+     * the message being answered, and who forwarded what to you is not the
+     * next reader's business.
+     */
+    public function forward(Request $request, Conversation $conversation, string $messageUuid): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $original = $conversation->messages()->with('attachments')->where('uuid', $messageUuid)->first();
+        abort_unless($original, 404);
+        abort_if($original->trashed(), 404, 'That message is no longer here.');
+
+        $data = $request->validate([
+            'conversation_uuids' => ['required', 'array', 'min:1', 'max:10'],
+            'conversation_uuids.*' => ['uuid'],
+        ]);
+
+        /*
+         * Only threads this person is actually in.
+         *
+         * Filtered rather than refused: a uuid they are not a member of is
+         * either a stale list or somebody trying their luck, and neither is
+         * worth failing the other nine destinations over.
+         */
+        $targets = Conversation::whereIn('uuid', $data['conversation_uuids'])
+            ->get()
+            ->filter(fn (Conversation $c) => $c->hasMember($me));
+
+        $sent = [];
+        $refused = [];
+
+        foreach ($targets as $target) {
+            // The same doors that guard an ordinary message guard this one.
+            if ($target->blockBetween($me)) {
+                $refused[] = $target->uuid;
+
+                continue;
+            }
+
+            if ($target->group?->only_admins_post && ! $target->group->canManage($me)) {
+                $refused[] = $target->uuid;
+
+                continue;
+            }
+
+            $copy = $target->messages()->create([
+                'user_id' => $me->id,
+                'type' => $original->type,
+                'body' => $original->body,
+                'is_forwarded' => true,
+            ]);
+
+            /*
+             * Attachments are copied on disk, not pointed at.
+             *
+             * Two rows sharing one file means deleting either message takes
+             * the other one's attachment with it. The copy costs storage,
+             * which is why it is charged to the same quota an upload is.
+             */
+            foreach ($original->attachments as $attachment) {
+                $path = 'chat-files/' . $target->id . '/' . \Illuminate\Support\Str::random(40);
+
+                if (! \Illuminate\Support\Facades\Storage::disk('local')->exists($attachment->path)) {
+                    continue;
+                }
+
+                \Illuminate\Support\Facades\Storage::disk('local')
+                    ->copy($attachment->path, $path);
+
+                $copy->attachments()->create([
+                    'name' => $attachment->name,
+                    'path' => $path,
+                    'mime_type' => $attachment->mime_type,
+                    'size' => $attachment->size,
+                    'duration_seconds' => $attachment->duration_seconds,
+                ]);
+            }
+
+            $target->update(['last_message_at' => now()]);
+            $target->members()->updateExistingPivot($me->id, ['last_read_at' => now()]);
+
+            broadcast(new MessageSent($copy->load(['user', 'conversation'])))->toOthers();
+            $this->notifyMembers($target, $copy, $me);
+
+            $sent[] = $target->uuid;
+        }
+
+        abort_if($sent === [] && $refused === [], 422, 'None of those conversations are yours.');
+
+        return response()->json([
+            'message' => count($sent) === 1
+                ? 'Forwarded.'
+                : 'Forwarded to ' . count($sent) . ' conversations.',
+            'data' => ['sent' => $sent, 'refused' => $refused],
+        ], 201);
+    }
+
     public function update(Request $request, Conversation $conversation, Message $message): JsonResponse
     {
         $me = $request->user();
