@@ -146,6 +146,8 @@ class GroupController extends Controller
             'added_by' => $request->user()->id,
         ]);
 
+        $this->syncConversation($group);
+
         $target->notify(new \App\Notifications\SocialNotification(
             'group_added',
             "{$request->user()->name} added you to the group “{$group->name}”.",
@@ -189,6 +191,7 @@ class GroupController extends Controller
         abort_if($member->id === $group->owner_id, 422, 'The owner cannot be removed. Delete the group instead.');
 
         $group->members()->detach($member->id);
+        $this->syncConversation($group);
 
         if (! $leavingSelf) {
             $member->notify(new \App\Notifications\SocialNotification(
@@ -200,6 +203,25 @@ class GroupController extends Controller
         }
 
         return response()->json(['message' => $leavingSelf ? 'You left the group.' : 'Member removed.']);
+    }
+
+    /**
+     * Put the group's chat room back in step with the group.
+     *
+     * The room used to be brought up to date only when somebody next opened
+     * it, and only ever by adding — so a removed member kept reading the
+     * group's chat indefinitely, and a new one saw nothing until the first
+     * person happened to open it. Membership changes here; the room follows
+     * here.
+     *
+     * Nothing to do if the group has never been talked in: the room is
+     * created on first use and will be created from the current membership.
+     */
+    protected function syncConversation(Group $group): void
+    {
+        $conversation = \App\Models\Conversation::where('group_id', $group->id)->first();
+
+        $conversation?->members()->sync($group->members()->pluck('users.id'));
     }
 
     /** Curly quotes, kept in one place so every message uses the same pair. */

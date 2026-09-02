@@ -73,9 +73,17 @@ class ConversationController extends Controller
             ['name' => $group->name, 'created_by' => $request->user()->id],
         );
 
-        // Keep conversation membership in sync with group membership.
+        /*
+         * Chat membership IS group membership.
+         *
+         * syncWithoutDetaching only ever added, so somebody removed from the
+         * group stayed in its chat for good: still reading it, still counted
+         * in "3 members", and still able to post. sync() makes the room the
+         * group and nothing else — it detaches exactly the people who are no
+         * longer in it, which is the whole difference.
+         */
         $memberIds = $group->members()->pluck('users.id');
-        $conversation->members()->syncWithoutDetaching($memberIds);
+        $conversation->members()->sync($memberIds);
 
         return response()->json([
             'data' => $this->serialize(
@@ -185,25 +193,114 @@ class ConversationController extends Controller
         return response()->json(['message' => $pivot->archived_at ? 'Conversation unarchived.' : 'Conversation archived.']);
     }
 
-    /** Names of everyone in this conversation (for the group header). */
+    /**
+     * Everyone in this conversation, and what they are in it.
+     *
+     * The roles come from the group, because for a group chat there is no
+     * such thing as a separate chat role: the person an owner made an admin
+     * is an admin here too. This list used to carry names and nothing else,
+     * so the second admin of a group was indistinguishable from anybody
+     * else — the badge was not missing from the screen, it had never been
+     * sent to it.
+     *
+     * `can_remove` is answered per row rather than left to the client to work
+     * out, because the rule is not "am I an admin": the owner can never be
+     * removed, anybody may remove themselves, and only a manager may remove
+     * somebody else. Three rules, decided in the one place that also
+     * enforces them.
+     */
     public function members(\Illuminate\Http\Request $request, \App\Models\Conversation $conversation): \Illuminate\Http\JsonResponse
     {
-        abort_unless($conversation->hasMember($request->user()), 403);
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $group = $conversation->group;
+        $iManage = $group?->canManage($me) ?? false;
+        // Straight off the pivot table rather than through the relation: one
+        // query, and no ambiguity about which `role` a joined select means.
+        $roles = $group
+            ? \Illuminate\Support\Facades\DB::table('group_members')
+                ->where('group_id', $group->id)
+                ->pluck('role', 'user_id')
+            : collect();
 
         $members = $conversation->members()
-            ->with('profile:user_id,photo_path,avatar')
+            ->with(['profile:user_id,photo_path,avatar', 'settings'])
             ->orderBy('name')
             ->get()
-            ->map(fn ($u) => [
-                'uuid' => $u->uuid,
-                'name' => $u->name,
-                'username' => $u->username,
-                'is_me' => $u->id === $request->user()->id,
-                'photo_path' => $u->profile?->photo_path,
-                'avatar' => $u->profile?->avatar,
-            ]);
+            ->map(function ($u) use ($me, $group, $iManage, $roles) {
+                $isOwner = $group && $u->id === $group->owner_id;
+                $isMe = $u->id === $me->id;
+
+                return [
+                    'uuid' => $u->uuid,
+                    'name' => $u->name,
+                    'username' => $u->username,
+                    'is_me' => $isMe,
+                    'photo_path' => $u->profile?->photo_path,
+                    'avatar' => $u->profile?->avatar,
+                    // Null in a direct chat, where nobody is anybody's admin.
+                    'role' => $group ? ($isOwner ? 'owner' : ($roles[$u->id] ?? 'member')) : null,
+                    'presence' => $u->presenceFor($me),
+                    'can_remove' => (bool) $group && ! $isOwner && ($isMe || $iManage),
+                ];
+            });
 
         return response()->json(['data' => $members]);
+    }
+
+    /**
+     * Take somebody out of a group chat.
+     *
+     * Which means taking them out of the group. A chat attached to a group is
+     * that group talking — its membership is the group's membership — and a
+     * removal that only emptied the chat would leave the person still on the
+     * team, still holding its tasks and its calendar, and back in the room
+     * the moment anybody opened it, because forGroup() re-syncs from the
+     * group. So this is not a second kind of membership: it is exactly
+     * GroupController's removal, reachable from where the person is looking.
+     *
+     * Said out loud in the room afterwards. A group that quietly loses a
+     * member is a group where nobody knows who did it.
+     */
+    public function removeMember(Request $request, Conversation $conversation, string $userUuid): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $group = $conversation->group;
+        abort_if(! $group, 422, 'This conversation has no group to remove anybody from.');
+
+        $member = $group->members()->where('uuid', $userUuid)->firstOrFail();
+
+        $leavingSelf = $member->id === $me->id;
+        abort_unless($leavingSelf || $group->canManage($me), 403);
+        abort_if($member->id === $group->owner_id, 422, 'The owner cannot be removed. Delete the group instead.');
+
+        $group->members()->detach($member->id);
+        $conversation->members()->detach($member->id);
+
+        Message::create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $me->id,
+            'type' => 'text',
+            'body' => $leavingSelf
+                ? '👋 ' . $me->name . ' left the group.'
+                : '👋 ' . $me->name . ' removed ' . $member->name . ' from the group.',
+        ]);
+
+        if (! $leavingSelf) {
+            $member->notify(new \App\Notifications\SocialNotification(
+                'group_removed',
+                "{$me->name} removed you from the group “{$group->name}”.",
+                ['group_uuid' => $group->uuid],
+                '/groups',
+            ));
+        }
+
+        return response()->json([
+            'message' => $leavingSelf ? 'You left the group.' : $member->name . ' was removed.',
+        ]);
     }
 
     protected function serialize(Conversation $conversation, Request $request): array
@@ -253,6 +350,30 @@ class ConversationController extends Controller
                 'avatar' => $other->profile?->avatar,
                 'last_seen_visible' => $lastSeenVisible,
                 'online_visible' => $onlineVisible,
+                /*
+                 * Where they are: 'online', 'away', 'offline', or null when
+                 * they have chosen not to say.
+                 *
+                 * This list has always carried whether the dot may be shown
+                 * and never what the dot should say, so the chat list showed
+                 * no presence at all — the permission was computed and then
+                 * had nothing to permit. presenceFor() answers both halves.
+                 */
+                'presence' => $onlineVisible ? $other->presenceState() : null,
+                /*
+                 * When they were last actually here.
+                 *
+                 * `last_seen_visible` has been computed on this line for as
+                 * long as there has been a setting for it, and there has
+                 * never been a value beside it — so "Who can see my last
+                 * seen" in Settings governed something the app did not show
+                 * anybody. This is that something.
+                 *
+                 * Null covers both refusals: they have hidden it, or they
+                 * have never opened the app. Either way the line is left off
+                 * rather than filled with a guess.
+                 */
+                'last_seen_at' => $lastSeenVisible ? $other->last_active_at : null,
             ] : null,
             'members_count' => $conversation->members_count ?? $conversation->members->count(),
             'unread_count' => $unread,

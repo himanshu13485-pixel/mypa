@@ -5,7 +5,8 @@ import {
   Check, CheckCheck, ChevronLeft, Clock, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Search, Send,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
-import { badges as badgesApi, conversationMembers, reportsApi } from '../api/endpoints'
+import { badges as badgesApi, conversationMembers, removeConversationMember, reportsApi } from '../api/endpoints'
+import type { ConversationMember } from '../api/endpoints'
 import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
@@ -16,9 +17,12 @@ import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { useCalls } from '../components/CallManager'
 import { useToast } from '../components/Toast'
-import { Button, EmptyState, Input, Modal, SkeletonList, SkeletonMessages } from '../components/ui'
+import { usePrompt } from '../components/Prompt'
+import { Badge, Button, EmptyState, Input, Modal, SkeletonList, SkeletonMessages } from '../components/ui'
 import type { ChatMessage, ConversationItem } from '../types'
 import { Avatar } from '../lib/avatars'
+import { PresenceDot, PresenceInline, PresenceLabel } from '../components/PresenceDot'
+import { lastSeenLabel, resolvePresence, usePresenceMap } from '../lib/presence'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
@@ -177,6 +181,16 @@ export default function MessagesPage() {
   /** True once the opened conversation has been pinned to its newest message. */
   const pinnedRef = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  /*
+   * Presence, as the sockets have it.
+   *
+   * The list already refetches every twenty seconds, but that was never what
+   * a dot should wait for: somebody signing in has to show up now, not on the
+   * next poll. This is the live half; the response is the fallback for
+   * whoever was already there when the page loaded.
+   */
+  const livePresence = usePresenceMap()
 
   const { data: conversations, isLoading } = useQuery({
     queryKey: ['conversations'],
@@ -387,6 +401,16 @@ export default function MessagesPage() {
     }).catch((err) => toastError(errorMessage(err)))
   }
 
+  /*
+   * The header's two facts about the other person, worked out once.
+   *
+   * Both re-read on every render, and the conversation list refetches every
+   * twenty seconds, so "5 min ago" ages into "6 min ago" on its own without a
+   * timer of its own.
+   */
+  const headerPresence = resolvePresence(livePresence, selected?.other_user?.uuid, selected?.other_user?.presence)
+  const headerLastSeen = lastSeenLabel(selected?.other_user?.last_seen_at)
+
   const timeLabel = (iso: string) => {
     const date = new Date(iso)
     return isToday(date) ? format(date, 'HH:mm') : format(date, 'd MMM, HH:mm')
@@ -425,16 +449,33 @@ export default function MessagesPage() {
                     : 'hover:bg-slate-100 dark:hover:bg-slate-800',
                 )}
               >
-                <Avatar
-                  name={c.name}
-                  photoPath={c.type === 'direct' ? c.other_user?.photo_path : null}
-                  avatar={c.type === 'direct' ? c.other_user?.avatar : null}
-                  size={38}
-                />
+                {/* The dot rides on the avatar so it stays put whatever the
+                    row does, and only a direct chat has one: a group is not
+                    anywhere in particular. */}
+                <div className="relative shrink-0">
+                  <Avatar
+                    name={c.name}
+                    photoPath={c.type === 'direct' ? c.other_user?.photo_path : null}
+                    avatar={c.type === 'direct' ? c.other_user?.avatar : null}
+                    size={38}
+                  />
+                  {c.type === 'direct' && (
+                    <PresenceDot
+                      state={resolvePresence(livePresence, c.other_user?.uuid, c.other_user?.presence)}
+                    />
+                  )}
+                </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{c.name}</p>
                   <p className="truncate text-xs text-slate-400">
-                    {c.type === 'group' ? `${c.members_count} members` : c.other_user?.app_id}
+                    {c.type === 'group' ? (
+                      `${c.members_count} members`
+                    ) : (
+                      <PresenceLabel
+                        state={resolvePresence(livePresence, c.other_user?.uuid, c.other_user?.presence)}
+                        fallback={c.other_user?.app_id}
+                      />
+                    )}
                   </p>
                 </div>
                 {c.unread_count > 0 && (
@@ -477,8 +518,30 @@ export default function MessagesPage() {
                       {selected.members_count} members
                     </button>
                   ) : (
-                    <p className="text-xs text-slate-400">
-                      {selected.other_user?.username ? `@${selected.other_user.username}` : selected.other_user?.app_id}
+                    <p className="flex items-center gap-1.5 text-xs text-slate-400">
+                      <span className="truncate">
+                        {selected.other_user?.username ? `@${selected.other_user.username}` : selected.other_user?.app_id}
+                      </span>
+                      {/* Beside the handle rather than replacing it: knowing
+                          who you are talking to outranks knowing where they
+                          are, and the header has room for both. */}
+                      <PresenceInline state={headerPresence} />
+                      {/*
+                        * Last seen, but not while they are here.
+                        *
+                        * "Online · last seen just now" is two ways of saying
+                        * the same thing, and the second is the one that stops
+                        * being true first. It only earns its place once the
+                        * answer to "are they there" is no, which is exactly
+                        * when the reader starts wondering how long ago.
+                        *
+                        * Absent when they have hidden it — the Settings
+                        * switch for that finally governs something — and
+                        * absent when they have never opened the app.
+                        */}
+                      {headerPresence !== 'online' && headerLastSeen && (
+                        <span className="truncate">· {headerLastSeen}</span>
+                      )}
                     </p>
                   )}
                 </div>
@@ -492,7 +555,11 @@ export default function MessagesPage() {
         />
       )}
       {showMembers && selected && (
-                <MembersModal conversationUuid={selected.uuid} onClose={() => setShowMembers(false)} />
+                <MembersModal
+                  conversationUuid={selected.uuid}
+                  onClose={() => setShowMembers(false)}
+                  onChanged={() => queryClient.invalidateQueries({ queryKey: ['conversations'] })}
+                />
               )}
               {retentionOpen && selected && (
                 <RetentionModal
@@ -927,11 +994,66 @@ function RetentionModal({ conversationUuid, current, onClose, onSaved }: {
   )
 }
 
-function MembersModal({ conversationUuid, onClose }: { conversationUuid: string; onClose: () => void }) {
+/**
+ * Who is in this room, what they are in it, and who may take them out.
+ *
+ * All three used to be one: a list of names. So the group's second admin —
+ * appointed by its owner, with every power the badge implies — was drawn
+ * exactly like everybody else, and there was no way to remove anybody from
+ * here at all. Both are the same omission: the roles were never asked for.
+ *
+ * Removing is removing from the group, not from the chat. There is no third
+ * thing to be a member of, and a chat-only removal would put the person back
+ * the next time anybody opened the room.
+ */
+function MembersModal({
+  conversationUuid,
+  onClose,
+  onChanged,
+}: {
+  conversationUuid: string
+  onClose: () => void
+  /** The member count in the header and the list behind it are now wrong. */
+  onChanged: () => void
+}) {
+  const { confirm } = usePrompt()
+  const { toast, toastError } = useToast()
+  const queryClient = useQueryClient()
+  const livePresence = usePresenceMap()
+  const [removing, setRemoving] = useState<string | null>(null)
+
   const { data: members, isLoading } = useQuery({
     queryKey: ['conversation-members', conversationUuid],
     queryFn: () => conversationMembers(conversationUuid),
   })
+
+  const remove = async (m: ConversationMember) => {
+    const leaving = m.is_me
+    const ok = await confirm({
+      title: leaving ? 'Leave this group?' : `Remove ${m.name}?`,
+      message: leaving
+        ? 'You will lose access to this chat and to the group it belongs to.'
+        : `${m.name} will be removed from the group as well as from this chat.`,
+      actionLabel: leaving ? 'Leave' : 'Remove',
+      danger: true,
+    })
+    if (!ok) return
+
+    setRemoving(m.uuid)
+    try {
+      const res = await removeConversationMember(conversationUuid, m.uuid)
+      toast(res.message)
+      queryClient.invalidateQueries({ queryKey: ['conversation-members', conversationUuid] })
+      // The group screens hold the same membership under another name.
+      queryClient.invalidateQueries({ queryKey: ['groups'] })
+      onChanged()
+      if (leaving) onClose()
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setRemoving(null)
+    }
+  }
 
   return (
     <Modal title="Members" onClose={onClose}>
@@ -941,14 +1063,36 @@ function MembersModal({ conversationUuid, onClose }: { conversationUuid: string;
         <div className="space-y-1.5">
           {members?.map((m) => (
             <div key={m.uuid} className="flex items-center gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm dark:border-slate-800">
-              <Avatar name={m.name} photoPath={m.photo_path} avatar={m.avatar} size={30} />
+              <div className="relative shrink-0">
+                <Avatar name={m.name} photoPath={m.photo_path} avatar={m.avatar} size={30} />
+                <PresenceDot state={resolvePresence(livePresence, m.uuid, m.presence)} />
+              </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">
                   {m.name}
                   {m.is_me && <span className="ml-1 text-xs font-normal text-slate-400">(you)</span>}
                 </p>
-                {m.username && <p className="text-xs text-slate-400">@{m.username}</p>}
+                <p className="flex items-center gap-1.5 text-xs text-slate-400">
+                  {m.username && <span className="truncate">@{m.username}</span>}
+                  <PresenceInline state={resolvePresence(livePresence, m.uuid, m.presence)} />
+                </p>
               </div>
+              {/* Owner and admin are the two that carry authority and the two
+                  worth a badge. Manager, member and viewer are the ordinary
+                  case, and a badge on everybody is a badge on nobody. */}
+              {(m.role === 'owner' || m.role === 'admin') && (
+                <Badge value={m.role} className="shrink-0 capitalize" />
+              )}
+              {m.can_remove && (
+                <button
+                  className="tap shrink-0 rounded p-1 text-slate-400 hover:text-red-600 disabled:opacity-50"
+                  title={m.is_me ? 'Leave group' : `Remove ${m.name}`}
+                  disabled={removing === m.uuid}
+                  onClick={() => remove(m)}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              )}
             </div>
           ))}
         </div>

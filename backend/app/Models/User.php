@@ -85,6 +85,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'password' => 'hashed',
             'guest_expires_at' => 'datetime',
             'last_active_at' => 'datetime',
+            'presence_updated_at' => 'datetime',
             // Deliberately not fillable: this is set by mypa:service-account,
             // never by anything a request can reach.
             'is_service_account' => 'boolean',
@@ -142,28 +143,169 @@ class User extends Authenticatable implements MustVerifyEmail
     /** Long enough to ride out a poll gap, short enough to mean "now". */
     public const ONLINE_WITHIN_SECONDS = 120;
 
+    /** Idle this long and the dot turns amber. */
+    public const AWAY_AFTER_SECONDS = 180;
+
+    /** Idle this long and they are treated as gone. */
+    public const OFFLINE_AFTER_SECONDS = 600;
+
+    /**
+     * How long a browser's own account of itself is believed.
+     *
+     * The client beats every 45 seconds, so a report older than this means the
+     * beating stopped — asleep, crashed, or the tab was killed without the
+     * closing beacon getting out — and the answer falls back to request
+     * traffic. Without the expiry a laptop lid closing would leave somebody
+     * green until they next opened the app.
+     */
+    public const HEARTBEAT_TRUSTED_SECONDS = 150;
+
+    public const PRESENCE_STATES = ['online', 'away', 'offline'];
+
+    /**
+     * Where this person is, in three words: online, away, or offline.
+     *
+     * The browser is asked first, because it is the only thing that can tell
+     * the difference between a person reading and a person who left the tab
+     * open and went home — both look identical from the server, where a chat
+     * screen polls all night either way. It reports 'away' once nobody has
+     * touched it, 'offline' once that has gone on long enough, and 'offline'
+     * again through a closing beacon as the tab goes.
+     *
+     * Its word is only taken while it is fresh. A silent client decays through
+     * last_active_at instead, which is the same ladder measured in requests:
+     * something recent means online, a few minutes of nothing means away, and
+     * ten means they are gone.
+     */
+    public function presenceState(): string
+    {
+        $reported = in_array($this->presence_state, self::PRESENCE_STATES, true)
+            ? $this->presence_state
+            : null;
+
+        if (
+            $reported
+            && $this->presence_updated_at
+            && $this->presence_updated_at->gt(now()->subSeconds(self::HEARTBEAT_TRUSTED_SECONDS))
+        ) {
+            return $reported;
+        }
+
+        if (! $this->last_active_at) {
+            return 'offline';
+        }
+
+        $idle = $this->last_active_at->diffInSeconds(now());
+
+        $fallback = match (true) {
+            $idle <= self::ONLINE_WITHIN_SECONDS => 'online',
+            $idle <= self::OFFLINE_AFTER_SECONDS => 'away',
+            default => 'offline',
+        };
+
+        /*
+         * A stale report still counts for something: it is the last thing
+         * the browser said, and request traffic must not talk over it.
+         *
+         * Without this, somebody who went idle — reported away — and then
+         * shut the lid would turn green again the moment their heartbeat
+         * expired, because the polling their open tab had been doing right
+         * up to that second looks exactly like a person. The fallback may
+         * move them further away, never nearer.
+         */
+        if ($reported) {
+            $rank = ['online' => 0, 'away' => 1, 'offline' => 2];
+
+            return $rank[$fallback] >= $rank[$reported] ? $fallback : $reported;
+        }
+
+        return $fallback;
+    }
+
+    /**
+     * That state, as far as $viewer is allowed to know it.
+     *
+     * Null means "do not show a dot at all" — which is not the same as
+     * offline, and the difference matters: somebody who has hidden their
+     * status should not be reported as gone, because "gone" is itself an
+     * answer to the question they declined.
+     *
+     * The privacy check is the one isOnlineFor has always made: 'nobody'
+     * hides it from everyone, 'connections' from strangers, 'everyone' from
+     * no one.
+     */
+    public function presenceFor(?self $viewer): ?string
+    {
+        if (! $viewer) {
+            return null;
+        }
+        if ($viewer->id === $this->id) {
+            return $this->presenceState();
+        }
+
+        $visible = match ($this->settings?->privacyValue('online_status_visibility') ?? 'connections') {
+            'nobody' => false,
+            'connections' => app(\App\Services\AppIdService::class)->areConnected($viewer, $this),
+            default => true,
+        };
+
+        return $visible ? $this->presenceState() : null;
+    }
+
     /**
      * Is this person using the app right now, as far as $viewer may know?
      *
      * Two questions in one, deliberately — asking "are they online" without
      * asking "may this person see that" is how a privacy setting ends up
-     * being decorative. 'nobody' hides it from everyone; 'connections' from
-     * strangers; 'everyone' from no one.
+     * being decorative. Kept beside presenceFor() because plenty of screens
+     * only ever wanted the green dot, and a boolean is what they read.
      */
     public function isOnlineFor(?self $viewer): bool
     {
-        if (! $this->last_active_at || $this->last_active_at->lt(now()->subSeconds(self::ONLINE_WITHIN_SECONDS))) {
-            return false;
-        }
-        if (! $viewer || $viewer->id === $this->id) {
-            return (bool) $viewer;
+        return $this->presenceFor($viewer) === 'online';
+    }
+
+    /**
+     * Everyone whose screen shows this person's dot.
+     *
+     * Two audiences, because there are two places a dot appears: the people
+     * they are connected to, and the people they share a conversation with —
+     * a group can hold somebody they never connected to. Returned as uuids
+     * because that is what the channel names are made of.
+     *
+     * Capped, and deliberately: this list becomes the channel list of a
+     * broadcast, and a state change is not worth an unbounded fan-out. The
+     * ones past the cap find out on their next poll, which is what used to
+     * happen to everybody.
+     *
+     * @return list<string>
+     */
+    public function presenceAudience(int $limit = 200): array
+    {
+        if (($this->settings?->privacyValue('online_status_visibility') ?? 'connections') === 'nobody') {
+            return [];
         }
 
-        return match ($this->settings?->privacyValue('online_status_visibility') ?? 'connections') {
-            'nobody' => false,
-            'connections' => app(\App\Services\AppIdService::class)->areConnected($viewer, $this),
-            default => true,
-        };
+        $connected = Connection::query()
+            ->where('status', 'accepted')
+            ->where(fn ($q) => $q->where('requester_id', $this->id)->orWhere('addressee_id', $this->id))
+            ->get(['requester_id', 'addressee_id'])
+            ->map(fn ($c) => $c->requester_id === $this->id ? $c->addressee_id : $c->requester_id);
+
+        $roomMates = \Illuminate\Support\Facades\DB::table('conversation_members as mine')
+            ->join('conversation_members as theirs', 'theirs.conversation_id', '=', 'mine.conversation_id')
+            ->where('mine.user_id', $this->id)
+            ->where('theirs.user_id', '!=', $this->id)
+            ->distinct()
+            ->pluck('theirs.user_id');
+
+        $ids = $connected->merge($roomMates)->unique()->take($limit);
+
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        return self::whereIn('id', $ids)->pluck('uuid')->all();
     }
 
     /**

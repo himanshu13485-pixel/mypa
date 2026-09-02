@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { auth } from '../../api/endpoints'
@@ -8,6 +8,9 @@ import { useAuthStore } from '../../stores/auth'
 import { Button, ErrorNote, Input, Label } from '../../components/ui'
 import { returnState, returnTo } from '../../lib/returnTo'
 import { forgetDevice, rememberDevice } from '../../lib/deviceTrust'
+
+/** Long enough that a slow mail server is waited for, not queued behind. */
+const RESEND_COOLDOWN_SECONDS = 60
 
 export default function Login() {
   const navigate = useNavigate()
@@ -23,7 +26,23 @@ export default function Login() {
   const [codeSent, setCodeSent] = useState(false)
   // The password was right and a code went out. Until it is answered there
   // is no token, so nothing about being signed in has happened yet.
-  const [signInChallenge, setSignInChallenge] = useState<{ sentTo: string } | null>(null)
+  const [signInChallenge, setSignInChallenge] = useState<{ sentTo: string; sentAt: number; expiresInMinutes: number } | null>(null)
+  const [resending, setResending] = useState(false)
+  /*
+   * A clock, only while the code screen is up.
+   *
+   * The code lasts ten minutes and there was nothing on this screen that
+   * could send another one — somebody who came back to it after lunch, or
+   * whose mail was slow, had a dead code, no way to say so, and nothing to do
+   * but go back and start the sign-in over. This ticks so the screen can say
+   * how long is left and offer a fresh one when it matters.
+   */
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!signInChallenge) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [signInChallenge])
   const [rememberDeviceChoice, setRememberDeviceChoice] = useState(true)
   const [info, setInfo] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -39,7 +58,12 @@ export default function Login() {
       // A device this account has not signed in on before is asked for a
       // code as well; a device it has is let straight through.
       if (res.otp_required) {
-        setSignInChallenge({ sentTo: res.sent_to ?? 'your email' })
+        setSignInChallenge({
+          sentTo: res.sent_to ?? 'your email',
+          sentAt: Date.now(),
+          expiresInMinutes: res.expires_in_minutes ?? 10,
+        })
+        setCode('')
         setInfo(res.message ?? null)
         return
       }
@@ -82,6 +106,43 @@ export default function Login() {
     }
   }
 
+  /*
+   * Send another sign-in code.
+   *
+   * Deliberately the login call again rather than a resend endpoint of its
+   * own: a route that posts a code to whoever is named would let anybody mail
+   * anybody, so the password is the thing that earns a code, and it is still
+   * in hand here. The server retires the previous code as it issues the new
+   * one, so there is never a moment with two live codes.
+   */
+  const resendSignInCode = async () => {
+    setError(null)
+    setResending(true)
+    try {
+      const res = await auth.login({ identifier: identifier.trim(), password, device_name: 'web' })
+
+      // A device trusted in the meantime is let straight in; there is then
+      // no code to wait for and nothing left to ask.
+      if (!res.otp_required && res.token && res.data) {
+        setAuth(res.token, res.data)
+        navigate(next, { replace: true })
+        return
+      }
+
+      setSignInChallenge({
+        sentTo: res.sent_to ?? signInChallenge?.sentTo ?? 'your email',
+        sentAt: Date.now(),
+        expiresInMinutes: res.expires_in_minutes ?? 10,
+      })
+      setCode('')
+      setInfo('A new code is on its way. The previous one no longer works.')
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setResending(false)
+    }
+  }
+
   const requestCode = async () => {
     if (!identifier.trim()) {
       setError('Enter your mobile number, username, or email first.')
@@ -115,6 +176,19 @@ export default function Login() {
     }
   }
 
+  /*
+   * Three numbers off the one clock.
+   *
+   * `secondsLeft` is what the current code has; `codeExpired` is when that
+   * has run out, which is the moment the wait before resending stops making
+   * any sense; `resendIn` is that wait, a minute from whenever the last code
+   * went out.
+   */
+  const elapsed = signInChallenge ? Math.floor((now - signInChallenge.sentAt) / 1000) : 0
+  const secondsLeft = signInChallenge ? Math.max(0, signInChallenge.expiresInMinutes * 60 - elapsed) : 0
+  const codeExpired = !!signInChallenge && secondsLeft === 0
+  const resendIn = Math.max(0, RESEND_COOLDOWN_SECONDS - elapsed)
+
   return (
     <div className="flex min-h-full items-center justify-center p-4">
       <div className="w-full max-w-sm">
@@ -138,6 +212,14 @@ export default function Login() {
                 <p className="mt-1 text-xs text-slate-500">
                   We sent a code to <span className="font-medium">{signInChallenge.sentTo}</span>. If you are
                   already signed in on your phone, it is in your notifications too.
+                </p>
+                {/* What the code has left, and then plainly that it is gone.
+                    A code that silently stopped working looked from here like
+                    a code being typed wrong. */}
+                <p className={clsx('mt-1 text-xs', codeExpired ? 'text-red-600 dark:text-red-400' : 'text-slate-400')}>
+                  {codeExpired
+                    ? 'This code has expired. Send a new one below.'
+                    : `Expires in ${Math.floor(secondsLeft / 60)}:${String(secondsLeft % 60).padStart(2, '0')}.`}
                 </p>
               </div>
               <ErrorNote message={error} />
@@ -170,6 +252,22 @@ export default function Login() {
               <Button type="submit" className="w-full" disabled={loading || code.length < 6}>
                 {loading ? 'Checking…' : 'Sign in'}
               </Button>
+              {/* Held back for a minute so a slow mail server is waited for
+                  rather than sent a queue of codes, each one retiring the
+                  last. An expired code skips the wait: there is nothing left
+                  to be patient about. */}
+              <button
+                type="button"
+                className="w-full text-center text-xs font-medium text-brand-600 hover:text-brand-700 disabled:font-normal disabled:text-slate-400"
+                disabled={resending || loading || (!codeExpired && resendIn > 0)}
+                onClick={resendSignInCode}
+              >
+                {resending
+                  ? 'Sending…'
+                  : !codeExpired && resendIn > 0
+                    ? `Resend code in ${resendIn}s`
+                    : 'Resend code'}
+              </button>
               <button
                 type="button"
                 className="w-full text-center text-xs text-slate-400 hover:text-slate-600"
