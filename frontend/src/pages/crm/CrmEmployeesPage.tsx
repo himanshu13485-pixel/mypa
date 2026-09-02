@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, UserCog } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm } from '../../api/crm'
+import { enterWorkspace } from '../../lib/impersonation'
+import { errorMessage } from '../../api/client'
+import { usePrompt } from '../../components/Prompt'
+import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
 
 const ROLE_LABELS: Record<string, string> = { admin: 'Admin', subadmin: 'Subadmin', employee: 'Employee' }
@@ -16,6 +20,48 @@ export default function CrmEmployeesPage() {
   const [reportsTo, setReportsTo] = useState('')
   const [status, setStatus] = useState('active')
   const [page, setPage] = useState(1)
+  /** The row being opened, so its button says so and the rest go quiet. */
+  const [entering, setEntering] = useState<string | null>(null)
+  const { confirm } = usePrompt()
+  const { toastError } = useToast()
+
+  /*
+   * Sit in somebody's seat.
+   *
+   * Confirmed first, and named, because this is not a navigation — the next
+   * screen is somebody else's account, and everything done there is done
+   * under their name. The reload afterwards is deliberate: every cache in
+   * the page is holding this admin's answers, and stepping into the seat
+   * without clearing them would show one person's data under another
+   * person's identity, which is the one thing this feature must never do.
+   */
+  const openWorkspace = async (uuid: string, name: string) => {
+    const level = me?.member?.impersonation_level
+    const note = level === 'crm_read'
+      ? `You will see ${name}'s CRM exactly as they do, and will not be able to change anything.`
+      : level === 'account'
+        ? `You will be signed in as ${name} across the whole of Netvork — their private notes, files and messages included. This is recorded.`
+        : `You will be signed in as ${name} in the company CRM, and anything you do there will be done in their name. This is recorded.`
+
+    // The app's own dialog, not window.confirm: several in-app browsers
+    // return null from that without showing anything, and a confirmation
+    // that silently answers "no" would make this button look broken.
+    const ok = await confirm({
+      title: `Open ${name}'s workspace?`,
+      message: note,
+      actionLabel: 'Open workspace',
+    })
+    if (!ok) return
+
+    setEntering(uuid)
+    try {
+      await enterWorkspace(uuid)
+      window.location.assign('/crm')
+    } catch (err) {
+      setEntering(null)
+      toastError(errorMessage(err))
+    }
+  }
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
@@ -87,7 +133,8 @@ export default function CrmEmployeesPage() {
                   <th className="py-2 pr-3 font-medium">Designation</th>
                   <th className="py-2 pr-3 font-medium">Team leader</th>
                   <th className="py-2 pr-3 font-medium">Joined</th>
-                  <th className="py-2 font-medium">Status</th>
+                  <th className="py-2 pr-3 font-medium">Status</th>
+                  <th className="py-2 font-medium sr-only">Open workspace</th>
                 </tr>
               </thead>
               <tbody>
@@ -121,7 +168,7 @@ export default function CrmEmployeesPage() {
                         : m.manager?.name ?? '—'}
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">{m.joined_at ?? '—'}</td>
-                    <td className="py-2.5">
+                    <td className="py-2.5 pr-3">
                       <span className={clsx(
                         'rounded-full px-2 py-0.5 text-[11px] font-medium',
                         m.status === 'active'
@@ -130,6 +177,24 @@ export default function CrmEmployeesPage() {
                       )}>
                         {m.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
+                    </td>
+                    {/* Only where the server said so. It knows two things
+                        this screen cannot: what the platform granted the
+                        company, and whether the account behind the row holds
+                        Netvork roles of its own. */}
+                    <td className="whitespace-nowrap py-2.5 text-right">
+                      {m.can_impersonate && (
+                        <button
+                          type="button"
+                          disabled={entering !== null}
+                          onClick={() => openWorkspace(m.uuid, m.name ?? 'this member')}
+                          className="tap inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:border-emerald-400 hover:text-emerald-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                          title={`Open ${m.name}'s workspace as them`}
+                        >
+                          <UserCog className="size-3.5" />
+                          {entering === m.uuid ? 'Opening…' : 'Login as'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

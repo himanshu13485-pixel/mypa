@@ -6,6 +6,7 @@ import { ComplaintAlerts } from './ComplaintAlerts'
 import { BirthdayVibes } from './BirthdayVibes'
 import { FestivalVibes } from './FestivalVibes'
 import { CallProvider } from '../../components/CallManager'
+import ImpersonationBanner from '../../components/ImpersonationBanner'
 import NotificationBell from '../../components/NotificationBell'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -432,6 +433,10 @@ export default function CrmLayout() {
     // CallProvider here too: the Connect suite lives inside the CRM shell,
     // so calls must ring and connect without leaving it.
     <CallProvider>
+    {/* Above everything, because forgetting whose account you are working in
+        is how a record gets changed by the wrong hand. Draws nothing at all
+        when the session is an ordinary one. */}
+    <ImpersonationBanner />
     {/*
       * A shell the height of the window, scrolling inside itself.
       *

@@ -423,6 +423,12 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::delete('/groups/{group}/members/{userUuid}', [GroupController::class, 'removeMember']);
         Route::get('/groups/{group}/tasks', [GroupController::class, 'tasks']);
 
+        // Handing a borrowed workspace back. Not under /crm, and not behind
+        // crm.member: an 'account'-level session may be anywhere in Netvork
+        // when the admin decides they are done, and the way out must not
+        // depend on where they are standing.
+        Route::post('/impersonation/stop', [\App\Http\Controllers\Api\V1\Crm\ImpersonationController::class, 'stop']);
+
         // Presence. The heartbeat is frequent by design — every 45 seconds
         // from every open tab — so it gets its own bucket rather than eating
         // the shared allowance, and is exempt from TrackActivity: it reports
@@ -685,6 +691,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // Fetch an existing Netvork account to register as an employee.
                 Route::get('/employees-lookup', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'lookupAccount']);
                 Route::post('/employees', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'store']);
+                /*
+                 * Sitting in a member's seat.
+                 *
+                 * Behind crm.manager like its neighbours, but that is not the
+                 * check that matters — the controller asks for 'admin' rather
+                 * than admin-or-subadmin, and asks the platform whether this
+                 * company was granted it at all. Both belong there rather than
+                 * in the route, because refusing has to say which of the two
+                 * reasons it was.
+                 */
+                Route::post('/employees/{uuid}/impersonate', [\App\Http\Controllers\Api\V1\Crm\ImpersonationController::class, 'start']);
                 Route::put('/employees/{uuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'update']);
                 Route::post('/employees/{uuid}/salary', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'addSalary']);
                 Route::delete('/employees/{uuid}/salary/{recordId}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'deleteSalary']);

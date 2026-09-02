@@ -15,6 +15,7 @@ import { isStaff, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
 import NetvorkMark from './Logo'
 import { CallProvider } from './CallManager'
+import ImpersonationBanner from './ImpersonationBanner'
 import { MeetingHost, MeetingSlot } from './MeetingHost'
 import VoiceAssistant from './VoiceAssistant'
 import MobileVerifyBanner from './MobileVerifyBanner'
@@ -276,6 +277,9 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
   return (
     <CallProvider>
     <MeetingHost>
+    {/* Here as well as in the CRM shell: an 'account'-level seat reaches the
+        whole of Netvork, so the reminder has to follow it there. */}
+    <ImpersonationBanner />
     {/* h-dvh, not h-screen: 100vh on a phone is the height with the URL bar
         hidden, so a plain h-screen shell hides its own footer until you
         scroll, then jumps when the bar retracts. */}

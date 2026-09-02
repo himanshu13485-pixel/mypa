@@ -12,7 +12,19 @@ class Organization extends Model
 
     protected $table = 'crm_organizations';
 
-    protected $fillable = ['name', 'code', 'status', 'settings', 'created_by'];
+    protected $fillable = ['name', 'code', 'status', 'impersonation_level', 'settings', 'created_by'];
+
+    /**
+     * How far this company's admin may sit in a member's seat, granted by the
+     * platform and never by the company itself. In order of how much they get.
+     */
+    public const IMPERSONATION_LEVELS = ['none', 'crm_read', 'crm', 'account'];
+
+    /** Whether the seat is lent at all. */
+    public function lendsSeats(): bool
+    {
+        return in_array($this->impersonation_level, ['crm_read', 'crm', 'account'], true);
+    }
 
     protected function casts(): array
     {

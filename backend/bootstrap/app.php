@@ -47,6 +47,26 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
             \App\Http\Middleware\ResolveMeetingGuest::class,
         );
+        /*
+         * What a borrowed workspace may reach — see the class.
+         *
+         * Global, and pinned to run the instant after authentication. Global
+         * because it has to hold on every authenticated route there is and not
+         * merely the big group in api.php: the broadcasting endpoint is
+         * registered above with its own middleware, and a session scoped to
+         * the company CRM that could still authorise a private channel would
+         * be reading the borrowed account's live messages through the side
+         * door. Pinned because unsorted global middleware runs BEFORE route
+         * middleware, so during handle() auth:sanctum has not run and there is
+         * no user yet to have a scope — the check would pass every request by
+         * finding nobody, which is the shape of a security hole that tests
+         * green.
+         */
+        $middleware->append(\App\Http\Middleware\ImpersonationScope::class);
+        $middleware->appendToPriorityList(
+            \Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests::class,
+            \App\Http\Middleware\ImpersonationScope::class,
+        );
         $middleware->alias([
             'role' => \App\Http\Middleware\EnsureRole::class,
             'active' => \App\Http\Middleware\EnsureActiveUser::class,

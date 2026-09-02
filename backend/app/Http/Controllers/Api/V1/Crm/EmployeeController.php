@@ -37,7 +37,10 @@ class EmployeeController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
 
-        $query = Member::visible()->with(['user:id,name,email', 'manager.user:id,name', 'leaders.user:id,name'])
+        $query = Member::visible()
+            // user.roles for the borrowable test below: without it that is a
+            // query per row, asked of every list this screen ever draws.
+            ->with(['user:id,name,email', 'user.roles:id,slug', 'manager.user:id,name', 'leaders.user:id,name'])
             ->where('organization_id', $org->id);
 
         // A Team Head's window is their subtree; admins see the company.
@@ -68,7 +71,23 @@ class EmployeeController extends Controller
         }
 
         $members = $query->orderBy('id')->paginate(25);
-        $members->getCollection()->transform(fn ($m) => $this->serialize($m));
+
+        /*
+         * Whose seat this reader may sit in.
+         *
+         * Answered here rather than left to the screen, because two of the
+         * three tests are not the screen's to make: whether the platform has
+         * granted this company anything, and whether the account behind the
+         * row holds Netvork roles of its own — an employee who is also a
+         * platform admin is not borrowable, and the list has no way to know
+         * that. A button drawn where the server will refuse is a button that
+         * teaches people to distrust buttons.
+         */
+        $lends = $me->crm_role === 'admin' && $org->lendsSeats();
+
+        $members->getCollection()->transform(
+            fn ($m) => $this->serialize($m) + ['can_impersonate' => $lends && $this->borrowable($m, $me)],
+        );
 
         return response()->json($members);
     }
@@ -676,6 +695,30 @@ class EmployeeController extends Controller
         }
 
         return ['reporting_to' => $manager->id];
+    }
+
+    /**
+     * Is this member's workspace one the reader may open?
+     *
+     * Sideways and upwards are both refused: an admin may sit in an employee's
+     * or a subadmin's seat and in nobody else's, never their own, and never in
+     * one belonging to an account that carries Netvork's own roles — that last
+     * one would turn a company login into the platform's admin panel, which is
+     * a rather larger door than the one being opened here.
+     */
+    private function borrowable(Member $m, Member $me): bool
+    {
+        if ($m->id === $me->id || $m->status !== 'active') {
+            return false;
+        }
+        if (! in_array($m->crm_role, ['employee', 'subadmin'], true)) {
+            return false;
+        }
+
+        $platform = ['admin', 'super_admin', 'subadmin', 'salesperson'];
+
+        return $m->user !== null
+            && $m->user->roles->pluck('slug')->intersect($platform)->isEmpty();
     }
 
     private function serialize(Member $m, bool $full = false): array

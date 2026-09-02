@@ -58,6 +58,14 @@ export interface CrmMe {
     can_export?: boolean
     /** Who this member may hand work to; absent for a manager (anyone). */
     team_member_uuids?: string[]
+    /**
+     * How far this admin may sit in a member's seat — granted by the
+     * platform, per company, and null when nothing was granted, which is
+     * also when the button is not drawn.
+     */
+    impersonation_level?: 'crm_read' | 'crm' | 'account' | null
+    /** Set when this session is itself a borrowed one. */
+    impersonating?: { level: 'crm_read' | 'crm' | 'account' } | null
   } | null
   organization: { uuid: string; name: string; code: string } | null
 }
@@ -364,6 +372,13 @@ export interface CrmEmployee {
   email: string | null
   crm_role: 'admin' | 'subadmin' | 'employee'
   status: 'active' | 'inactive'
+  /**
+   * Whether the reader may open this person's workspace. Decided by the
+   * server: two of the three tests — what the platform granted the company,
+   * and whether the account behind the row holds Netvork's own roles — are
+   * not things this screen can see.
+   */
+  can_impersonate?: boolean
   employee_code: string | null
   department: string | null
   designation: string | null
@@ -1690,6 +1705,8 @@ export interface CrmOrganizationRow {
   name: string
   code: string
   status: string
+  /** How far this company's Admin may sit in a member's seat. */
+  impersonation_level?: 'none' | 'crm_read' | 'crm' | 'account'
   members: number
   active_members: number
   admins: { name: string | null; email: string | null }[]

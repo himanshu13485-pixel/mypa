@@ -348,12 +348,14 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
   const [code, setCode] = useState(org.code)
   const [adminEmail, setAdminEmail] = useState(org.admins[0]?.email ?? '')
   const [newPassword, setNewPassword] = useState('')
+  const [impersonation, setImpersonation] = useState(org.impersonation_level ?? 'none')
 
   const mutation = useMutation({
     mutationFn: () =>
       crm.organizations.update(org.uuid, {
         name,
         code,
+        impersonation_level: impersonation,
         ...(newPassword ? { admin_email: adminEmail, admin_password: newPassword } : {}),
       }),
     onSuccess: (res: { message?: string }) => { toast(res.message ?? 'Organization updated.', 'success'); onDone() },
@@ -372,6 +374,42 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
           <Label>Short code</Label>
           <Input value={code} onChange={(e) => setCode(e.target.value)} className="w-full" />
           <p className="mt-1 text-xs text-slate-400">Letters, numbers, dashes — must stay unique across organizations.</p>
+        </div>
+
+        {/*
+          * Whether this company's admin may sit in a member's seat.
+          *
+          * The platform's decision and nobody else's, which is why it is on
+          * this screen and not in the company's own settings — where the
+          * person it restrains would be the person editing it. Off unless
+          * somebody deliberately turns it on: a right nobody asked for
+          * should not arrive switched on.
+          */}
+        <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Login as employee</h3>
+          <p className="mt-1 text-xs text-slate-400">
+            Lets this company&rsquo;s Admin open an employee&rsquo;s or subadmin&rsquo;s workspace as them.
+            Never another Admin&rsquo;s, and never their own. Every use is recorded.
+          </p>
+          <div className="mt-2">
+            <Label>What their Admin may open</Label>
+            <select
+              value={impersonation}
+              onChange={(e) => setImpersonation(e.target.value as typeof impersonation)}
+              className="w-full rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
+            >
+              <option value="none">Nothing — the button is not shown</option>
+              <option value="crm_read">Their CRM, to look at only</option>
+              <option value="crm">Their CRM workspace, to work in</option>
+              <option value="account">Their whole Netvork account</option>
+            </select>
+            {impersonation === 'account' && (
+              <p className="mt-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                This includes the employee&rsquo;s private notes, files and personal messages. Only grant it to a
+                company whose staff have been told it can happen.
+              </p>
+            )}
+          </div>
         </div>
 
         <div className="border-t border-slate-100 pt-3 dark:border-slate-800">

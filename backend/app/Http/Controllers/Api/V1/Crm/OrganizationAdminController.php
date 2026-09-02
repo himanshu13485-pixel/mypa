@@ -34,6 +34,7 @@ class OrganizationAdminController extends Controller
                 'name' => $o->name,
                 'code' => $o->code,
                 'status' => $o->status,
+                'impersonation_level' => $o->impersonation_level,
                 'members' => $o->members_count,
                 'active_members' => $o->active_members_count,
                 'admins' => Member::visible()->with('user:id,name,email')
@@ -191,15 +192,35 @@ class OrganizationAdminController extends Controller
             'code' => ['nullable', 'string', 'max:32', 'alpha_dash',
                 \Illuminate\Validation\Rule::unique('crm_organizations', 'code')->ignore($organization->id)],
             'status' => ['nullable', \Illuminate\Validation\Rule::in(['active', 'suspended'])],
+            /*
+             * How far this company's admin may sit in a member's seat.
+             *
+             * Only ever set from here. The company cannot grant it to itself
+             * or widen what it was given — which is the whole reason it lives
+             * on the organization rather than in the company's own settings
+             * screen, where the person it restrains would be the person
+             * editing it.
+             */
+            'impersonation_level' => ['nullable', \Illuminate\Validation\Rule::in(Organization::IMPERSONATION_LEVELS)],
             // Resetting an org admin's password: pick the admin by email.
             'admin_email' => ['nullable', 'email', 'required_with:admin_password'],
             'admin_password' => ['nullable', PasswordRule::min(8)->letters()->numbers()],
         ]);
 
         $organization->update(array_filter(
-            collect($data)->only(['name', 'code', 'status'])->all(),
+            collect($data)->only(['name', 'code', 'status', 'impersonation_level'])->all(),
             fn ($v) => $v !== null,
         ));
+
+        if (($data['impersonation_level'] ?? null) !== null) {
+            // Written down, because this is the grant that lets one person
+            // read another's screen. Who widened it, and to what, should not
+            // be a thing anybody has to reconstruct.
+            \App\Models\AuditLog::record($request->user(), 'crm.impersonation.granted', $organization, [
+                'organization' => $organization->code,
+                'level' => $data['impersonation_level'],
+            ]);
+        }
 
         $passwordReset = false;
         if (! empty($data['admin_password'])) {

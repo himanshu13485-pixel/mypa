@@ -625,6 +625,42 @@ class CrmController extends Controller
             'rights' => $member->crm_role === 'admin'
                 ? collect(Member::MODULES)->mapWithKeys(fn ($m) => [$m => Member::ABILITIES])
                 : ($member->rights ?? (object) []),
+            /*
+             * Whether this admin may open a member's workspace, and how far
+             * in — null when the platform has granted the company nothing,
+             * which is also when the button is not drawn.
+             *
+             * Read from the organization on every call rather than cached
+             * anywhere: it is a grant that can be withdrawn, and a screen
+             * still offering a button after that is a screen making a promise
+             * the server will refuse to keep.
+             */
+            'impersonation_level' => $member->crm_role === 'admin' && $member->organization?->lendsSeats()
+                ? $member->organization->impersonation_level
+                : null,
+            // And whether this session is itself a borrowed one, so the shell
+            // can say whose seat it is and offer the way out of it.
+            'impersonating' => $this->borrowedSeat(),
         ];
+    }
+
+    /**
+     * The seat this session is borrowing, if it is borrowing one.
+     *
+     * Answered from the token rather than from anything the client sent,
+     * because it is the token that decides — a browser claiming not to be
+     * impersonating changes nothing about what it may reach, and one claiming
+     * that it is would otherwise be able to draw the banner on a session that
+     * is perfectly ordinary.
+     */
+    protected function borrowedSeat(): ?array
+    {
+        $token = request()->user()?->currentAccessToken();
+
+        if (! ImpersonationController::isBorrowed($token)) {
+            return null;
+        }
+
+        return ['level' => ImpersonationController::levelOf($token)];
     }
 }
