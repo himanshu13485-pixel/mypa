@@ -36,6 +36,7 @@ const ProjectsPage = lazyRoute('ProjectsPage', () => import('./pages/ProjectsPag
 const MeetingsPage = lazyRoute('MeetingsPage', () => import('./pages/MeetingsPage'))
 const BookingLinkPage = lazyRoute('BookingLinkPage', () => import('./pages/BookingLinkPage'))
 const InvitePage = lazyRoute('InvitePage', () => import('./pages/InvitePage'))
+const JoinGroupPage = lazyRoute('JoinGroupPage', () => import('./pages/JoinGroupPage'))
 const PublicBookingPage = lazyRoute('PublicBookingPage', () => import('./pages/PublicBookingPage'))
 const ManageBookingPage = lazyRoute('ManageBookingPage', () => import('./pages/ManageBookingPage'))
 const MeetingRoomPage = lazyRoute('MeetingRoomPage', () => import('./pages/MeetingRoomPage'))
@@ -350,6 +351,10 @@ export default function App() {
             <Route path="/notes" element={<NotesPage />} />
             <Route path="/files" element={<FilesPage />} />
             <Route path="/groups" element={<GroupsPage />} />
+            {/* A group invite link. Behind the guard, because joining a
+                group is something an account does — a stranger is sent
+                to sign in and lands back here. */}
+            <Route path="/j/:token" element={<JoinGroupPage />} />
             <Route path="/habits" element={<HabitsPage />} />
             <Route path="/goals" element={<GoalsPage />} />
             <Route path="/bills" element={<BillsPage />} />

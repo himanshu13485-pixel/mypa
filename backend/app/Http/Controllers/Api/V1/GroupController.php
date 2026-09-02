@@ -217,6 +217,11 @@ class GroupController extends Controller
      * Nothing to do if the group has never been talked in: the room is
      * created on first use and will be created from the current membership.
      */
+    public function syncConversationFor(Group $group): void
+    {
+        $this->syncConversation($group);
+    }
+
     protected function syncConversation(Group $group): void
     {
         $conversation = \App\Models\Conversation::where('group_id', $group->id)->first();

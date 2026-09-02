@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useConnectBase } from '../lib/connectBase'
-import { CheckSquare, Pencil, Plus, Trash2, UserPlus, Users } from 'lucide-react'
+import {
+  Check, CheckSquare, Copy, Link as LinkIcon, Pencil, Plus, RefreshCw, Trash2, UserPlus, Users, X,
+} from 'lucide-react'
 import { badges as badgesApi, groups as groupsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
@@ -109,6 +111,55 @@ export default function GroupsPage() {
   })
 
   const canManage = detail?.my_role === 'owner' || detail?.my_role === 'admin'
+
+  /*
+   * The group's link, and whoever it has put in the queue.
+   *
+   * Only fetched for people who could act on it: a member with no say does
+   * not need to know the link exists, and asking would be two 403s per
+   * dialog open.
+   */
+  const { data: invite } = useQuery({
+    queryKey: ['group-invite', detail?.uuid],
+    queryFn: () => groupsApi.invite(detail!.uuid),
+    enabled: !!detail && canManage,
+  })
+
+  const { data: waiting } = useQuery({
+    queryKey: ['group-join-requests', detail?.uuid],
+    queryFn: () => groupsApi.joinRequests(detail!.uuid),
+    enabled: !!detail && canManage && invite?.mode === 'request',
+  })
+
+  const refreshInvite = () => {
+    queryClient.invalidateQueries({ queryKey: ['group-invite', detail?.uuid] })
+    queryClient.invalidateQueries({ queryKey: ['group-join-requests', detail?.uuid] })
+  }
+
+  const inviteMutation = useMutation({
+    mutationFn: (payload: { enabled?: boolean; mode?: 'open' | 'request' }) =>
+      groupsApi.setInvite(detail!.uuid, payload),
+    onSuccess: refreshInvite,
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const rotateMutation = useMutation({
+    mutationFn: () => groupsApi.rotateInvite(detail!.uuid),
+    onSuccess: refreshInvite,
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const decideMutation = useMutation({
+    mutationFn: ({ uuid, action }: { uuid: string; action: 'approve' | 'decline' }) =>
+      groupsApi.decideJoinRequest(detail!.uuid, uuid, action),
+    onSuccess: () => {
+      refreshInvite()
+      refreshDetail(detail!.uuid)
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const [inviteCopied, setInviteCopied] = useState(false)
 
   return (
     <div className="space-y-4">
@@ -368,6 +419,122 @@ export default function GroupsPage() {
                 ))}
               </div>
             </div>
+
+            {/*
+              * A link, instead of typing forty names.
+              *
+              * Off by default and off means off — turning it off clears the
+              * token rather than setting a flag beside one that still works.
+              */}
+            {canManage && invite && (
+              <div className="space-y-2 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+                    <LinkIcon className="size-3.5" /> Invite link
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={inviteMutation.isPending}
+                    onClick={() => inviteMutation.mutate({ enabled: !invite.enabled })}
+                  >
+                    {invite.enabled ? 'Turn off' : 'Turn on'}
+                  </Button>
+                </div>
+
+                {invite.enabled && invite.url ? (
+                  <>
+                    <div className="flex gap-2">
+                      <Input readOnly value={invite.url} className="flex-1 font-mono text-xs" />
+                      <Button
+                        variant="secondary"
+                        onClick={() => {
+                          void navigator.clipboard?.writeText(invite.url!)
+                          setInviteCopied(true)
+                          setTimeout(() => setInviteCopied(false), 2000)
+                        }}
+                      >
+                        {inviteCopied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                      </Button>
+                    </div>
+
+                    <Select
+                      value={invite.mode}
+                      onChange={(e) => inviteMutation.mutate({ mode: e.target.value as 'open' | 'request' })}
+                    >
+                      <option value="request">Anyone with the link can ask to join</option>
+                      <option value="open">Anyone with the link joins straight away</option>
+                    </Select>
+
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] text-slate-400">
+                        {invite.mode === 'open'
+                          ? 'No approval — whoever opens this link is in. Turn it off or replace it when you are done sharing.'
+                          : 'People who follow the link land in the list below for you to approve.'}
+                      </p>
+                      {/* The only honest way to take back a URL already
+                          forwarded to people you cannot name. */}
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="shrink-0"
+                        disabled={rotateMutation.isPending}
+                        onClick={() => {
+                          if (confirm('Replace this link? The old one will stop working for everybody who has it.')) {
+                            rotateMutation.mutate()
+                          }
+                        }}
+                      >
+                        <RefreshCw className="size-3.5" /> New link
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-slate-400">
+                    There is no link. Turn it on to let people join without being added one at a time.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* The queue, for whoever can answer it. */}
+            {canManage && invite?.mode === 'request' && !!waiting?.length && (
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold">
+                  Waiting to join ({waiting.length})
+                </h3>
+                {waiting.map((person) => (
+                  <div key={person.uuid} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 p-2 dark:border-slate-700">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <Avatar name={person.name} photoPath={person.photo_path} avatar={person.avatar} size={32} />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{person.name}</p>
+                        {person.username && (
+                          <p className="truncate text-xs text-slate-400">@{person.username}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        size="sm"
+                        disabled={decideMutation.isPending}
+                        onClick={() => decideMutation.mutate({ uuid: person.uuid, action: 'approve' })}
+                      >
+                        <Check className="size-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={decideMutation.isPending}
+                        onClick={() => decideMutation.mutate({ uuid: person.uuid, action: 'decline' })}
+                      >
+                        <X className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {canManage && (
               <form

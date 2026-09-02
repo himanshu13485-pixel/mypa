@@ -3,7 +3,8 @@ import type {
   AdminStats, AppNotification, BillItem, BillingQuote, BrowseResult,
   CalendarEvent, CalendarFeedTask, CallInfo, CallSignalPayload, Category, ChatMessage,
   CheckoutSession, Connection, ConversationItem, DashboardSummary, FileItem,
-  GoalItem, GroupItem, HabitItem, InvoiceRecord, MySubscription, Note,
+  GoalItem, GroupInvite, GroupItem, GroupJoinPreview, GroupJoinRequest, HabitItem,
+  InvoiceRecord, MySubscription, Note,
   Paginated, PaymentRecord, PlanInfo, PresenceState, ReportSummary, Task, User,
   BookingDetail, BookingHour, BookingPageConfig, BookingRow, PublicBookingPage,
 } from '../types'
@@ -463,6 +464,32 @@ export const groups = {
     api.put(`/groups/${uuid}/members/${userUuid}`, { role }),
   removeMember: (uuid: string, userUuid: string) =>
     api.delete(`/groups/${uuid}/members/${userUuid}`),
+
+  /*
+   * The group's invite link, and the queue it feeds.
+   *
+   * A link that admits, or a link that asks. Adding forty people one name at
+   * a time makes the admin a queue; a link moves that work to the person
+   * joining.
+   */
+  invite: (uuid: string) =>
+    api.get<{ data: GroupInvite }>(`/groups/${uuid}/invite`).then((r) => r.data.data),
+  setInvite: (uuid: string, payload: { enabled?: boolean; mode?: GroupInvite['mode'] }) =>
+    api.put<{ data: GroupInvite }>(`/groups/${uuid}/invite`, payload).then((r) => r.data.data),
+  rotateInvite: (uuid: string) =>
+    api.post<{ data: GroupInvite }>(`/groups/${uuid}/invite/rotate`).then((r) => r.data.data),
+  joinRequests: (uuid: string) =>
+    api.get<{ data: GroupJoinRequest[] }>(`/groups/${uuid}/join-requests`).then((r) => r.data.data),
+  decideJoinRequest: (uuid: string, requestUuid: string, action: 'approve' | 'decline') =>
+    api.post(`/groups/${uuid}/join-requests/${requestUuid}`, { action }),
+
+  /** What a link would do, and following it through. */
+  previewJoin: (token: string) =>
+    api.get<{ data: GroupJoinPreview }>(`/join-group/${token}`).then((r) => r.data.data),
+  join: (token: string) =>
+    api.post<{ message: string; data: { status: 'member' | 'pending'; group_uuid: string } }>(
+      `/join-group/${token}`,
+    ).then((r) => r.data),
 }
 
 // --- Chat -------------------------------------------------------------------

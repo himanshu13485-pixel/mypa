@@ -19,7 +19,25 @@ class Group extends Model
     /** Roles allowed to manage members and edit the group. */
     public const MANAGER_ROLES = ['owner', 'admin'];
 
-    protected $fillable = ['owner_id', 'name', 'type', 'description', 'icon', 'color', 'only_admins_post'];
+    /** What a group's link does when somebody follows it. */
+    public const INVITE_MODES = ['open', 'request'];
+
+    protected $fillable = [
+        'owner_id', 'name', 'type', 'description', 'icon', 'color', 'only_admins_post',
+        'invite_token', 'invite_mode',
+    ];
+
+    /*
+     * The table's default, said again here.
+     *
+     * A column default is applied by the database on insert and never read
+     * back into a model that was built in memory, so a group made and asked
+     * about in the same request would answer null — and null is neither of
+     * the two modes.
+     */
+    protected $attributes = [
+        'invite_mode' => 'request',
+    ];
 
     public function uniqueIds(): array
     {
@@ -46,6 +64,29 @@ class Group extends Model
         return $this->belongsToMany(User::class, 'group_members')
             ->withPivot(['role', 'added_by'])
             ->withTimestamps();
+    }
+
+    public function joinRequests(): HasMany
+    {
+        return $this->hasMany(GroupJoinRequest::class);
+    }
+
+    /**
+     * A fresh link, replacing whatever was there.
+     *
+     * Rotating is how a link is taken back: the old one stops resolving the
+     * moment this runs, which is the only honest meaning of revoking a URL
+     * that has already been forwarded to people you cannot name.
+     */
+    public function rotateInviteToken(): string
+    {
+        do {
+            $token = \Illuminate\Support\Str::lower(\Illuminate\Support\Str::random(24));
+        } while (static::where('invite_token', $token)->exists());
+
+        $this->update(['invite_token' => $token]);
+
+        return $token;
     }
 
     public function tasks(): HasMany

@@ -313,6 +313,23 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         // My own invite link, for somebody who is not on Netvork yet.
         Route::get('/invite-link', [\App\Http\Controllers\Api\V1\InviteController::class, 'mine']);
 
+        /*
+         * A group's invite link, and the people it put in the queue.
+         *
+         * Following a link needs an account - joining a group is something a
+         * member does - so these sit inside auth rather than beside the
+         * public invite above.
+         */
+        Route::get('/groups/{group}/invite', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'show']);
+        Route::put('/groups/{group}/invite', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'update']);
+        Route::post('/groups/{group}/invite/rotate', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'rotate']);
+        Route::get('/groups/{group}/join-requests', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'pending']);
+        Route::post('/groups/{group}/join-requests/{joinRequest}', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'decide']);
+        Route::get('/join-group/{token}', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'preview'])
+            ->where('token', '[A-Za-z0-9]{16,32}');
+        Route::post('/join-group/{token}', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'join'])
+            ->middleware('throttle:20,1')->where('token', '[A-Za-z0-9]{16,32}');
+
         // Meetings (Meet-style link rooms)
         Route::get('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'index']);
         Route::post('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'store']);

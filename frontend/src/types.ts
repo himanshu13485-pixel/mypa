@@ -863,6 +863,37 @@ export interface BookingRow {
   meeting_url: string | null
 }
 
+/** A group's invite link, as its admins see it. */
+export interface GroupInvite {
+  enabled: boolean
+  /** 'open' — the link admits. 'request' — the link asks. */
+  mode: 'open' | 'request'
+  url: string | null
+  pending_count: number
+}
+
+/** Somebody who followed a group's link and is waiting to be let in. */
+export interface GroupJoinRequest {
+  uuid: string
+  name: string | null
+  username: string | null
+  avatar: string | null
+  photo_path: string | null
+  asked_at: string
+}
+
+/** What a group link would do, for whoever is holding it. */
+export interface GroupJoinPreview {
+  uuid: string
+  name: string
+  type: string
+  description: string | null
+  member_count: number
+  mode: 'open' | 'request'
+  already_member: boolean
+  already_requested: boolean
+}
+
 /** What a stranger sees before booking: no more than the link already gave. */
 export interface PublicBookingPage {
   slug: string
