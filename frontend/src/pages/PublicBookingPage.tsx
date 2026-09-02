@@ -5,6 +5,7 @@ import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Clock, Globe, Vi
 import { clsx } from 'clsx'
 import { publicBookingApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import { HoneypotField, TurnstileWidget, useSignupGuard } from '../components/SignupGuard'
 import type { BookingDetail } from '../types'
 import { Button, Card, ErrorNote, Input, Label, Skeleton, Textarea } from '../components/ui'
 
@@ -240,6 +241,7 @@ function BookingForm({
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [note, setNote] = useState('')
+  const guard = useSignupGuard()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -252,7 +254,12 @@ function BookingForm({
     setBusy(true)
     setError(null)
     try {
-      onBooked(await publicBookingApi.book(slug, { starts_at: startsAt, name, email, note, timezone: VIEWER_TZ }))
+      onBooked(await publicBookingApi.book(slug, {
+        starts_at: startsAt, name, email, note, timezone: VIEWER_TZ,
+        // A public form is the other door worth wedging: a script filling
+        // it takes real slots out of somebody's diary.
+        ...guard.fields,
+      }))
     } catch (err) {
       /*
        * 409 is not really an error, it is news: somebody else took this time
@@ -292,7 +299,11 @@ function BookingForm({
         </div>
         <ErrorNote message={error} />
         <div className="flex items-center gap-2">
-          <Button type="submit" disabled={busy}>{busy ? 'Booking…' : 'Confirm booking'}</Button>
+          <HoneypotField value={guard.honeypot} onChange={guard.setHoneypot} />
+          <TurnstileWidget onToken={guard.setToken} />
+          <Button type="submit" disabled={busy || guard.waiting}>
+            {busy ? 'Booking…' : guard.waiting ? 'Verifying…' : 'Confirm booking'}
+          </Button>
           <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
             Pick another time
           </Button>

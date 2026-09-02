@@ -20,6 +20,23 @@ class IdentityTest extends TestCase
     {
         parent::setUp();
         $this->seed(RolePermissionSeeder::class);
+
+        /*
+         * Sign-up is throttled at three a minute, which is right in production
+         * and wrong here: these tests register a dozen times to check the
+         * validation rules, and would start failing on the fourth for a reason
+         * none of them is about. The throttle has its own coverage.
+         */
+        $this->withoutMiddleware(\Illuminate\Routing\Middleware\ThrottleRequests::class);
+
+        /*
+         * And the password rule now asks HaveIBeenPwned. Faked so the suite
+         * neither depends on the network nor leaks a hash prefix; an empty
+         * body means "not in any breach".
+         */
+        \Illuminate\Support\Facades\Http::fake([
+            'api.pwnedpasswords.com/*' => \Illuminate\Support\Facades\Http::response(''),
+        ]);
     }
 
     protected function register(array $overrides = []): \Illuminate\Testing\TestResponse

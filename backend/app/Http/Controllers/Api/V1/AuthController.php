@@ -12,6 +12,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Models\UserProfile;
 use App\Services\AppIdService;
+use App\Support\SignupGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,13 +25,33 @@ class AuthController extends Controller
 {
     public function register(Request $request, AppIdService $appIds): JsonResponse
     {
+        /*
+         * Before anything is created, and before the address is even read.
+         *
+         * A script that gets past this has still cost somebody a Turnstile
+         * solve; one that does not never reaches the database, which is the
+         * point — the cheapest request to serve is the one refused first.
+         */
+        SignupGuard::assertHuman($request);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             // Email-first identity: the account is confirmed by an emailed OTP.
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             // Alphanumeric handle, no special characters (second login identity).
             'username' => ['required', 'string', 'min:4', 'max:20', 'regex:/^[a-zA-Z0-9]+$/'],
-            'password' => ['required', 'confirmed', PasswordRule::min(8)->letters()->numbers()],
+            'password' => ['required', 'confirmed',
+                /*
+                 * ->uncompromised() checks the password against the
+                 * HaveIBeenPwned breach corpus, by k-anonymity: the
+                 * first five characters of its hash go out, never the
+                 * password. A password already in a public breach list
+                 * is the first thing an attacker tries, and eight
+                 * characters with a letter and a digit describes most
+                 * of them. Laravel treats an unreachable API as a pass,
+                 * so this cannot lock anybody out.
+                 */
+                PasswordRule::min(8)->letters()->numbers()->uncompromised()],
             // Mobile is optional, records-only (never a login or search identity).
             // A country code and then the number, which is what the form
             // now sends: one shape in the column instead of four.
@@ -44,6 +65,12 @@ class AuthController extends Controller
             'referral_app_id' => ['nullable', 'string', 'max:32'],
             // The code from an invite link, carried through the sign-up.
             'invite_code' => ['nullable', 'string', 'max:24'],
+
+            // The guard's own fields. Validated so a huge payload cannot be
+            // smuggled in through them; read by SignupGuard, never stored.
+            'company_website' => ['nullable', 'string', 'max:255'],
+            'form_started_at' => ['nullable', 'numeric'],
+            'turnstile_token' => ['nullable', 'string', 'max:2048'],
         ]);
 
         $username = mb_strtolower($data['username']);
@@ -537,7 +564,18 @@ class AuthController extends Controller
         $request->validate([
             'token' => ['required'],
             'email' => ['required', 'email'],
-            'password' => ['required', 'confirmed', PasswordRule::min(8)->letters()->numbers()],
+            'password' => ['required', 'confirmed',
+                /*
+                 * ->uncompromised() checks the password against the
+                 * HaveIBeenPwned breach corpus, by k-anonymity: the
+                 * first five characters of its hash go out, never the
+                 * password. A password already in a public breach list
+                 * is the first thing an attacker tries, and eight
+                 * characters with a letter and a digit describes most
+                 * of them. Laravel treats an unreachable API as a pass,
+                 * so this cannot lock anybody out.
+                 */
+                PasswordRule::min(8)->letters()->numbers()->uncompromised()],
         ]);
 
         $status = Password::reset(

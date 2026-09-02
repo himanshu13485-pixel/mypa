@@ -8,6 +8,7 @@ use App\Models\BookingPage;
 use App\Services\BookingAvailability;
 use App\Services\BookingService;
 use Carbon\CarbonImmutable;
+use App\Support\SignupGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -89,11 +90,25 @@ class PublicBookingController extends Controller
         $page = BookingPage::with('user')->where('slug', $slug)->where('is_active', true)->first();
         abort_if($page === null, 404, 'There is no booking link here.');
 
+        /*
+         * The other form a stranger can submit.
+         *
+         * A booking link is public by design, which makes it the second door
+         * worth wedging: a script filling it takes real slots out of somebody's
+         * diary and sends a confirmation email in their name for each one.
+         * The same three layers, and the same silence about which objected.
+         */
+        SignupGuard::assertHuman($request, 'name');
+
         $data = $request->validate([
             'starts_at' => ['required', 'date'],
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'max:255'],
             'note' => ['nullable', 'string', 'max:2000'],
+            // The guard's own fields: read by SignupGuard, never stored.
+            'company_website' => ['nullable', 'string', 'max:255'],
+            'form_started_at' => ['nullable', 'numeric'],
+            'turnstile_token' => ['nullable', 'string', 'max:2048'],
             /*
              * all_with_bc, matching registration and the profile.
              *

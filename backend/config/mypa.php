@@ -72,6 +72,28 @@ return [
         'ai_model' => env('VOICE_AI_MODEL', 'claude-opus-5'),
     ],
 
+    /*
+     * Keeping scripts off the sign-up form.
+     *
+     * Three layers, deliberately, because each catches what the others let
+     * through. The honeypot and the timing check cost nothing and need no
+     * account anywhere — they stop the crude majority. Turnstile is
+     * Cloudflare's challenge: free, usually invisible to a real person, and
+     * the only one of the three that survives an attacker who reads the page.
+     *
+     * With no site key configured, Turnstile is simply skipped and the other
+     * two still apply — so the app is protected today and better protected
+     * the moment somebody pastes a key in.
+     */
+    'signup_guard' => [
+        'turnstile_site_key' => env('TURNSTILE_SITE_KEY'),
+        'turnstile_secret' => env('TURNSTILE_SECRET'),
+
+        // A person cannot read a sign-up form, choose a username and type a
+        // password in under this. A script can.
+        'min_seconds' => (int) env('SIGNUP_MIN_SECONDS', 3),
+    ],
+
     'webrtc' => [
         'stun_url' => env('STUN_SERVER_URL'),
         'turn_url' => env('TURN_SERVER_URL'),

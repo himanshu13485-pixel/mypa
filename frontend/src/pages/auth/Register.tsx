@@ -8,6 +8,7 @@ import { useAuthStore } from '../../stores/auth'
 import { Button, ErrorNote, Input, Label, Select } from '../../components/ui'
 import { DEFAULT_DIAL, MobileField } from '../../components/MobileField'
 import { returnState, returnTo } from '../../lib/returnTo'
+import { HoneypotField, TurnstileWidget, useSignupGuard } from '../../components/SignupGuard'
 
 export default function Register() {
   const navigate = useNavigate()
@@ -78,6 +79,13 @@ export default function Register() {
     return () => clearTimeout(timer)
   }, [form.username, usernameTouched])
 
+  /*
+   * The three layers that tell a script from a person.
+   *
+   * Captured on mount, so the gap between rendering and submitting is real.
+   */
+  const guard = useSignupGuard()
+
   /** The invite this sign-up came from, if it came from one. */
   const inviteCode = new URLSearchParams(location.search).get('invite') ?? ''
 
@@ -100,6 +108,8 @@ export default function Register() {
          * mistyped link still ends in an account.
          */
         ...(inviteCode ? { invite_code: inviteCode } : {}),
+        // The honeypot, the clock and Cloudflare's token, when there is one.
+        ...guard.fields,
       })
       setAuth(res.token, res.data)
       setStep('verify')
@@ -222,8 +232,19 @@ export default function Register() {
               </Select>
             </div>
 
-            <Button type="submit" disabled={loading || usernameStatus === 'taken'} className="w-full">
-              {loading ? 'Creating account…' : 'Continue'}
+            {/* Invisible to sight and to a screen reader: announcing this
+                would make a real person fill in the trap. */}
+            <HoneypotField value={guard.honeypot} onChange={guard.setHoneypot} />
+
+            {/* Only rendered when a site key is configured. */}
+            <TurnstileWidget onToken={guard.setToken} />
+
+            <Button
+              type="submit"
+              disabled={loading || usernameStatus === 'taken' || guard.waiting}
+              className="w-full"
+            >
+              {loading ? 'Creating account…' : guard.waiting ? 'Verifying…' : 'Continue'}
             </Button>
             <p className="text-center text-xs">
               Already have an account?{' '}

@@ -145,7 +145,16 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
 
     // --- Public auth (strictly throttled) --------------------------------
     Route::middleware('throttle:10,1')->group(function () {
-        Route::post('/auth/register', [AuthController::class, 'register']);
+        /*
+         * Sign-up is throttled harder than the rest of this group.
+         *
+         * Ten a minute is a reasonable allowance for somebody mistyping a
+         * password; it is 14,000 accounts a day from one address. Nobody
+         * signs up three times in a minute, and an office behind one NAT
+         * still has three tries a minute between them.
+         */
+        Route::post('/auth/register', [AuthController::class, 'register'])
+            ->middleware('throttle:3,1');
         Route::post('/auth/login', [AuthController::class, 'login']);
         Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
         Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
