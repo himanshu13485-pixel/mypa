@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\UserResource;
 use App\Models\AppSetting;
+use App\Models\Connection;
 use App\Models\LoginHistory;
 use App\Models\TrustedDevice;
 use App\Models\Role;
 use App\Models\User;
+use App\Models\UserProfile;
 use App\Services\AppIdService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,6 +42,8 @@ class AuthController extends Controller
             'language' => ['nullable', 'string', 'max:8'],
             'account_type' => ['nullable', 'in:personal,business'],
             'referral_app_id' => ['nullable', 'string', 'max:32'],
+            // The code from an invite link, carried through the sign-up.
+            'invite_code' => ['nullable', 'string', 'max:24'],
         ]);
 
         $username = mb_strtolower($data['username']);
@@ -48,6 +52,21 @@ class AuthController extends Controller
             throw ValidationException::withMessages([
                 'username' => ['This username is taken.'],
             ]);
+        }
+
+        /*
+         * Whoever's link brought them here.
+         *
+         * Resolved before the account is made so a dud code is simply
+         * nobody, rather than a failed registration: somebody who mistyped
+         * the link should still end up with an account.
+         */
+        $inviter = ! empty($data['invite_code'])
+            ? UserProfile::where('invite_code', $data['invite_code'])->first()?->user
+            : null;
+
+        if ($inviter && $inviter->status !== 'active') {
+            $inviter = null;
         }
 
         $user = DB::transaction(function () use ($data, $appIds, $username) {
@@ -80,6 +99,21 @@ class AuthController extends Controller
 
             return $user;
         });
+
+        /*
+         * The two of them, joined up.
+         *
+         * Pending and from the newcomer, not accepted outright: the code
+         * travels in a URL anybody can forward, so it is evidence that
+         * somebody was invited, not proof of who by. One tap from the
+         * inviter settles it, and that tap is the consent.
+         */
+        if ($inviter) {
+            Connection::firstOrCreate(
+                ['requester_id' => $user->id, 'addressee_id' => $inviter->id],
+                ['status' => 'pending', 'message' => 'Joined Netvork from your invite link.'],
+            );
+        }
 
         // Account confirmation: a 6-digit OTP is emailed to the address.
         app(\App\Services\MobileOtpService::class)->issueEmail($user, $user->email);

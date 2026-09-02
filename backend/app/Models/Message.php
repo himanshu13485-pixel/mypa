@@ -12,6 +12,15 @@ class Message extends Model
 {
     use HasUuids, SoftDeletes;
 
+    /**
+     * How long a sent message stays editable.
+     *
+     * Named here rather than typed into the controller and the client
+     * separately: the button that disappears and the request that is refused
+     * have to agree, or one of them is lying to somebody.
+     */
+    public const EDIT_WINDOW_MINUTES = 60;
+
     protected $fillable = [
         'conversation_id', 'user_id', 'type', 'body', 'reply_to_id', 'edited_at',
     ];

@@ -13,6 +13,7 @@ import { format, isToday } from 'date-fns'
 import { clsx } from 'clsx'
 import { chat } from '../api/endpoints'
 import { errorMessage } from '../api/client'
+import { withinEditWindow } from '../lib/editWindow'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { useCalls } from '../components/CallManager'
@@ -764,7 +765,7 @@ export default function MessagesPage() {
                         <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Reply" onClick={() => { setReplyTo(m); setEditing(null) }}>
                           <Reply className="size-3.5" />
                         </button>
-                        {m.is_own && m.type === 'text' && (
+                        {m.is_own && m.type === 'text' && withinEditWindow(m.created_at) && (
                           <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Edit" onClick={() => { setEditing(m); setDraft(m.body ?? ''); setReplyTo(null) }}>
                             <Pencil className="size-3.5" />
                           </button>

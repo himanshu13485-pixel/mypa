@@ -78,6 +78,9 @@ export default function Register() {
     return () => clearTimeout(timer)
   }, [form.username, usernameTouched])
 
+  /** The invite this sign-up came from, if it came from one. */
+  const inviteCode = new URLSearchParams(location.search).get('invite') ?? ''
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
@@ -88,6 +91,15 @@ export default function Register() {
         mobile: form.mobile ? form.country_code + form.mobile : null,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         device_name: 'web',
+        /*
+         * Whoever's link brought them here, carried through from /i/<code>.
+         *
+         * Without it the two people who just found each other would land on
+         * either side of an empty address book and have to go looking again.
+         * A code the server does not recognise is simply ignored, so a
+         * mistyped link still ends in an account.
+         */
+        ...(inviteCode ? { invite_code: inviteCode } : {}),
       })
       setAuth(res.token, res.data)
       setStep('verify')

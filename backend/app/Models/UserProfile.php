@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Str;
 
 class UserProfile extends Model
 {
@@ -29,7 +30,30 @@ class UserProfile extends Model
     protected $fillable = [
         'user_id', 'photo_path', 'avatar', 'date_of_birth', 'gender', 'country',
         'timezone', 'language', 'account_type', 'bio', 'referral_app_id',
+        'invite_code',
     ];
+
+    /**
+     * The code in this person's invite link, made the first time they ask.
+     *
+     * Random rather than derived from anything: the page it opens is public,
+     * so a code somebody could guess from a name or an App ID would be a
+     * directory with the door left open.
+     */
+    public static function inviteCodeFor(User $user): string
+    {
+        $profile = $user->profile ?: $user->profile()->create([]);
+
+        if (! $profile->invite_code) {
+            do {
+                $code = Str::lower(Str::random(16));
+            } while (static::where('invite_code', $code)->exists());
+
+            $profile->update(['invite_code' => $code]);
+        }
+
+        return $profile->invite_code;
+    }
 
     protected function casts(): array
     {

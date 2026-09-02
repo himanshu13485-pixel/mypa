@@ -202,6 +202,22 @@ class MessageController extends Controller
         abort_unless($message->user_id === $me->id, 403, 'You can only edit your own messages.');
         abort_if($message->type !== 'text', 422, 'Only text messages can be edited.');
 
+        /*
+         * An hour to fix a typo, and then it stands.
+         *
+         * Editing was unbounded, which meant a message somebody answered a
+         * week ago could be quietly rewritten under their reply — the reply
+         * stays, the thing it replied to does not. A window short enough that
+         * the conversation has not moved on is the whole point; the mark that
+         * says it was edited is the other half, and the reader keeps that
+         * either way.
+         */
+        abort_if(
+            $message->created_at->lt(now()->subMinutes(Message::EDIT_WINDOW_MINUTES)),
+            422,
+            'Messages can only be edited for ' . Message::EDIT_WINDOW_MINUTES . ' minutes after sending.',
+        );
+
         $data = $request->validate(['body' => ['required', 'string', 'max:10000']]);
 
         $message->update(['body' => $data['body'], 'edited_at' => now()]);

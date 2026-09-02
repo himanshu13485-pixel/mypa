@@ -35,6 +35,7 @@ const BillsPage = lazyRoute('BillsPage', () => import('./pages/BillsPage'))
 const ProjectsPage = lazyRoute('ProjectsPage', () => import('./pages/ProjectsPage'))
 const MeetingsPage = lazyRoute('MeetingsPage', () => import('./pages/MeetingsPage'))
 const BookingLinkPage = lazyRoute('BookingLinkPage', () => import('./pages/BookingLinkPage'))
+const InvitePage = lazyRoute('InvitePage', () => import('./pages/InvitePage'))
 const PublicBookingPage = lazyRoute('PublicBookingPage', () => import('./pages/PublicBookingPage'))
 const ManageBookingPage = lazyRoute('ManageBookingPage', () => import('./pages/ManageBookingPage'))
 const MeetingRoomPage = lazyRoute('MeetingRoomPage', () => import('./pages/MeetingRoomPage'))
@@ -227,6 +228,9 @@ export default function App() {
               sidebar for. /booking/:token is the receipt, reached from the
               confirmation email, and is the only way a guest can change
               what they booked. */}
+          {/* An invitation for somebody with no account. Public, because
+              that is the only kind of person it is for. */}
+          <Route path="/i/:code" element={<InvitePage />} />
           <Route path="/book/:slug" element={<PublicBookingPage />} />
           <Route path="/booking/:token" element={<ManageBookingPage />} />
           <Route path="/login" element={<Login />} />

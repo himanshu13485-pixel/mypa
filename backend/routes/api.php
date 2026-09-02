@@ -155,6 +155,13 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/auth/otp/login', [AuthController::class, 'loginWithOtp']);
     });
 
+    /*
+     * Who is behind an invite link. Public, because the person opening it has
+     * no account yet — that is the entire point of the link.
+     */
+    Route::get('/invite/{code}', [\App\Http\Controllers\Api\V1\InviteController::class, 'show'])
+        ->middleware('throttle:30,1')->where('code', '[A-Za-z0-9]{8,24}');
+
     Route::get('/auth/suggest-username', [AuthController::class, 'suggestUsername'])
         ->middleware('throttle:30,1');
 
@@ -303,6 +310,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/notes/{note}/versions', [NoteController::class, 'versions']);
 
         Route::get('/connections/suggest', [\App\Http\Controllers\Api\V1\ConnectionController::class, 'suggest']);
+        // My own invite link, for somebody who is not on Netvork yet.
+        Route::get('/invite-link', [\App\Http\Controllers\Api\V1\InviteController::class, 'mine']);
 
         // Meetings (Meet-style link rooms)
         Route::get('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'index']);

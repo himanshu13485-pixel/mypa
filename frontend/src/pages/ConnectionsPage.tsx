@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { useConnectBase } from '../lib/connectBase'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Flag, MessageSquare, Phone, Search, Undo2, UserPlus, Video, X } from 'lucide-react'
+import { Check, Copy, Flag, MessageSquare, Phone, Search, Undo2, UserPlus, Video, X } from 'lucide-react'
 import { badges as badgesApi, chat, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
 import { useCalls } from '../components/CallManager'
 import { REPORT_REASONS } from '../types'
@@ -17,6 +17,7 @@ import {
   Card,
   EmptyState,
   ErrorNote,
+  Input,
   Label,
   Modal,
   Select,
@@ -124,6 +125,17 @@ export default function ConnectionsPage() {
 
   /** The handle the server can resolve — App ID when there is one, else the username. */
   const handleOf = (p: { app_id: string | null; username?: string | null }) => p.app_id ?? p.username ?? ''
+
+  /*
+   * The invite link, fetched once. It is made on the server the first time
+   * it is asked for and then kept, so this is safe to call on every visit.
+   */
+  const { data: invite } = useQuery({
+    queryKey: ['invite-link'],
+    queryFn: connectionsApi.inviteLink,
+    staleTime: Infinity,
+  })
+  const [inviteCopied, setInviteCopied] = useState(false)
 
   const search = async () => {
     setSearchError(null)
@@ -266,6 +278,37 @@ export default function ConnectionsPage() {
               {qr.payload}
             </p>
           )}
+        </Card>
+
+        <Card className="min-w-0">
+          {/*
+            * For somebody who is not here yet.
+            *
+            * Every other way in — search, App ID, the QR code — assumes the
+            * other person already has an account. This is the one link that
+            * works when they do not, and it carries whoever sent it through
+            * the sign-up so the two are connected at the end of it.
+            */}
+          <h2 className="mb-2 text-sm font-semibold">Invite someone to Netvork</h2>
+          <p className="mb-2 text-xs text-slate-400">
+            Not on Netvork yet? Send them this. They will land on a page with your name on it, and
+            you will get a request to connect the moment they sign up.
+          </p>
+          <div className="flex gap-2">
+            <Input readOnly value={invite?.url ?? 'Preparing your link…'} className="flex-1 font-mono text-xs" />
+            <Button
+              variant="secondary"
+              disabled={!invite}
+              onClick={() => {
+                if (!invite) return
+                void navigator.clipboard?.writeText(invite.url)
+                setInviteCopied(true)
+                setTimeout(() => setInviteCopied(false), 2000)
+              }}
+            >
+              {inviteCopied ? <Check className="size-4" /> : <Copy className="size-4" />}
+            </Button>
+          </div>
         </Card>
 
         <Card className="min-w-0">

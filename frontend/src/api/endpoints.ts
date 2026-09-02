@@ -131,6 +131,15 @@ export const connections = {
   send: (app_id: string, message?: string) => api.post('/connections', { app_id, message }),
   respond: (uuid: string, action: 'accept' | 'decline') => api.put(`/connections/${uuid}`, { action }),
   remove: (uuid: string) => api.delete(`/connections/${uuid}`),
+  /*
+   * My own invite link, for somebody who is not on Netvork yet.
+   *
+   * Made on first ask and then kept, so a link already sent to somebody
+   * keeps working. Keyed on its own random code, not the App ID, because
+   * the page it opens is public and App IDs run in sequence.
+   */
+  inviteLink: () =>
+    api.get<{ data: { code: string; url: string } }>('/invite-link').then((r) => r.data.data),
   blocks: () => api.get<{ data: { uuid: string; name: string; app_id?: string }[] }>('/blocks').then((r) => r.data.data),
   block: (app_id: string, reason?: string) => api.post('/blocks', { app_id, reason }),
   unblock: (app_id: string) => api.delete(`/blocks/${app_id}`),
