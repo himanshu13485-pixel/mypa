@@ -30,7 +30,7 @@ class UserProfile extends Model
     protected $fillable = [
         'user_id', 'photo_path', 'avatar', 'date_of_birth', 'gender', 'country',
         'timezone', 'language', 'account_type', 'bio', 'referral_app_id',
-        'invite_code',
+        'invite_code', 'status_text',
     ];
 
     /**

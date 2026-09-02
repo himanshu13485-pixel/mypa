@@ -422,6 +422,9 @@ export default function SettingsPage() {
     country: user?.profile?.country ?? '',
     timezone: user?.profile?.timezone ?? 'Asia/Kolkata',
     bio: user?.profile?.bio ?? '',
+    // What you are up to, as against who you are. Short, and it changes
+    // on a Tuesday — which is why it is not the bio.
+    status: user?.profile?.status ?? '',
   })
   const [privacy, setPrivacy] = useState<Record<string, string>>(
     (user?.settings?.privacy as Record<string, string>) ?? {},
@@ -569,6 +572,18 @@ export default function SettingsPage() {
           <div>
             <Label>Timezone</Label>
             <Input value={profileForm.timezone} onChange={(e) => setProfileForm({ ...profileForm, timezone: e.target.value })} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Status</Label>
+            <Input
+              value={profileForm.status ?? ''}
+              onChange={(e) => setProfileForm({ ...profileForm, status: e.target.value })}
+              placeholder="On leave until the 12th"
+              maxLength={140}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              A line about what you are up to. Anyone who opens your profile sees it.
+            </p>
           </div>
           <div className="sm:col-span-2">
             <Label>Bio</Label>

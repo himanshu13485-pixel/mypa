@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Check, CheckCheck, ChevronLeft, Clock, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Search, Send,
+  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Mic, Paperclip, Pencil, Phone, Plus, Reply, Search, Send,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
 import { badges as badgesApi, conversationMembers, removeConversationMember, reportsApi } from '../api/endpoints'
 import type { ConversationMember } from '../api/endpoints'
+import PersonModal from '../components/PersonModal'
 import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
@@ -14,6 +15,7 @@ import { clsx } from 'clsx'
 import { chat } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { withinEditWindow } from '../lib/editWindow'
+import { countUnseen, seenIdsOf } from '../lib/unseenMessages'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { useCalls } from '../components/CallManager'
@@ -177,6 +179,18 @@ export default function MessagesPage() {
   const [typing, setTyping] = useState<{ uuid: string; name: string }[]>([])
   const typingSentRef = useRef(0)
   const bottomRef = useRef<HTMLDivElement>(null)
+  /** Messages that arrived while the reader was looking further up. */
+  const [unseen, setUnseen] = useState(0)
+  /** Whose profile is open, if any. */
+  const [viewingPerson, setViewingPerson] = useState<string | null>(null)
+  /*
+   * The messages known to have been seen, by uuid.
+   *
+   * Not a count: the endpoint hands back a fixed window of recent messages,
+   * so two arriving pushes two off the top and the length is exactly what it
+   * was. A counter watching the length would report nothing had happened.
+   */
+  const seenIdsRef = useRef<Set<string>>(new Set())
   const listRef = useRef<HTMLDivElement>(null)
   const lastConvRef = useRef<string | null>(null)
   /** True once the opened conversation has been pinned to its newest message. */
@@ -217,6 +231,16 @@ export default function MessagesPage() {
     enabled: !!selected,
     refetchInterval: query ? false : 15_000,
   })
+
+  /*
+   * The newest message's identity.
+   *
+   * What the scroll effects watch, instead of the list's length: the endpoint
+   * returns a fixed window of recent messages, so when one arrives another
+   * falls off the top and the length is unchanged. An effect keyed on length
+   * would simply never run.
+   */
+  const newestUuid = messages?.length ? messages[messages.length - 1].uuid : null
 
   /**
    * Warm a thread before it is asked for.
@@ -352,7 +376,25 @@ export default function MessagesPage() {
     // opens, and scrolling an empty list pins nothing.
     const needInitialPin = !pinnedRef.current && (messages?.length ?? 0) > 0
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160
-    if (!needInitialPin && !nearBottom) return
+
+    /*
+     * Something arrived while they were reading further up.
+     *
+     * Yanking the list down would lose their place, and saying nothing means
+     * a message can land, be marked read and be scrolled past without ever
+     * being seen. So the arrival is counted and offered instead: the reader
+     * decides when to go and look.
+     */
+    if (!needInitialPin && !nearBottom) {
+      // Recomputed rather than incremented, so a refetch that changed
+      // nothing adds nothing.
+      setUnseen(countUnseen(messages, seenIdsRef.current))
+
+      return
+    }
+
+    seenIdsRef.current = seenIdsOf(messages)
+    setUnseen(0)
     if (needInitialPin) pinnedRef.current = true
 
     const toBottom = (smooth: boolean) => el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' })
@@ -367,7 +409,39 @@ export default function MessagesPage() {
       clearTimeout(t2)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [messages?.length, selected?.uuid])
+  }, [newestUuid, messages?.length, selected?.uuid])
+
+  /*
+   * Scrolling back down by hand clears the count.
+   *
+   * The pill is an offer, not a task list: somebody who has arrived at the
+   * bottom has seen what arrived, however they got there.
+   */
+  useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+
+    const onScroll = () => {
+      if (el.scrollHeight - el.scrollTop - el.clientHeight < 160) {
+        seenIdsRef.current = seenIdsOf(messages)
+        setUnseen(0)
+      }
+    }
+
+    el.addEventListener('scroll', onScroll, { passive: true })
+
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [newestUuid, messages?.length])
+
+  /** Take the reader to the newest message, and stop offering. */
+  const jumpToLatest = () => {
+    const el = listRef.current
+    if (!el) return
+
+    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    seenIdsRef.current = seenIdsOf(messages)
+    setUnseen(0)
+  }
 
   const send = () => {
     if (editing) {
@@ -509,7 +583,20 @@ export default function MessagesPage() {
                   <ChevronLeft className="size-5" />
                 </button>
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold">{selected.name}</p>
+                  {/* The person you are talking to, tappable. A one-to-one
+                      chat header names somebody; it should also be the way
+                      to find out who they are. */}
+                  {selected.type !== 'group' && selected.other_user?.uuid ? (
+                    <button
+                      type="button"
+                      onClick={() => setViewingPerson(selected.other_user!.uuid)}
+                      className="block max-w-full truncate text-left text-sm font-semibold hover:underline"
+                    >
+                      {selected.name}
+                    </button>
+                  ) : (
+                    <p className="text-sm font-semibold">{selected.name}</p>
+                  )}
                   {selected.type === 'group' ? (
                     <button
                       className="text-xs text-slate-400 hover:text-brand-600 hover:underline"
@@ -547,7 +634,10 @@ export default function MessagesPage() {
                   )}
                 </div>
               </div>
-              {showNewChat && (
+              {viewingPerson && (
+        <PersonModal uuid={viewingPerson} onClose={() => setViewingPerson(null)} />
+      )}
+      {showNewChat && (
         <PickUserModal
           title="Start a conversation"
           actionLabel="Message"
@@ -662,6 +752,26 @@ export default function MessagesPage() {
             )}
 
             {/* Messages */}
+            {/*
+              * What arrived while you were reading further up.
+              *
+              * Positioned over the list rather than inside it so it stays put
+              * while the list scrolls underneath — a marker that moves with
+              * the content is a marker you have to chase.
+              */}
+            {unseen > 0 && (
+              <div className="pointer-events-none relative z-10 flex justify-center">
+                <button
+                  type="button"
+                  onClick={jumpToLatest}
+                  className="pointer-events-auto absolute top-2 flex items-center gap-1.5 rounded-full bg-brand-600 px-3 py-1.5 text-xs font-medium text-white shadow-lift hover:bg-brand-700"
+                >
+                  <ArrowDown className="size-3.5" />
+                  {unseen} new {unseen === 1 ? 'message' : 'messages'}
+                </button>
+              </div>
+            )}
+
             <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto p-4">
               {/* A thread being opened for the first time. Once it has been
                   read once the cache answers instantly and this never shows;

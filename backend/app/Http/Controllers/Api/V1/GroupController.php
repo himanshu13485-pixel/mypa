@@ -81,6 +81,94 @@ class GroupController extends Controller
         ]);
     }
 
+    /**
+     * The same group again, with the same people or some of them.
+     *
+     * A team that runs a project together runs the next one together too,
+     * and rebuilding that membership by hand — searching each person, picking
+     * their role, doing it eleven times — is the kind of work that stops
+     * people making the second group at all. What carries over is everything
+     * that describes the group: its kind, its blurb, its posting rule. What
+     * does not is anything that happened inside it. A copy is a fresh room
+     * with the same people in it, not a copy of the conversation.
+     */
+    public function replicate(Request $request, Group $group): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($group->members()->where('users.id', $me->id)->exists(), 403);
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'member_uuids' => ['sometimes', 'array', 'max:200'],
+            'member_uuids.*' => ['string'],
+        ]);
+
+        $entitlements = app(\App\Services\SubscriptionEntitlementService::class);
+        if (! $entitlements->canCreateGroup($me)) {
+            return response()->json([
+                'message' => 'You have reached your plan\'s group limit.',
+            ], 422);
+        }
+
+        /*
+         * Only people who were in the group being copied.
+         *
+         * The list arrives from a screen showing that membership, so anything
+         * else in it is either stale or somebody trying their luck. Filtering
+         * rather than refusing keeps a copy working when one member left
+         * between the dialog opening and the button being pressed.
+         */
+        $chosen = $group->members()
+            ->when(
+                array_key_exists('member_uuids', $data),
+                fn ($q) => $q->whereIn('users.uuid', $data['member_uuids']),
+            )
+            ->get()
+            ->reject(fn ($member) => $member->id === $me->id);
+
+        $copy = DB::transaction(function () use ($group, $me, $data, $chosen) {
+            $copy = Group::create([
+                'owner_id' => $me->id,
+                'name' => $data['name'],
+                'type' => $group->type,
+                'description' => $group->description,
+                'icon' => $group->icon,
+                'color' => $group->color,
+                'only_admins_post' => $group->only_admins_post,
+            ]);
+
+            // Whoever copies it owns it, whatever they were in the original.
+            $copy->members()->attach($me->id, ['role' => 'owner']);
+
+            foreach ($chosen as $member) {
+                /*
+                 * Roles come across, minus the crown. Two owners is not a
+                 * thing this model has, and the person who pressed the button
+                 * is the one who answers for the new group.
+                 */
+                $role = $member->pivot->role === 'owner' ? 'admin' : $member->pivot->role;
+
+                $copy->members()->attach($member->id, ['role' => $role, 'added_by' => $me->id]);
+            }
+
+            return $copy;
+        });
+
+        foreach ($chosen as $member) {
+            $member->notify(new \App\Notifications\SocialNotification(
+                'group_added',
+                "{$me->name} added you to the group " . $this->quoted($copy->name) . '.',
+                ['group_uuid' => $copy->uuid],
+                '/groups',
+            ));
+        }
+
+        return response()->json([
+            'message' => 'Group copied.',
+            'data' => $this->serialize($copy->fresh()->load('members'), $request),
+        ], 201);
+    }
+
     public function update(Request $request, Group $group): JsonResponse
     {
         abort_unless($group->canManage($request->user()), 403);

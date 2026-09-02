@@ -30,7 +30,21 @@ class ProfileController extends Controller
             'language' => ['sometimes', 'string', 'max:8'],
             'account_type' => ['sometimes', 'in:personal,business'],
             'bio' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            /*
+             * What you are up to, as against who you are.
+             *
+             * Short on purpose: a status people scroll is a bio, and there is
+             * already a bio. Stored as status_text because users.status is
+             * the account's own state and two columns of that name a row
+             * apart is a bug waiting for a careless join.
+             */
+            'status' => ['sometimes', 'nullable', 'string', 'max:140'],
         ]);
+
+        if (array_key_exists('status', $data)) {
+            $data['status_text'] = $data['status'] === null ? null : trim($data['status']);
+            unset($data['status']);
+        }
 
         $user = $request->user();
 
@@ -38,6 +52,7 @@ class ProfileController extends Controller
 
         $profileFields = array_intersect_key($data, array_flip([
             'date_of_birth', 'gender', 'avatar', 'country', 'timezone', 'language', 'account_type', 'bio',
+            'status_text',
         ]));
 
         if ($profileFields) {

@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useConnectBase } from '../lib/connectBase'
 import {
-  Check, CheckSquare, Copy, Link as LinkIcon, Pencil, Plus, RefreshCw, Trash2, UserPlus, Users, X,
+  Check, CheckSquare, Copy, CopyPlus, Link as LinkIcon, Pencil, Plus, RefreshCw, Trash2, UserPlus,
+  Users, X,
 } from 'lucide-react'
 import { badges as badgesApi, groups as groupsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
@@ -160,6 +161,37 @@ export default function GroupsPage() {
   })
 
   const [inviteCopied, setInviteCopied] = useState(false)
+
+  /*
+   * Copying a group.
+   *
+   * Null when the form is closed. Open, it holds the new name and who is
+   * coming across — everyone by default, because "the same group again" is
+   * the common case and unticking two people is less work than ticking nine.
+   */
+  const [copyForm, setCopyForm] = useState<{ name: string; keep: Set<string> } | null>(null)
+
+  /*
+   * Everybody in the group except you.
+   *
+   * You are in the copy whatever the ticks say — you own it — so offering
+   * yourself as something to untick would be offering a choice that is not
+   * there.
+   */
+  const others = (detail?.members ?? []).filter((m) => m.uuid !== me?.uuid)
+
+  const replicateMutation = useMutation({
+    mutationFn: () => groupsApi.replicate(detail!.uuid, {
+      name: copyForm!.name.trim(),
+      member_uuids: [...copyForm!.keep],
+    }),
+    onSuccess: (fresh) => {
+      setCopyForm(null)
+      setDetail(fresh)
+      invalidate()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
 
   return (
     <div className="space-y-4">
@@ -574,6 +606,81 @@ export default function GroupsPage() {
                 </p>
               </form>
             )}
+
+            {/*
+              * The same group again.
+              *
+              * A team that ran one project runs the next one too, and
+              * rebuilding that membership by hand — search each person, pick
+              * their role, eleven times — is the work that stops people
+              * making the second group at all.
+              */}
+            <div className="border-t border-slate-200 pt-3 dark:border-slate-800">
+              {copyForm === null ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setError(null)
+                    setCopyForm({
+                      name: `${detail.name} (copy)`,
+                      // Everyone, minus you — you own the copy either way.
+                      keep: new Set(others.map((m) => m.uuid)),
+                    })
+                  }}
+                >
+                  <CopyPlus className="size-3.5" /> Duplicate group
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <Label>Name of the copy</Label>
+                  <Input
+                    autoFocus
+                    value={copyForm.name}
+                    onChange={(e) => setCopyForm({ ...copyForm, name: e.target.value })}
+                    maxLength={255}
+                  />
+
+                  <p className="text-xs text-slate-400">
+                    Who comes across ({copyForm.keep.size} of {others.length})
+                  </p>
+                  <div className="max-h-40 space-y-1 overflow-y-auto">
+                    {others.map((m) => (
+                      <label key={m.uuid} className="flex items-center gap-2 rounded-lg px-1 py-1 text-sm">
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-brand-600"
+                          checked={copyForm.keep.has(m.uuid)}
+                          onChange={() => {
+                            const keep = new Set(copyForm.keep)
+                            if (!keep.delete(m.uuid)) keep.add(m.uuid)
+                            setCopyForm({ ...copyForm, keep })
+                          }}
+                        />
+                        <span className="truncate">{m.name}</span>
+                        <span className="ml-auto shrink-0 text-xs text-slate-400">{m.role}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  <p className="text-[11px] text-slate-400">
+                    A copy is a fresh group with the same people in it — the messages, tasks and files
+                    stay where they are.
+                  </p>
+
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      disabled={!copyForm.name.trim() || replicateMutation.isPending}
+                      onClick={() => replicateMutation.mutate()}
+                    >
+                      {replicateMutation.isPending ? 'Copying…' : 'Create the copy'}
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setCopyForm(null)}>Cancel</Button>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {detail.is_owner && (
               <div className="border-t border-slate-200 pt-3 dark:border-slate-800">

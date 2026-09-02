@@ -9,6 +9,7 @@ import { useCalls } from '../components/CallManager'
 import { REPORT_REASONS } from '../types'
 import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
+import PersonModal from '../components/PersonModal'
 import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import {
@@ -136,6 +137,8 @@ export default function ConnectionsPage() {
     staleTime: Infinity,
   })
   const [inviteCopied, setInviteCopied] = useState(false)
+  /** Whose profile is open, if any. A name should be something you can tap. */
+  const [viewing, setViewing] = useState<string | null>(null)
 
   const search = async () => {
     setSearchError(null)
@@ -346,7 +349,13 @@ export default function ConnectionsPage() {
                   )}
                   <Avatar name={person.name} photoPath={person.photo_path} avatar={person.avatar} size={38} />
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{person.name}</p>
+                    <button
+                      type="button"
+                      onClick={() => setViewing(person.uuid)}
+                      className="block max-w-full truncate text-left text-sm font-medium hover:underline"
+                    >
+                      {person.name}
+                    </button>
                     <p className="truncate text-xs text-slate-400">@{person.username ?? person.app_id}</p>
                   </div>
                 </div>
@@ -523,7 +532,16 @@ export default function ConnectionsPage() {
                         <PresenceDot state={resolvePresence(livePresence, c.user?.uuid, c.user?.presence)} />
                       </div>
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{c.user?.name}</p>
+                        {/* A name people can tap: everything about this person
+                            existed somewhere, just never on one screen. */}
+                        <button
+                          type="button"
+                          disabled={!c.user?.uuid}
+                          onClick={() => c.user?.uuid && setViewing(c.user.uuid)}
+                          className="block max-w-full truncate text-left text-sm font-medium enabled:hover:underline"
+                        >
+                          {c.user?.name}
+                        </button>
                         {/*
                           * Who they are, then where they are.
                           *
@@ -651,6 +669,8 @@ export default function ConnectionsPage() {
           </div>
         </Modal>
       )}
+
+      {viewing && <PersonModal uuid={viewing} onClose={() => setViewing(null)} />}
     </div>
   )
 }

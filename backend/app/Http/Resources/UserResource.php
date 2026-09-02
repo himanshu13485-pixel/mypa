@@ -57,6 +57,8 @@ class UserResource extends JsonResource
                 'language' => $this->profile?->language,
                 'account_type' => $this->profile?->account_type,
                 'bio' => $this->profile?->bio,
+                // Called status here, stored as status_text: see the migration.
+                'status' => $this->profile?->status_text,
             ]),
             'settings' => $this->when(
                 $request->user()?->id === $this->id && $this->relationLoaded('settings'),

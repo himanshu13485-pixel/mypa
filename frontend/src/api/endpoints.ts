@@ -4,6 +4,7 @@ import type {
   CalendarEvent, CalendarFeedTask, CallInfo, CallSignalPayload, Category, ChatMessage,
   CheckoutSession, Connection, ConversationItem, DashboardSummary, FileItem,
   GoalItem, GroupInvite, GroupItem, GroupJoinPreview, GroupJoinRequest, HabitItem,
+  PersonProfile,
   InvoiceRecord, MySubscription, Note,
   Paginated, PaymentRecord, PlanInfo, PresenceState, ReportSummary, Task, User,
   BookingDetail, BookingHour, BookingPageConfig, BookingRow, PublicBookingPage,
@@ -450,6 +451,17 @@ export const files = {
 
 // --- Groups -----------------------------------------------------------------
 
+/**
+ * Somebody else's profile.
+ *
+ * What comes back narrows with the relationship — a stranger gets what a
+ * search result already gives away; a connection also gets the way to reach
+ * them. The rules are the server's, so this is a plain fetch.
+ */
+export const people = {
+  get: (uuid: string) => api.get<{ data: PersonProfile }>(`/people/${uuid}`).then((r) => r.data.data),
+}
+
 export const groups = {
   list: () => api.get<{ data: GroupItem[] }>('/groups').then((r) => r.data.data),
   get: (uuid: string) => api.get<{ data: GroupItem }>(`/groups/${uuid}`).then((r) => r.data.data),
@@ -486,6 +498,10 @@ export const groups = {
   /** What a link would do, and following it through. */
   previewJoin: (token: string) =>
     api.get<{ data: GroupJoinPreview }>(`/join-group/${token}`).then((r) => r.data.data),
+  /** The same group again, with the same people or a subset of them. */
+  replicate: (uuid: string, payload: { name: string; member_uuids?: string[] }) =>
+    api.post<{ data: GroupItem }>(`/groups/${uuid}/replicate`, payload).then((r) => r.data.data),
+
   join: (token: string) =>
     api.post<{ message: string; data: { status: 'member' | 'pending'; group_uuid: string } }>(
       `/join-group/${token}`,

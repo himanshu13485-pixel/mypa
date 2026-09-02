@@ -310,6 +310,13 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/notes/{note}/versions', [NoteController::class, 'versions']);
 
         Route::get('/connections/suggest', [\App\Http\Controllers\Api\V1\ConnectionController::class, 'suggest']);
+        /*
+         * Somebody else's profile. What it shows narrows with the
+         * relationship; the rules live in the controller.
+         */
+        Route::get('/people/{uuid}', [\App\Http\Controllers\Api\V1\PersonController::class, 'show'])
+            ->middleware('throttle:60,1');
+
         // My own invite link, for somebody who is not on Netvork yet.
         Route::get('/invite-link', [\App\Http\Controllers\Api\V1\InviteController::class, 'mine']);
 
@@ -320,6 +327,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
          * member does - so these sit inside auth rather than beside the
          * public invite above.
          */
+        // The same group again, with the same people or a subset of them.
+        Route::post('/groups/{group}/replicate', [GroupController::class, 'replicate']);
         Route::get('/groups/{group}/invite', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'show']);
         Route::put('/groups/{group}/invite', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'update']);
         Route::post('/groups/{group}/invite/rotate', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'rotate']);

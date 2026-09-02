@@ -33,6 +33,8 @@ export interface User {
     language?: string
     account_type?: string
     bio?: string | null
+    /** A line about what you are up to. Short, and it changes often. */
+    status?: string | null
   }
   settings?: {
     theme: 'light' | 'dark' | 'system'
@@ -861,6 +863,33 @@ export interface BookingRow {
   meeting_code: string | null
   /** Set instead of meeting_code when the booking was met somewhere else. */
   meeting_url: string | null
+}
+
+/**
+ * Somebody else's profile, as the viewer is allowed to see it.
+ *
+ * The nulls are meaningful: email and mobile come back null for somebody you
+ * are not connected to, and the photo fields come back null when their
+ * privacy setting says so — not because they have none.
+ */
+export interface PersonProfile {
+  uuid: string
+  name: string
+  username: string | null
+  app_id: string | null
+  /** What they are up to. Short, and changes often. */
+  status: string | null
+  bio: string | null
+  country: string | null
+  avatar: string | null
+  photo_path: string | null
+  presence: string | null
+  email: string | null
+  mobile: string | null
+  is_me: boolean
+  is_connected: boolean
+  request_status: 'sent' | 'received' | null
+  member_since: string | null
 }
 
 /** A group's invite link, as its admins see it. */
