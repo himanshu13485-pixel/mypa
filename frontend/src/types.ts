@@ -580,6 +580,10 @@ export interface ChatMessage {
   edited_at?: string | null
   /** Passed on rather than written here. */
   is_forwarded?: boolean
+  /** Kept by me. Private — never says whether anybody else kept it. */
+  is_starred?: boolean
+  /** Held up for everyone in the conversation. */
+  pinned_at?: string | null
   created_at: string
 }
 
@@ -892,6 +896,20 @@ export interface PersonProfile {
   is_connected: boolean
   request_status: 'sent' | 'received' | null
   member_since: string | null
+  /** What the two of you already have between you. Null on your own profile. */
+  shared: SharedWithPerson | null
+}
+
+/** The ground two people already have in common. */
+export interface SharedWithPerson {
+  conversation_uuid: string | null
+  groups: { uuid: string; name: string; type: string }[]
+  /** `mine` is who shared it — a note they shared with me counts as much. */
+  notes: { uuid: string; title: string | null; mine: boolean }[]
+  files: { uuid: string; name: string; mine: boolean }[]
+  projects: { uuid: string; name: string; mine: boolean }[]
+  pinned_messages: ChatMessage[]
+  starred_messages: ChatMessage[]
 }
 
 /** A group's invite link, as its admins see it. */

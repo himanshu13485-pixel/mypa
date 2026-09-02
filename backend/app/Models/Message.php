@@ -23,7 +23,7 @@ class Message extends Model
 
     protected $fillable = [
         'conversation_id', 'user_id', 'type', 'body', 'reply_to_id', 'edited_at',
-        'is_forwarded',
+        'is_forwarded', 'pinned_at', 'pinned_by_id',
     ];
 
     protected function casts(): array
@@ -31,6 +31,7 @@ class Message extends Model
         return [
             'edited_at' => 'datetime',
             'is_forwarded' => 'boolean',
+            'pinned_at' => 'datetime',
         ];
     }
 
@@ -42,6 +43,17 @@ class Message extends Model
     public function getRouteKeyName(): string
     {
         return 'uuid';
+    }
+
+    /** Everyone who kept this message. Private to each of them. */
+    public function stars(): HasMany
+    {
+        return $this->hasMany(MessageStar::class);
+    }
+
+    public function pinnedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'pinned_by_id');
     }
 
     public function conversation(): BelongsTo
@@ -102,6 +114,15 @@ class Message extends Model
              * forward reads exactly like the first unless it is marked.
              */
             'is_forwarded' => (bool) $this->is_forwarded,
+            /*
+             * Starred is answered for the viewer alone. Whether somebody else
+             * kept this message is their business, and saying so would turn a
+             * private bookmark into a public one.
+             */
+            'is_starred' => $this->relationLoaded('stars')
+                ? $this->stars->contains('user_id', $viewer->id)
+                : false,
+            'pinned_at' => $this->pinned_at?->toIso8601String(),
             'sender' => $this->relationLoaded('user') && $this->user ? [
                 'uuid' => $this->user->uuid,
                 'name' => $this->user->name,

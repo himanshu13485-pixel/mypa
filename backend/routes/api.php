@@ -450,6 +450,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::delete('/conversations/{conversation}/messages/{messageUuid}', [MessageController::class, 'destroy']);
         // The same message again, in somebody else's thread.
         Route::post('/conversations/{conversation}/messages/{messageUuid}/forward', [MessageController::class, 'forward']);
+        // Kept privately, or held up for everyone.
+        Route::post('/conversations/{conversation}/messages/{messageUuid}/star', [MessageController::class, 'star']);
+        Route::post('/conversations/{conversation}/messages/{messageUuid}/pin', [MessageController::class, 'pin']);
+        Route::get('/conversations/{conversation}/pinned', [MessageController::class, 'pinned']);
         Route::post('/conversations/{conversation}/messages/{message}/react', [MessageController::class, 'react']);
         Route::get('/conversations/{conversation}/attachments/{attachmentId}', [MessageController::class, 'downloadAttachment']);
 

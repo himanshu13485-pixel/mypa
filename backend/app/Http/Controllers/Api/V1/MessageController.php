@@ -9,6 +9,7 @@ use App\Models\Conversation;
 use App\Models\Message;
 use App\Models\MessageAttachment;
 use App\Models\MessageDeletion;
+use App\Models\MessageStar;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -17,6 +18,9 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MessageController extends Controller
 {
+    /** How many messages one conversation may hold up at once. */
+    private const MAX_PINS = 5;
+
     public function index(Request $request, Conversation $conversation): JsonResponse
     {
         $me = $request->user();
@@ -27,7 +31,7 @@ class MessageController extends Controller
         $query = $conversation->messages()
             ->withTrashed() // deleted-for-everyone still shows a tombstone
             ->whereNotIn('id', $hidden)
-            ->with(['user:id,uuid,name', 'attachments', 'reactions', 'replyTo.user:id,uuid,name'])
+            ->with(['user:id,uuid,name', 'attachments', 'reactions', 'stars', 'replyTo.user:id,uuid,name'])
             ->orderByDesc('id');
 
         if ($q = $request->query('q')) {
@@ -129,7 +133,7 @@ class MessageController extends Controller
 
         return response()->json([
             'message' => 'Sent.',
-            'data' => $message->load(['user:id,uuid,name', 'attachments', 'reactions', 'replyTo.user:id,uuid,name'])
+            'data' => $message->load(['user:id,uuid,name', 'attachments', 'reactions', 'stars', 'replyTo.user:id,uuid,name'])
                 ->serializeFor($me),
         ], 201);
     }
@@ -300,6 +304,94 @@ class MessageController extends Controller
         ], 201);
     }
 
+    /**
+     * Keeping a message, privately.
+     *
+     * A toggle rather than two endpoints: the button is one button, and a
+     * client that has lost track of the current state should not be able to
+     * create two stars or fail to remove one.
+     */
+    public function star(Request $request, Conversation $conversation, string $messageUuid): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $message = $conversation->messages()->where('uuid', $messageUuid)->first();
+        abort_unless($message, 404);
+
+        $existing = MessageStar::where('message_id', $message->id)->where('user_id', $me->id)->first();
+
+        if ($existing) {
+            $existing->delete();
+
+            return response()->json(['message' => 'Removed from starred.', 'data' => ['starred' => false]]);
+        }
+
+        MessageStar::create(['message_id' => $message->id, 'user_id' => $me->id]);
+
+        return response()->json(['message' => 'Starred.', 'data' => ['starred' => true]]);
+    }
+
+    /**
+     * Holding a message up for everyone in the conversation.
+     *
+     * Whoever may post may pin: a thread nobody is allowed to organise fills
+     * up and stays that way. In an announcement group that is the admins,
+     * which is the same rule that governs writing there in the first place.
+     */
+    public function pin(Request $request, Conversation $conversation, string $messageUuid): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        if ($conversation->group?->only_admins_post && ! $conversation->group->canManage($me)) {
+            abort(403, 'Only the admins of this group can pin messages here.');
+        }
+
+        $message = $conversation->messages()->where('uuid', $messageUuid)->first();
+        abort_unless($message, 404);
+        abort_if($message->trashed(), 404, 'That message is no longer here.');
+
+        if ($message->pinned_at) {
+            $message->update(['pinned_at' => null, 'pinned_by_id' => null]);
+
+            return response()->json(['message' => 'Unpinned.', 'data' => ['pinned' => false]]);
+        }
+
+        /*
+         * A cap, because a pinned list of forty is an unpinned list.
+         *
+         * The oldest pin makes way rather than the request being refused:
+         * whoever is pinning has decided this one matters now, and telling
+         * them to go and find the stalest pin first is work the app can do.
+         */
+        $pinned = $conversation->messages()->whereNotNull('pinned_at')
+            ->orderBy('pinned_at')->get();
+
+        if ($pinned->count() >= self::MAX_PINS) {
+            $pinned->first()->update(['pinned_at' => null, 'pinned_by_id' => null]);
+        }
+
+        $message->update(['pinned_at' => now(), 'pinned_by_id' => $me->id]);
+
+        return response()->json(['message' => 'Pinned.', 'data' => ['pinned' => true]]);
+    }
+
+    /** What is currently held up in this conversation. */
+    public function pinned(Request $request, Conversation $conversation): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $messages = $conversation->messages()
+            ->whereNotNull('pinned_at')
+            ->with(['user:id,uuid,name', 'attachments', 'reactions', 'stars', 'pinnedBy:id,uuid,name'])
+            ->orderByDesc('pinned_at')
+            ->get();
+
+        return response()->json(['data' => $messages->map(fn (Message $m) => $m->serializeFor($me))->values()]);
+    }
+
     public function update(Request $request, Conversation $conversation, Message $message): JsonResponse
     {
         $me = $request->user();
@@ -332,7 +424,7 @@ class MessageController extends Controller
 
         return response()->json([
             'message' => 'Message edited.',
-            'data' => $message->fresh()->load(['user:id,uuid,name', 'attachments', 'reactions'])->serializeFor($me),
+            'data' => $message->fresh()->load(['user:id,uuid,name', 'attachments', 'reactions', 'stars'])->serializeFor($me),
         ]);
     }
 
@@ -398,7 +490,7 @@ class MessageController extends Controller
 
         return response()->json([
             'message' => $existing ? 'Reaction removed.' : 'Reaction added.',
-            'data' => $message->fresh()->load('reactions')->serializeFor($me),
+            'data' => $message->fresh()->load(['reactions', 'stars'])->serializeFor($me),
         ]);
     }
 

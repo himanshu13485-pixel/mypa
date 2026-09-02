@@ -520,6 +520,22 @@ export const chat = {
     api.get<{ data: ChatMessage[] }>(`/conversations/${uuid}/messages`, { params }).then((r) => r.data.data),
   send: (uuid: string, payload: FormData | Record<string, unknown>) =>
     api.post<{ data: ChatMessage }>(`/conversations/${uuid}/messages`, payload).then((r) => r.data.data),
+  /*
+   * Kept privately, or held up for everyone.
+   *
+   * Both are toggles: the button is one button, and a client that has lost
+   * track of the current state should not be able to create two stars or
+   * fail to remove one.
+   */
+  star: (uuid: string, messageUuid: string) =>
+    api.post<{ data: { starred: boolean } }>(`/conversations/${uuid}/messages/${messageUuid}/star`)
+      .then((r) => r.data.data),
+  pin: (uuid: string, messageUuid: string) =>
+    api.post<{ data: { pinned: boolean } }>(`/conversations/${uuid}/messages/${messageUuid}/pin`)
+      .then((r) => r.data.data),
+  pinned: (uuid: string) =>
+    api.get<{ data: ChatMessage[] }>(`/conversations/${uuid}/pinned`).then((r) => r.data.data),
+
   /**
    * The same message again, in somebody else's thread.
    *

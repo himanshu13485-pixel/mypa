@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Forward, Mic, Paperclip, Pencil, Phone, Plus, Reply,
-  Search, Send,
+  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Forward, Mic, Paperclip, Pencil, Phone, Pin, Plus,
+  Reply, Search, Send, Star,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
 import { badges as badgesApi, conversationMembers, removeConversationMember, reportsApi } from '../api/endpoints'
@@ -246,6 +246,17 @@ export default function MessagesPage() {
    */
   const newestUuid = messages?.length ? messages[messages.length - 1].uuid : null
 
+  /*
+   * What is pinned here. Its own query because it is not a slice of the
+   * loaded window — a pin from last month stays pinned long after its
+   * message has fallen off the end of the thread.
+   */
+  const { data: pinnedMessages } = useQuery({
+    queryKey: ['pinned', selected?.uuid],
+    queryFn: () => chat.pinned(selected!.uuid),
+    enabled: !!selected,
+  })
+
   /**
    * Warm a thread before it is asked for.
    *
@@ -446,6 +457,26 @@ export default function MessagesPage() {
     seenIdsRef.current = seenIdsOf(messages)
     setUnseen(0)
   }
+
+  /*
+   * Both toggle, and both are optimistic in the same narrow way: the list is
+   * refetched rather than patched, because a pin can push somebody else's
+   * pin off the end and only the server knows which.
+   */
+  const starMutation = useMutation({
+    mutationFn: (m: ChatMessage) => chat.star(selected!.uuid, m.uuid),
+    onSuccess: () => invalidateMessages(),
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const pinMutation = useMutation({
+    mutationFn: (m: ChatMessage) => chat.pin(selected!.uuid, m.uuid),
+    onSuccess: () => {
+      invalidateMessages()
+      queryClient.invalidateQueries({ queryKey: ['pinned', selected?.uuid] })
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
 
   const forwardMutation = useMutation({
     mutationFn: () => chat.forward(selected!.uuid, forwarding!.uuid, [...pickedChats]),
@@ -827,6 +858,36 @@ export default function MessagesPage() {
 
             {/* Messages */}
             {/*
+              * What this conversation is holding up.
+              *
+              * Above the thread rather than inside it: a pin whose whole job
+              * is to stay findable should not scroll away with the messages
+              * it was pinned above.
+              */}
+            {!!pinnedMessages?.length && (
+              <div className="border-b border-slate-200 bg-slate-50 px-4 py-2 dark:border-slate-800 dark:bg-slate-800/40">
+                {pinnedMessages.slice(0, 3).map((m) => (
+                  <div key={m.uuid} className="flex items-center gap-2 py-0.5 text-xs">
+                    <Pin className="size-3 shrink-0 text-brand-600" />
+                    <span className="min-w-0 flex-1 truncate">{m.body || 'Attachment'}</span>
+                    <button
+                      className="shrink-0 text-slate-400 hover:text-brand-600"
+                      title="Unpin"
+                      onClick={() => pinMutation.mutate(m)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </div>
+                ))}
+                {pinnedMessages.length > 3 && (
+                  <p className="pt-0.5 text-[11px] text-slate-400">
+                    and {pinnedMessages.length - 3} more pinned
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/*
               * What arrived while you were reading further up.
               *
               * Positioned over the list rather than inside it so it stays put
@@ -959,6 +1020,24 @@ export default function MessagesPage() {
                           onClick={() => { setForwarding(m); setPickedChats(new Set()) }}
                         >
                           <Forward className="size-3.5" />
+                        </button>
+                        {/* Kept privately — nobody else in the thread is told. */}
+                        <button
+                          className={clsx('rounded p-1 hover:text-amber-500',
+                            m.is_starred ? 'text-amber-500' : 'text-slate-400')}
+                          title={m.is_starred ? 'Remove from starred' : 'Star'}
+                          onClick={() => starMutation.mutate(m)}
+                        >
+                          <Star className={clsx('size-3.5', m.is_starred && 'fill-current')} />
+                        </button>
+                        {/* Held up for everyone. */}
+                        <button
+                          className={clsx('rounded p-1 hover:text-brand-600',
+                            m.pinned_at ? 'text-brand-600' : 'text-slate-400')}
+                          title={m.pinned_at ? 'Unpin' : 'Pin for everyone'}
+                          onClick={() => pinMutation.mutate(m)}
+                        >
+                          <Pin className={clsx('size-3.5', m.pinned_at && 'fill-current')} />
                         </button>
                         {m.is_own && m.type === 'text' && withinEditWindow(m.created_at) && (
                           <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Edit" onClick={() => { setEditing(m); setDraft(m.body ?? ''); setReplyTo(null) }}>

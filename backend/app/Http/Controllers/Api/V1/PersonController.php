@@ -97,6 +97,98 @@ class PersonController extends Controller
                 ? ($pending->requester_id === $me->id ? 'sent' : 'received')
                 : null,
             'member_since' => $person->created_at?->toIso8601String(),
+
+            /*
+             * What the two of you already have between you.
+             *
+             * A profile that answers only "who is this" leaves the reader to
+             * go and look up the rest one screen at a time. The groups you are
+             * both in, the things one of you shared with the other, and the
+             * messages either of you thought worth keeping are the answers
+             * people actually open a profile for.
+             */
+            'shared' => $itsMe ? null : $this->shared($me, $person),
         ]]);
+    }
+
+    /** Everything the two of them have in common. */
+    private function shared(User $me, User $them): array
+    {
+        $groups = \App\Models\Group::whereHas('members', fn ($q) => $q->where('users.id', $me->id))
+            ->whereHas('members', fn ($q) => $q->where('users.id', $them->id))
+            ->orderBy('name')
+            ->limit(20)
+            ->get(['uuid', 'name', 'type']);
+
+        /*
+         * Shared either way round.
+         *
+         * "Things we share" is not "things I gave you" — a note they shared
+         * with me belongs on this screen exactly as much as one I shared with
+         * them, and showing only my own half would make the relationship look
+         * one-sided.
+         */
+        $notes = \App\Models\Note::where(fn ($q) => $q
+            ->where(fn ($w) => $w->where('user_id', $me->id)
+                ->whereHas('sharedWith', fn ($s) => $s->where('users.id', $them->id)))
+            ->orWhere(fn ($w) => $w->where('user_id', $them->id)
+                ->whereHas('sharedWith', fn ($s) => $s->where('users.id', $me->id))))
+            ->latest('updated_at')->limit(10)->get(['uuid', 'title', 'user_id']);
+
+        $files = \App\Models\File::where(fn ($q) => $q
+            ->where(fn ($w) => $w->where('user_id', $me->id)
+                ->whereHas('sharedWith', fn ($s) => $s->where('users.id', $them->id)))
+            ->orWhere(fn ($w) => $w->where('user_id', $them->id)
+                ->whereHas('sharedWith', fn ($s) => $s->where('users.id', $me->id))))
+            ->latest('updated_at')->limit(10)->get(['uuid', 'name', 'user_id']);
+
+        $projects = \App\Models\Project::where(fn ($q) => $q
+            ->where(fn ($w) => $w->where('user_id', $me->id)
+                ->whereHas('sharedWith', fn ($s) => $s->where('users.id', $them->id)))
+            ->orWhere(fn ($w) => $w->where('user_id', $them->id)
+                ->whereHas('sharedWith', fn ($s) => $s->where('users.id', $me->id))))
+            ->latest('updated_at')->limit(10)->get(['uuid', 'name', 'user_id']);
+
+        // The one-to-one thread, if the two of them have one.
+        $conversation = \App\Models\Conversation::where('type', 'direct')
+            ->whereHas('members', fn ($q) => $q->where('users.id', $me->id))
+            ->whereHas('members', fn ($q) => $q->where('users.id', $them->id))
+            ->first();
+
+        $starred = [];
+        $pinned = [];
+
+        if ($conversation) {
+            $with = ['user:id,uuid,name', 'attachments', 'reactions', 'stars'];
+
+            $pinned = $conversation->messages()->whereNotNull('pinned_at')
+                ->with($with)->orderByDesc('pinned_at')->limit(5)->get()
+                ->map(fn ($m) => $m->serializeFor($me))->values()->all();
+
+            // Mine alone: a star is private, and this screen is no place to
+            // start leaking which of their messages the other side kept.
+            $starred = $conversation->messages()
+                ->whereHas('stars', fn ($q) => $q->where('user_id', $me->id))
+                ->with($with)->latest('id')->limit(10)->get()
+                ->map(fn ($m) => $m->serializeFor($me))->values()->all();
+        }
+
+        return [
+            'conversation_uuid' => $conversation?->uuid,
+            'groups' => $groups->map(fn ($g) => [
+                'uuid' => $g->uuid, 'name' => $g->name, 'type' => $g->type,
+            ])->values(),
+            'notes' => $notes->map(fn ($n) => [
+                'uuid' => $n->uuid, 'title' => $n->title, 'mine' => $n->user_id === $me->id,
+            ])->values(),
+            'files' => $files->map(fn ($f) => [
+                'uuid' => $f->uuid, 'name' => $f->name, 'mine' => $f->user_id === $me->id,
+            ])->values(),
+            'projects' => $projects->map(fn ($p) => [
+                'uuid' => $p->uuid, 'name' => $p->name, 'mine' => $p->user_id === $me->id,
+            ])->values(),
+            'pinned_messages' => $pinned,
+            'starred_messages' => $starred,
+        ];
     }
 }
