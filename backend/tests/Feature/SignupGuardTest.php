@@ -21,6 +21,9 @@ class SignupGuardTest extends TestCase
     /** What HaveIBeenPwned answers with. Empty means "not in any breach". */
     private string $breachList = '';
 
+    /** This class checks the real rule, through the fake below it. */
+    protected bool $stubBreachCheck = false;
+
     protected function setUp(): void
     {
         parent::setUp();
