@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2, Download, FileText, Pencil, Plus, Search, Trash2, UserX } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, CRM_MODULE_LABELS, type CrmAccountMatch, type CrmEmployeeFull } from '../../api/crm'
+import { crm, type CrmAccountMatch, type CrmEmployeeFull } from '../../api/crm'
 import { LETTER_LABELS, letterAvailability, openLetter, type LetterType } from './letters'
 import CrmCompensationCard from './CrmCompensationCard'
 import { errorMessage } from '../../api/client'
@@ -862,7 +862,7 @@ export default function CrmEmployeeFormPage() {
               <tbody>
                 {masters.modules.map((mod) => (
                   <tr key={mod} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
-                    <td className="py-2 pr-3 font-medium text-slate-700 dark:text-slate-200">{CRM_MODULE_LABELS[mod] ?? mod}</td>
+                    <td className="py-2 pr-3 font-medium text-slate-700 dark:text-slate-200">{masters.module_labels?.[mod] ?? mod}</td>
                     {masters.abilities.map((a) => (
                       <td key={a} className="py-2 pr-3">
                         <input

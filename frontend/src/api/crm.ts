@@ -343,6 +343,13 @@ export interface CrmMasters {
   lead_subjects: string[]
   lead_statuses: string[]
   modules: string[]
+  /**
+   * Slug → the name shown on the rights screen, sent by the server beside the
+   * slugs. There used to be a matching list in this file, and a matching list
+   * is a list that stops matching: 'assets' was added to the server's modules
+   * and never to it, so that row was labelled with its raw slug.
+   */
+  module_labels: Record<string, string>
   abilities: string[]
   /** What the rights screen offers beyond the module matrix. */
   capabilities: { key: string; group: string; label: string }[]
@@ -2611,30 +2618,6 @@ export function crmCan(me: CrmMe | undefined, module: string, ability = 'view'):
   return abilities.includes(ability)
 }
 
-export const CRM_MODULE_LABELS: Record<string, string> = {
-  dashboard: 'Dashboard',
-  employees: 'Employees',
-  clients: 'Clients',
-  leads: 'Leads & lead log',
-  targets: 'Targets',
-  contests: 'Contests',
-  dwr: 'DWR (team view)',
-  punch: 'Punch report (team view)',
-  expenses: 'Expenses',
-  salary: 'Salary (manage)',
-  tasks: 'Tasks (manage)',
-  leaves: 'Leave approvals',
-  approvals: 'Approvals',
-  newsletters: 'Newsletters',
-  cms: 'Notice board',
-  complaints: 'Complaints (CMS)',
-  proforma: 'Proforma invoices',
-  invoices: 'Invoices',
-  payments: 'Payments',
-  masters: 'Billing masters',
-  reports: 'Reports',
-  settings: 'Settings',
-}
 
 export const CRM_CLIENT_CATEGORY_LABELS: Record<string, string> = {
   new: 'New',

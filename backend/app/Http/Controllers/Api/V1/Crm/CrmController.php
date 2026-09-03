@@ -95,7 +95,10 @@ class CrmController extends Controller
             'lead_sources' => $org->optionList('lead_sources'),
             'lead_subjects' => $org->optionList('lead_subjects'),
             'lead_statuses' => \App\Models\Crm\Lead::STATUSES,
-            'modules' => Member::MODULES,
+            'modules' => Member::moduleSlugs(),
+            // Sent with them, so the rights screen cannot label a row from a
+            // list of its own that has quietly stopped matching this one.
+            'module_labels' => Member::MODULES,
             'abilities' => Member::ABILITIES,
             // What the rights screen offers beyond the module matrix.
             'capabilities' => collect(Member::CAPABILITIES)
@@ -623,7 +626,7 @@ class CrmController extends Controller
                 ? null
                 : Member::whereIn('id', $member->teamMemberIds())->pluck('uuid')->all(),
             'rights' => $member->crm_role === 'admin'
-                ? collect(Member::MODULES)->mapWithKeys(fn ($m) => [$m => Member::ABILITIES])
+                ? collect(Member::moduleSlugs())->mapWithKeys(fn ($m) => [$m => Member::ABILITIES])
                 : ($member->rights ?? (object) []),
             /*
              * Whether this admin may open a member's workspace, and how far

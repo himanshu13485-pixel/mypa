@@ -24,13 +24,58 @@ class Member extends Model
 
     public const ROLES = ['admin', 'subadmin', 'employee'];
 
-    /** Module slugs a member's rights JSON may grant. */
+    /**
+     * The module rights a company can grant — slug, and the name it goes by
+     * on the rights screen.
+     *
+     * The label lives here rather than in a matching list in the browser,
+     * because a matching list is a list that stops matching. It already had:
+     * 'assets' was added to the modules here and never to the labels there,
+     * so the rights screen drew a row reading "assets" in lower case between
+     * "Salary" and "Newsletters" for however long that has been true.
+     *
+     * The names say what the tick actually does, which in several cases is
+     * wider than the old label admitted — 'expenses' carries vendors and
+     * commissions, 'invoices' carries proforma and every log, and 'masters'
+     * is the whole Settings screen rather than the billing part of it.
+     * Somebody handing out rights is deciding what a colleague may reach, and
+     * a name that undersells the tick is how they grant more than they meant.
+     *
+     * Four slugs that used to be offered are gone: dashboard, contests,
+     * proforma and settings. Not one of them was consulted anywhere — no
+     * route, no controller, no menu entry — so ticking "Proforma invoices"
+     * granted nothing at all, and the thing it was reached for is gated by
+     * 'invoices'. A checkbox that does nothing is worse than a missing one:
+     * the person ticking it believes they have given somebody access, and
+     * finds out otherwise from the colleague who cannot work.
+     */
     public const MODULES = [
-        'dashboard', 'employees', 'clients', 'leads', 'targets', 'contests',
-        'dwr', 'punch', 'tasks', 'leaves', 'approvals', 'proforma', 'invoices',
-        'payments', 'expenses', 'salary', 'assets', 'newsletters', 'cms', 'complaints', 'masters',
-        'reports', 'settings',
+        'employees' => 'Users — employee records',
+        'clients' => 'Clients',
+        'leads' => 'Leads & lead log',
+        'targets' => 'Targets',
+        'dwr' => 'DWR — everyone’s, not only their own',
+        'punch' => 'Punch — correct somebody’s attendance',
+        'tasks' => 'Tasks',
+        'leaves' => 'Leave approvals',
+        'approvals' => 'Approvals',
+        'invoices' => 'Proforma & invoices — logs, recurring, exports',
+        'payments' => 'Payments, payment links & reminders',
+        'expenses' => 'Expenses, vendors & commissions',
+        'salary' => 'Salary runs',
+        'assets' => 'Office assets',
+        'newsletters' => 'Newsletters',
+        'cms' => 'Notice board',
+        'complaints' => 'Complaints (CMS) & complaint log',
+        'masters' => 'Billing setup — the whole Settings screen',
+        'reports' => 'User log',
     ];
+
+    /** Just the slugs, for the places that only ever wanted those. */
+    public static function moduleSlugs(): array
+    {
+        return array_keys(self::MODULES);
+    }
 
     public const ABILITIES = ['view', 'create', 'edit', 'delete'];
 
