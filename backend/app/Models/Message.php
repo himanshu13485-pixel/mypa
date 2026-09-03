@@ -21,6 +21,23 @@ class Message extends Model
      */
     public const EDIT_WINDOW_MINUTES = 60;
 
+    /**
+     * How long a sent message can still be unsent for everybody.
+     *
+     * Longer than the edit window, and for a different reason. An edit
+     * rewrites what a conversation was told, which is why that window is
+     * short — a reply must not end up quoting something that no longer says
+     * it. Unsending removes it and leaves a mark saying so, which is honest
+     * about having happened, so it can afford to reach back further: the
+     * thing people actually need this for is the message sent to the wrong
+     * chat and noticed after lunch.
+     *
+     * It does not bind a group's admins. Somebody has to be able to take down
+     * what should not have been said, and abuse is not usually reported
+     * within six hours — see MessageController::destroy.
+     */
+    public const DELETE_WINDOW_HOURS = 6;
+
     protected $fillable = [
         'conversation_id', 'user_id', 'type', 'body', 'reply_to_id', 'edited_at',
         'is_forwarded', 'pinned_at', 'pinned_by_id', 'broadcast_id',
@@ -95,6 +112,32 @@ class Message extends Model
     public function deletions(): HasMany
     {
         return $this->hasMany(MessageDeletion::class);
+    }
+
+    /**
+     * May $viewer take this message off everybody's screen?
+     *
+     * Two different permissions wearing one button. The author may unsend
+     * their own, for six hours. Whoever runs the group may take down anything
+     * in it, with no clock at all — a group of two hundred cannot wait for the
+     * person who said it to think better of it, and something worth removing
+     * is rarely reported the same afternoon.
+     *
+     * Outside a group there is no moderator: nobody polices a conversation
+     * between two people.
+     */
+    public function canBeUnsentBy(User $viewer): bool
+    {
+        if ($this->conversation?->group?->canManage($viewer)) {
+            return true;
+        }
+
+        if ($this->user_id !== $viewer->id) {
+            return false;
+        }
+
+        return $this->created_at === null
+            || $this->created_at->gt(now()->subHours(self::DELETE_WINDOW_HOURS));
     }
 
     /**
@@ -176,6 +219,15 @@ class Message extends Model
                 && $this->relationLoaded('broadcast')
                 ? $this->broadcast?->recipient_count
                 : null,
+            /*
+             * Whether "delete for everyone" is still on the table.
+             *
+             * Answered by the server rather than worked out again in the
+             * browser: the moderator case turns on a group role the message
+             * list does not otherwise carry, and a menu that offers what the
+             * API will refuse is a menu that hands back an error.
+             */
+            'can_delete_for_everyone' => ! $deletedForEveryone && $this->canBeUnsentBy($viewer),
             'edited_at' => $this->edited_at,
             'created_at' => $this->created_at,
         ];

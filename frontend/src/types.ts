@@ -590,6 +590,12 @@ export interface ChatMessage {
   is_starred?: boolean
   /** Held up for everyone in the conversation. */
   pinned_at?: string | null
+  /**
+   * Whether "delete for everyone" is still on the table for this reader.
+   * Answered by the server: it turns on the six-hour window AND on whether
+   * they run the group, which the message list does not otherwise know.
+   */
+  can_delete_for_everyone?: boolean
   created_at: string
 }
 

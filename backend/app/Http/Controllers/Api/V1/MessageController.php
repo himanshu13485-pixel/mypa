@@ -31,7 +31,12 @@ class MessageController extends Controller
         $query = $conversation->messages()
             ->withTrashed() // deleted-for-everyone still shows a tombstone
             ->whereNotIn('id', $hidden)
-            ->with(['user:id,uuid,name', 'attachments', 'reactions', 'stars', 'replyTo.user:id,uuid,name', 'broadcast:id,recipient_count'])
+            /*
+             * conversation.group is here for canBeUnsentBy, which asks whether
+             * the reader runs the group. Without it that is a pair of queries
+             * per message on every thread the list ever draws.
+             */
+            ->with(['user:id,uuid,name', 'attachments', 'reactions', 'stars', 'replyTo.user:id,uuid,name', 'broadcast:id,recipient_count', 'conversation.group'])
             ->orderByDesc('id');
 
         if ($q = $request->query('q')) {
@@ -457,6 +462,28 @@ class MessageController extends Controller
             $moderates = $conversation->group?->canManage($me) ?? false;
             abort_unless($message->user_id === $me->id || $moderates, 403,
                 'You can only delete your own messages for everyone.');
+
+            /*
+             * And, for the author, only for a while.
+             *
+             * Six hours is long enough for the case this exists for — the
+             * message sent to the wrong chat and noticed after lunch — and
+             * short enough that a conversation somebody has already answered,
+             * quoted or acted on cannot be hollowed out underneath them a week
+             * later. "Delete for me" has no clock and is still there
+             * afterwards, which is the right answer to wanting an old message
+             * off your own screen.
+             *
+             * The clock does not bind whoever runs the group. Abuse is rarely
+             * reported the same afternoon, and a moderator who cannot act on
+             * it is not a moderator.
+             */
+            abort_if(
+                ! $moderates && $message->created_at->lt(now()->subHours(Message::DELETE_WINDOW_HOURS)),
+                422,
+                'Messages can only be deleted for everyone within '
+                    . Message::DELETE_WINDOW_HOURS . ' hours of sending. You can still delete it for yourself.',
+            );
             if (! $message->trashed()) {
                 // Remove stored attachment data as well.
                 foreach ($message->attachments as $attachment) {

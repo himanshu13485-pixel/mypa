@@ -17,7 +17,7 @@ import { format, isToday } from 'date-fns'
 import { clsx } from 'clsx'
 import { chat } from '../api/endpoints'
 import { errorMessage } from '../api/client'
-import { withinEditWindow } from '../lib/editWindow'
+import { DELETE_WINDOW_HOURS, withinEditWindow } from '../lib/editWindow'
 import { countUnseen, seenIdsOf } from '../lib/unseenMessages'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
@@ -197,6 +197,7 @@ export default function MessagesPage() {
   const [viewingPerson, setViewingPerson] = useState<string | null>(null)
   /** The message being passed along, and where to. */
   const [forwarding, setForwarding] = useState<ChatMessage | null>(null)
+  const [deleting, setDeleting] = useState<ChatMessage | null>(null)
   const [pickedChats, setPickedChats] = useState<Set<string>>(new Set())
   /*
    * The messages known to have been seen, by uuid.
@@ -742,6 +743,67 @@ export default function MessagesPage() {
       )}
 
       {/*
+        * Two deletions wearing one word, asked as two buttons.
+        *
+        * This used to be a confirm() reading "Delete for everyone? (Cancel =
+        * delete only for you)" — where Cancel deleted something. A dialog in
+        * which the way out of the dialog performs an action is not a
+        * confirmation at all, and the one thing every person on earth knows
+        * about Cancel is that it cancels.
+        */}
+      {deleting && (
+        <Modal title="Delete message" onClose={() => setDeleting(null)}>
+          <div className="space-y-3">
+            <p className="rounded-lg bg-slate-100 p-2 text-xs text-slate-500 dark:bg-slate-800">
+              {deleting.body
+                ? deleting.body.slice(0, 140)
+                : `${deleting.attachments?.length ?? 0} attachment(s)`}
+            </p>
+
+            {deleting.is_own && !deleting.can_delete_for_everyone && (
+              <p className="text-xs text-amber-600">
+                This one is older than {DELETE_WINDOW_HOURS} hours, so it can no longer be taken back
+                for everyone. You can still remove it from your own screen.
+              </p>
+            )}
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="secondary" onClick={() => setDeleting(null)}>Cancel</Button>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  chat.remove(selected!.uuid, deleting.uuid, 'me')
+                    .then(invalidateMessages)
+                    .catch((err) => toastError(errorMessage(err)))
+                  setDeleting(null)
+                }}
+              >
+                Delete for me
+              </Button>
+              {deleting.can_delete_for_everyone && (
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    chat.remove(selected!.uuid, deleting.uuid, 'everyone')
+                      .then(invalidateMessages)
+                      .catch((err) => toastError(errorMessage(err)))
+                    setDeleting(null)
+                  }}
+                >
+                  Delete for everyone
+                </Button>
+              )}
+            </div>
+
+            {/* Said plainly, because people expect "delete" to mean gone. */}
+            <p className="text-right text-[11px] text-slate-400">
+              Everyone still sees that a message was deleted.
+            </p>
+          </div>
+        </Modal>
+      )}
+
+      {/*
         * Where to pass it along to.
         *
         * Several at once, because forwarding one thing to three people is one
@@ -1112,10 +1174,7 @@ export default function MessagesPage() {
                         <button
                           className="rounded p-1 text-slate-400 hover:text-red-600"
                           title="Delete"
-                          onClick={() => {
-                            const scope = m.is_own && confirm('Delete for everyone? (Cancel = delete only for you)') ? 'everyone' : 'me'
-                            chat.remove(selected.uuid, m.uuid, scope).then(invalidateMessages)
-                          }}
+                          onClick={() => setDeleting(m)}
                         >
                           <Trash2 className="size-3.5" />
                         </button>

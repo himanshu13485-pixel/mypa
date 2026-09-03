@@ -23,3 +23,22 @@ export function withinEditWindow(sentAt: string | null | undefined, now: Date = 
 
   return now.getTime() - sent < EDIT_WINDOW_MINUTES * 60_000
 }
+
+/**
+ * How long a sent message can still be unsent for everybody, in hours.
+ *
+ * Longer than the edit window, and for a different reason. An edit rewrites
+ * what the conversation was told, so it has to be short enough that nobody has
+ * replied to the old wording yet. Unsending removes the message and leaves a
+ * mark saying it was there, which is honest about having happened — so it can
+ * afford to reach back to the case people actually need it for: the message
+ * sent to the wrong chat and noticed after lunch.
+ *
+ * Only used for the wording on the dialog. Whether the option is offered at
+ * all is answered by the server, per message, in `can_delete_for_everyone` —
+ * because the other half of the rule is whether the reader runs the group, and
+ * the browser has no business guessing at that.
+ *
+ * Message::DELETE_WINDOW_HOURS is the other half of this pair.
+ */
+export const DELETE_WINDOW_HOURS = 6
