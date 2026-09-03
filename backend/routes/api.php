@@ -746,6 +746,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
 
             // Lead Generation + Lead Log (the log is a view over the trail)
             Route::middleware('crm.member:leads,view')->group(function () {
+                // The whole pipeline in one file. Behind leads,view like its
+                // neighbours, but the controller asks for the Admin — see
+                // there for why this one is not the exports.excel grant.
+                Route::get('/exports/leads', [\App\Http\Controllers\Api\V1\Crm\ExportController::class, 'leads']);
                 Route::get('/leads', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'index']);
                 Route::get('/lead-log', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'log']);
                 Route::get('/leads/{uuid}', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'show']);

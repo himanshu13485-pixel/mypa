@@ -185,6 +185,27 @@ class CrmRightsEscalationTest extends TestCase
         $this->assertSame(['employees.rights'], (array) $fresh->capabilities);
     }
 
+    public function test_the_lead_export_is_the_admins_alone(): void
+    {
+        /*
+         * Not behind the exports.excel grant the invoice exports use. That one
+         * is about the accounting book; this file is the whole pipeline with a
+         * name, a mobile and an address on every row — the single thing a
+         * departing salesperson would most like a copy of.
+         */
+        $this->edit($this->admin, $this->subMember, [
+            'crm_role' => 'subadmin',
+            'capabilities' => ['exports.excel'],
+            'rights' => ['leads' => ['view'], 'employees' => ['view', 'edit']],
+        ])->assertOk();
+
+        $this->actingAs($this->sub)->get('/api/v1/crm/exports/leads')->assertForbidden();
+
+        $this->actingAs($this->admin)->get('/api/v1/crm/exports/leads')
+            ->assertOk()
+            ->assertHeader('content-type', 'text/csv; charset=UTF-8');
+    }
+
     public function test_the_screen_is_told_whether_to_offer_the_editor(): void
     {
         $this->actingAs($this->sub)->getJson('/api/v1/crm/me')

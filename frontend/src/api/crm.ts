@@ -2355,6 +2355,13 @@ export const crm = {
       api.get('/crm/exports/invoices', { params, responseType: 'blob' }).then((r) => r.data as Blob),
     paymentsCsv: (params: Record<string, string | undefined>) =>
       api.get('/crm/exports/payments', { params, responseType: 'blob' }).then((r) => r.data as Blob),
+    /**
+     * The whole pipeline. The Company Admin's alone — not the exports.excel
+     * grant, which is about the accounting book; this file is every lead with
+     * a name, a mobile and an address on it.
+     */
+    leadsCsv: (params: Record<string, string | undefined>) =>
+      api.get('/crm/exports/leads', { params, responseType: 'blob' }).then((r) => r.data as Blob),
   },
 
   /** The Office Assets register. */

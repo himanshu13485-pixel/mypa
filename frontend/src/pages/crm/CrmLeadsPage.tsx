@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Plus, Search } from 'lucide-react'
+import { AlarmClock, Download, Plus, Search } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmAllows, CRM_LEAD_STATUS_LABELS, type CrmLead } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -34,6 +34,8 @@ export default function CrmLeadsPage() {
   const { toast, toastError } = useToast()
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
+  /** The export is a stream the server builds; the button says so meanwhile. */
+  const [exporting, setExporting] = useState(false)
   const [status, setStatus] = useState('')
   const [source, setSource] = useState('')
   const [assigned, setAssigned] = useState('')
@@ -360,6 +362,46 @@ export default function CrmLeadsPage() {
             <AlarmClock className="size-4" /> Due today
           </button>
           <Button type="submit" variant="secondary" size="sm">Search</Button>
+          {/*
+            * The whole pipeline as one file — the Company Admin's alone.
+            *
+            * Not the exports.excel grant the invoice screens use: that one is
+            * about the accounting book, and this is every lead with a name, a
+            * mobile and an address on it. The filters above ride along, so
+            * "download what I am looking at" works as well as "download
+            * everything".
+            */}
+          {me?.member?.crm_role === 'admin' && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={exporting}
+              onClick={async () => {
+                setExporting(true)
+                try {
+                  const blob = await crm.exports.leadsCsv({
+                    search: applied || undefined,
+                    status: status || undefined,
+                    source: source || undefined,
+                    member: assigned || undefined,
+                  })
+                  const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a')
+                  a.href = url
+                  a.download = `leads-export.csv`
+                  a.click()
+                  URL.revokeObjectURL(url)
+                } catch (err) {
+                  toastError(errorMessage(err))
+                } finally {
+                  setExporting(false)
+                }
+              }}
+            >
+              <Download className="size-4" /> {exporting ? 'Preparing…' : 'Excel'}
+            </Button>
+          )}
         </form>
 
         {canBulkTransfer && picked.length > 0 && (
@@ -416,7 +458,11 @@ export default function CrmLeadsPage() {
                   )}
                   <th className="py-2 pr-3 font-medium">Lead</th>
                   <th className="py-2 pr-3 font-medium">Company</th>
-                  <th className="py-2 pr-3 font-medium">Mobile</th>
+                  {/* Two ways to reach them, in one column. A column each
+                      would push the table wider on the screen it is already
+                      widest on, and an address is not read at a glance the
+                      way a number is — it is copied. */}
+                  <th className="py-2 pr-3 font-medium">Contact</th>
                   <th className="py-2 pr-3 font-medium">Allocated to</th>
                   <th className="py-2 pr-3 font-medium">Source</th>
                   <th className="py-2 pr-3 text-right font-medium">Amount</th>
@@ -463,7 +509,20 @@ export default function CrmLeadsPage() {
                       </button>
                       <div className="truncate text-xs text-slate-400">{l.contact_person}</div>
                     </td>
-                    <td className="whitespace-nowrap py-2.5 pr-3">{l.mobile ?? l.phone ?? '—'}</td>
+                    <td className="max-w-[200px] py-2.5 pr-3">
+                      <div className="whitespace-nowrap">{l.mobile ?? l.phone ?? '—'}</div>
+                      {/* title, because an address that has been truncated is
+                          an address nobody can read off the screen. */}
+                      {l.email && (
+                        <a
+                          href={`mailto:${l.email}`}
+                          title={l.email}
+                          className="block truncate text-xs text-slate-400 hover:text-emerald-600"
+                        >
+                          {l.email}
+                        </a>
+                      )}
+                    </td>
                     <td className="py-2.5 pr-3">{l.assigned_member?.name ?? '—'}</td>
                     <td className="py-2.5 pr-3">{l.source ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right">{Number(l.amount) ? inr(l.amount) : '—'}</td>
