@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import {
-  FileText, FolderOpen, Mail, MessageSquare, Phone, Pin, Star, Users,
+  Bell, BellOff, FileText, FolderOpen, Mail, MessageSquare, Phone, Pin, Star, Users,
 } from 'lucide-react'
 import { people } from '../api/endpoints'
 import { Avatar } from '../lib/avatars'
+import { desktopAlertsPossible, isWatching, toggleWatching } from '../lib/onlineAlerts'
 import { Modal } from './ui'
 
 /**
@@ -25,6 +27,11 @@ export default function PersonModal({ uuid, onClose }: { uuid: string; onClose: 
     queryKey: ['person', uuid],
     queryFn: () => people.get(uuid),
   })
+
+  // Per device, so this is localStorage rather than anything the query cache
+  // knows about — see lib/onlineAlerts.ts for why it is not on the account.
+  const [watched, setWatched] = useState(() => isWatching(uuid))
+  const [canPopUp] = useState(desktopAlertsPossible)
 
   if (isLoading || isError || !person) {
     return (
@@ -82,6 +89,34 @@ export default function PersonModal({ uuid, onClose }: { uuid: string; onClose: 
                 <span className="rounded-full bg-amber-50 px-4 py-2 text-sm text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
                   Wants to connect
                 </span>
+              )}
+
+              {/*
+                * Waiting on this particular person.
+                *
+                * Here rather than in Settings because this is a decision about
+                * somebody, and the place people are already looking when they
+                * think "I need to catch them" is the profile they opened to
+                * see whether they were around.
+                */}
+              {canPopUp && (
+                <button
+                  type="button"
+                  onClick={() => setWatched(toggleWatching(uuid).watching.includes(uuid))}
+                  title={
+                    watched
+                      ? 'You will get a pop-up on this computer when they come online.'
+                      : 'Get a pop-up on this computer when they come online.'
+                  }
+                  className={
+                    watched
+                      ? 'flex items-center gap-1.5 rounded-full bg-brand-50 px-4 py-2 text-sm font-medium text-brand-700 hover:bg-brand-100 dark:bg-brand-500/10 dark:text-brand-300'
+                      : 'flex items-center gap-1.5 rounded-full bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300'
+                  }
+                >
+                  {watched ? <Bell className="size-4" /> : <BellOff className="size-4" />}
+                  {watched ? 'Watching' : 'Tell me when online'}
+                </button>
               )}
             </div>
           )}

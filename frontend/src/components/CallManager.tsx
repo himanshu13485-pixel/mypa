@@ -9,6 +9,7 @@ import { errorMessage } from '../api/client'
 import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { usePresenceFeed } from '../lib/presence'
+import { useOnlineAlerts } from '../lib/useOnlineAlerts'
 import { holdMicrophoneInBackground, nativeAudioDevices, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
 import { PickUserModal } from './UserSuggest'
 import { useToast } from './Toast'
@@ -192,6 +193,11 @@ export function CallProvider({ children }: { children: ReactNode }) {
    * subscription to say the same thing.
    */
   usePresenceFeed()
+  /*
+   * And, for anybody who asked for it, a pop-up when one of them arrives.
+   * Reads the store usePresenceFeed fills, so it belongs immediately after it.
+   */
+  useOnlineAlerts()
   /** Whether this browser can capture a screen — not whether it looks like a phone. */
   const canShareScreen = screenShareSupported()
   /** iPhone has no fullscreen for anything but a bare video element. */

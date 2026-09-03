@@ -6,6 +6,9 @@ import { disconnectEcho } from '../lib/echo'
 import { Avatar } from '../lib/avatars'
 import { AVATAR_GROUPS } from '../lib/avatars'
 import { disablePush, enablePush, getPushSubscription, getSoundPrefs, playChime, pushSupported, setSoundPrefs } from '../lib/alerts'
+import {
+  desktopAlertsPossible, getOnlineAlertPrefs, setOnlineAlertPrefs, type OnlineAlertPrefs,
+} from '../lib/onlineAlerts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { auth, identity as identityApi, profile as profileApi, subscription as subscriptionApi } from '../api/endpoints'
 import { MobileField } from '../components/MobileField'
@@ -731,6 +734,14 @@ function AlertsCard() {
   const [pushOn, setPushOn] = useState(false)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  const [online, setOnline] = useState(getOnlineAlertPrefs)
+  /*
+   * Worked out once, not on every render. It cannot change while the page is
+   * open — a browser does not grow a Notification API, and a laptop does not
+   * become a phone — and a matchMedia call per render for a fixed answer is
+   * work for nothing.
+   */
+  const [canPopUp] = useState(desktopAlertsPossible)
 
   useEffect(() => {
     getPushSubscription().then((sub) => setPushOn(!!sub))
@@ -739,6 +750,38 @@ function AlertsCard() {
   const saveSound = (next: { enabled: boolean; volume: number }) => {
     setSound(next)
     setSoundPrefs(next)
+  }
+
+  const saveOnline = (next: OnlineAlertPrefs) => {
+    setOnline(next)
+    setOnlineAlertPrefs(next)
+  }
+
+  /**
+   * Switching it on asks for permission, because it is useless without it.
+   *
+   * A checkbox that goes green while the browser silently drops every pop-up
+   * is worse than no checkbox: the person believes the feature is running.
+   * If permission is refused the toggle goes back to off and says why.
+   */
+  const toggleOnlineAlerts = async (wanted: boolean) => {
+    if (!wanted) {
+      saveOnline({ ...online, enabled: false })
+
+      return
+    }
+
+    let allowed = Notification.permission
+    if (allowed === 'default') allowed = await Notification.requestPermission()
+
+    if (allowed !== 'granted') {
+      setNote('Your browser is blocking notifications, so this cannot be turned on. Allow them for netvork.app and try again.')
+
+      return
+    }
+
+    setNote(null)
+    saveOnline({ ...online, enabled: true })
   }
 
   const togglePush = async () => {
@@ -814,6 +857,70 @@ function AlertsCard() {
         )}
         {note && <p className="mt-2 text-xs text-slate-500">{note}</p>}
       </div>
+
+      {/*
+        * "Tell me when they get here."
+        *
+        * Desktop only, and hidden rather than disabled on a phone: a control
+        * greyed out with no way to un-grey it is a puzzle, and the reason it
+        * cannot work there — the pop-up is drawn by the open tab, so on a
+        * phone it can only fire while you are already looking at the app — is
+        * not something to make somebody read to find out nothing can be done.
+        */}
+      {canPopUp && (
+        <div className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={online.enabled}
+              onChange={(e) => void toggleOnlineAlerts(e.target.checked)}
+            />
+            <span>
+              Tell me when someone comes online
+              <span className="block text-xs text-slate-400">
+                A pop-up on this computer the moment they sign in. The same person will not
+                interrupt you twice in half an hour.
+              </span>
+            </span>
+          </label>
+
+          {online.enabled && (
+            <div className="mt-2 space-y-1.5 pl-6">
+              {(['all', 'watched'] as const).map((scope) => (
+                <label key={scope} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="online-alert-scope"
+                    className="accent-brand-600"
+                    checked={online.scope === scope}
+                    onChange={() => saveOnline({ ...online, scope })}
+                  />
+                  <span>
+                    {scope === 'all'
+                      ? 'Anyone I would see a green dot for'
+                      : `Only the people I am watching${online.watching.length ? ` (${online.watching.length})` : ''}`}
+                  </span>
+                </label>
+              ))}
+
+              {/*
+                * The dead end, said out loud.
+                *
+                * Narrowed to a watch list that is empty, this setting is on
+                * and can never fire — which looks exactly like a broken
+                * feature unless somebody is told where the list is filled in.
+                */}
+              {online.scope === 'watched' && online.watching.length === 0 && (
+                <p className="text-xs text-amber-600">
+                  You have not picked anyone yet. Open someone&rsquo;s profile and switch on
+                  &ldquo;Tell me when they come online&rdquo;.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </Card>
   )
 }
