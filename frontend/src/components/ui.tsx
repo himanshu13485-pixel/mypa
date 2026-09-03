@@ -384,11 +384,20 @@ export function Modal({
   onClose,
   children,
   wide,
+  size,
 }: {
   title: string
   onClose: () => void
   children: ReactNode
+  /** The long-standing two-width switch. Equivalent to size="lg". */
   wide?: boolean
+  /**
+   * A third width, for the dialogs that show a document rather than a form.
+   * A page of A4 at 672px is legible but cramped, and a preview somebody
+   * cannot read is not a preview. Optional, so every existing caller keeps
+   * exactly the width it had.
+   */
+  size?: 'md' | 'lg' | 'xl'
 }) {
   /*
    * Rendered at the document root, never where it was written.
@@ -416,7 +425,7 @@ export function Modal({
           'flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-white shadow-lift ring-1 ring-slate-900/5',
           'dark:bg-slate-900 dark:ring-white/10',
           'sm:max-h-none sm:rounded-2xl',
-          wide ? 'sm:max-w-2xl' : 'sm:max-w-md',
+          { md: 'sm:max-w-md', lg: 'sm:max-w-2xl', xl: 'sm:max-w-4xl' }[size ?? (wide ? 'lg' : 'md')],
         )}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
