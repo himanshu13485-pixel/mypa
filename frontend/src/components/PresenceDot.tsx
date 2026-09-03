@@ -2,7 +2,6 @@ import { clsx } from 'clsx'
 import {
   PRESENCE_DOT,
   PRESENCE_LABELS,
-  PRESENCE_TEXT,
   PRESENCE_TITLES,
   type PresenceState,
 } from '../lib/presence'
@@ -41,34 +40,21 @@ export function PresenceDot({
 }
 
 /**
- * The word, in the dot's colour.
+ * The same dot, on a line of text rather than on an avatar.
  *
- * `fallback` is what the line said before presence existed — an App ID, a
- * member count — and is what still shows when there is no state to report.
- * The alternative, a permanent "Not available" under every hidden name, tells
- * the reader less than the App ID did.
- */
-export function PresenceLabel({
-  state,
-  fallback,
-  className,
-}: {
-  state: PresenceState | null | undefined
-  fallback?: React.ReactNode
-  className?: string
-}) {
-  if (!state) return <>{fallback ?? null}</>
-
-  return (
-    <span className={clsx('font-medium', PRESENCE_TEXT[state], className)}>
-      {PRESENCE_LABELS[state]}
-    </span>
-  )
-}
-
-/**
- * Both together, for a line that has room for them — the chat header, a row
- * in the members dialog — where the dot has no avatar to sit on.
+ * For the one place that has no avatar to hang it on: the chat header, which
+ * names the person in words and has nothing round to put a button on.
+ *
+ * It used to say the word as well — "Online", "Away", "Not available" — and
+ * the word has gone. Three states with three colours everybody already reads
+ * do not need labelling twice, and the sentence it sat in was doing more
+ * useful work: a handle, an App ID and a last-seen time all lost room to a
+ * word that the dot beside it had already said. Green, amber and red mean what
+ * they have always meant.
+ *
+ * The meaning is not lost for anybody who cannot use colour: the title says it
+ * on hover and aria-label says it to a screen reader, which is where a word
+ * belongs when a colour is carrying it.
  */
 export function PresenceInline({
   state,
@@ -80,9 +66,11 @@ export function PresenceInline({
   if (!state) return null
 
   return (
-    <span className={clsx('inline-flex items-center gap-1', className)}>
-      <span className={clsx('size-2 shrink-0 rounded-full', PRESENCE_DOT[state])} />
-      <span className={clsx('font-medium', PRESENCE_TEXT[state])}>{PRESENCE_LABELS[state]}</span>
-    </span>
+    <span
+      title={PRESENCE_TITLES[state]}
+      aria-label={PRESENCE_LABELS[state]}
+      role="img"
+      className={clsx('size-2 shrink-0 rounded-full', PRESENCE_DOT[state], className)}
+    />
   )
 }

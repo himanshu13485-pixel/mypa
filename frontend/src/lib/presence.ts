@@ -216,17 +216,16 @@ export function usePresenceFeed(): void {
 
 // --- How the three states are worded and coloured ---------------------------
 
+/**
+ * Not drawn on screen any more — three colours everybody already reads do not
+ * need labelling twice, and the word was displacing handles and App IDs on
+ * rows that had no room to spare. Kept because it is what the dot tells a
+ * screen reader, which is where the word belongs once a colour is carrying it.
+ */
 export const PRESENCE_LABELS: Record<PresenceState, string> = {
   online: 'Online',
   away: 'Away',
   offline: 'Not available',
-}
-
-/** Text colour for the word beside a name. */
-export const PRESENCE_TEXT: Record<PresenceState, string> = {
-  online: 'text-emerald-600 dark:text-emerald-400',
-  away: 'text-amber-600 dark:text-amber-400',
-  offline: 'text-red-600 dark:text-red-400',
 }
 
 /** Fill for the round button on the avatar. */

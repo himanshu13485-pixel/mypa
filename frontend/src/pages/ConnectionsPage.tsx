@@ -26,7 +26,7 @@ import {
   Textarea,
 } from '../components/ui'
 import { Avatar } from '../lib/avatars'
-import { PresenceDot, PresenceLabel } from '../components/PresenceDot'
+import { PresenceDot } from '../components/PresenceDot'
 import { resolvePresence, usePresenceMap } from '../lib/presence'
 
 export default function ConnectionsPage() {
@@ -543,35 +543,20 @@ export default function ConnectionsPage() {
                           {c.user?.name}
                         </button>
                         {/*
-                          * Who they are, then where they are.
+                          * Who they are. Where they are is the dot on the
+                          * avatar an inch to the left.
                           *
-                          * The username is how people refer to each other —
-                          * it is what you type to find them and what they put
-                          * on a card — and this row showed only the App ID,
-                          * so the one identifier everybody knows was the one
-                          * missing. Presence goes on the end rather than in
-                          * place of it: where somebody is right now is a
-                          * passing thing, and it was displacing the name of
-                          * the person.
-                          *
-                          * Three words rather than one, and the separator
-                          * comes with them: away and gone have as much right
-                          * to this line as online, and a row that only ever
-                          * spoke up for green could not tell somebody who had
-                          * stepped out from somebody who had never arrived.
+                          * This line used to end with the word as well —
+                          * "· Online" — which was the same fact twice, and the
+                          * copy that cost something: the username is how
+                          * people refer to each other, and on a narrow row it
+                          * was the half that got truncated to make room for a
+                          * word the colour had already said.
                           */}
                         <p className="truncate text-xs text-slate-400">
                           {c.user?.username && <span>@{c.user.username}</span>}
                           {c.user?.username && c.user?.app_id && ' · '}
                           {c.user?.app_id}
-                          {resolvePresence(livePresence, c.user?.uuid, c.user?.presence) && (
-                            <>
-                              {' · '}
-                              <PresenceLabel
-                                state={resolvePresence(livePresence, c.user?.uuid, c.user?.presence)}
-                              />
-                            </>
-                          )}
                         </p>
                       </div>
                     </div>

@@ -27,7 +27,7 @@ import { usePrompt } from '../components/Prompt'
 import { Badge, Button, EmptyState, Input, Modal, SkeletonList, SkeletonMessages } from '../components/ui'
 import type { ChatMessage, ConversationItem } from '../types'
 import { Avatar } from '../lib/avatars'
-import { PresenceDot, PresenceInline, PresenceLabel } from '../components/PresenceDot'
+import { PresenceDot, PresenceInline } from '../components/PresenceDot'
 import { lastSeenLabel, resolvePresence, usePresenceMap } from '../lib/presence'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
@@ -647,14 +647,10 @@ export default function MessagesPage() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{c.name}</p>
                   <p className="truncate text-xs text-slate-400">
-                    {c.type === 'group' ? (
-                      `${c.members_count} members`
-                    ) : (
-                      <PresenceLabel
-                        state={resolvePresence(livePresence, c.other_user?.uuid, c.other_user?.presence)}
-                        fallback={c.other_user?.app_id}
-                      />
-                    )}
+                    {/* The App ID, always — the dot on the avatar says where
+                        they are, and this line used to lose the one identifier
+                        on the row to a word repeating it. */}
+                    {c.type === 'group' ? `${c.members_count} members` : c.other_user?.app_id}
                   </p>
                 </div>
                 {c.unread_count > 0 && (
@@ -714,9 +710,9 @@ export default function MessagesPage() {
                       <span className="truncate">
                         {selected.other_user?.username ? `@${selected.other_user.username}` : selected.other_user?.app_id}
                       </span>
-                      {/* Beside the handle rather than replacing it: knowing
-                          who you are talking to outranks knowing where they
-                          are, and the header has room for both. */}
+                      {/* The one place presence has no avatar to sit on, so
+                          the dot goes on the line itself — beside the handle
+                          rather than replacing it. */}
                       <PresenceInline state={headerPresence} />
                       {/*
                         * Last seen, but not while they are here.
@@ -1455,9 +1451,10 @@ function MembersModal({
                   {m.name}
                   {m.is_me && <span className="ml-1 text-xs font-normal text-slate-400">(you)</span>}
                 </p>
+                {/* No dot here: this row has an avatar carrying one already,
+                    and two dots for one person is worse than none. */}
                 <p className="flex items-center gap-1.5 text-xs text-slate-400">
                   {m.username && <span className="truncate">@{m.username}</span>}
-                  <PresenceInline state={resolvePresence(livePresence, m.uuid, m.presence)} />
                 </p>
               </div>
               {/* Owner and admin are the two that carry authority and the two
