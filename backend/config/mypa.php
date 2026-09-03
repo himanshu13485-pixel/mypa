@@ -19,7 +19,20 @@ return [
 
     'files' => [
         // Per-file upload cap in kilobytes (admin-configurable via env).
+        // Drive: somebody deliberately filing a large document.
         'max_upload_kb' => (int) env('MYPA_MAX_UPLOAD_KB', 50 * 1024),
+
+        /*
+         * Chat attachments, which are a different act from filing something
+         * in Drive and get their own, lower ceiling.
+         *
+         * A chat attachment is counted against the sender's storage quota and
+         * copied again into every thread it is forwarded to, so 25 MB is not
+         * only about the one upload. It is also what a phone on a hotel
+         * connection can finish before the request times out — an upload that
+         * fails at 90% is worse than one never allowed to start.
+         */
+        'max_chat_upload_kb' => (int) env('MYPA_MAX_CHAT_UPLOAD_KB', 25 * 1024),
         // Per-user storage cap in bytes (plan-driven in Phase 6+).
         'storage_limit_bytes' => (int) env('MYPA_STORAGE_LIMIT_BYTES', 1024 * 1024 * 1024),
         'blocked_extensions' => ['exe', 'bat', 'cmd', 'sh', 'php', 'js', 'msi', 'dll', 'com', 'scr', 'vbs'],

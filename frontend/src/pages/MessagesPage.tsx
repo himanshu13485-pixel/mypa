@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { badges as badgesApi, conversationMembers, removeConversationMember, reportsApi } from '../api/endpoints'
 import type { ConversationMember } from '../api/endpoints'
+import MessageAttachment from '../components/MessageAttachment'
 import PersonModal from '../components/PersonModal'
 import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
@@ -156,6 +157,15 @@ function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => vo
     </button>
   )
 }
+
+/**
+ * The ceiling on one attachment, in megabytes.
+ *
+ * Must match mypa.files.max_upload_kb on the server. Stated here so the
+ * picker can refuse a file before the upload rather than after it; the
+ * server remains the one that actually decides.
+ */
+const MAX_UPLOAD_MB = 25
 
 export default function MessagesPage() {
   const queryClient = useQueryClient()
@@ -512,6 +522,26 @@ export default function MessagesPage() {
   }
 
   const sendFiles = (fileList: File[], type: string, duration?: number) => {
+    /*
+     * Checked here as well as on the server.
+     *
+     * The server is the one that decides, but it can only say no after the
+     * whole file has been sent — which on a phone connection means watching a
+     * 40 MB upload crawl to the end and then fail. Saying so before it starts
+     * is the difference between a rule and a punishment.
+     */
+    const tooBig = fileList.filter((f) => f.size > MAX_UPLOAD_MB * 1024 * 1024)
+
+    if (tooBig.length) {
+      toastError(
+        tooBig.length === 1
+          ? `${tooBig[0].name} is larger than ${MAX_UPLOAD_MB} MB.`
+          : `${tooBig.length} files are larger than ${MAX_UPLOAD_MB} MB.`,
+      )
+
+      return
+    }
+
     const form = new FormData()
     fileList.forEach((f) => form.append('attachments[]', f))
     form.append('type', type)
@@ -947,24 +977,14 @@ export default function MessagesPage() {
                               {(m.type === 'voice' || m.type === 'audio') ? (
                                 <AudioAttachment conversationUuid={selected.uuid} attachmentId={a.id} duration={a.duration_seconds} own={m.is_own} />
                               ) : (
-                                <a
-                                  className={clsx('flex items-center gap-1.5 text-xs underline', m.is_own ? 'text-white' : 'text-brand-600')}
-                                  href="#"
-                                  onClick={async (e) => {
-                                    e.preventDefault()
-                                    const token = useAuthStore.getState().token
-                                    const res = await fetch(chat.attachmentUrl(selected.uuid, a.id), { headers: { Authorization: `Bearer ${token}` } })
-                                    const blob = await res.blob()
-                                    const url = URL.createObjectURL(blob)
-                                    const link = document.createElement('a')
-                                    link.href = url
-                                    link.download = a.name
-                                    link.click()
-                                    URL.revokeObjectURL(url)
-                                  }}
-                                >
-                                  <Paperclip className="size-3" /> {a.name}
-                                </a>
+                                /* A photo looks like the photo; anything else
+                                   gets a chip with its name and size, rather
+                                   than a wall of underlined filenames. */
+                                <MessageAttachment
+                                  conversationUuid={selected.uuid}
+                                  attachment={a}
+                                  own={m.is_own}
+                                />
                               )}
                             </div>
                           ))}

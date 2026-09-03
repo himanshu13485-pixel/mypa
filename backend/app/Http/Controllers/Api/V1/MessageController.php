@@ -75,15 +75,24 @@ class MessageController extends Controller
             abort(403, 'Only the admins of this group can post here.');
         }
 
-        $maxKb = (int) config('mypa.files.max_upload_kb');
+        // Chat has its own ceiling, lower than Drive's: see config/mypa.php.
+        $maxKb = (int) config('mypa.files.max_chat_upload_kb');
+        $maxMb = (int) round($maxKb / 1024);
 
         $data = $request->validate([
             'body' => ['required_without:attachments', 'nullable', 'string', 'max:10000'],
             'type' => ['sometimes', 'in:text,image,file,audio,voice,video'],
             'reply_to' => ['nullable', 'uuid'],
             'attachments' => ['sometimes', 'array', 'max:5'],
+            /*
+             * The ceiling said in megabytes, because "max:25600" is what the
+             * rule reads and "25 MB" is what a person needs to be told.
+             */
             'attachments.*' => ['file', "max:{$maxKb}"],
             'duration_seconds' => ['nullable', 'integer', 'min:0', 'max:36000'],
+        ], [
+            'attachments.*.max' => "Each file has to be {$maxMb} MB or smaller.",
+            'attachments.max' => 'Five files at a time is the limit.',
         ]);
 
         $replyTo = null;
