@@ -56,9 +56,25 @@ export default function CrmPunchPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 
-  const monthStart = new Date().toISOString().slice(0, 8) + '01'
-  const [dateFrom, setDateFrom] = useState(monthStart)
-  const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10))
+  /*
+   * The register opens on today, not on the month so far.
+   *
+   * What somebody comes to this screen for on any ordinary morning is who is
+   * in — and a month-to-date range answered a different question at the top
+   * of the page, with today's rows somewhere down it. The two date boxes are
+   * right there, so a month is one edit away and is still what the charts
+   * summarise once it is asked for.
+   *
+   * Local date, not toISOString(): that is UTC, and in India it rolls over at
+   * half past five in the morning — so between midnight and then, "today"
+   * meant yesterday and the day's first punches were outside the range that
+   * was supposed to contain them. en-CA is the locale that formats as
+   * YYYY-MM-DD, which is what a date input wants.
+   */
+  // Named for the date, not the day's punch — `today` below is that.
+  const todayDate = new Date().toLocaleDateString('en-CA')
+  const [dateFrom, setDateFrom] = useState(todayDate)
+  const [dateTo, setDateTo] = useState(todayDate)
   const [member, setMember] = useState('')
   const [status, setStatus] = useState('')
   const [page, setPage] = useState(1)

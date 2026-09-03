@@ -86,8 +86,15 @@ export default function CrmEmployeeFormPage() {
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [rights, setRights] = useState<Record<string, string[]>>({})
-  // Grants a Subadmin holds only by name — their role covers the rest.
-  const NAMED_GRANTS = ['exports.excel', 'reports.view', 'hr.policy_edit']
+  /*
+   * Grants a Subadmin holds only by name — their role covers the rest.
+   *
+   * This list is what the tick-box screen offers them and what survives the
+   * save, so a capability missing from it cannot be given to a Subadmin at
+   * all, however willing the server is. employees.impersonate was exactly
+   * that: the backend accepted it and nothing could ever send it.
+   */
+  const NAMED_GRANTS = ['exports.excel', 'reports.view', 'hr.policy_edit', 'employees.impersonate']
 
   // The register flow's first step: everyone signs up on Netvork the normal
   // way; the company fetches that account and fills only the employment side.
@@ -283,8 +290,9 @@ export default function CrmEmployeeFormPage() {
     late_waived: form.late_waived,
     punch_waived: form.punch_waived,
     rights: form.crm_role === 'admin' ? undefined : rights,
-    // A Subadmin keeps only the by-name grants (exports, reports); the
-    // rest of the list their role already carries. Admin needs none.
+    // A Subadmin keeps only the by-name grants (exports, reports, opening a
+    // workspace); the rest of the list their role already carries, and an
+    // Admin needs none of it.
     capabilities: form.crm_role === 'admin' ? []
       : form.crm_role === 'subadmin'
         ? capabilities.filter((c) => NAMED_GRANTS.includes(c))
@@ -890,7 +898,7 @@ export default function CrmEmployeeFormPage() {
               <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Special permissions</h2>
               <p className="mt-0.5 text-xs text-slate-400">
                 {form.crm_role === 'subadmin'
-                  ? 'Held by name even for a Subadmin — Excel exports and the Reports screen open only when ticked here.'
+                  ? 'Held by name even for a Subadmin — the Excel export, the Reports screen and opening an employee’s workspace open only when ticked here.'
                   : 'Acts normally kept with the Company Admin. Tick one to hand it to this employee.'}
               </p>
             </div>
