@@ -60,11 +60,6 @@ class Member extends Model
         // Also held by name: the Reports screen is the Admin's, opened to a
         // Subadmin only when the Admin ticks them in.
         'reports.view' => ['group' => 'Money', 'label' => 'See the Reports screen (company-wide figures)'],
-        // Held by name even for a Subadmin, like the two above and for a
-        // sharper reason: this one opens somebody else's account. The Admin
-        // has it by the job; a Subadmin has it only where the Admin has
-        // ticked their name, and even then only for employees.
-        'employees.impersonate' => ['group' => 'Employees', 'label' => 'Open an employee’s workspace as them — sees exactly what they see, and every use is recorded'],
         'hr.policy_edit' => ['group' => 'HR', 'label' => 'Edit the HR Policy (timings, late rule, statutory rates)'],
         'letters.download' => ['group' => 'HR', 'label' => 'Download their own HR letters (offer, appointment, promotion…)'],
     ];
@@ -88,6 +83,7 @@ class Member extends Model
     protected $fillable = [
         'organization_id', 'user_id', 'crm_role', 'is_oversight', 'status', 'employee_code', 'title',
         'capabilities',
+        'impersonation_level',
         'department', 'designation', 'batch', 'father_name', 'father_phone',
         'mother_name', 'mother_phone', 'dob', 'gender', 'present_address',
         'present_phone', 'office_phone', 'permanent_address', 'permanent_phone',
@@ -241,22 +237,6 @@ class Member extends Model
     }
 
     /**
-     * A capability held by name, and never by the job.
-     *
-     * allows() hands an Admin and a Subadmin everything by virtue of their
-     * role, which is right for most of the delicate acts — they are the
-     * people who do them. A few are not like that: the accounting export,
-     * the Reports screen, and opening somebody else's account. For those the
-     * only question is whether this member was named, and a role cannot
-     * answer it.
-     */
-    public function holdsByName(string $capability): bool
-    {
-        return $this->status === 'active'
-            && in_array($capability, (array) ($this->capabilities ?? []), true);
-    }
-
-    /**
      * Whose seats this member may sit in — empty when nobody's.
      *
      * The Admin has this by the job and may open an employee or a subadmin.
@@ -273,16 +253,57 @@ class Member extends Model
      */
     public function borrowableRoles(): array
     {
-        if ($this->status !== 'active') {
+        if ($this->impersonationLevel() === null) {
             return [];
         }
-        if ($this->crm_role === 'admin') {
-            return ['employee', 'subadmin'];
+
+        return $this->crm_role === 'admin' ? ['employee', 'subadmin'] : ['employee'];
+    }
+
+    /** The four answers, weakest first, so two of them can be compared. */
+    public const IMPERSONATION_ORDER = ['crm_read', 'crm', 'account'];
+
+    /**
+     * How deeply this member may sit in somebody's seat — null for not at all.
+     *
+     * Two grants, and the narrower of them wins. The platform sets what the
+     * company may do at all; within that, the Company Admin says which of
+     * their Subadmins may do it and how far. The Admin themselves has whatever
+     * the company has, by the job.
+     *
+     * Capped here rather than only at the moment it is written, because the
+     * company's ceiling can be lowered afterwards — and a Subadmin granted
+     * 'account' last month must not still hold it when the platform has since
+     * cut the company back to 'crm'. Reading it through this method is the
+     * only way that is true everywhere.
+     */
+    public function impersonationLevel(): ?string
+    {
+        if ($this->status !== 'active') {
+            return null;
         }
 
-        return $this->crm_role === 'subadmin' && $this->holdsByName('employees.impersonate')
-            ? ['employee']
-            : [];
+        $ceiling = $this->organization?->impersonation_level;
+        if (! in_array($ceiling, self::IMPERSONATION_ORDER, true)) {
+            return null;
+        }
+
+        if ($this->crm_role === 'admin') {
+            return $ceiling;
+        }
+        if ($this->crm_role !== 'subadmin') {
+            return null;
+        }
+
+        $granted = $this->impersonation_level;
+        if (! in_array($granted, self::IMPERSONATION_ORDER, true)) {
+            return null;
+        }
+
+        return array_search($granted, self::IMPERSONATION_ORDER, true)
+            <= array_search($ceiling, self::IMPERSONATION_ORDER, true)
+                ? $granted
+                : $ceiling;
     }
 
     public function can(string $module, string $ability = 'view'): bool

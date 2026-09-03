@@ -86,15 +86,22 @@ export default function CrmEmployeeFormPage() {
 
   const [form, setForm] = useState<FormState>(EMPTY)
   const [rights, setRights] = useState<Record<string, string[]>>({})
+  /** How deeply this Subadmin may open an employee's workspace; '' is not at all. */
+  const [lendSeat, setLendSeat] = useState('')
   /*
    * Grants a Subadmin holds only by name — their role covers the rest.
    *
    * This list is what the tick-box screen offers them and what survives the
    * save, so a capability missing from it cannot be given to a Subadmin at
-   * all, however willing the server is. employees.impersonate was exactly
-   * that: the backend accepted it and nothing could ever send it.
+   * all, however willing the server is.
+   *
+   * Opening an employee's workspace is deliberately NOT here. This screen is
+   * open to Subadmins, who can therefore edit each other and themselves, so a
+   * tick-box would be a right any Subadmin could hand themselves. It has its
+   * own field below, which only an Admin is shown and only an Admin's payload
+   * is allowed to carry.
    */
-  const NAMED_GRANTS = ['exports.excel', 'reports.view', 'hr.policy_edit', 'employees.impersonate']
+  const NAMED_GRANTS = ['exports.excel', 'reports.view', 'hr.policy_edit']
 
   // The register flow's first step: everyone signs up on Netvork the normal
   // way; the company fetches that account and fills only the employment side.
@@ -192,6 +199,16 @@ export default function CrmEmployeeFormPage() {
   // Company authority, not a grantable right: a Team Head reads their
   // subtree here but never edits pay, documents or the profile itself.
   const manages = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
+  /*
+   * Lending a seat onward is the Admin's alone.
+   *
+   * Not `manages`: this screen is open to Subadmins, and a Subadmin can edit
+   * another Subadmin and can edit themselves — so anything they can see here
+   * they can give themselves. `ceiling` is what the platform granted this
+   * company, which is the most an Admin may pass on.
+   */
+  const isAdmin = me?.member?.crm_role === 'admin'
+  const ceiling = me?.member?.impersonation_level ?? null
   // The house figure, so the field can show what "blank" actually means.
   const { data: hrPolicy } = useQuery({ queryKey: ['crm', 'hr-policy'], queryFn: crm.hr.policy })
   const { data: existing, isLoading } = useQuery({
@@ -244,6 +261,7 @@ export default function CrmEmployeeFormPage() {
     })
     setRights(existing.rights && !Array.isArray(existing.rights) ? { ...existing.rights } : {})
     setCapabilities(existing.capabilities ?? [])
+    setLendSeat(existing.impersonation_level ?? '')
   }, [existing])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -290,13 +308,23 @@ export default function CrmEmployeeFormPage() {
     late_waived: form.late_waived,
     punch_waived: form.punch_waived,
     rights: form.crm_role === 'admin' ? undefined : rights,
-    // A Subadmin keeps only the by-name grants (exports, reports, opening a
-    // workspace); the rest of the list their role already carries, and an
-    // Admin needs none of it.
+    // A Subadmin keeps only the by-name grants (exports, reports); the
+    // rest of the list their role already carries. Admin needs none.
     capabilities: form.crm_role === 'admin' ? []
       : form.crm_role === 'subadmin'
         ? capabilities.filter((c) => NAMED_GRANTS.includes(c))
         : capabilities,
+    /*
+     * Sent only by an Admin, and only about a Subadmin.
+     *
+     * The server drops it from anybody else's payload regardless — this
+     * screen is open to Subadmins, so it has to — but sending nothing is the
+     * honest shape of a field the sender is not allowed to set, and it keeps
+     * a Subadmin's save from silently clearing what the Admin chose.
+     */
+    ...(isAdmin && form.crm_role === 'subadmin'
+      ? { impersonation_level: lendSeat || null }
+      : {}),
     note: form.note || null,
   })
 
@@ -891,6 +919,49 @@ export default function CrmEmployeeFormPage() {
 
       {/* The acts that move ownership or money. An Admin and a Subadmin hold
           them by the nature of the job; an employee holds what is ticked. */}
+      {/*
+        * Whom this Subadmin may stand in for.
+        *
+        * Only drawn for an Admin, only about a Subadmin, and only when the
+        * platform has granted the company something to pass on — offering a
+        * choice the server will refuse teaches people to distrust the screen.
+        * The options stop at the company's own ceiling for the same reason.
+        */}
+      {isAdmin && ceiling && form.crm_role === 'subadmin' && (
+        <Card>
+          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Open an employee&rsquo;s workspace</h2>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Lets this Subadmin sign in as an <strong>employee</strong> to see exactly what they see — never another
+            Subadmin, never you, and never themselves. Every use is recorded against their name.
+          </p>
+          <div className="mt-3 max-w-md">
+            <Label>What they may open</Label>
+            <Select value={lendSeat} onChange={(e) => setLendSeat(e.target.value)}>
+              <option value="">Nothing — they get no button</option>
+              <option value="crm_read">The employee&rsquo;s CRM, to look at only</option>
+              {ceiling !== 'crm_read' && (
+                <option value="crm">The employee&rsquo;s CRM workspace, to work in</option>
+              )}
+              {ceiling === 'account' && (
+                <option value="account">The employee&rsquo;s whole Netvork account</option>
+              )}
+            </Select>
+            {lendSeat === 'account' && (
+              <p className="mt-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                This includes the employee&rsquo;s private notes, files and personal messages.
+              </p>
+            )}
+            <p className="mt-1.5 text-xs text-slate-400">
+              Netvork has granted this company {ceiling === 'account'
+                ? 'full account access'
+                : ceiling === 'crm'
+                  ? 'CRM access'
+                  : 'read-only CRM access'}, so that is the most you can pass on.
+            </p>
+          </div>
+        </Card>
+      )}
+
       {(form.crm_role === 'employee' || form.crm_role === 'subadmin') && masters && (
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -898,7 +969,7 @@ export default function CrmEmployeeFormPage() {
               <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Special permissions</h2>
               <p className="mt-0.5 text-xs text-slate-400">
                 {form.crm_role === 'subadmin'
-                  ? 'Held by name even for a Subadmin — the Excel export, the Reports screen and opening an employee’s workspace open only when ticked here.'
+                  ? 'Held by name even for a Subadmin — Excel exports and the Reports screen open only when ticked here.'
                   : 'Acts normally kept with the Company Admin. Tick one to hand it to this employee.'}
               </p>
             </div>

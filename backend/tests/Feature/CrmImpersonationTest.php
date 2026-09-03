@@ -176,6 +176,86 @@ class CrmImpersonationTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_a_subadmin_cannot_lend_a_seat_to_themselves(): void
+    {
+        /*
+         * The escalation this field exists to avoid.
+         *
+         * The employee screen is open to Subadmins — they register staff and
+         * run their teams — so a Subadmin can edit another Subadmin and can
+         * edit themselves. Anything grantable there is therefore a right they
+         * could hand themselves in two clicks, which is exactly why this is
+         * not one of the tick-box capabilities.
+         */
+        $this->grant('account');
+        [$sub, $subMember] = $this->subadmin('sub@acme.test');
+        [$peer, $peerMember] = $this->subadmin('peer@acme.test');
+
+        // Themselves: the field is dropped, and the save otherwise succeeds.
+        $this->lend($subMember, 'account', $sub)->assertOk();
+        $this->assertNull($subMember->fresh()->impersonation_level);
+
+        // Nor onto each other.
+        $this->lend($peerMember, 'account', $sub)->assertOk();
+        $this->assertNull($peerMember->fresh()->impersonation_level);
+
+        // The Admin's hand is the only one that writes it.
+        $this->lend($subMember, 'account')->assertOk();
+        $this->assertSame('account', $subMember->fresh()->impersonation_level);
+    }
+
+    public function test_an_admin_cannot_pass_on_more_than_the_platform_gave(): void
+    {
+        $this->grant('crm');
+        [, $subMember] = $this->subadmin('sub@acme.test');
+
+        // Refused outright rather than quietly trimmed: an Admin who picked
+        // 'account' should be told the company does not have it.
+        $this->lend($subMember, 'account')->assertStatus(422);
+        $this->assertNull($subMember->fresh()->impersonation_level);
+
+        $this->lend($subMember, 'crm')->assertOk();
+        $this->assertSame('crm', $subMember->fresh()->impersonation_level);
+    }
+
+    public function test_lowering_the_company_ceiling_lowers_everybody_under_it(): void
+    {
+        $this->grant('account');
+        [$sub, $subMember] = $this->subadmin('sub@acme.test');
+        $this->lend($subMember, 'account')->assertOk();
+
+        $this->assertSame('account', $subMember->fresh()->impersonationLevel());
+
+        // Netvork cuts the company back. The stored grant is untouched — the
+        // Admin's choice is not rewritten behind their back — but what it is
+        // worth is capped from now on.
+        $this->grant('crm_read');
+
+        $fresh = $subMember->fresh()->load('organization');
+        $this->assertSame('account', $fresh->impersonation_level, 'the stored choice stands');
+        $this->assertSame('crm_read', $fresh->impersonationLevel(), 'what it is worth is capped');
+
+        $this->actingAs($sub)->getJson('/api/v1/crm/me')
+            ->assertOk()
+            ->assertJsonPath('data.member.impersonation_level', 'crm_read');
+    }
+
+    public function test_demoting_a_subadmin_takes_the_seat_back(): void
+    {
+        $this->grant('crm');
+        [, $subMember] = $this->subadmin('sub@acme.test');
+        $this->lend($subMember, 'crm')->assertOk();
+
+        $this->actingAs($this->admin)->putJson(
+            "/api/v1/crm/employees/{$subMember->uuid}",
+            ['crm_role' => 'employee'],
+        )->assertOk();
+
+        // Not merely inert while they are an employee — cleared, so that
+        // promoting them again does not quietly restore it.
+        $this->assertNull($subMember->fresh()->impersonation_level);
+    }
+
     public function test_a_subadmin_holds_nothing_until_the_admin_names_them(): void
     {
         $this->grant('account');
@@ -199,7 +279,7 @@ class CrmImpersonationTest extends TestCase
         $this->grant('crm');
 
         [$sub, $subMember] = $this->subadmin('sub@acme.test');
-        $subMember->update(['capabilities' => ['employees.impersonate']]);
+        $this->lend($subMember, 'crm');
 
         $this->actingAs($sub)->getJson('/api/v1/crm/me')
             ->assertOk()
@@ -229,7 +309,7 @@ class CrmImpersonationTest extends TestCase
         $this->grant('crm');
 
         [$sub, $subMember] = $this->subadmin('sub@acme.test');
-        $subMember->update(['capabilities' => ['employees.impersonate']]);
+        $this->lend($subMember, 'crm');
         [, $peerMember] = $this->subadmin('peer@acme.test');
 
         $rows = collect($this->actingAs($sub)->getJson('/api/v1/crm/employees')->assertOk()->json('data'))
@@ -246,11 +326,26 @@ class CrmImpersonationTest extends TestCase
         // Named by their Admin, but the platform granted the company nothing.
         // The narrower gate still holds: a company cannot let itself in.
         [$sub, $subMember] = $this->subadmin('sub@acme.test');
-        $subMember->update(['capabilities' => ['employees.impersonate']]);
+        $this->lend($subMember, 'crm');
 
         $this->actingAs($sub)
             ->postJson("/api/v1/crm/employees/{$this->employeeMember->uuid}/impersonate")
             ->assertForbidden();
+    }
+
+    /**
+     * The Admin granting a Subadmin a seat, through the screen that does it.
+     *
+     * Deliberately the HTTP route and not a direct update: the whole point of
+     * the field is who is allowed to send it, and a test that writes the
+     * column itself would prove nothing about that.
+     */
+    private function lend(Member $subadmin, ?string $level, ?User $as = null): \Illuminate\Testing\TestResponse
+    {
+        return $this->actingAs($as ?? $this->admin)->putJson(
+            "/api/v1/crm/employees/{$subadmin->uuid}",
+            ['crm_role' => 'subadmin', 'impersonation_level' => $level],
+        );
     }
 
     /** @return array{0: User, 1: Member} */

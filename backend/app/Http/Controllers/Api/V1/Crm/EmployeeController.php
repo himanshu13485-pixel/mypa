@@ -83,7 +83,9 @@ class EmployeeController extends Controller
          * that. A button drawn where the server will refuse is a button that
          * teaches people to distrust buttons.
          */
-        $lends = $org->lendsSeats() ? $me->borrowableRoles() : [];
+        // borrowableRoles() already asks the organization, so the company's
+        // ceiling is inside this answer rather than beside it.
+        $lends = $me->borrowableRoles();
 
         $members->getCollection()->transform(
             fn ($m) => $this->serialize($m) + ['can_impersonate' => $this->borrowable($m, $me, $lends)],
@@ -350,10 +352,43 @@ class EmployeeController extends Controller
 
         $data = $this->validateProfile($request, $org->id, $member->id);
 
+        $me = $request->attributes->get('crm_member');
+
         // Both waivers are the Admin's alone — a Subadmin's payload simply
         // does not carry them.
-        if ($request->attributes->get('crm_member')?->crm_role !== 'admin') {
+        if ($me?->crm_role !== 'admin') {
             unset($data['late_waived'], $data['punch_waived']);
+        }
+
+        /*
+         * Lending a seat onward is the Admin's to give, and nobody's to take.
+         *
+         * This screen is open to Subadmins — they register staff and manage
+         * their teams — which means a Subadmin can edit another Subadmin, and
+         * can edit themselves. So a right to enter employees' accounts that
+         * travelled in this payload would be a right any Subadmin could hand
+         * themselves in two clicks. Dropped from anybody who is not an Admin,
+         * and only meaningful on a Subadmin in the first place.
+         */
+        if ($me?->crm_role !== 'admin' || ($data['crm_role'] ?? $member->crm_role) !== 'subadmin') {
+            unset($data['impersonation_level']);
+        }
+
+        // And never above what the platform granted the company itself: an
+        // Admin cannot widen their company by widening one of their people.
+        if (array_key_exists('impersonation_level', $data) && $data['impersonation_level'] !== null) {
+            $ceiling = $org->impersonation_level;
+            abort_if(
+                ! in_array($ceiling, Member::IMPERSONATION_ORDER, true),
+                422,
+                'Opening a member\'s workspace is not enabled for this company.',
+            );
+            abort_if(
+                array_search($data['impersonation_level'], Member::IMPERSONATION_ORDER, true)
+                    > array_search($ceiling, Member::IMPERSONATION_ORDER, true),
+                422,
+                'That is more than Netvork has granted this company.',
+            );
         }
 
         // The last admin cannot demote or deactivate themselves out of the org.
@@ -361,6 +396,13 @@ class EmployeeController extends Controller
             && (($data['crm_role'] ?? 'admin') !== 'admin' || ($data['status'] ?? 'active') !== 'active');
         if ($losingAdmin && Member::visible()->where('organization_id', $org->id)->where('crm_role', 'admin')->where('status', 'active')->count() <= 1) {
             abort(422, 'The organization must keep at least one active CRM admin.');
+        }
+
+        // A Subadmin demoted to employee keeps nothing: the grant was for the
+        // job they no longer have, and a column left behind would come back
+        // to life the day somebody promoted them again.
+        if (($data['crm_role'] ?? $member->crm_role) !== 'subadmin') {
+            $data['impersonation_level'] = null;
         }
 
         $before = $member->only(array_keys($data));
@@ -593,6 +635,10 @@ class EmployeeController extends Controller
             // The delicate acts an Admin grants by name, account by account.
             'capabilities' => ['nullable', 'array'],
             'capabilities.*' => [Rule::in(array_keys(Member::CAPABILITIES))],
+            // Null is "not at all". Whether the caller is allowed to say this
+            // at all is settled below, not here — a validation rule cannot
+            // see who is asking.
+            'impersonation_level' => ['nullable', Rule::in(Member::IMPERSONATION_ORDER)],
             'rights.*' => ['array'],
             'rights.*.*' => [Rule::in(Member::ABILITIES)],
             'note' => ['nullable', 'string', 'max:2000'],
@@ -735,6 +781,10 @@ class EmployeeController extends Controller
             'department' => $m->department,
             'designation' => $m->designation,
             'is_salesperson' => $m->is_salesperson,
+            // What this Subadmin was granted, as stored — the form edits this
+            // rather than the capped answer, or lowering the company ceiling
+            // would silently rewrite what the Admin had chosen.
+            'impersonation_level' => $m->impersonation_level,
             'joined_at' => $m->joined_at?->toDateString(),
             'probation_days' => $m->probation_days,
             'late_waived' => (bool) $m->late_waived,

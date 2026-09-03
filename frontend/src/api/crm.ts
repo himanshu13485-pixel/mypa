@@ -448,6 +448,13 @@ export interface CrmAccountMatch {
 export interface CrmEmployeeFull extends CrmEmployee {
   /** The delicate acts granted to this employee by name. */
   capabilities?: string[]
+  /**
+   * How deeply this Subadmin may open an employee's workspace, as the Admin
+   * set it — null for not at all. Not a capability, because this screen is
+   * open to Subadmins and a capability is something they could tick for
+   * themselves; only an Admin's payload may carry this field.
+   */
+  impersonation_level?: 'crm_read' | 'crm' | 'account' | null
   title: string | null
   batch: string | null
   gender: string | null

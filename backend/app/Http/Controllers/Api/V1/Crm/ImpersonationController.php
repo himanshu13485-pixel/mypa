@@ -69,17 +69,22 @@ class ImpersonationController extends Controller
          * draws the buttons and the shell that decides the feature exists all
          * ask the same question of the same code.
          */
-        $borrowable = $me->borrowableRoles();
-        abort_if($borrowable === [], 403, $me->crm_role === 'subadmin'
-            ? 'Opening a member\'s workspace has not been granted to you. Ask your company admin.'
-            : 'Only the company admin can open a member\'s workspace.');
+        /*
+         * One question, asked of the member.
+         *
+         * impersonationLevel() is already both grants at once — what the
+         * platform allows the company, capped over what the Admin allowed this
+         * person — so there is nothing left here to combine, and no way for
+         * this endpoint to disagree with the screen that drew the button.
+         */
+        $level = $me->impersonationLevel();
+        abort_if($level === null, 403, match (true) {
+            ! $org->lendsSeats() => 'Opening a member\'s workspace is not enabled for this company. Ask Netvork to switch it on.',
+            $me->crm_role === 'subadmin' => 'Opening a member\'s workspace has not been granted to you. Ask your company admin.',
+            default => 'Only the company admin can open a member\'s workspace.',
+        });
 
-        $level = $org->impersonation_level ?? 'none';
-        abort_if(
-            ! in_array($level, ['crm_read', 'crm', 'account'], true),
-            403,
-            'Opening a member\'s workspace is not enabled for this company. Ask Netvork to switch it on.',
-        );
+        $borrowable = $me->borrowableRoles();
 
         $target = Member::visible()->with('user.roles')
             ->where('organization_id', $org->id)
