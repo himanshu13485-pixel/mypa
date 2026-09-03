@@ -583,10 +583,18 @@ class InvoiceController extends Controller
             ? \Illuminate\Support\Facades\Storage::disk('public')->path($invoice->issuingCompany->logo_path)
             : null;
 
+        // The rubber stamp, which prints beside the signatory rather than in
+        // the header. Resolved to a real path the same way, because dompdf
+        // reads from disk and a missing file would break the whole document.
+        $stampPath = $invoice->issuingCompany?->stamp_path
+            ? \Illuminate\Support\Facades\Storage::disk('public')->path($invoice->issuingCompany->stamp_path)
+            : null;
+
         $pdf = Pdf::loadView('crm.document', [
             'invoice' => $invoice,
             'company' => $invoice->issuingCompany,
             'logoPath' => $logoPath && is_file($logoPath) ? $logoPath : null,
+            'stampPath' => $stampPath && is_file($stampPath) ? $stampPath : null,
             'currency' => $invoice->currency ?: 'INR',
             'received' => $received,
             'columns' => $columns,

@@ -1160,6 +1160,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::post('/masters/issuing-companies', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeCompany']);
                 Route::put('/masters/issuing-companies/{id}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'updateCompany']);
                 Route::post('/masters/issuing-companies/{id}/logo', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'uploadCompanyLogo']);
+                // The rubber stamp, which prints beside the signatory.
+                Route::post('/masters/issuing-companies/{id}/stamp', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'uploadCompanyStamp']);
+                Route::delete('/masters/issuing-companies/{id}/stamp', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'deleteCompanyStamp']);
                 Route::get('/masters/fx-rate', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'fxRate']);
                 Route::put('/masters/fx-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveFxSettings']);
                 Route::get('/masters/birthday-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'birthdaySettings']);

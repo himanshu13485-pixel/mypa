@@ -38,6 +38,10 @@
   .extras { color: #64748b; font-size: 10px; margin-top: 2px; }
   .foot { margin-top: 26px; font-size: 10px; color: #64748b; }
   .sign { margin-top: 34px; text-align: right; font-size: 10px; }
+  /* Capped so a large upload cannot push the signatory line onto a
+     page of its own, and centred in the signing space. */
+  .stamp { padding: 4px 0; }
+  .stamp img { max-height: 76px; max-width: 150px; }
 </style>
 </head>
 <body>
@@ -250,7 +254,15 @@
 @endif
 
 <div class="sign">
-  For {{ $company?->name }}<br><br><br>
+  For {{ $company?->name }}
+  {{-- The stamp sits where a signature goes, over the space rather than
+       beside it, which is where a rubber stamp lands on paper. A company
+       with no stamp keeps the blank space it always had. --}}
+  @if (!empty($stampPath))
+    <div class="stamp"><img src="{{ $stampPath }}" alt=""></div>
+  @else
+    <br><br><br>
+  @endif
   Authorised signatory
 </div>
 

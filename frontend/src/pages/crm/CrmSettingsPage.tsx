@@ -332,11 +332,15 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
     pays_salary: editing?.pays_salary ?? false,
   })
   const [logo, setLogo] = useState<File | null>(null)
+  const [stamp, setStamp] = useState<File | null>(null)
 
   const mutation = useMutation({
     mutationFn: async () => {
       const res = await crm.masterData.saveCompany({ ...form, address: form.address || null, gstin: form.gstin || null, state_code: form.state_code || null }, editing?.id) as { data?: { id?: number } }
       const id = editing?.id ?? res?.data?.id
+      if (stamp && id) {
+        await crm.masterData.uploadCompanyStamp(id, stamp)
+      }
       if (logo && id) {
         await crm.masterData.uploadCompanyLogo(id, logo)
       }
@@ -395,6 +399,39 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
               className="block w-full text-sm text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-emerald-700"
             />
             {editing?.logo_path && !logo && <p className="mt-1 text-xs text-emerald-600">Logo on file — upload to replace.</p>}
+          </div>
+          <div>
+            {/* Its own upload, because a stamp is not a second logo: it prints
+                over the signing space at the foot, not in the header. */}
+            <Label>Company stamp (prints beside the signatory)</Label>
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(e) => setStamp(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-emerald-700"
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              A PNG with a transparent background sits over the signature line properly; anything else
+              prints as a white box on top of it.
+            </p>
+            {editing?.stamp_path && !stamp && (
+              <p className="mt-1 flex items-center gap-2 text-xs text-emerald-600">
+                Stamp on file — upload to replace.
+                <button
+                  type="button"
+                  className="text-red-500 hover:underline"
+                  onClick={() => {
+                    if (editing.id && confirm(`Remove the stamp from this company's documents?`)) {
+                      crm.masterData.deleteCompanyStamp(editing.id)
+                        .then(() => { setStamp(null); onDone() })
+                        .catch((err) => setError(errorMessage(err)))
+                    }
+                  }}
+                >
+                  Remove
+                </button>
+              </p>
+            )}
           </div>
         </div>
         <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">

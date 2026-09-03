@@ -348,6 +348,7 @@ export interface CrmMasters {
   capabilities: { key: string; group: string; label: string }[]
   issuing_companies: {
     logo_path?: string | null
+    stamp_path?: string | null
     currency?: string
     pays_salary?: boolean
     pan?: string | null
@@ -2416,6 +2417,20 @@ export const crm = {
       form.append('file', file)
       return api.post<{ message: string }>(`/crm/masters/issuing-companies/${id}/logo`, form).then((r) => r.data)
     },
+    /*
+     * The rubber stamp, which is not the logo.
+     *
+     * The logo is branding and sits in the header; the stamp is the mark of
+     * authority beside the signatory at the foot. Companies commonly have
+     * both, and they are rarely the same image.
+     */
+    uploadCompanyStamp: (id: number, file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return api.post<{ message: string }>(`/crm/masters/issuing-companies/${id}/stamp`, form).then((r) => r.data)
+    },
+    deleteCompanyStamp: (id: number) =>
+      api.delete<{ message: string }>(`/crm/masters/issuing-companies/${id}/stamp`).then((r) => r.data),
     fxRate: (currency: string) =>
       api.get<{ data: { currency: string; market_rate: number | null; margin_inr: number; effective_rate: number | null } }>(
         '/crm/masters/fx-rate', { params: { currency } },

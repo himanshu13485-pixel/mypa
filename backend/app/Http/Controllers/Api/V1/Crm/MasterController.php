@@ -294,6 +294,47 @@ class MasterController extends Controller
     }
 
     /**
+     * The company's stamp — prints beside the signatory on its documents.
+     *
+     * Its own image rather than a second use of the logo: a stamp is usually
+     * round, usually monochrome and often carries a registration number the
+     * header logo does not. A company with both would otherwise have to
+     * choose which one it wanted printed.
+     *
+     * PNG is worth having for this even though the logo takes anything: a
+     * stamp is meant to sit over the signature line, and only a transparent
+     * background lets it.
+     */
+    public function uploadCompanyStamp(Request $request, int $id): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $company = IssuingCompany::where('organization_id', $org->id)->findOrFail($id);
+        $request->validate(['file' => ['required', 'image', 'mimes:png,jpg,jpeg,webp', 'max:2048']]);
+
+        if ($company->stamp_path) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($company->stamp_path);
+        }
+        $path = $request->file('file')->store('crm-stamps/' . $org->id, 'public');
+        $company->update(['stamp_path' => $path]);
+
+        return response()->json(['message' => 'Stamp uploaded.', 'data' => ['stamp_path' => $path]]);
+    }
+
+    /** Taking the stamp off again, without having to replace it with another. */
+    public function deleteCompanyStamp(Request $request, int $id): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $company = IssuingCompany::where('organization_id', $org->id)->findOrFail($id);
+
+        if ($company->stamp_path) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($company->stamp_path);
+            $company->update(['stamp_path' => null]);
+        }
+
+        return response()->json(['message' => 'Stamp removed.']);
+    }
+
+    /**
      * What a foreign amount is worth in rupees today: the market rate, and
      * the effective rate after the bank-charge margin comes off.
      */

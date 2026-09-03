@@ -215,9 +215,27 @@ class RecurringInvoiceGenerator
             $company?->name,
         ], fn ($l) => $l !== null);
 
+        /*
+         * The letterhead and the stamp, which this path never passed.
+         *
+         * The same invoice looked different depending on whether a person
+         * pressed send or a schedule did: no logo, no stamp, just the words.
+         * Resolved to real paths because dompdf reads from disk, and checked
+         * for existence because a missing file breaks the whole document
+         * rather than one image.
+         */
+        $logoPath = $company?->logo_path
+            ? \Illuminate\Support\Facades\Storage::disk('public')->path($company->logo_path)
+            : null;
+        $stampPath = $company?->stamp_path
+            ? \Illuminate\Support\Facades\Storage::disk('public')->path($company->stamp_path)
+            : null;
+
         $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('crm.document', [
             'invoice' => $invoice->load(['client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name', 'payments']),
             'company' => $company,
+            'logoPath' => $logoPath && is_file($logoPath) ? $logoPath : null,
+            'stampPath' => $stampPath && is_file($stampPath) ? $stampPath : null,
             'currency' => $invoice->currency ?: 'INR',
             'received' => 0.0,
             'columns' => collect(\App\Models\Crm\CustomField::workOrderMethod($invoice->organization_id))
