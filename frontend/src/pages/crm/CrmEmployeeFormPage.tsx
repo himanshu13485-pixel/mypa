@@ -101,7 +101,7 @@ export default function CrmEmployeeFormPage() {
    * own field below, which only an Admin is shown and only an Admin's payload
    * is allowed to carry.
    */
-  const NAMED_GRANTS = ['exports.excel', 'reports.view', 'hr.policy_edit']
+  const NAMED_GRANTS = ['exports.excel', 'reports.view', 'hr.policy_edit', 'employees.rights']
 
   // The register flow's first step: everyone signs up on Netvork the normal
   // way; the company fetches that account and fills only the employment side.
@@ -209,6 +209,7 @@ export default function CrmEmployeeFormPage() {
    */
   const isAdmin = me?.member?.crm_role === 'admin'
   const ceiling = me?.member?.impersonation_level ?? null
+
   // The house figure, so the field can show what "blank" actually means.
   const { data: hrPolicy } = useQuery({ queryKey: ['crm', 'hr-policy'], queryFn: crm.hr.policy })
   const { data: existing, isLoading } = useQuery({
@@ -216,6 +217,28 @@ export default function CrmEmployeeFormPage() {
     queryFn: () => crm.employees.get(uuid!),
     enabled: editing,
   })
+
+  /*
+   * Whether the rights editor is this reader's to use, on this person.
+   *
+   * Module rights and Special permissions are what decide what somebody may
+   * do, so a screen that let a Subadmin edit their own would be a screen that
+   * let them grant themselves anything — and editing a peer's is the same
+   * thing one step removed. The Admin holds it by the job; a Subadmin holds
+   * it where the Admin ticked their name, and then over employees only.
+   *
+   * Read from the saved row rather than from the form, or a Subadmin could
+   * flip the role dropdown to "Employee" and watch the cards they may not
+   * use appear.
+   *
+   * The server enforces exactly this and drops the fields from any payload
+   * that should not carry them. Hiding the cards only spares somebody filling
+   * in a form whose answers were going to be thrown away.
+   */
+  const maySetRights = isAdmin
+    || (me?.member?.can_set_rights === true
+      && (editing ? existing?.crm_role === 'employee' : true)
+      && me?.member?.uuid !== existing?.uuid)
 
   useEffect(() => {
     if (!existing) return
@@ -268,7 +291,6 @@ export default function CrmEmployeeFormPage() {
     setForm((f) => ({ ...f, [key]: value }))
 
   const profilePayload = () => ({
-    crm_role: form.crm_role,
     status: form.status,
     employee_code: form.employee_code || null,
     title: form.title || null,
@@ -307,13 +329,21 @@ export default function CrmEmployeeFormPage() {
     // ignores it from anyone else anyway.
     late_waived: form.late_waived,
     punch_waived: form.punch_waived,
-    rights: form.crm_role === 'admin' ? undefined : rights,
+    // Omitted rather than sent empty when this reader may not set them: the
+    // server drops the fields anyway, but sending {} would read as "clear
+    // everything" the day that stopped being true.
+    ...(maySetRights ? { rights: form.crm_role === 'admin' ? undefined : rights } : {}),
     // A Subadmin keeps only the by-name grants (exports, reports); the
     // rest of the list their role already carries. Admin needs none.
-    capabilities: form.crm_role === 'admin' ? []
-      : form.crm_role === 'subadmin'
-        ? capabilities.filter((c) => NAMED_GRANTS.includes(c))
-        : capabilities,
+    ...(maySetRights
+      ? {
+        capabilities: form.crm_role === 'admin' ? []
+          : form.crm_role === 'subadmin'
+            ? capabilities.filter((c) => NAMED_GRANTS.includes(c))
+            : capabilities,
+      }
+      : {}),
+    ...(isAdmin ? { crm_role: form.crm_role } : {}),
     /*
      * Sent only by an Admin, and only about a Subadmin.
      *
@@ -556,14 +586,33 @@ export default function CrmEmployeeFormPage() {
             <Input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} placeholder="Min 8, letters + numbers" className="w-full" />
           </div>
         )}
-        <div>
-          <Label>CRM role</Label>
-          <Select value={form.crm_role} onChange={(e) => set('crm_role', e.target.value)} className="w-full">
-            <option value="admin">Admin — full CRM access</option>
-            <option value="subadmin">Subadmin — granted modules</option>
-            <option value="employee">Employee — granted modules</option>
-          </Select>
-        </div>
+        {/*
+          * Promotion is company authority.
+          *
+          * Left open to a Subadmin it made every other restriction here
+          * decorative: somebody who cannot tick their own rights could make
+          * themselves an Admin instead and then tick anything at all. A
+          * Subadmin registering a new hire creates an employee, which is what
+          * the server records whatever this field says.
+          */}
+        {isAdmin ? (
+          <div>
+            <Label>CRM role</Label>
+            <Select value={form.crm_role} onChange={(e) => set('crm_role', e.target.value)} className="w-full">
+              <option value="admin">Admin — full CRM access</option>
+              <option value="subadmin">Subadmin — granted modules</option>
+              <option value="employee">Employee — granted modules</option>
+            </Select>
+          </div>
+        ) : (
+          <div>
+            <Label>CRM role</Label>
+            <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm capitalize text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {editing ? (existing?.crm_role ?? form.crm_role) : 'Employee'}
+            </p>
+            <p className="mt-1 text-xs text-slate-400">Only the Company Admin changes a role.</p>
+          </div>
+        )}
         <div>
           <Label>Status</Label>
           <Select value={form.status} onChange={(e) => set('status', e.target.value)} className="w-full">
@@ -858,7 +907,7 @@ export default function CrmEmployeeFormPage() {
         </div>
       </Section>
 
-      {form.crm_role !== 'admin' && masters && (
+      {form.crm_role !== 'admin' && masters && maySetRights && (
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -962,7 +1011,7 @@ export default function CrmEmployeeFormPage() {
         </Card>
       )}
 
-      {(form.crm_role === 'employee' || form.crm_role === 'subadmin') && masters && (
+      {(form.crm_role === 'employee' || form.crm_role === 'subadmin') && masters && maySetRights && (
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>

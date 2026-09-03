@@ -60,6 +60,12 @@ class Member extends Model
         // Also held by name: the Reports screen is the Admin's, opened to a
         // Subadmin only when the Admin ticks them in.
         'reports.view' => ['group' => 'Money', 'label' => 'See the Reports screen (company-wide figures)'],
+        // Held by name even for a Subadmin, and the reason is circular until
+        // you see it: module rights and this very list are what decide what
+        // somebody may do, so whoever may edit them may edit themselves into
+        // anything. The Admin holds it by the job; a Subadmin holds it only
+        // where the Admin ticked their name, and then only over employees.
+        'employees.rights' => ['group' => 'Employees', 'label' => 'Set an employee’s module rights and special permissions — never another Subadmin’s, and never their own'],
         'hr.policy_edit' => ['group' => 'HR', 'label' => 'Edit the HR Policy (timings, late rule, statutory rates)'],
         'letters.download' => ['group' => 'HR', 'label' => 'Download their own HR letters (offer, appointment, promotion…)'],
     ];
@@ -258,6 +264,49 @@ class Member extends Model
         }
 
         return $this->crm_role === 'admin' ? ['employee', 'subadmin'] : ['employee'];
+    }
+
+    /**
+     * May this member set rights and special permissions on $target?
+     *
+     * The escalation this closes is the plainest one there is. Module rights
+     * and the capability list are what decide what a person may do, and the
+     * employee screen is open to Subadmins — so a Subadmin could open their
+     * own row, tick everything, and save. They could do the same to a peer,
+     * and, because crm_role rode in the same payload, promote themselves to
+     * Admin outright. None of that needed a bug; it was simply never
+     * restricted.
+     *
+     * So it belongs to the Admin, and reaches a Subadmin only by name. Even
+     * then it points downwards only: at employees, never at a peer, never at
+     * themselves, never at the Admin. A Subadmin who could edit another
+     * Subadmin's rights could edit their own through them.
+     *
+     * $target is null when somebody is being registered rather than edited —
+     * a new hire the caller is not yet able to name, and one whose role a
+     * non-Admin does not get to choose.
+     */
+    public function maySetRightsOn(?self $target): bool
+    {
+        if ($this->status !== 'active') {
+            return false;
+        }
+        if ($this->crm_role === 'admin') {
+            return true;
+        }
+        if ($this->crm_role !== 'subadmin'
+            || ! in_array('employees.rights', (array) ($this->capabilities ?? []), true)) {
+            return false;
+        }
+
+        return $target === null
+            || ($target->crm_role === 'employee' && $target->id !== $this->id);
+    }
+
+    /** Whether the screen offers the rights editor at all. */
+    public function maySetRightsAtAll(): bool
+    {
+        return $this->maySetRightsOn(null);
     }
 
     /** The four answers, weakest first, so two of them can be compared. */

@@ -64,6 +64,13 @@ export interface CrmMe {
      * also when the button is not drawn.
      */
     impersonation_level?: 'crm_read' | 'crm' | 'account' | null
+    /**
+     * Whether the rights editor is theirs to use at all — the Admin by the
+     * job, a Subadmin only where the Admin named them. A boolean because
+     * `capabilities` answers with every key by role for both, so the one
+     * question that matters here is the one it cannot answer.
+     */
+    can_set_rights?: boolean
     /** Set when this session is itself a borrowed one. */
     impersonating?: { level: 'crm_read' | 'crm' | 'account' } | null
   } | null

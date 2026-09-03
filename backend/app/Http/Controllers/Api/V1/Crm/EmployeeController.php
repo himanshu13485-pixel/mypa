@@ -224,8 +224,32 @@ class EmployeeController extends Controller
     {
         $org = $request->attributes->get('crm_org');
         $data = $this->validateProfile($request, $org->id);
-        if ($request->attributes->get('crm_member')?->crm_role !== 'admin') {
+        $me = $request->attributes->get('crm_member');
+
+        if ($me?->crm_role !== 'admin') {
             unset($data['late_waived'], $data['punch_waived']);
+
+            /*
+             * A Subadmin registers employees, and only employees.
+             *
+             * crm_role is required by the form, so this is forced rather than
+             * dropped — and it has to be one or the other, because a Subadmin
+             * who could choose the role of the person they were creating
+             * could create an Admin, sign in as nobody, and have handed
+             * themselves the company through a colleague's account.
+             */
+            $data['crm_role'] = 'employee';
+        }
+
+        // An Admin's form always sends one; this is the belt for a caller
+        // that does not, now that the field may legitimately be absent.
+        $data['crm_role'] ??= 'employee';
+
+        // Rights and special permissions are the Admin's unless the Admin has
+        // said otherwise — see Member::maySetRightsOn(). Null target: whoever
+        // is being registered is an employee by the line above.
+        if (! $me?->maySetRightsOn(null)) {
+            unset($data['rights'], $data['capabilities']);
         }
 
         // Left blank, the code numbers itself - EMP-101 onwards.
@@ -358,6 +382,26 @@ class EmployeeController extends Controller
         // does not carry them.
         if ($me?->crm_role !== 'admin') {
             unset($data['late_waived'], $data['punch_waived']);
+
+            /*
+             * And so is the role. Promotion is company authority, and left
+             * open it made every other restriction here decorative: a
+             * Subadmin who cannot tick their own rights could promote
+             * themselves to Admin instead and then tick anything at all.
+             */
+            unset($data['crm_role']);
+        }
+
+        /*
+         * Rights and special permissions: the Admin's, or a named Subadmin's
+         * over employees.
+         *
+         * Asked of the pair rather than of the caller alone, because the
+         * answer depends on who is being edited — the same Subadmin may set
+         * an employee's rights and must not set a peer's or their own.
+         */
+        if (! $me?->maySetRightsOn($member)) {
+            unset($data['rights'], $data['capabilities']);
         }
 
         /*
@@ -593,7 +637,15 @@ class EmployeeController extends Controller
     private function validateProfile(Request $request, int $orgId, ?int $ignoreId = null): array
     {
         $data = $request->validate([
-            'crm_role' => ['required', Rule::in(Member::ROLES)],
+            /*
+             * Validated when it is sent, and not demanded.
+             *
+             * It is the Admin's field now, so a Subadmin's form does not
+             * carry it — and `required` would have turned "you may not set
+             * this" into a 422 on every save they make. Absent means "leave
+             * it as it is" on an update, and store() names the default.
+             */
+            'crm_role' => ['sometimes', 'required', Rule::in(Member::ROLES)],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
             'employee_code' => ['nullable', 'string', 'max:64',
                 Rule::unique('crm_members', 'employee_code')->where('organization_id', $orgId)->ignore($ignoreId)],
