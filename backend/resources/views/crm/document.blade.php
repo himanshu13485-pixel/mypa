@@ -37,6 +37,9 @@
   .chip { display: inline-block; padding: 1px 7px; border-radius: 8px; background: #f1f5f9; font-size: 10px; }
   .extras { color: #64748b; font-size: 10px; margin-top: 2px; }
   .foot { margin-top: 26px; font-size: 10px; color: #64748b; }
+  /* Quieter than the footer it follows: it is a statement about the
+     document, not part of it. */
+  .note { margin-top: 18px; text-align: center; font-size: 9px; color: #94a3b8; }
   .sign { margin-top: 34px; text-align: right; font-size: 10px; }
   /* Capped so a large upload cannot push the signatory line onto a
      page of its own, and centred in the signing space. */
@@ -264,6 +267,24 @@
     <br><br><br>
   @endif
   Authorised signatory
+</div>
+
+{{--
+  The line every computer-issued invoice in India carries.
+
+  Rule 46 of the CGST Rules requires an invoice to be signed by the supplier,
+  and exempts one issued electronically under the Information Technology Act
+  from that — which is what this sentence is asserting. It says "physical"
+  rather than simply "signature" on purpose: the document may well be
+  digitally signed, and claiming it needs no signature at all would be saying
+  something different from what is meant.
+
+  Below the signatory rather than above it, because it explains the absence of
+  a signature and has to be read after somebody notices there isn't one.
+--}}
+<div class="note">
+  This is a computer-generated {{ $isProforma ? 'document' : 'invoice' }} and does not require a
+  physical signature.
 </div>
 
 </body>

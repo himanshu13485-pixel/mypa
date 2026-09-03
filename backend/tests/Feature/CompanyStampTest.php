@@ -127,6 +127,49 @@ class CompanyStampTest extends TestCase
             ])->assertStatus(422)->assertJsonValidationErrors('file');
     }
 
+    /**
+     * The document itself renders.
+     *
+     * Nothing else in the suite draws this template, so a Blade slip in it
+     * would have shipped: the invoice screen would work, Download PDF would
+     * 500, and the first person to find out would be a customer. Rendering
+     * the real thing end to end is the only thing that catches that.
+     */
+    public function test_the_invoice_pdf_renders_with_a_stamp_on_it(): void
+    {
+        $this->upload()->assertOk();
+
+        $client = \App\Models\Crm\Client::create([
+            'organization_id' => $this->org->id,
+            'company_name' => 'A Customer Ltd',
+            'status' => 'active',
+        ]);
+
+        $invoice = \App\Models\Crm\Invoice::create([
+            'organization_id' => $this->org->id,
+            'kind' => 'invoice',
+            'number' => 'INV-1',
+            'issuing_company_id' => $this->company->id,
+            'client_id' => $client->id,
+            'invoice_date' => now()->toDateString(),
+            'currency' => 'INR',
+            'subtotal' => 1000,
+            'total' => 1000,
+            'status' => 'issued',
+            'payment_status' => 'due',
+        ]);
+
+        $response = $this->actingAs($this->adminUser)
+            ->withHeader('X-Crm-Org', $this->org->uuid)
+            ->get("/api/v1/crm/invoices/{$invoice->uuid}/pdf");
+
+        $response->assertOk();
+        $this->assertStringContainsString('pdf', strtolower($response->headers->get('content-type') ?? ''));
+
+        // A PDF, not an error page that happens to have arrived with a 200.
+        $this->assertStringStartsWith('%PDF', $response->getContent());
+    }
+
     /** Another company's stamp is not this organization's to change. */
     public function test_a_company_in_another_organization_is_out_of_reach(): void
     {
