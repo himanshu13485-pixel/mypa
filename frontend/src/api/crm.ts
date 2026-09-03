@@ -1743,6 +1743,21 @@ export const crm = {
   overview: () => api.get<{ data: CrmOverview }>('/crm/overview').then((r) => r.data.data),
 
   masters: () => api.get<{ data: CrmMasters }>('/crm/masters').then((r) => r.data.data),
+
+  /**
+   * The company master key. Whether there is one, never what it is — the
+   * value only ever travels one way, and the server has no endpoint that
+   * hands it back.
+   */
+  masterKey: {
+    status: () =>
+      api.get<{ data: { is_set: boolean; set_at: string | null; set_by: string | null } }>(
+        '/crm/master-key',
+      ).then((r) => r.data.data),
+    save: (payload: { current_password: string; master_key: string; master_key_confirmation: string }) =>
+      api.put<{ message: string }>('/crm/master-key', payload).then((r) => r.data),
+    clear: () => api.delete<{ message: string }>('/crm/master-key').then((r) => r.data),
+  },
   dashboard: (scope?: 'mine' | 'team', salesperson?: string) =>
     api.get<{ data: CrmDashboard }>('/crm/dashboard', { params: { scope, salesperson: salesperson || undefined } })
       .then((r) => r.data.data),
@@ -1772,6 +1787,9 @@ export const crm = {
     create: (payload: Record<string, unknown>) => api.post(`/crm/employees`, payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/employees/${uuid}`, payload).then((r) => r.data),
     deactivate: (uuid: string) => api.delete(`/crm/employees/${uuid}`).then((r) => r.data),
+    /** Put a locked-out employee back on the company master key. */
+    resetPassword: (uuid: string) =>
+      api.post<{ message: string }>(`/crm/employees/${uuid}/reset-password`).then((r) => r.data),
     addSalary: (uuid: string, payload: Record<string, unknown>) => api.post(`/crm/employees/${uuid}/salary`, payload).then((r) => r.data),
     deleteSalary: (uuid: string, id: number) => api.delete(`/crm/employees/${uuid}/salary/${id}`).then((r) => r.data),
     uploadDocument: (uuid: string, name: string, file: File) => {

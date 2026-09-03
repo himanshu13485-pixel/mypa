@@ -28,7 +28,26 @@ class Organization extends Model
 
     protected function casts(): array
     {
-        return ['settings' => 'array'];
+        return [
+            'settings' => 'array',
+            /*
+             * Encrypted rather than hashed, and never fillable.
+             *
+             * A hash cannot be applied to somebody else's account, and
+             * applying it is the entire feature — see the migration for what
+             * that costs and what is done about it. Out of $fillable so that
+             * no mass-assignment anywhere can set the key that opens every
+             * account in the company; MasterKeyController assigns it by hand.
+             */
+            'master_key' => 'encrypted',
+            'master_key_set_at' => 'datetime',
+        ];
+    }
+
+    /** Set, without saying to what. */
+    public function hasMasterKey(): bool
+    {
+        return filled($this->master_key);
     }
 
     public function uniqueIds(): array
@@ -44,6 +63,12 @@ class Organization extends Model
     public function members(): HasMany
     {
         return $this->hasMany(Member::class, 'organization_id');
+    }
+
+    /** Whoever last set the master key — kept even after they leave. */
+    public function masterKeySetBy(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'master_key_set_by');
     }
 
     /**

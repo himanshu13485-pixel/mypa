@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Search, UserCog } from 'lucide-react'
+import { KeyRound, Plus, Search, UserCog } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm } from '../../api/crm'
 import { enterWorkspace } from '../../lib/impersonation'
@@ -23,7 +23,7 @@ export default function CrmEmployeesPage() {
   /** The row being opened, so its button says so and the rest go quiet. */
   const [entering, setEntering] = useState<string | null>(null)
   const { confirm } = usePrompt()
-  const { toastError } = useToast()
+  const { toast, toastError } = useToast()
 
   /*
    * Sit in somebody's seat.
@@ -65,6 +65,44 @@ export default function CrmEmployeesPage() {
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const isAdmin = me?.member?.crm_role === 'admin'
+  const { data: masterKey } = useQuery({
+    queryKey: ['crm', 'master-key'],
+    queryFn: crm.masterKey.status,
+    enabled: isAdmin,
+  })
+  const [resetting, setResetting] = useState<string | null>(null)
+
+  /*
+   * Put somebody back in with the company master key.
+   *
+   * Confirmed and named, like the workspace button above and for the same
+   * reason: the row this is clicked on is somebody's account, and the click
+   * signs them out of every device they are holding. The dialog is the app's
+   * own rather than window.confirm — several in-app browsers answer that
+   * silently, and a confirmation that quietly says no makes a button look
+   * broken.
+   */
+  const resetPassword = async (uuid: string, name: string) => {
+    const ok = await confirm({
+      title: `Reset ${name}'s password?`,
+      message: `Their password becomes the company master key, they are signed out everywhere, `
+        + `and they will be asked to set a new one when they next sign in. Tell them the key `
+        + `yourself — it is not emailed to them.`,
+      actionLabel: 'Reset password',
+    })
+    if (!ok) return
+
+    setResetting(uuid)
+    try {
+      const res = await crm.employees.resetPassword(uuid)
+      toast(res.message, 'success')
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setResetting(null)
+    }
+  }
   // Registering staff is company authority, not a grantable right.
   const manages = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
   const { data, isLoading } = useQuery({
@@ -183,6 +221,27 @@ export default function CrmEmployeesPage() {
                         company, and whether the account behind the row holds
                         Netvork roles of its own. */}
                     <td className="whitespace-nowrap py-2.5 text-right">
+                      {/*
+                        * Not on an admin's row, and not on your own: the
+                        * server refuses both, and a button that is only ever
+                        * an error message should not be drawn. Hidden
+                        * entirely until a key exists, since the answer
+                        * without one is "set a master key first" and the
+                        * place to do that is Settings.
+                        */}
+                      {isAdmin && masterKey?.is_set && m.crm_role !== 'admin'
+                        && m.uuid !== me?.member?.uuid && (
+                        <button
+                          type="button"
+                          disabled={resetting !== null}
+                          onClick={() => resetPassword(m.uuid, m.name ?? 'this member')}
+                          className="tap mr-1.5 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 hover:border-amber-400 hover:text-amber-600 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300"
+                          title={`Reset ${m.name}'s password to the company master key`}
+                        >
+                          <KeyRound className="size-3.5" />
+                          {resetting === m.uuid ? 'Resetting…' : 'Reset password'}
+                        </button>
+                      )}
                       {m.can_impersonate && (
                         <button
                           type="button"

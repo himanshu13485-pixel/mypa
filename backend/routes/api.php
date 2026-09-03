@@ -732,6 +732,27 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::post('/employees/{uuid}/documents', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'uploadDocument']);
                 Route::delete('/employees/{uuid}/documents/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'deleteDocument']);
                 Route::delete('/employees/{uuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'destroy']);
+
+                /*
+                 * The company master key, and putting somebody back in with it.
+                 *
+                 * Behind crm.manager like its neighbours, which admits a
+                 * subadmin — and the controller then refuses anybody but an
+                 * admin. Deliberately not expressed in the route: this opens
+                 * every staff account in the company, and the refusal has to
+                 * be able to say that rather than reading like a missing
+                 * module right.
+                 *
+                 * Its own throttle. Working through a company's staff one
+                 * reset at a time is the shape an abuse of this takes, and a
+                 * handful an hour is far more than a real lockout needs.
+                 */
+                Route::get('/master-key', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'show']);
+                Route::put('/master-key', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'store'])
+                    ->middleware('throttle:6,60');
+                Route::delete('/master-key', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'destroy']);
+                Route::post('/employees/{uuid}/reset-password', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'reset'])
+                    ->middleware('throttle:10,60');
             });
 
             // Clients

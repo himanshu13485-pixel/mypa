@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, Landmark, LifeBuoy, ListChecks, Pencil, Plus, Wallet } from 'lucide-react'
+import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, KeyRound, Landmark, LifeBuoy, ListChecks, Pencil, Plus, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -27,6 +27,7 @@ export default function CrmSettingsPage() {
         </p>
       </div>
 
+      <MasterKey />
       <PaymentRules />
       <CashfreeAccount />
       <FxMargin />
@@ -144,6 +145,170 @@ export default function CrmSettingsPage() {
  * The FX margin: rupees the bank's conversion cut takes off the market
  * rate. Live rate 96, margin 2 -> foreign invoices convert at 94.
  */
+/**
+ * One password the company can put a locked-out employee back in with.
+ *
+ * The admin's own password is asked for before the key can be set or replaced.
+ * That is not ceremony: this one value opens every non-admin account in the
+ * company, and somebody sitting at an admin's unlocked laptop should not be
+ * able to mint it without knowing the password of the account they are sitting
+ * at.
+ *
+ * The key is never read back — there is no endpoint that returns it, only one
+ * that says whether there is one. Which means a forgotten key is not
+ * recoverable, and the card says so rather than letting somebody find out on
+ * the morning they need it.
+ */
+function MasterKey() {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: status } = useQuery({
+    queryKey: ['crm', 'master-key'],
+    queryFn: crm.masterKey.status,
+    enabled: me?.member?.crm_role === 'admin',
+  })
+
+  const [open, setOpen] = useState(false)
+  const [current, setCurrent] = useState('')
+  const [key, setKey] = useState('')
+  const [again, setAgain] = useState('')
+
+  const close = () => {
+    setOpen(false)
+    setCurrent('')
+    setKey('')
+    setAgain('')
+  }
+
+  const save = useMutation({
+    mutationFn: () => crm.masterKey.save({
+      current_password: current,
+      master_key: key,
+      master_key_confirmation: again,
+    }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'master-key'] })
+      toast(res.message, 'success')
+      close()
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const clear = useMutation({
+    mutationFn: crm.masterKey.clear,
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'master-key'] })
+      toast(res.message, 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  // Not a subadmin's, whatever rights they hold — the server refuses them too.
+  if (me?.member?.crm_role !== 'admin') return null
+
+  return (
+    <Card>
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        <KeyRound className="size-4 text-emerald-500" /> Master key
+      </h2>
+      <p className="mt-1 text-xs text-slate-400">
+        One password you can put a locked-out employee back on, from their row on the Employees
+        screen. They are asked to change it the moment they sign in, and every session they had is
+        signed out.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm">
+          {status?.is_set ? (
+            <>
+              <span className="font-medium text-emerald-600">Set</span>
+              {status.set_by && <span className="text-slate-400"> · by {status.set_by}</span>}
+              {status.set_at && <span className="text-slate-400"> · {status.set_at}</span>}
+            </>
+          ) : (
+            <span className="text-slate-400">Not set — resets are not possible until it is.</span>
+          )}
+        </p>
+        <div className="flex gap-2">
+          <Button size="sm" onClick={() => setOpen(true)}>
+            {status?.is_set ? 'Replace' : 'Set a master key'}
+          </Button>
+          {status?.is_set && (
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={clear.isPending}
+              onClick={() => clear.mutate()}
+            >
+              Remove
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <p className="mt-3 rounded-lg bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+        Keep it somewhere safe. It is stored encrypted and is never shown again — if you forget it,
+        the only way back is to set a new one. Anyone who learns it can sign in as any of your staff
+        until they change their password, so treat it like the office key it is.
+      </p>
+
+      {open && (
+        <Modal title={status?.is_set ? 'Replace the master key' : 'Set a master key'} onClose={close}>
+          <div className="space-y-3">
+            <div>
+              <Label>Your own password</Label>
+              <Input
+                type="password"
+                autoComplete="current-password"
+                value={current}
+                onChange={(e) => setCurrent(e.target.value)}
+                className="w-full"
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                Asked because this key opens every staff account — an unlocked laptop should not be
+                enough on its own.
+              </p>
+            </div>
+            <div>
+              <Label>Master key</Label>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={key}
+                onChange={(e) => setKey(e.target.value)}
+                className="w-full"
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                At least 10 characters, with letters, numbers and a symbol.
+              </p>
+            </div>
+            <div>
+              <Label>Master key again</Label>
+              <Input
+                type="password"
+                autoComplete="new-password"
+                value={again}
+                onChange={(e) => setAgain(e.target.value)}
+                className="w-full"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={close}>Cancel</Button>
+              <Button
+                disabled={!current || !key || key !== again || save.isPending}
+                onClick={() => save.mutate()}
+              >
+                {save.isPending ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </Card>
+  )
+}
+
 function FxMargin() {
   const { toast, toastError } = useToast()
   const [margin, setMargin] = useState('')
