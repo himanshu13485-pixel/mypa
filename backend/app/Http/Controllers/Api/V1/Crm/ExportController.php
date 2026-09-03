@@ -110,4 +110,73 @@ class ExportController extends Controller
             fclose($out);
         }, 'payments-' . now()->format('Ymd-His') . '.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
+
+    /**
+     * Every lead in the company, as one file.
+     *
+     * The Admin's alone, and not behind the exports.excel grant the two above
+     * use. That grant is about the accounting book; this file is the whole
+     * pipeline with a name, a mobile and an address on every row — the one
+     * thing a salesperson leaving would most like a copy of. Whoever wants a
+     * Subadmin to have it can say so, but they should have to say so
+     * deliberately rather than inherit it from a decision about invoices.
+     *
+     * Deliberately not scoped to the caller's own leads either. It is the
+     * company's list, which is exactly why only the person who owns the
+     * company gets it.
+     */
+    public function leads(Request $request): StreamedResponse
+    {
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+        abort_unless(
+            $me->crm_role === 'admin',
+            403,
+            'The full lead export is the Company Admin’s.',
+        );
+
+        $org = $request->attributes->get('crm_org');
+
+        $query = \App\Models\Crm\Lead::with(['assignedMember.user:id,name', 'creator:id,name'])
+            ->where('organization_id', $org->id)
+            // The same narrowing the screen offers, so "download what I am
+            // looking at" is a thing somebody can actually do.
+            ->when($request->query('status'), fn ($q, $v) => $q->where('lead_status', $v))
+            ->when($request->query('source'), fn ($q, $v) => $q->where('source', $v))
+            ->when($request->query('member'), fn ($q, $v) => $q->whereHas('assignedMember', fn ($m) => $m->where('uuid', $v)))
+            ->when($request->query('search'), function ($q, $term) {
+                $like = '%' . $term . '%';
+                $q->where(fn ($w) => $w->where('company_name', 'like', $like)
+                    ->orWhere('contact_person', 'like', $like)
+                    ->orWhere('mobile', 'like', $like)
+                    ->orWhere('phone', 'like', $like)
+                    ->orWhere('email', 'like', $like));
+            })
+            ->orderBy('lead_no');
+
+        ActivityLog::record($me, $org->id, 'export.leads', $org, [
+            'filters' => array_filter($request->only(['status', 'source', 'member', 'search'])),
+        ]);
+
+        return response()->streamDownload(function () use ($query) {
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF");   // BOM so Excel reads UTF-8
+            fputcsv($out, ['Lead', 'Company', 'Contact person', 'Mobile', 'Phone', 'E-mail',
+                'Source', 'Type', 'Subject', 'Requirement', 'Amount', 'Status', 'Urgent',
+                'Allocated to', 'Created by', 'Follow up at', 'Reopened', 'Closed at', 'Created at']);
+            $query->chunk(200, function ($rows) use ($out) {
+                foreach ($rows as $l) {
+                    fputcsv($out, [
+                        $l->lead_no, $l->company_name, $l->contact_person, $l->mobile, $l->phone, $l->email,
+                        $l->source, $l->lead_type, $l->subject, $l->requirement,
+                        (float) $l->amount, $l->lead_status, $l->is_urgent ? 'Yes' : '',
+                        $l->assignedMember?->user?->name, $l->creator?->name,
+                        $l->follow_up_at?->toDateTimeString(), $l->reopen_count ?: '',
+                        $l->closed_at?->toDateTimeString(), $l->created_at?->toDateTimeString(),
+                    ]);
+                }
+            });
+            fclose($out);
+        }, 'leads-' . now()->format('Ymd-His') . '.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);
+    }
 }

@@ -64,6 +64,13 @@ export interface CrmMe {
      * also when the button is not drawn.
      */
     impersonation_level?: 'crm_read' | 'crm' | 'account' | null
+    /**
+     * Whether the rights editor is theirs to use at all — the Admin by the
+     * job, a Subadmin only where the Admin named them. A boolean because
+     * `capabilities` answers with every key by role for both, so the one
+     * question that matters here is the one it cannot answer.
+     */
+    can_set_rights?: boolean
     /** Set when this session is itself a borrowed one. */
     impersonating?: { level: 'crm_read' | 'crm' | 'account' } | null
   } | null
@@ -456,6 +463,13 @@ export interface CrmAccountMatch {
 export interface CrmEmployeeFull extends CrmEmployee {
   /** The delicate acts granted to this employee by name. */
   capabilities?: string[]
+  /**
+   * How deeply this Subadmin may open an employee's workspace, as the Admin
+   * set it — null for not at all. Not a capability, because this screen is
+   * open to Subadmins and a capability is something they could tick for
+   * themselves; only an Admin's payload may carry this field.
+   */
+  impersonation_level?: 'crm_read' | 'crm' | 'account' | null
   title: string | null
   batch: string | null
   gender: string | null
@@ -2367,6 +2381,13 @@ export const crm = {
       api.get('/crm/exports/invoices', { params, responseType: 'blob' }).then((r) => r.data as Blob),
     paymentsCsv: (params: Record<string, string | undefined>) =>
       api.get('/crm/exports/payments', { params, responseType: 'blob' }).then((r) => r.data as Blob),
+    /**
+     * The whole pipeline. The Company Admin's alone — not the exports.excel
+     * grant, which is about the accounting book; this file is every lead with
+     * a name, a mobile and an address on it.
+     */
+    leadsCsv: (params: Record<string, string | undefined>) =>
+      api.get('/crm/exports/leads', { params, responseType: 'blob' }).then((r) => r.data as Blob),
   },
 
   /** The Office Assets register. */

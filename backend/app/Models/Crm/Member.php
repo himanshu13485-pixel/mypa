@@ -105,6 +105,12 @@ class Member extends Model
         // Also held by name: the Reports screen is the Admin's, opened to a
         // Subadmin only when the Admin ticks them in.
         'reports.view' => ['group' => 'Money', 'label' => 'See the Reports screen (company-wide figures)'],
+        // Held by name even for a Subadmin, and the reason is circular until
+        // you see it: module rights and this very list are what decide what
+        // somebody may do, so whoever may edit them may edit themselves into
+        // anything. The Admin holds it by the job; a Subadmin holds it only
+        // where the Admin ticked their name, and then only over employees.
+        'employees.rights' => ['group' => 'Employees', 'label' => 'Set an employee’s module rights and special permissions — never another Subadmin’s, and never their own'],
         'hr.policy_edit' => ['group' => 'HR', 'label' => 'Edit the HR Policy (timings, late rule, statutory rates)'],
         'letters.download' => ['group' => 'HR', 'label' => 'Download their own HR letters (offer, appointment, promotion…)'],
     ];
@@ -128,6 +134,7 @@ class Member extends Model
     protected $fillable = [
         'organization_id', 'user_id', 'crm_role', 'is_oversight', 'status', 'employee_code', 'title',
         'capabilities',
+        'impersonation_level',
         'department', 'designation', 'batch', 'father_name', 'father_phone',
         'mother_name', 'mother_phone', 'dob', 'gender', 'present_address',
         'present_phone', 'office_phone', 'permanent_address', 'permanent_phone',
@@ -278,6 +285,119 @@ class Member extends Model
         }
 
         return in_array($capability, (array) ($this->capabilities ?? []), true);
+    }
+
+    /**
+     * Whose seats this member may sit in — empty when nobody's.
+     *
+     * The Admin has this by the job and may open an employee or a subadmin.
+     * A Subadmin has it only where the Admin ticked their name, and then only
+     * for employees: opening a peer is sideways, and the point of the grant
+     * is a manager looking down at their own team, not across at each other.
+     *
+     * Asked in one place because three screens need the same answer — the
+     * list deciding which rows get a button, the endpoint deciding whether to
+     * issue a token, and the shell deciding whether the feature exists at
+     * all — and three copies of a rule about impersonation is two too many.
+     *
+     * @return list<string>
+     */
+    public function borrowableRoles(): array
+    {
+        if ($this->impersonationLevel() === null) {
+            return [];
+        }
+
+        return $this->crm_role === 'admin' ? ['employee', 'subadmin'] : ['employee'];
+    }
+
+    /**
+     * May this member set rights and special permissions on $target?
+     *
+     * The escalation this closes is the plainest one there is. Module rights
+     * and the capability list are what decide what a person may do, and the
+     * employee screen is open to Subadmins — so a Subadmin could open their
+     * own row, tick everything, and save. They could do the same to a peer,
+     * and, because crm_role rode in the same payload, promote themselves to
+     * Admin outright. None of that needed a bug; it was simply never
+     * restricted.
+     *
+     * So it belongs to the Admin, and reaches a Subadmin only by name. Even
+     * then it points downwards only: at employees, never at a peer, never at
+     * themselves, never at the Admin. A Subadmin who could edit another
+     * Subadmin's rights could edit their own through them.
+     *
+     * $target is null when somebody is being registered rather than edited —
+     * a new hire the caller is not yet able to name, and one whose role a
+     * non-Admin does not get to choose.
+     */
+    public function maySetRightsOn(?self $target): bool
+    {
+        if ($this->status !== 'active') {
+            return false;
+        }
+        if ($this->crm_role === 'admin') {
+            return true;
+        }
+        if ($this->crm_role !== 'subadmin'
+            || ! in_array('employees.rights', (array) ($this->capabilities ?? []), true)) {
+            return false;
+        }
+
+        return $target === null
+            || ($target->crm_role === 'employee' && $target->id !== $this->id);
+    }
+
+    /** Whether the screen offers the rights editor at all. */
+    public function maySetRightsAtAll(): bool
+    {
+        return $this->maySetRightsOn(null);
+    }
+
+    /** The four answers, weakest first, so two of them can be compared. */
+    public const IMPERSONATION_ORDER = ['crm_read', 'crm', 'account'];
+
+    /**
+     * How deeply this member may sit in somebody's seat — null for not at all.
+     *
+     * Two grants, and the narrower of them wins. The platform sets what the
+     * company may do at all; within that, the Company Admin says which of
+     * their Subadmins may do it and how far. The Admin themselves has whatever
+     * the company has, by the job.
+     *
+     * Capped here rather than only at the moment it is written, because the
+     * company's ceiling can be lowered afterwards — and a Subadmin granted
+     * 'account' last month must not still hold it when the platform has since
+     * cut the company back to 'crm'. Reading it through this method is the
+     * only way that is true everywhere.
+     */
+    public function impersonationLevel(): ?string
+    {
+        if ($this->status !== 'active') {
+            return null;
+        }
+
+        $ceiling = $this->organization?->impersonation_level;
+        if (! in_array($ceiling, self::IMPERSONATION_ORDER, true)) {
+            return null;
+        }
+
+        if ($this->crm_role === 'admin') {
+            return $ceiling;
+        }
+        if ($this->crm_role !== 'subadmin') {
+            return null;
+        }
+
+        $granted = $this->impersonation_level;
+        if (! in_array($granted, self::IMPERSONATION_ORDER, true)) {
+            return null;
+        }
+
+        return array_search($granted, self::IMPERSONATION_ORDER, true)
+            <= array_search($ceiling, self::IMPERSONATION_ORDER, true)
+                ? $granted
+                : $ceiling;
     }
 
     public function can(string $module, string $ability = 'view'): bool

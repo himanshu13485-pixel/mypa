@@ -75,7 +75,35 @@ class ImpersonationScope
 
     public function handle(Request $request, Closure $next): Response
     {
-        $token = $request->user()?->currentAccessToken();
+        /*
+         * The token is read straight off the request, not asked of a guard.
+         *
+         * This is the bug that made the two scoped levels do nothing at all,
+         * and it is worth spelling out because it looked like working code.
+         *
+         * The middleware is global, so it runs before the route's
+         * auth:sanctum has authenticated anybody. $request->user() therefore
+         * asks the DEFAULT guard, which in this app is 'web' — a session
+         * guard, on an API request that has no session — and it answered null
+         * for every request there is. Naming the sanctum guard instead does
+         * not help either: a RequestGuard resolved this early returns null
+         * just the same. So the borrowed-token test found nothing to test,
+         * fell through, and every crm and crm_read session walked into the
+         * private Netvork of the person whose seat it was in.
+         *
+         * findToken() is what Sanctum's own guard does a moment later, and it
+         * needs no guard state at all: it splits `id|plain`, fetches by
+         * primary key and compares hashes. One indexed lookup, and only when
+         * a bearer token is actually present.
+         *
+         * Nothing errored while this was broken. The level that grants the
+         * most behaved exactly like the two that grant the least, the tests
+         * were green, and the only way to see it was to drive real HTTP. It
+         * is the same trap TrackActivity documents at the top of its file,
+         * which is why that one does its work in terminate().
+         */
+        $bearer = $request->bearerToken();
+        $token = $bearer ? \Laravel\Sanctum\PersonalAccessToken::findToken($bearer) : null;
 
         if (! ImpersonationController::isBorrowed($token)) {
             return $next($request);

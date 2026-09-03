@@ -46,9 +46,6 @@ use Illuminate\Http\Request;
  */
 class ImpersonationController extends Controller
 {
-    /** Whose seat an admin may sit in. Never 'admin' — that is sideways. */
-    protected const BORROWABLE = ['employee', 'subadmin'];
-
     /**
      * Roles that make an account unborrowable whatever the CRM says.
      *
@@ -65,14 +62,29 @@ class ImpersonationController extends Controller
         /** @var Organization $org */
         $org = $request->attributes->get('crm_org');
 
-        abort_unless($me->crm_role === 'admin', 403, 'Only the company admin can open a member\'s workspace.');
+        /*
+         * The Admin by the job; a Subadmin only where the Admin named them.
+         *
+         * Both halves come from the member, so this endpoint, the list that
+         * draws the buttons and the shell that decides the feature exists all
+         * ask the same question of the same code.
+         */
+        /*
+         * One question, asked of the member.
+         *
+         * impersonationLevel() is already both grants at once — what the
+         * platform allows the company, capped over what the Admin allowed this
+         * person — so there is nothing left here to combine, and no way for
+         * this endpoint to disagree with the screen that drew the button.
+         */
+        $level = $me->impersonationLevel();
+        abort_if($level === null, 403, match (true) {
+            ! $org->lendsSeats() => 'Opening a member\'s workspace is not enabled for this company. Ask Netvork to switch it on.',
+            $me->crm_role === 'subadmin' => 'Opening a member\'s workspace has not been granted to you. Ask your company admin.',
+            default => 'Only the company admin can open a member\'s workspace.',
+        });
 
-        $level = $org->impersonation_level ?? 'none';
-        abort_if(
-            ! in_array($level, ['crm_read', 'crm', 'account'], true),
-            403,
-            'Opening a member\'s workspace is not enabled for this company. Ask Netvork to switch it on.',
-        );
+        $borrowable = $me->borrowableRoles();
 
         $target = Member::visible()->with('user.roles')
             ->where('organization_id', $org->id)
@@ -82,9 +94,11 @@ class ImpersonationController extends Controller
         abort_if($target->id === $me->id, 422, 'You are already signed in as yourself.');
         abort_if($target->status !== 'active', 422, 'That member is not active.');
         abort_unless(
-            in_array($target->crm_role, self::BORROWABLE, true),
+            in_array($target->crm_role, $borrowable, true),
             403,
-            'Only an employee or a subadmin\'s workspace can be opened this way.',
+            $me->crm_role === 'subadmin'
+                ? 'You may open an employee\'s workspace, and nobody else\'s.'
+                : 'Only an employee or a subadmin\'s workspace can be opened this way.',
         );
 
         $user = $target->user;
@@ -115,6 +129,7 @@ class ImpersonationController extends Controller
             'member_name' => $user->name,
             'crm_role' => $target->crm_role,
             'level' => $level,
+            'by_role' => $me->crm_role,
         ]);
 
         return response()->json([

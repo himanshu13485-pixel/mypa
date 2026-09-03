@@ -83,10 +83,12 @@ class EmployeeController extends Controller
          * that. A button drawn where the server will refuse is a button that
          * teaches people to distrust buttons.
          */
-        $lends = $me->crm_role === 'admin' && $org->lendsSeats();
+        // borrowableRoles() already asks the organization, so the company's
+        // ceiling is inside this answer rather than beside it.
+        $lends = $me->borrowableRoles();
 
         $members->getCollection()->transform(
-            fn ($m) => $this->serialize($m) + ['can_impersonate' => $lends && $this->borrowable($m, $me)],
+            fn ($m) => $this->serialize($m) + ['can_impersonate' => $this->borrowable($m, $me, $lends)],
         );
 
         return response()->json($members);
@@ -222,8 +224,32 @@ class EmployeeController extends Controller
     {
         $org = $request->attributes->get('crm_org');
         $data = $this->validateProfile($request, $org->id);
-        if ($request->attributes->get('crm_member')?->crm_role !== 'admin') {
+        $me = $request->attributes->get('crm_member');
+
+        if ($me?->crm_role !== 'admin') {
             unset($data['late_waived'], $data['punch_waived']);
+
+            /*
+             * A Subadmin registers employees, and only employees.
+             *
+             * crm_role is required by the form, so this is forced rather than
+             * dropped — and it has to be one or the other, because a Subadmin
+             * who could choose the role of the person they were creating
+             * could create an Admin, sign in as nobody, and have handed
+             * themselves the company through a colleague's account.
+             */
+            $data['crm_role'] = 'employee';
+        }
+
+        // An Admin's form always sends one; this is the belt for a caller
+        // that does not, now that the field may legitimately be absent.
+        $data['crm_role'] ??= 'employee';
+
+        // Rights and special permissions are the Admin's unless the Admin has
+        // said otherwise — see Member::maySetRightsOn(). Null target: whoever
+        // is being registered is an employee by the line above.
+        if (! $me?->maySetRightsOn(null)) {
+            unset($data['rights'], $data['capabilities']);
         }
 
         // Left blank, the code numbers itself - EMP-101 onwards.
@@ -350,10 +376,63 @@ class EmployeeController extends Controller
 
         $data = $this->validateProfile($request, $org->id, $member->id);
 
+        $me = $request->attributes->get('crm_member');
+
         // Both waivers are the Admin's alone — a Subadmin's payload simply
         // does not carry them.
-        if ($request->attributes->get('crm_member')?->crm_role !== 'admin') {
+        if ($me?->crm_role !== 'admin') {
             unset($data['late_waived'], $data['punch_waived']);
+
+            /*
+             * And so is the role. Promotion is company authority, and left
+             * open it made every other restriction here decorative: a
+             * Subadmin who cannot tick their own rights could promote
+             * themselves to Admin instead and then tick anything at all.
+             */
+            unset($data['crm_role']);
+        }
+
+        /*
+         * Rights and special permissions: the Admin's, or a named Subadmin's
+         * over employees.
+         *
+         * Asked of the pair rather than of the caller alone, because the
+         * answer depends on who is being edited — the same Subadmin may set
+         * an employee's rights and must not set a peer's or their own.
+         */
+        if (! $me?->maySetRightsOn($member)) {
+            unset($data['rights'], $data['capabilities']);
+        }
+
+        /*
+         * Lending a seat onward is the Admin's to give, and nobody's to take.
+         *
+         * This screen is open to Subadmins — they register staff and manage
+         * their teams — which means a Subadmin can edit another Subadmin, and
+         * can edit themselves. So a right to enter employees' accounts that
+         * travelled in this payload would be a right any Subadmin could hand
+         * themselves in two clicks. Dropped from anybody who is not an Admin,
+         * and only meaningful on a Subadmin in the first place.
+         */
+        if ($me?->crm_role !== 'admin' || ($data['crm_role'] ?? $member->crm_role) !== 'subadmin') {
+            unset($data['impersonation_level']);
+        }
+
+        // And never above what the platform granted the company itself: an
+        // Admin cannot widen their company by widening one of their people.
+        if (array_key_exists('impersonation_level', $data) && $data['impersonation_level'] !== null) {
+            $ceiling = $org->impersonation_level;
+            abort_if(
+                ! in_array($ceiling, Member::IMPERSONATION_ORDER, true),
+                422,
+                'Opening a member\'s workspace is not enabled for this company.',
+            );
+            abort_if(
+                array_search($data['impersonation_level'], Member::IMPERSONATION_ORDER, true)
+                    > array_search($ceiling, Member::IMPERSONATION_ORDER, true),
+                422,
+                'That is more than Netvork has granted this company.',
+            );
         }
 
         // The last admin cannot demote or deactivate themselves out of the org.
@@ -361,6 +440,13 @@ class EmployeeController extends Controller
             && (($data['crm_role'] ?? 'admin') !== 'admin' || ($data['status'] ?? 'active') !== 'active');
         if ($losingAdmin && Member::visible()->where('organization_id', $org->id)->where('crm_role', 'admin')->where('status', 'active')->count() <= 1) {
             abort(422, 'The organization must keep at least one active CRM admin.');
+        }
+
+        // A Subadmin demoted to employee keeps nothing: the grant was for the
+        // job they no longer have, and a column left behind would come back
+        // to life the day somebody promoted them again.
+        if (($data['crm_role'] ?? $member->crm_role) !== 'subadmin') {
+            $data['impersonation_level'] = null;
         }
 
         $before = $member->only(array_keys($data));
@@ -551,7 +637,15 @@ class EmployeeController extends Controller
     private function validateProfile(Request $request, int $orgId, ?int $ignoreId = null): array
     {
         $data = $request->validate([
-            'crm_role' => ['required', Rule::in(Member::ROLES)],
+            /*
+             * Validated when it is sent, and not demanded.
+             *
+             * It is the Admin's field now, so a Subadmin's form does not
+             * carry it — and `required` would have turned "you may not set
+             * this" into a 422 on every save they make. Absent means "leave
+             * it as it is" on an update, and store() names the default.
+             */
+            'crm_role' => ['sometimes', 'required', Rule::in(Member::ROLES)],
             'status' => ['nullable', Rule::in(['active', 'inactive'])],
             'employee_code' => ['nullable', 'string', 'max:64',
                 Rule::unique('crm_members', 'employee_code')->where('organization_id', $orgId)->ignore($ignoreId)],
@@ -593,6 +687,10 @@ class EmployeeController extends Controller
             // The delicate acts an Admin grants by name, account by account.
             'capabilities' => ['nullable', 'array'],
             'capabilities.*' => [Rule::in(array_keys(Member::CAPABILITIES))],
+            // Null is "not at all". Whether the caller is allowed to say this
+            // at all is settled below, not here — a validation rule cannot
+            // see who is asking.
+            'impersonation_level' => ['nullable', Rule::in(Member::IMPERSONATION_ORDER)],
             'rights.*' => ['array'],
             'rights.*.*' => [Rule::in(Member::ABILITIES)],
             'note' => ['nullable', 'string', 'max:2000'],
@@ -706,12 +804,14 @@ class EmployeeController extends Controller
      * one would turn a company login into the platform's admin panel, which is
      * a rather larger door than the one being opened here.
      */
-    private function borrowable(Member $m, Member $me): bool
+    private function borrowable(Member $m, Member $me, array $borrowableRoles): bool
     {
-        if ($m->id === $me->id || $m->status !== 'active') {
+        if ($borrowableRoles === [] || $m->id === $me->id || $m->status !== 'active') {
             return false;
         }
-        if (! in_array($m->crm_role, ['employee', 'subadmin'], true)) {
+        // Whose seats this reader may take at all — an Admin's is employees
+        // and subadmins, a named Subadmin's is employees only.
+        if (! in_array($m->crm_role, $borrowableRoles, true)) {
             return false;
         }
 
@@ -733,6 +833,10 @@ class EmployeeController extends Controller
             'department' => $m->department,
             'designation' => $m->designation,
             'is_salesperson' => $m->is_salesperson,
+            // What this Subadmin was granted, as stored — the form edits this
+            // rather than the capped answer, or lowering the company ceiling
+            // would silently rewrite what the Admin had chosen.
+            'impersonation_level' => $m->impersonation_level,
             'joined_at' => $m->joined_at?->toDateString(),
             'probation_days' => $m->probation_days,
             'late_waived' => (bool) $m->late_waived,
