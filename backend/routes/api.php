@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\BlockController;
 use App\Http\Controllers\Api\V1\BookingPageController;
 use App\Http\Controllers\Api\V1\CallController;
 use App\Http\Controllers\Api\V1\CategoryController;
+use App\Http\Controllers\Api\V1\BroadcastController;
 use App\Http\Controllers\Api\V1\ConversationController;
 use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\ConnectionController;
@@ -440,6 +441,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/presence/leaving', [PresenceController::class, 'leaving'])
             ->withoutMiddleware('throttle:180,1')
             ->middleware('throttle:120,1');
+
+        /*
+         * One message to a list of people, arriving as private ones.
+         *
+         * Its own small bucket. Every other chat route is one message to one
+         * room; this is up to fifty in a request, so the shared allowance is
+         * the wrong unit — a handful of sends a minute is well past what a
+         * person does on purpose and well short of what a script wants.
+         */
+        Route::post('/broadcasts', [BroadcastController::class, 'store'])
+            ->middleware('throttle:6,1');
 
         // Chat
         Route::get('/conversations', [ConversationController::class, 'index']);

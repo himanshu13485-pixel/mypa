@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Forward, Mic, Paperclip, Pencil, Phone, Pin, Plus,
+  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Forward, Megaphone, Mic, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
@@ -10,6 +10,7 @@ import { badges as badgesApi, conversationMembers, removeConversationMember, rep
 import type { ConversationMember } from '../api/endpoints'
 import MessageAttachment from '../components/MessageAttachment'
 import PersonModal from '../components/PersonModal'
+import BroadcastModal from '../components/BroadcastModal'
 import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
@@ -551,6 +552,7 @@ export default function MessagesPage() {
   }
 
   const [showNewChat, setShowNewChat] = useState(false)
+  const [showBroadcast, setShowBroadcast] = useState(false)
   const startNewChat = () => setShowNewChat(true)
   const beginChatWith = (identifier: string) => {
     chat.start(identifier).then((c) => {
@@ -583,9 +585,27 @@ export default function MessagesPage() {
       <div className={clsx('flex w-full min-h-0 shrink-0 flex-col md:w-72', selected && 'hidden md:flex')}>
         <div className="mb-3 flex shrink-0 items-center justify-between">
           <h1 className="text-xl font-semibold tracking-tight">Messages</h1>
-          <Button size="sm" onClick={startNewChat}>
-            <Plus className="size-3.5" /> New
-          </Button>
+          <div className="flex items-center gap-1.5">
+            {/*
+              * Icon-only, and next to New rather than inside it.
+              *
+              * A broadcast is the same gesture as starting a chat — you are
+              * choosing who to write to — so it belongs here; but it is the
+              * rarer of the two by a long way, and giving it equal billing
+              * would make the common thing harder to hit on a narrow list.
+              */}
+            <Button
+              size="sm"
+              variant="secondary"
+              title="Send one message to several people, privately"
+              onClick={() => setShowBroadcast(true)}
+            >
+              <Megaphone className="size-3.5" />
+            </Button>
+            <Button size="sm" onClick={startNewChat}>
+              <Plus className="size-3.5" /> New
+            </Button>
+          </div>
         </div>
         {isLoading ? (
           <SkeletonList rows={8} />
@@ -771,6 +791,12 @@ export default function MessagesPage() {
             </div>
           </div>
         </Modal>
+      )}
+      {showBroadcast && (
+        <BroadcastModal
+          onClose={() => setShowBroadcast(false)}
+          onSent={() => queryClient.invalidateQueries({ queryKey: ['conversations'] })}
+        />
       )}
       {showNewChat && (
         <PickUserModal
@@ -995,6 +1021,9 @@ export default function MessagesPage() {
                             the person who decided it and another from somebody
                             passing it on. */}
                         {m.is_forwarded && 'forwarded · '}
+                        {/* Yours alone: the copy they received says nothing
+                            about there having been others. */}
+                        {!!m.broadcast_to && `broadcast to ${m.broadcast_to} · `}
                         {m.edited_at && 'edited · '}
                         {timeLabel(m.created_at)}
                         {m.is_own && !m.is_deleted && (

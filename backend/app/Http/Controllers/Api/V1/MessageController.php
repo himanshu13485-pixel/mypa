@@ -31,7 +31,7 @@ class MessageController extends Controller
         $query = $conversation->messages()
             ->withTrashed() // deleted-for-everyone still shows a tombstone
             ->whereNotIn('id', $hidden)
-            ->with(['user:id,uuid,name', 'attachments', 'reactions', 'stars', 'replyTo.user:id,uuid,name'])
+            ->with(['user:id,uuid,name', 'attachments', 'reactions', 'stars', 'replyTo.user:id,uuid,name', 'broadcast:id,recipient_count'])
             ->orderByDesc('id');
 
         if ($q = $request->query('q')) {

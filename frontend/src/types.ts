@@ -580,6 +580,12 @@ export interface ChatMessage {
   edited_at?: string | null
   /** Passed on rather than written here. */
   is_forwarded?: boolean
+  /**
+   * How many people this one send went to. Only ever present on your own
+   * copy — a recipient's message says null, because to them it is simply a
+   * message from you.
+   */
+  broadcast_to?: number | null
   /** Kept by me. Private — never says whether anybody else kept it. */
   is_starred?: boolean
   /** Held up for everyone in the conversation. */

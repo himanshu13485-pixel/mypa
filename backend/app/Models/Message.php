@@ -23,7 +23,7 @@ class Message extends Model
 
     protected $fillable = [
         'conversation_id', 'user_id', 'type', 'body', 'reply_to_id', 'edited_at',
-        'is_forwarded', 'pinned_at', 'pinned_by_id',
+        'is_forwarded', 'pinned_at', 'pinned_by_id', 'broadcast_id',
     ];
 
     protected function casts(): array
@@ -69,6 +69,17 @@ class Message extends Model
     public function replyTo(): BelongsTo
     {
         return $this->belongsTo(Message::class, 'reply_to_id');
+    }
+
+    /**
+     * The one send this copy came out of, when it came out of one.
+     *
+     * Null for every ordinary message, and never shown to anybody but the
+     * sender — see the note in serializeFor.
+     */
+    public function broadcast(): BelongsTo
+    {
+        return $this->belongsTo(Broadcast::class);
     }
 
     public function attachments(): HasMany
@@ -146,6 +157,25 @@ class Message extends Model
                     'count' => $group->count(),
                     'mine' => $group->contains('user_id', $viewer->id),
                 ])->values(),
+            /*
+             * Only ever answered for the person who sent it.
+             *
+             * This is the whole privacy contract of a broadcast, and it lives
+             * here rather than in the controller on purpose: every screen in
+             * the app reads its messages through this one method, so a screen
+             * written next year cannot forget to strip it.
+             *
+             * A recipient's copy is a message from somebody they know, in
+             * their own conversation, and it stays exactly that — the count is
+             * null for them whether or not the relation happens to be loaded.
+             * Their reply comes back to the sender alone; there is no room to
+             * be in and no one else's name to leak, which is why the count
+             * being private is the only secret there is to keep.
+             */
+            'broadcast_to' => $this->user_id === $viewer->id && $this->broadcast_id
+                && $this->relationLoaded('broadcast')
+                ? $this->broadcast?->recipient_count
+                : null,
             'edited_at' => $this->edited_at,
             'created_at' => $this->created_at,
         ];

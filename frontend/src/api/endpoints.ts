@@ -458,6 +458,20 @@ export const files = {
  * search result already gives away; a connection also gets the way to reach
  * them. The rules are the server's, so this is a plain fetch.
  */
+/**
+ * One message to a list of people, delivered as private ones.
+ *
+ * Deliberately not part of `chat`: it does not belong to a conversation, and
+ * putting it there would invite somebody to reach for it when they meant
+ * forward — which is the same shape and a different thing entirely.
+ */
+export const broadcasts = {
+  send: (user_uuids: string[], body: string) =>
+    api.post<{ message: string; data: { uuid: string; sent: number; refused: { uuid: string; name: string; reason: string }[] } }>(
+      '/broadcasts', { user_uuids, body },
+    ).then((r) => r.data),
+}
+
 export const people = {
   get: (uuid: string) => api.get<{ data: PersonProfile }>(`/people/${uuid}`).then((r) => r.data.data),
 }
