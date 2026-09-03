@@ -635,7 +635,7 @@ class CrmController extends Controller
              * still offering a button after that is a screen making a promise
              * the server will refuse to keep.
              */
-            'impersonation_level' => $member->crm_role === 'admin' && $member->organization?->lendsSeats()
+            'impersonation_level' => $member->borrowableRoles() !== [] && $member->organization?->lendsSeats()
                 ? $member->organization->impersonation_level
                 : null,
             // And whether this session is itself a borrowed one, so the shell

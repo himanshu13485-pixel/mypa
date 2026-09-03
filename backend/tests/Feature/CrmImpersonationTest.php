@@ -176,18 +176,98 @@ class CrmImpersonationTest extends TestCase
             ->assertNotFound();
     }
 
-    public function test_a_subadmin_cannot_open_anybody(): void
+    public function test_a_subadmin_holds_nothing_until_the_admin_names_them(): void
     {
         $this->grant('account');
 
-        $sub = $this->makeUser('sub@acme.test');
-        Member::create([
-            'organization_id' => $this->org->id, 'user_id' => $sub->id, 'crm_role' => 'subadmin',
-        ]);
+        [$sub, $subMember] = $this->subadmin('sub@acme.test');
+
+        // A Subadmin has most of the delicate acts by virtue of the job. This
+        // is not one of them: it opens somebody else's account, so it is held
+        // by name or not at all — and the screen does not offer it either.
+        $this->actingAs($sub)->getJson('/api/v1/crm/me')
+            ->assertOk()
+            ->assertJsonPath('data.member.impersonation_level', null);
 
         $this->actingAs($sub)
             ->postJson("/api/v1/crm/employees/{$this->employeeMember->uuid}/impersonate")
             ->assertForbidden();
+    }
+
+    public function test_a_named_subadmin_may_open_an_employee_and_only_an_employee(): void
+    {
+        $this->grant('crm');
+
+        [$sub, $subMember] = $this->subadmin('sub@acme.test');
+        $subMember->update(['capabilities' => ['employees.impersonate']]);
+
+        $this->actingAs($sub)->getJson('/api/v1/crm/me')
+            ->assertOk()
+            ->assertJsonPath('data.member.impersonation_level', 'crm');
+
+        // An employee: yes.
+        $this->actingAs($sub)
+            ->postJson("/api/v1/crm/employees/{$this->employeeMember->uuid}/impersonate")
+            ->assertOk();
+
+        // A peer subadmin: no. Sideways is not what the grant is for — it is
+        // a manager looking down at their own team, not across at each other.
+        [, $peerMember] = $this->subadmin('peer@acme.test');
+        $this->actingAs($sub)
+            ->postJson("/api/v1/crm/employees/{$peerMember->uuid}/impersonate")
+            ->assertForbidden();
+
+        // And never the Admin.
+        $adminMember = Member::where('organization_id', $this->org->id)->where('crm_role', 'admin')->firstOrFail();
+        $this->actingAs($sub)
+            ->postJson("/api/v1/crm/employees/{$adminMember->uuid}/impersonate")
+            ->assertForbidden();
+    }
+
+    public function test_the_named_subadmin_sees_buttons_only_on_employees(): void
+    {
+        $this->grant('crm');
+
+        [$sub, $subMember] = $this->subadmin('sub@acme.test');
+        $subMember->update(['capabilities' => ['employees.impersonate']]);
+        [, $peerMember] = $this->subadmin('peer@acme.test');
+
+        $rows = collect($this->actingAs($sub)->getJson('/api/v1/crm/employees')->assertOk()->json('data'))
+            ->keyBy('email');
+
+        $this->assertTrue($rows['worker@acme.test']['can_impersonate']);
+        $this->assertFalse($rows['peer@acme.test']['can_impersonate']);
+        $this->assertFalse($rows['boss@acme.test']['can_impersonate']);
+        $this->assertFalse($rows['sub@acme.test']['can_impersonate']);
+    }
+
+    public function test_the_company_cannot_use_the_named_grant_to_escape_the_platforms(): void
+    {
+        // Named by their Admin, but the platform granted the company nothing.
+        // The narrower gate still holds: a company cannot let itself in.
+        [$sub, $subMember] = $this->subadmin('sub@acme.test');
+        $subMember->update(['capabilities' => ['employees.impersonate']]);
+
+        $this->actingAs($sub)
+            ->postJson("/api/v1/crm/employees/{$this->employeeMember->uuid}/impersonate")
+            ->assertForbidden();
+    }
+
+    /** @return array{0: User, 1: Member} */
+    private function subadmin(string $email): array
+    {
+        $user = $this->makeUser($email);
+        $member = Member::create([
+            'organization_id' => $this->org->id,
+            'user_id' => $user->id,
+            'crm_role' => 'subadmin',
+            // A Subadmin holds module rights by grant, not by role, and
+            // somebody who is to open an employee's workspace has to be able
+            // to see the Users screen the button lives on in the first place.
+            'rights' => ['employees' => ['view']],
+        ]);
+
+        return [$user, $member];
     }
 
     // --- What the borrowed session may reach --------------------------------
@@ -286,6 +366,53 @@ class CrmImpersonationTest extends TestCase
             'socket_id' => '1234.5678',
             'channel_name' => 'private-user.' . $this->employee->uuid,
         ])->assertForbidden();
+    }
+
+    public function test_the_scope_holds_with_no_guard_behind_it(): void
+    {
+        /*
+         * The regression test for the bug the feature shipped with, and it
+         * deliberately does not go through the HTTP kernel.
+         *
+         * ImpersonationScope is global middleware: it runs before the route's
+         * auth:sanctum, so at that moment nothing has authenticated anybody
+         * and no guard holds a user. The first version asked $request->user()
+         * anyway — which consults the default guard, 'web', a session guard on
+         * a request with no session — got null, concluded the session was not
+         * a borrowed one, and let every crm and crm_read session through into
+         * the private Netvork of the person whose seat it was in.
+         *
+         * Every test around this one passed while that was true, because the
+         * test kernel leaves a guard resolved from earlier calls in the same
+         * test and the question got answered by accident. So this one hands
+         * the middleware a bare request carrying nothing but the bearer token
+         * — exactly what the global pipeline sees — and no guard state at all.
+         */
+        $this->grant('crm');
+        $plain = $this->borrow();
+
+        $this->app['auth']->forgetGuards();
+
+        $request = \Illuminate\Http\Request::create('/api/v1/notes', 'GET');
+        $request->headers->set('Authorization', 'Bearer ' . $plain);
+
+        $this->assertNull($request->user(), 'the premise: nothing has authenticated this request yet');
+
+        $reached = false;
+        try {
+            (new \App\Http\Middleware\ImpersonationScope)->handle(
+                $request,
+                function () use (&$reached) {
+                    $reached = true;
+
+                    return response('through');
+                },
+            );
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            $this->assertSame(403, $e->getStatusCode());
+        }
+
+        $this->assertFalse($reached, 'a CRM-scoped session reached a personal route with no guard resolved');
     }
 
     // --- Giving it back -----------------------------------------------------

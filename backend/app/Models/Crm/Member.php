@@ -60,6 +60,11 @@ class Member extends Model
         // Also held by name: the Reports screen is the Admin's, opened to a
         // Subadmin only when the Admin ticks them in.
         'reports.view' => ['group' => 'Money', 'label' => 'See the Reports screen (company-wide figures)'],
+        // Held by name even for a Subadmin, like the two above and for a
+        // sharper reason: this one opens somebody else's account. The Admin
+        // has it by the job; a Subadmin has it only where the Admin has
+        // ticked their name, and even then only for employees.
+        'employees.impersonate' => ['group' => 'Employees', 'label' => 'Open an employee’s workspace as them — sees exactly what they see, and every use is recorded'],
         'hr.policy_edit' => ['group' => 'HR', 'label' => 'Edit the HR Policy (timings, late rule, statutory rates)'],
         'letters.download' => ['group' => 'HR', 'label' => 'Download their own HR letters (offer, appointment, promotion…)'],
     ];
@@ -233,6 +238,51 @@ class Member extends Model
         }
 
         return in_array($capability, (array) ($this->capabilities ?? []), true);
+    }
+
+    /**
+     * A capability held by name, and never by the job.
+     *
+     * allows() hands an Admin and a Subadmin everything by virtue of their
+     * role, which is right for most of the delicate acts — they are the
+     * people who do them. A few are not like that: the accounting export,
+     * the Reports screen, and opening somebody else's account. For those the
+     * only question is whether this member was named, and a role cannot
+     * answer it.
+     */
+    public function holdsByName(string $capability): bool
+    {
+        return $this->status === 'active'
+            && in_array($capability, (array) ($this->capabilities ?? []), true);
+    }
+
+    /**
+     * Whose seats this member may sit in — empty when nobody's.
+     *
+     * The Admin has this by the job and may open an employee or a subadmin.
+     * A Subadmin has it only where the Admin ticked their name, and then only
+     * for employees: opening a peer is sideways, and the point of the grant
+     * is a manager looking down at their own team, not across at each other.
+     *
+     * Asked in one place because three screens need the same answer — the
+     * list deciding which rows get a button, the endpoint deciding whether to
+     * issue a token, and the shell deciding whether the feature exists at
+     * all — and three copies of a rule about impersonation is two too many.
+     *
+     * @return list<string>
+     */
+    public function borrowableRoles(): array
+    {
+        if ($this->status !== 'active') {
+            return [];
+        }
+        if ($this->crm_role === 'admin') {
+            return ['employee', 'subadmin'];
+        }
+
+        return $this->crm_role === 'subadmin' && $this->holdsByName('employees.impersonate')
+            ? ['employee']
+            : [];
     }
 
     public function can(string $module, string $ability = 'view'): bool

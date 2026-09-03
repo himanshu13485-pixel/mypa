@@ -83,10 +83,10 @@ class EmployeeController extends Controller
          * that. A button drawn where the server will refuse is a button that
          * teaches people to distrust buttons.
          */
-        $lends = $me->crm_role === 'admin' && $org->lendsSeats();
+        $lends = $org->lendsSeats() ? $me->borrowableRoles() : [];
 
         $members->getCollection()->transform(
-            fn ($m) => $this->serialize($m) + ['can_impersonate' => $lends && $this->borrowable($m, $me)],
+            fn ($m) => $this->serialize($m) + ['can_impersonate' => $this->borrowable($m, $me, $lends)],
         );
 
         return response()->json($members);
@@ -706,12 +706,14 @@ class EmployeeController extends Controller
      * one would turn a company login into the platform's admin panel, which is
      * a rather larger door than the one being opened here.
      */
-    private function borrowable(Member $m, Member $me): bool
+    private function borrowable(Member $m, Member $me, array $borrowableRoles): bool
     {
-        if ($m->id === $me->id || $m->status !== 'active') {
+        if ($borrowableRoles === [] || $m->id === $me->id || $m->status !== 'active') {
             return false;
         }
-        if (! in_array($m->crm_role, ['employee', 'subadmin'], true)) {
+        // Whose seats this reader may take at all — an Admin's is employees
+        // and subadmins, a named Subadmin's is employees only.
+        if (! in_array($m->crm_role, $borrowableRoles, true)) {
             return false;
         }
 
