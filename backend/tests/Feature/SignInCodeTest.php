@@ -141,6 +141,29 @@ class SignInCodeTest extends TestCase
         ])->assertOk()->assertJsonStructure(['token']);
     }
 
+    public function test_the_local_bypass_code_only_works_in_the_local_environment(): void
+    {
+        $this->login()->assertStatus(202);
+
+        // The suite runs as APP_ENV=testing, so this must fail exactly like
+        // any other wrong guess — the bypass has no effect here at all.
+        $this->postJson('/api/v1/auth/login/verify', [
+            'identifier' => 'harshgrapout', 'code' => '123456',
+        ])->assertStatus(422);
+
+        // Forced to 'local' for one request: now it works, and it consumes
+        // the real row rather than inventing a session out of nothing — a
+        // second attempt with the same bypass code finds no active code left.
+        app()->detectEnvironment(fn () => 'local');
+        try {
+            $this->postJson('/api/v1/auth/login/verify', [
+                'identifier' => 'harshgrapout', 'code' => '123456',
+            ])->assertOk()->assertJsonStructure(['token']);
+        } finally {
+            app()->detectEnvironment(fn () => 'testing');
+        }
+    }
+
     public function test_a_shared_computer_can_refuse_to_be_remembered(): void
     {
         $this->login()->assertStatus(202);
