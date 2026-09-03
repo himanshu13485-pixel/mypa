@@ -1096,6 +1096,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::get('/workspace-fields', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'index']);
                 Route::post('/workspace-fields', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'store']);
                 Route::delete('/workspace-fields/{uuid}', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'destroy']);
+                // Where each of the company's own fields sits in its form and
+                // on the printed document — one order, read by both.
+                Route::put('/workspace-fields/order', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'reorder']);
             });
 
             // Reports: the controller holds the stricter door — the Admin,

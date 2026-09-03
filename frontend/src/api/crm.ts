@@ -2276,6 +2276,13 @@ export const crm = {
     request: (payload: Record<string, unknown>) =>
       api.post<{ message: string }>('/crm/workspace-fields', payload).then((r) => r.data),
     remove: (uuid: string) => api.delete('/crm/workspace-fields/' + uuid).then((r) => r.data),
+    /**
+     * The order this company's own fields appear in, on the form and on the
+     * printed document alike. The whole list goes, because a position only
+     * means anything relative to its neighbours.
+     */
+    reorder: (entity: string, uuids: string[]) =>
+      api.put<{ message: string }>('/crm/workspace-fields/order', { entity, uuids }).then((r) => r.data),
   },
 
   fieldRequests: {

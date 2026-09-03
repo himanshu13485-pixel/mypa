@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Notifications\CrmNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -155,6 +156,56 @@ class CustomFieldController extends Controller
         $field->delete();
 
         return response()->json(['message' => 'Field removed from your workspace.']);
+    }
+
+    /**
+     * The order the company's own fields appear in.
+     *
+     * `sort` has been on the model since these existed and has always driven
+     * the form, the printed document and the validator — everything reads
+     * CustomField::methodFor(), so there is one order rather than three that
+     * drift. What was missing was any way to set it: a field took the number
+     * after the last one and stayed where it landed for good.
+     *
+     * The whole list is sent rather than a field and a direction, because a
+     * position is only meaningful relative to its neighbours: two people
+     * nudging different rows a moment apart would otherwise each write a
+     * number computed from a list the other had already changed.
+     *
+     * Renumbered from zero on every save, so the sequence cannot drift into
+     * ties or gaps however many times it is reordered.
+     */
+    public function reorder(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+
+        $data = $request->validate([
+            'entity' => ['required', Rule::in(CustomField::ENTITIES)],
+            'uuids' => ['required', 'array'],
+            'uuids.*' => ['string'],
+        ]);
+
+        $fields = CustomField::where('organization_id', $org->id)
+            ->where('entity', $data['entity'])
+            ->whereIn('uuid', $data['uuids'])
+            ->get()
+            ->keyBy('uuid');
+
+        // Silently ignoring a uuid that is not theirs would let one company
+        // reorder by a list containing another's field and never be told.
+        abort_if(
+            count($data['uuids']) !== $fields->count(),
+            422,
+            'That list does not match this workspace\'s fields.',
+        );
+
+        DB::transaction(function () use ($data, $fields) {
+            foreach (array_values($data['uuids']) as $position => $uuid) {
+                $fields[$uuid]->update(['sort' => $position]);
+            }
+        });
+
+        return response()->json(['message' => 'Order saved.']);
     }
 
     // ---- Super Admin side --------------------------------------------------

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Clock, Pencil, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Clock, Pencil, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, CRM_DCW_ENTITY_LABELS, CRM_FIELD_TYPE_LABELS, CRM_TAX_KIND_LABELS, type CrmCustomField } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -75,6 +75,45 @@ export default function CrmWorkspaceFieldsPage() {
     onSuccess: (res: { message?: string }) => { refresh(); toast(res.message ?? 'Removed.', 'success') },
     onError: (err) => toastError(errorMessage(err)),
   })
+
+  const reorderMutation = useMutation({
+    mutationFn: ({ entity, uuids }: { entity: string; uuids: string[] }) =>
+      crm.workspaceFields.reorder(entity, uuids),
+    onSuccess: () => refresh(),
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  /*
+   * Moving a field one place within its own entity.
+   *
+   * The neighbours are worked out from the list as the server returned it,
+   * which is already in `sort` order — so "one place" means one place among
+   * the fields this arrow can actually move it past, and not one row on a
+   * screen that is showing four entities interleaved.
+   *
+   * Pending fields are skipped on both counts: they are not on any document
+   * yet, so they have no position to swap into.
+   */
+  const orderedPeers = (f: CrmCustomField) =>
+    (data?.data ?? []).filter((x) => x.entity === f.entity && x.status === 'approved')
+
+  const canMove = (f: CrmCustomField, step: -1 | 1) => {
+    const peers = orderedPeers(f)
+    const at = peers.findIndex((x) => x.uuid === f.uuid)
+
+    return at >= 0 && at + step >= 0 && at + step < peers.length
+  }
+
+  const move = (f: CrmCustomField, step: -1 | 1) => {
+    const peers = orderedPeers(f)
+    const at = peers.findIndex((x) => x.uuid === f.uuid)
+    if (!canMove(f, step)) return
+
+    const next = peers.map((x) => x.uuid)
+    ;[next[at], next[at + step]] = [next[at + step], next[at]]
+
+    reorderMutation.mutate({ entity: f.entity, uuids: next })
+  }
 
   const set = (key: keyof typeof EMPTY, value: string | boolean) => setForm((f) => ({ ...f, [key]: value }))
 
@@ -295,6 +334,40 @@ export default function CrmWorkspaceFieldsPage() {
                 <span className={statusBadge(f.status)}>
                   {f.status === 'pending' ? 'Awaiting Super Admin' : f.status}
                 </span>
+                {/*
+                  * Where this field sits on the form and on the printed
+                  * document. One order, not two — the form, the PDF and the
+                  * validator all read the same method, so moving it here
+                  * moves it on the proforma and the invoice as well.
+                  *
+                  * Only among its own kind: a Work Order column and a
+                  * document field are not in one list to be ordered against
+                  * each other, so the arrows step within an entity and stop
+                  * at its ends. Approved fields only — a pending one has no
+                  * place on a document to be moved around on yet.
+                  */}
+                {f.status === 'approved' && (
+                  <div className="flex shrink-0 items-center">
+                    <button
+                      onClick={() => move(f, -1)}
+                      disabled={reorderMutation.isPending || !canMove(f, -1)}
+                      aria-label={`Move ${f.label} earlier`}
+                      title="Move up — earlier on the form and the document"
+                      className="rounded p-1.5 text-slate-400 hover:text-emerald-600 disabled:opacity-30 disabled:hover:text-slate-400"
+                    >
+                      <ChevronUp className="size-4" />
+                    </button>
+                    <button
+                      onClick={() => move(f, 1)}
+                      disabled={reorderMutation.isPending || !canMove(f, 1)}
+                      aria-label={`Move ${f.label} later`}
+                      title="Move down — later on the form and the document"
+                      className="rounded p-1.5 text-slate-400 hover:text-emerald-600 disabled:opacity-30 disabled:hover:text-slate-400"
+                    >
+                      <ChevronDown className="size-4" />
+                    </button>
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     const msg = f.status === 'approved'
