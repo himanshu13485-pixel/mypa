@@ -447,8 +447,8 @@ export default function CrmLayout() {
       * owns the scrolling, exactly as the personal shell does, and the two
       * headers above it stay put for free.
       */}
-    <div className="flex h-dvh overflow-hidden bg-slate-100 dark:bg-slate-950">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-800 bg-slate-900 text-slate-300 md:flex">
+    <div data-print-root className="flex h-dvh overflow-hidden bg-slate-100 dark:bg-slate-950">
+      <aside data-print-chrome className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-800 bg-slate-900 text-slate-300 md:flex">
         {sidebar}
       </aside>
 
@@ -478,8 +478,8 @@ export default function CrmLayout() {
           menu itself lives in the drawer, as it does on the personal side.
           The old scrolling strip of thirty pills could only ever show four
           of them, so the rest of the CRM was off the side of the screen. */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col md:pl-60">
-        <header className="pt-safe sticky top-0 z-30 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900 md:hidden">
+      <div data-print-root className="flex min-h-0 min-w-0 flex-1 flex-col md:pl-60">
+        <header data-print-chrome className="pt-safe sticky top-0 z-30 flex items-center gap-2 border-b border-slate-200 bg-white px-3 py-2 dark:border-slate-800 dark:bg-slate-900 md:hidden">
           <button
             onClick={() => setMenuOpen(true)}
             aria-label="Open menu"
@@ -513,7 +513,7 @@ export default function CrmLayout() {
         </header>
         {/* The CRM has its own shell, so it needs its own bell — the same
             one the rest of Netvork uses, reading the same notifications. */}
-        <div className="sticky top-0 z-20 hidden items-center justify-end gap-1 border-b border-slate-200 bg-white/90 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 md:flex">
+        <div data-print-chrome className="sticky top-0 z-20 hidden items-center justify-end gap-1 border-b border-slate-200 bg-white/90 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 md:flex">
           <NotificationBell />
         </div>
         <main className="scroll-pane min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">

@@ -286,11 +286,11 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
     {/* The side insets belong here, on the one element with no padding of its
         own to be overwritten. They are 0 on a phone held upright and only
         appear in landscape, where the notch eats into the side of the screen. */}
-    <div className="px-safe flex h-dvh overflow-hidden">
+    <div data-print-root className="px-safe flex h-dvh overflow-hidden">
       {/* Desktop sidebar */}
       {/* The sidebar shares the page's tone rather than being a white slab
           with a rule down its edge. What should look raised is the content. */}
-      <aside className="hidden w-64 shrink-0 flex-col bg-slate-100 dark:bg-slate-950 lg:flex">
+      <aside data-print-chrome className="hidden w-64 shrink-0 flex-col bg-slate-100 dark:bg-slate-950 lg:flex">
         <div className="flex items-center gap-2.5 px-5 pb-1 pt-5">
           <NetvorkMark className="size-8" />
           <span className="text-[15px] font-semibold tracking-tight">Netvork</span>
@@ -320,7 +320,7 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-          <aside className="pt-safe absolute inset-y-0 left-0 flex h-full w-72 max-w-[85vw] flex-col overflow-hidden bg-white shadow-lift dark:bg-slate-900">
+          <aside data-print-chrome className="pt-safe absolute inset-y-0 left-0 flex h-full w-72 max-w-[85vw] flex-col overflow-hidden bg-white shadow-lift dark:bg-slate-900">
             <div className="flex items-center justify-between px-5 py-4">
               <span className="flex items-center gap-2 text-base font-semibold">
                 <NetvorkMark className="size-7" /> Netvork
@@ -342,8 +342,8 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
       )}
 
       {/* Main */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className={clsx(
+      <div data-print-root className="flex min-w-0 flex-1 flex-col">
+        <header data-print-chrome className={clsx(
           'pt-safe z-10 shrink-0 items-center justify-between bg-slate-100/85 px-2 py-2 backdrop-blur dark:bg-slate-950/85 sm:px-4 sm:py-3',
           // A meeting has its own title bar and its own way out. On a phone
           // this one was costing 50px of faces to show a hamburger and a
@@ -425,7 +425,7 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
         {/* Mobile bottom bar. Four destinations plus the drawer — the same
             shape every phone app uses, so the common screens stop being two
             taps deep behind a hamburger. */}
-        <nav className={clsx(
+        <nav data-print-chrome className={clsx(
           'pb-safe shrink-0 items-stretch border-t border-slate-200/70 bg-white/90 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 lg:hidden',
           immersive || bare ? 'hidden' : 'flex',
         )}>

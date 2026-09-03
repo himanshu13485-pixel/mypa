@@ -269,3 +269,104 @@ h3 {
     animation: none;
   }
 }
+
+/*
+ * Printing a page, not a screenshot of the app.
+ *
+ * Ctrl+P used to put the sidebar, the header, the bottom tab bar and every
+ * button on the paper alongside the invoice, because nothing told the browser
+ * which part was the document. The pages themselves were written for this —
+ * the invoice already marks its chrome print:hidden — but the shell around
+ * them was not, and the shell is most of what was printing.
+ *
+ * Two problems, and the second is the one that would have been blamed on the
+ * printer. The shell scrolls inside <main> at a fixed viewport height, and a
+ * scroll container prints only what is visible: a two-page invoice came out
+ * as one page and a bit. Height and overflow are handed back for print so the
+ * document can be as long as it is.
+ */
+@media print {
+  /* The app around the document: sidebars, headers, tab bars, floating buttons. */
+  [data-print-chrome] {
+    display: none !important;
+  }
+
+  /*
+   * Let the page be as tall as it needs.
+   *
+   * Every one of these is a viewport-height box or a scroll container in the
+   * running app, and each would clip the print to one screen on its own. The
+   * shells are marked because they are plain layout divs with no other hook,
+   * and an overflow:hidden ancestor clips a print however tall the child is.
+   */
+  html,
+  body,
+  #root,
+  main,
+  .route-enter,
+  [data-print-root] {
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  /*
+   * The shells are flex rows that place a sidebar beside the content. With
+   * the sidebar gone, laying out as blocks is what puts the document at the
+   * top-left of the paper instead of in a column where the sidebar was.
+   */
+  [data-print-root] {
+    display: block !important;
+    padding-left: 0 !important;
+  }
+
+  main {
+    /* The shells offset content to clear a fixed sidebar that is now gone. */
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  /*
+   * Paper is white, whatever the screen was.
+   *
+   * Tailwind's dark variants key off a class on <html>, which no print rule
+   * can unset — so somebody reading in dark mode would print solid dark
+   * blocks: unreadable on paper, and most of a cartridge. Colour is
+   * flattened instead. An invoice loses nothing by being black on white,
+   * and it is what a printed document is supposed to look like.
+   */
+  html {
+    color-scheme: light !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    color: #000 !important;
+    background-color: transparent !important;
+    border-color: #999 !important;
+    box-shadow: none !important;
+    background-image: none !important;
+  }
+
+  body,
+  main,
+  [data-print-root] {
+    background-color: #fff !important;
+  }
+
+  /* A table cut across a page break is unreadable. */
+  tr,
+  img {
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+}
