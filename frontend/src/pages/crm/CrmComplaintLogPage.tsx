@@ -24,7 +24,7 @@ export default function CrmComplaintLogPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'complaint-log', applied, filters, page],
     // Closed, however it ended — that is what makes this the log.
-    queryFn: () => crm.complaints.list({ ...filters, status: 'closed', search: applied || undefined, page }),
+    queryFn: () => crm.complaints.log({ ...filters, search: applied || undefined, page }),
   })
 
   const setFilter = (key: string, value: string) => {

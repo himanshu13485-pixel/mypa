@@ -44,7 +44,13 @@ class CrmInvoiceLogTest extends TestCase
         ]);
         $rights = [
             'clients' => ['view', 'create'],
+            // The whole set the old wide 'invoices' right used to carry —
+            // which is exactly what the split migration hands existing
+            // members, so this fixture is a person who worked here before it.
+            'proforma' => ['view', 'create', 'edit', 'delete'],
+            'proforma_log' => ['view'],
             'invoices' => ['view', 'create', 'edit', 'delete'],
+            'invoice_log' => ['view'],
             'payments' => ['view', 'create'],
         ];
         $this->alice = Member::create([

@@ -41,9 +41,8 @@ class Member extends Model
      * Every slug here is asked about by a route or a controller. A right that
      * hid a menu entry and nothing else would be worse than no right at all —
      * the person ticking it would believe they had restricted something, and
-     * the API would go on answering. That is why Complaints is still one
-     * right: the complaint log is the same endpoint filtered to closed ones,
-     * so there is nothing behind a separate tick to enforce.
+     * the API would go on answering. The complaint log was that case until it
+     * was given an endpoint of its own to be refused at.
      */
     public const MODULES = [
         'employees' => 'Users — employee records',
@@ -56,8 +55,10 @@ class Member extends Model
         'tasks' => 'Tasks',
         'leaves' => 'Leave approvals',
         'approvals' => 'Approvals',
-        'proforma' => 'Proforma — raise them, and the proforma log',
-        'invoices' => 'Invoices — raise them, the invoice log, and the exports',
+        'proforma' => 'Proforma',
+        'proforma_log' => 'Proforma log',
+        'invoices' => 'Invoices, and the accounting exports',
+        'invoice_log' => 'Invoice log',
         'recurring' => 'Recurring invoices',
         'payments' => 'Payments, payment links & reminders',
         'expenses' => 'Expenses',
@@ -67,7 +68,8 @@ class Member extends Model
         'assets' => 'Office assets',
         'newsletters' => 'Newsletters',
         'cms' => 'Notice board',
-        'complaints' => 'Complaints (CMS) & the complaint log',
+        'complaints' => 'Complaints (CMS)',
+        'complaint_log' => 'Complaint log',
         'masters' => 'Billing setup — the whole Settings screen',
         'user_log' => 'User log',
     ];
@@ -86,9 +88,12 @@ class Member extends Model
      */
     public const SPLIT_MODULES = [
         'leads' => ['leads', 'lead_log'],
-        'invoices' => ['proforma', 'invoices', 'recurring'],
+        'invoices' => ['proforma', 'proforma_log', 'invoices', 'invoice_log', 'recurring'],
         'expenses' => ['expenses', 'vendors', 'commissions'],
         'reports' => ['user_log'],
+        // Split after the first pass: the log screens are their own
+        // sidebar entries, so they are their own rights.
+        'complaints' => ['complaints', 'complaint_log'],
     ];
 
     /** Just the slugs, for the places that only ever wanted those. */

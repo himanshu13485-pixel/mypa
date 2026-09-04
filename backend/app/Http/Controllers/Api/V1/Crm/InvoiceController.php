@@ -705,7 +705,23 @@ class InvoiceController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
         $kind = $request->query('kind') === 'proforma' ? 'proforma' : 'invoice';
-        $this->forKind($request, $kind, 'view');
+
+        /*
+         * The log is its own entry in the sidebar, so its own right — reading
+         * the trail is a different job from raising the document, and a
+         * company may well want one without the other.
+         */
+        /** @var Member $me */
+        $reader = $request->attributes->get('crm_member');
+        abort_unless(
+            $kind === 'proforma'
+                ? $reader?->can('proforma_log', 'view')
+                : $reader?->can('invoice_log', 'view'),
+            403,
+            $kind === 'proforma'
+                ? 'You do not have rights to the proforma log.'
+                : 'You do not have rights to the invoice log.',
+        );
 
         // The same ledger window as the list: your own documents only,
         // unless you run the company.

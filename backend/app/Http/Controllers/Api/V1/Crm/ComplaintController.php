@@ -79,6 +79,25 @@ class ComplaintController extends Controller
         ]);
     }
 
+    /**
+     * The complaint log: the same records, closed, behind its own right.
+     *
+     * Its own endpoint rather than a status filter on the list, because a
+     * right that only hid a menu entry would be a checkbox that restricts
+     * nothing — the API would go on answering the same question through the
+     * other door. Now there is a door to be refused at.
+     *
+     * What it does not do is make closed complaints secret: somebody with the
+     * Complaints right can still filter the list to them. This governs the
+     * log screen, which is what the sidebar offers.
+     */
+    public function log(Request $request): JsonResponse
+    {
+        $request->merge(['status' => 'closed']);
+
+        return $this->index($request);
+    }
+
     public function index(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');

@@ -1126,6 +1126,11 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // CMS notice board: everyone reads, editors manage
             // Complaint Management System: client issues and the office's
             // own working-out of them, in one record.
+            // The complaint log is its own screen in the menu, so its own
+            // right — and its own endpoint, so the right has something to be
+            // refused at rather than only a menu entry to hide.
+            Route::get('/complaint-log', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'log'])
+                ->middleware('crm.member:complaint_log,view');
             Route::middleware('crm.member:complaints,view')->group(function () {
                 Route::get('/complaints', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'index']);
                 Route::get('/complaints-due', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'due']);

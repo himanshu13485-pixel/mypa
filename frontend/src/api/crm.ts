@@ -2111,6 +2111,16 @@ export const crm = {
     list: (params: Record<string, string | number | undefined>) =>
       api.get<Paginated<CrmComplaint> & { summary: CrmComplaintSummary }>('/crm/complaints', { params })
         .then((r) => r.data),
+    /**
+     * The log screen — closed complaints, behind its own right.
+     *
+     * Its own endpoint rather than list({ status: 'closed' }), because a
+     * right that only hid the menu entry would restrict nothing: the same
+     * records would still answer through the list.
+     */
+    log: (params: Record<string, string | number | undefined>) =>
+      api.get<Paginated<CrmComplaint> & { summary: CrmComplaintSummary }>('/crm/complaint-log', { params })
+        .then((r) => r.data),
     options: () =>
       api.get<{ data: CrmComplaintOptions }>('/crm/complaints/options').then((r) => r.data.data),
     /** The popup's feed: open complaints that are mine to answer. */

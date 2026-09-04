@@ -103,10 +103,40 @@ class CrmSplitRightsTest extends TestCase
 
         $this->actingAs($junior)->getJson('/api/v1/crm/invoices?kind=proforma')->assertOk();
         $this->actingAs($junior)->getJson('/api/v1/crm/invoices?kind=invoice')->assertStatus(403);
+    }
 
-        // And the logs behind them.
-        $this->actingAs($junior)->getJson('/api/v1/crm/invoice-log?kind=proforma')->assertOk();
-        $this->actingAs($junior)->getJson('/api/v1/crm/invoice-log?kind=invoice')->assertStatus(403);
+    /**
+     * The logs are their own entries in the sidebar, so their own rights.
+     *
+     * Reading the trail is a different job from raising the document — a
+     * company may well want somebody to do one and not the other.
+     */
+    public function test_a_log_is_its_own_right_rather_than_riding_the_document(): void
+    {
+        $raiser = $this->staff(['proforma' => ['view', 'create']]);
+
+        $this->actingAs($raiser)->getJson('/api/v1/crm/invoice-log?kind=proforma')->assertStatus(403);
+
+        $reader = $this->staff(['proforma' => ['view'], 'proforma_log' => ['view']]);
+        $this->actingAs($reader)->getJson('/api/v1/crm/invoice-log?kind=proforma')->assertOk();
+        // And the invoice log is a third thing again.
+        $this->actingAs($reader)->getJson('/api/v1/crm/invoice-log?kind=invoice')->assertStatus(403);
+    }
+
+    public function test_the_complaint_log_is_refused_at_a_door_of_its_own(): void
+    {
+        /*
+         * The point of giving it an endpoint. A right that hid the menu entry
+         * and nothing else would restrict nothing at all — the same records
+         * would go on answering through the complaints list.
+         */
+        $handler = $this->staff(['complaints' => ['view']]);
+
+        $this->actingAs($handler)->getJson('/api/v1/crm/complaints')->assertOk();
+        $this->actingAs($handler)->getJson('/api/v1/crm/complaint-log')->assertStatus(403);
+
+        $auditor = $this->staff(['complaints' => ['view'], 'complaint_log' => ['view']]);
+        $this->actingAs($auditor)->getJson('/api/v1/crm/complaint-log')->assertOk();
     }
 
     public function test_converting_a_quote_into_a_bill_needs_both(): void
@@ -176,7 +206,7 @@ class CrmSplitRightsTest extends TestCase
             true,
         );
 
-        foreach (['proforma', 'invoices', 'recurring'] as $slug) {
+        foreach (['proforma', 'proforma_log', 'invoices', 'invoice_log', 'recurring'] as $slug) {
             $this->assertEqualsCanonicalizing(['view', 'create'], $rights[$slug], "lost {$slug}");
         }
         $this->assertEqualsCanonicalizing(['view'], $rights['leads']);
