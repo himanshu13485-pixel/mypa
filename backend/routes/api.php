@@ -196,19 +196,19 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
         Route::post('/auth/email/verification-notification', [AuthController::class, 'resendVerification'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:6,1');
+            ->middleware('throttle:verify-email');
         Route::post('/auth/mobile/verify', [AuthController::class, 'verifyMobile'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:verify-otp');
         Route::post('/auth/mobile/resend-otp', [AuthController::class, 'resendMobileOtp'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:5,1');
+            ->middleware('throttle:resend-otp');
         Route::post('/auth/email/resend-otp', [AuthController::class, 'resendEmailOtp'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:5,1');
+            ->middleware('throttle:resend-otp');
         Route::post('/auth/email/verify-otp', [AuthController::class, 'verifyEmailOtp'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:verify-otp');
         Route::get('/auth/sessions', [AuthController::class, 'sessions']);
         Route::delete('/auth/sessions/{tokenId}', [AuthController::class, 'revokeSession']);
         Route::get('/auth/login-history', [AuthController::class, 'loginHistory']);
@@ -223,7 +223,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         // Closing an account for good. Throttled because it is irreversible
         // and there is no reason to attempt it more than once a minute.
         Route::delete('/me', [\App\Http\Controllers\Api\V1\AccountController::class, 'destroy'])
-            ->middleware('throttle:5,1');
+            ->middleware('throttle:profile-update');
         Route::get('/me/app-id/qr', [AppIdController::class, 'myQr']);
 
         /*
@@ -276,7 +276,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         // Identity change requests (approval-based)
         Route::get('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'index']);
         Route::post('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'store'])
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:change-request');
 
         // Categories
         Route::apiResource('categories', CategoryController::class);
@@ -325,7 +325,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
          * relationship; the rules live in the controller.
          */
         Route::get('/people/{uuid}', [\App\Http\Controllers\Api\V1\PersonController::class, 'show'])
-            ->middleware('throttle:60,1');
+            ->middleware('throttle:person-lookup');
 
         // My own invite link, for somebody who is not on Netvork yet.
         Route::get('/invite-link', [\App\Http\Controllers\Api\V1\InviteController::class, 'mine']);
@@ -347,7 +347,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/join-group/{token}', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'preview'])
             ->where('token', '[A-Za-z0-9]{16,32}');
         Route::post('/join-group/{token}', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'join'])
-            ->middleware('throttle:20,1')->where('token', '[A-Za-z0-9]{16,32}');
+            ->middleware('throttle:join-group')->where('token', '[A-Za-z0-9]{16,32}');
 
         // Meetings (Meet-style link rooms)
         Route::get('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'index']);
@@ -451,7 +451,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
          * person does on purpose and well short of what a script wants.
          */
         Route::post('/broadcasts', [BroadcastController::class, 'store'])
-            ->middleware('throttle:6,1');
+            ->middleware('throttle:broadcast');
 
         /*
          * "Ring this on my phone." Sent to the caller's own devices only —
@@ -463,7 +463,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
          * loop.
          */
         Route::post('/dial', [\App\Http\Controllers\Api\V1\DialController::class, 'store'])
-            ->middleware('throttle:20,1');
+            ->middleware('throttle:dial');
 
         // Chat
         Route::get('/conversations', [ConversationController::class, 'index']);
@@ -552,10 +552,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/subscription', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'mySubscription']);
         Route::post('/subscription/quote', [\App\Http\Controllers\Api\V1\BillingController::class, 'quote']);
         Route::post('/subscription/checkout', [\App\Http\Controllers\Api\V1\BillingController::class, 'checkout'])
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:checkout');
         Route::post('/subscription/cancel', [\App\Http\Controllers\Api\V1\BillingController::class, 'cancelSubscription']);
         Route::post('/payments/{order}/verify', [\App\Http\Controllers\Api\V1\BillingController::class, 'verifyOrder'])
-            ->middleware('throttle:30,1');
+            ->middleware('throttle:payment-verify');
         Route::get('/payments', [\App\Http\Controllers\Api\V1\BillingController::class, 'payments']);
         Route::get('/invoices', [\App\Http\Controllers\Api\V1\BillingController::class, 'invoices']);
         Route::get('/invoices/{invoice}', [\App\Http\Controllers\Api\V1\BillingController::class, 'invoiceView']);
@@ -571,7 +571,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
 
         // Report a user or message (moderation intake)
         Route::post('/reports', [\App\Http\Controllers\Api\V1\ReportUserController::class, 'store'])
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:report-file');
 
         // --- Internal Work (Admin / Subadmin / Salesperson) ----------------
         Route::prefix('admin/internal')->middleware(['role:admin,super_admin,subadmin,salesperson', 'module:internal,view'])->group(function () {
@@ -765,10 +765,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                  */
                 Route::get('/master-key', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'show']);
                 Route::put('/master-key', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'store'])
-                    ->middleware('throttle:6,60');
+                    ->middleware('throttle:master-key');
                 Route::delete('/master-key', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'destroy']);
                 Route::post('/employees/{uuid}/reset-password', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'reset'])
-                    ->middleware('throttle:10,60');
+                    ->middleware('throttle:password-reset');
             });
 
             // Clients
