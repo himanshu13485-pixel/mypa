@@ -8,6 +8,7 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { leadStatusBadge } from './CrmLeadsPage'
+import { format } from 'date-fns'
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined || value === '') return null
@@ -266,8 +267,8 @@ export default function CrmLeadDetailPage() {
           {/* On a phone this dials; on a laptop it sends the number to the
               phone in your pocket, since a tel: link there only produces an
               app chooser that cannot place a call. */}
-          <Row label="Mobile" value={<PhoneLink value={lead.mobile} label={lead.company_name} />} />
-          <Row label="Phone" value={<PhoneLink value={lead.phone} label={lead.company_name} />} />
+          <Row label="Mobile" value={<PhoneLink value={lead.mobile} label={lead.company_name} subject={{ type: 'lead', uuid: lead.uuid }} />} />
+          <Row label="Phone" value={<PhoneLink value={lead.phone} label={lead.company_name} subject={{ type: 'lead', uuid: lead.uuid }} />} />
           <Row label="Email" value={<EmailLink value={lead.email} />} />
         </Card>
         <Card>
@@ -310,6 +311,8 @@ export default function CrmLeadDetailPage() {
             : <p className="text-sm text-slate-400">Nothing noted yet.</p>}
         </Card>
       </div>
+
+      <LeadCallLog uuid={uuid!} />
 
       <Card>
         <h2 className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
@@ -484,5 +487,99 @@ export default function CrmLeadDetailPage() {
         </Modal>
       )}
     </div>
+  )
+}
+
+/** Seconds as something a person reads: "4m 05s". */
+function spoken(seconds?: number | null): string {
+  if (seconds === null || seconds === undefined) return '—'
+  const m = Math.floor(seconds / 60)
+  const rest = seconds % 60
+
+  return m ? `${m}m ${String(rest).padStart(2, '0')}s` : `${rest}s`
+}
+
+/**
+ * Every call anybody has made to this lead.
+ *
+ * The whole company's, not the reader's own: the fact worth seeing is that
+ * three people have already rung this week, and a log filtered to yourself
+ * hides exactly that.
+ *
+ * The header says the durations were reported rather than measured, once,
+ * plainly. A phone call's length is whatever the person who made it typed —
+ * Android does not let an app watch a cellular call — and a column that looks
+ * like a metered figure invites it to be read as one.
+ */
+function LeadCallLog({ uuid }: { uuid: string }) {
+  const { data } = useQuery({
+    queryKey: ['crm', 'lead-calls', uuid],
+    queryFn: () => crm.leadCalls(uuid),
+  })
+
+  const rows = data?.data ?? []
+
+  return (
+    <Card>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+          <PhoneCall className="size-4 text-emerald-500" /> Calls to this lead
+        </h2>
+        {rows.length > 0 && (
+          <p className="text-xs text-slate-400">
+            {data?.summary.total} calls · {data?.summary.connected} answered ·{' '}
+            {spoken(data?.summary.talk_seconds)} talking
+          </p>
+        )}
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="text-sm text-slate-400">
+          Nobody has rung this lead from the CRM yet. Tapping its number logs the call here.
+        </p>
+      ) : (
+        <>
+          <div className="-mx-4 overflow-x-auto px-4">
+            <table className="w-full min-w-[560px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                  <th className="py-2 pr-3 font-medium">Who</th>
+                  <th className="py-2 pr-3 font-medium">When</th>
+                  <th className="py-2 pr-3 font-medium">How it went</th>
+                  <th className="py-2 pr-3 font-medium">Length</th>
+                  <th className="py-2 font-medium">Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((c) => (
+                  <tr key={c.uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
+                    <td className="py-2.5 pr-3 font-medium">{c.caller?.name ?? '—'}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">
+                      {c.placed_at ? format(new Date(c.placed_at), 'd MMM, HH:mm') : '—'}
+                      <span className="ml-1 text-xs text-slate-400">
+                        {c.placed_from === 'laptop' ? '· from desk' : ''}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pr-3">
+                      {/* Unanswered is not the same as unsuccessful — nobody
+                          has said yet, and saying so is more honest than a
+                          blank that reads as a failed call. */}
+                      {c.outcome_label ?? <span className="text-slate-400">Not logged yet</span>}
+                    </td>
+                    <td className="whitespace-nowrap py-2.5 pr-3">{spoken(c.duration_seconds)}</td>
+                    <td className="py-2.5 text-slate-500">{c.notes ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p className="mt-2 text-xs text-slate-400">
+            Times are when the call was placed. Lengths are what the caller reported — a phone call
+            happens on the network, where the app cannot watch it.
+          </p>
+        </>
+      )}
+    </Card>
   )
 }

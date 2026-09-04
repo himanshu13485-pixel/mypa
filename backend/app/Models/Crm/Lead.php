@@ -113,4 +113,31 @@ class Lead extends Model
 
         return ($max ?? 0) + 1;
     }
+
+    /**
+     * The leads one member may see: the ledger window.
+     *
+     * Admins and subadmins get the company. Everybody else gets their own
+     * team's — their own leads, ones they created, and ones shared with
+     * them — where "team" walks the reporting chain and the Team Workspace
+     * grants to any depth.
+     *
+     * Lifted out of LeadController so that anything else needing the same
+     * answer asks the same question. The call log needs it: without a
+     * visibility check, logging a call against a lead is a way to write into
+     * any lead in the company by guessing at a uuid.
+     */
+    public function scopeVisibleTo($query, \App\Models\Crm\Member $me)
+    {
+        if (in_array($me->crm_role, ['admin', 'subadmin'], true)) {
+            return $query;
+        }
+
+        $teamIds = $me->teamMemberIds();
+        $teamUserIds = $me->teamUserIds();
+
+        return $query->where(fn ($q) => $q->whereIn('assigned_member_id', $teamIds)
+            ->orWhereIn('created_by', $teamUserIds)
+            ->orWhereHas('sharedWith', fn ($sh) => $sh->whereIn('crm_members.id', $teamIds)));
+    }
 }

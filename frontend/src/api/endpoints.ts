@@ -483,6 +483,44 @@ export const dial = {
     api.post<{ data: { number: string } }>('/dial', { number, label }).then((r) => r.data),
 }
 
+export interface PhoneCallRow {
+  uuid: string
+  channel: 'phone'
+  number: string
+  label?: string | null
+  placed_from: 'phone' | 'laptop'
+  placed_at: string
+  duration_seconds?: number | null
+  outcome?: string | null
+  outcome_label?: string | null
+  notes?: string | null
+  duration_is_reported: boolean
+  caller?: { uuid: string; name: string } | null
+}
+
+/**
+ * Calls that leave the app on somebody's own SIM.
+ *
+ * Recorded as the dialler opens rather than afterwards — waiting for the
+ * caller to come back to the app loses every call where they rang, talked and
+ * put the phone down, which on a sales floor is most of them.
+ */
+export const phoneCalls = {
+  placed: (payload: {
+    number: string
+    label?: string
+    placed_from?: 'phone' | 'laptop'
+    subject_type?: 'lead' | 'client' | 'complaint'
+    subject_uuid?: string
+  }) => api.post<{ data: PhoneCallRow }>('/phone-calls', payload).then((r) => r.data.data),
+
+  /** What the caller has not yet said anything about. */
+  pending: () => api.get<{ data: PhoneCallRow[] }>('/phone-calls/pending').then((r) => r.data.data),
+
+  logOutcome: (uuid: string, payload: { outcome: string; duration_seconds?: number | null; notes?: string }) =>
+    api.patch<{ data: PhoneCallRow }>(`/phone-calls/${uuid}`, payload).then((r) => r.data.data),
+}
+
 export const people = {
   get: (uuid: string) => api.get<{ data: PersonProfile }>(`/people/${uuid}`).then((r) => r.data.data),
 }
@@ -654,7 +692,11 @@ export const calls = {
     api.post<{ data: { status: string; participants: { uuid: string; name: string; avatar?: string | null }[] } }>(
       `/calls/${uuid}/heartbeat`,
     ).then((r) => r.data.data),
-  history: (page = 1) => api.get<Paginated<CallInfo>>('/calls/history', { params: { page } }).then((r) => r.data),
+  /** `channel` narrows to one kind; omitted, the history carries both. */
+  history: (page = 1, channel?: 'netvork' | 'phone') =>
+    api.get<Paginated<CallInfo>>('/calls/history', {
+      params: { page, ...(channel ? { channel } : {}) },
+    }).then((r) => r.data),
 }
 
 // --- Habits -----------------------------------------------------------------

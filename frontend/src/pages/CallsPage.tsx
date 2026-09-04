@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useConnectBase } from '../lib/connectBase'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { MessageCircle, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Users, Video } from 'lucide-react'
+import { MessageCircle, Phone, PhoneIncoming, PhoneMissed, PhoneOutgoing, Smartphone, Users, Video } from 'lucide-react'
 import { format } from 'date-fns'
+import { clsx } from 'clsx'
 import { badges as badgesApi, calls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useCalls } from '../components/CallManager'
@@ -17,13 +18,19 @@ export default function CallsPage() {
   const navigate = useNavigate()
   const connectBase = useConnectBase()
   const [page, setPage] = useState(1)
+  /*
+   * Which kind of call to show. A sales floor's history is mostly phone
+   * calls and a team's is mostly Netvork ones, and neither wants to read
+   * past the other.
+   */
+  const [channel, setChannel] = useState<'all' | 'netvork' | 'phone'>('all')
   const [joining, setJoining] = useState<string | null>(null)
   const [params, setParams] = useSearchParams()
   const answered = useRef<string | null>(null)
 
   const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['calls-history', page],
-    queryFn: () => calls.history(page),
+    queryKey: ['calls-history', page, channel],
+    queryFn: () => calls.history(page, channel === 'all' ? undefined : channel),
     // A call in progress changes from under you — someone joins, it ends.
     refetchInterval: 15_000,
   })
@@ -81,7 +88,36 @@ export default function CallsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold tracking-tight">Calls</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold tracking-tight">Calls</h1>
+
+        {/*
+          * Which kind to show. A sales floor's history is mostly calls made
+          * on a SIM and a team's is mostly Netvork ones; neither wants to
+          * read past the other to find its own.
+          */}
+        <div className="flex rounded-xl bg-slate-100 p-0.5 text-xs dark:bg-slate-800">
+          {([
+            ['all', 'All'],
+            ['netvork', 'Netvork'],
+            ['phone', 'Phone'],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => { setChannel(key); setPage(1) }}
+              className={clsx(
+                'tap rounded-lg px-3 py-1.5 font-medium',
+                channel === key
+                  ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-700 dark:text-white'
+                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {isLoading ? (
         <SkeletonList rows={8} />
@@ -110,7 +146,9 @@ export default function CallsPage() {
                */
               <Card key={call.uuid} className="flex flex-wrap items-center gap-3 p-3">
                 <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800">
-                  {call.is_missed ? (
+                  {call.channel === 'phone' ? (
+                    <Smartphone className="size-4 text-amber-500" />
+                  ) : call.is_missed ? (
                     <PhoneMissed className="size-4 text-red-500" />
                   ) : call.type === 'video' ? (
                     <Video className="size-4 text-brand-500" />
@@ -124,7 +162,22 @@ export default function CallsPage() {
                 <div className="min-w-0 flex-[1_1_11rem]">
                   <p className="flex items-center gap-2 text-sm font-medium">
                     <span className="truncate">
-                      {call.group_name ?? call.other_user?.name ?? 'Unknown'}
+                      {call.channel === 'phone'
+                        ? (call.label || call.number)
+                        : (call.group_name ?? call.other_user?.name ?? 'Unknown')}
+                    </span>
+                    {/*
+                      * Said on the row, not only in the filter. A list where
+                      * one kind is labelled and the other is not is a list
+                      * where the unlabelled kind means nothing.
+                      */}
+                    <span className={clsx(
+                      'shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                      call.channel === 'phone'
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
+                        : 'bg-brand-100 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300',
+                    )}>
+                      {call.channel === 'phone' ? 'Phone' : 'Netvork'}
                     </span>
                     {live && (
                       <span className="flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">

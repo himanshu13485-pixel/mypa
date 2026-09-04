@@ -1770,6 +1770,19 @@ export const crm = {
    * value only ever travels one way, and the server has no endpoint that
    * hands it back.
    */
+  /** A lead's call history: who rang it, when, and how it went. */
+  leadCalls: (uuid: string) =>
+    api.get<{
+      data: import('./endpoints').PhoneCallRow[]
+      summary: {
+        total: number
+        connected: number
+        talk_seconds: number
+        callers: string[]
+        durations_are_reported: boolean
+      }
+    }>(`/crm/leads/${uuid}/calls`).then((r) => r.data),
+
   masterKey: {
     status: () =>
       api.get<{ data: { is_set: boolean; set_at: string | null; set_by: string | null } }>(

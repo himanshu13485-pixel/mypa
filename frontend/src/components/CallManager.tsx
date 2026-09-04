@@ -10,6 +10,7 @@ import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { usePresenceFeed } from '../lib/presence'
 import { useOnlineAlerts } from '../lib/useOnlineAlerts'
+import { CallOutcomePrompt } from './CallOutcomePrompt'
 import { holdMicrophoneInBackground, inNativeShell, nativeAudioDevices, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
 import { PickUserModal } from './UserSuggest'
 import { useToast } from './Toast'
@@ -1461,6 +1462,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
   return (
     <CallContext.Provider value={{ startCall, joinCall, endCall: hangUp, activeCall }}>
       {children}
+
+      {/*
+        * "How did that go?", for a call that left on somebody's own SIM.
+        *
+        * Here because this is the one component mounted on every page: the
+        * moment worth asking is when somebody comes back from the dialler,
+        * and they could come back to any screen in the app.
+        */}
+      <CallOutcomePrompt />
 
       {/* Incoming call banner */}
       {incoming && (

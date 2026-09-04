@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { clsx } from 'clsx'
 import { Phone } from 'lucide-react'
-import { dial } from '../api/endpoints'
+import { dial, phoneCalls } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { mailtoHref, telHref } from '../lib/contactLinks'
 import { useMediaQuery } from '../lib/useMediaQuery'
@@ -30,12 +30,19 @@ export function PhoneLink({
   value,
   className,
   label,
+  subject,
   icon = false,
 }: {
   value?: string | null
   className?: string
   /** Who is being rung, for the phone to show while it dials. */
   label?: string | null
+  /**
+   * The record this number belongs to, so the call lands on its history.
+   * Without it the call is still logged to the caller's own list — it simply
+   * is not attached to anything.
+   */
+  subject?: { type: 'lead' | 'client' | 'complaint'; uuid: string }
   /** A handset beside the number, where the row has no label of its own. */
   icon?: boolean
 }) {
@@ -67,6 +74,18 @@ export function PhoneLink({
           // The row underneath opens the record. Ringing is not a navigation.
           e.stopPropagation()
           setSending(true)
+          /*
+           * Logged and dialled together. The log is the thing the CRM keeps,
+           * so a failure to record it must not stop the call — the ring is
+           * what the person clicked for.
+           */
+          void phoneCalls.placed({
+            number: value,
+            label: label ?? undefined,
+            placed_from: 'laptop',
+            ...(subject ? { subject_type: subject.type, subject_uuid: subject.uuid } : {}),
+          }).catch(() => undefined)
+
           dial.toMyPhone(value, label ?? undefined)
             .then(() => toast('Sent to your phone.', 'success'))
             .catch((err) => toastError(errorMessage(err)))
@@ -82,7 +101,20 @@ export function PhoneLink({
     <a
       href={href}
       className={clsx('inline-flex items-center gap-1 hover:underline', className)}
-      onClick={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation()
+        /*
+         * Recorded as the dialler opens. Nothing is awaited: the browser is
+         * about to hand the page to the dialler, and a call that rang but was
+         * not logged is far better than a log that delayed the ring.
+         */
+        void phoneCalls.placed({
+          number: value,
+          label: label ?? undefined,
+          placed_from: 'phone',
+          ...(subject ? { subject_type: subject.type, subject_uuid: subject.uuid } : {}),
+        }).catch(() => undefined)
+      }}
     >
       {inner}
     </a>

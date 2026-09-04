@@ -1099,24 +1099,56 @@ class LeadController extends Controller
     // ---- Helpers -----------------------------------------------------------
 
     /** Org scope plus the employee's own-leads-only rule. */
+    /**
+     * Every call anybody in the company has made to this lead.
+     *
+     * The whole company's, not the reader's own — the point of a lead's call
+     * history is seeing that three people have already rung it this week, and
+     * a log filtered to yourself would hide exactly the fact worth knowing.
+     * Reaching the lead at all is the permission; the ledger window has
+     * already decided that by the time we are here.
+     *
+     * Netvork calls are not in here and cannot be: they are placed to a
+     * Netvork account, and a lead is a phone number belonging to somebody who
+     * has never heard of us.
+     */
+    public function calls(Request $request, string $uuid): JsonResponse
+    {
+        $lead = $this->find($request, $uuid);
+
+        $calls = \App\Models\PhoneCall::with('user:id,uuid,name')
+            ->where('subject_type', Lead::class)
+            ->where('subject_id', $lead->id)
+            ->latest('placed_at')
+            ->limit(100)
+            ->get();
+
+        return response()->json([
+            'data' => $calls->map->serialize()->values(),
+            'summary' => [
+                'total' => $calls->count(),
+                'connected' => $calls->where('outcome', 'connected')->count(),
+                // Only the calls somebody actually reported a length for; an
+                // average that counted unanswered ones as zero would say the
+                // team talks for half as long as it does.
+                'talk_seconds' => $calls->whereNotNull('duration_seconds')->sum('duration_seconds'),
+                'callers' => $calls->pluck('user.name')->filter()->unique()->values(),
+                // Said once here as well as on every row: nothing in this
+                // total was measured by a network.
+                'durations_are_reported' => true,
+            ],
+        ]);
+    }
+
     private function scoped(Request $request): Builder
     {
         $org = $request->attributes->get('crm_org');
         /** @var Member $member */
         $member = $request->attributes->get('crm_member');
 
-        $query = Lead::where('organization_id', $org->id);
-
-        if (! in_array($member->crm_role, ['admin', 'subadmin'], true)) {
-            // A Team Head sees the leads of everyone under them.
-            $teamIds = $member->teamMemberIds();
-            $teamUserIds = $member->teamUserIds();
-            $query->where(fn ($q) => $q->whereIn('assigned_member_id', $teamIds)
-                ->orWhereIn('created_by', $teamUserIds)
-                ->orWhereHas('sharedWith', fn ($sh) => $sh->whereIn('crm_members.id', $teamIds)));
-        }
-
-        return $query;
+        // The window itself lives on the model, so the call log and anything
+        // after it ask the same question rather than a similar one.
+        return Lead::where('organization_id', $org->id)->visibleTo($member);
     }
 
     private function find(Request $request, string $uuid): Lead

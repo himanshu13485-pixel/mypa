@@ -465,6 +465,35 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/dial', [\App\Http\Controllers\Api\V1\DialController::class, 'store'])
             ->middleware('throttle:dial');
 
+        /*
+         * The calls that leave the app, on somebody's own SIM.
+         *
+         * Recorded as the dialler opens rather than afterwards: waiting until
+         * the person comes back to the app loses every call where they rang,
+         * talked, and put the phone down — which on a sales floor is most of
+         * them.
+         *
+         * Its own limiter for the same reason as the dial: an inline throttle
+         * would share the group's counter and refuse on the first real call.
+         */
+        /*
+         * Placing one needs the company workspace, because what is being
+         * rung is a lead, a client or a complaint, and resolving which —
+         * and checking it is the caller's to ring — is a question only the
+         * CRM member can answer.
+         */
+        Route::post('/phone-calls', [\App\Http\Controllers\Api\V1\PhoneCallController::class, 'store'])
+            ->middleware(['crm.member', 'throttle:dial']);
+
+        /*
+         * Saying how it went does not. These are about the caller's own
+         * calls wherever they were made, and a person answering "how did
+         * that go?" on their phone should not have to be inside a workspace
+         * for the answer to be accepted.
+         */
+        Route::get('/phone-calls/pending', [\App\Http\Controllers\Api\V1\PhoneCallController::class, 'pending']);
+        Route::patch('/phone-calls/{phoneCall}', [\App\Http\Controllers\Api\V1\PhoneCallController::class, 'update']);
+
         // Chat
         Route::get('/conversations', [ConversationController::class, 'index']);
         Route::post('/conversations', [ConversationController::class, 'store']);
@@ -802,6 +831,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::get('/leads', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'index']);
             });
             // The lead log is its own screen in the menu, so its own right.
+            // A lead's call history: who rang it, when, and how it went.
+            Route::get('/leads/{uuid}/calls', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'calls'])
+                ->middleware('crm.member:leads,view');
             Route::get('/lead-log', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'log'])
                 ->middleware('crm.member:lead_log,view');
             Route::middleware('crm.member:leads,view')->group(function () {

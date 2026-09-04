@@ -433,15 +433,8 @@ class ClientController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
 
-        $query = Client::where('organization_id', $org->id);
-
-        if (! $this->isManager($me)) {
-            $team = $me->teamMemberIds();
-            $query->where(fn ($q) => $q->whereIn('assigned_member_id', $team)
-                ->orWhereHas('sharedWith', fn ($s) => $s->whereIn('crm_members.id', $team)));
-        }
-
-        return $query;
+        // Same window, one definition — see Client::scopeVisibleTo.
+        return Client::where('organization_id', $org->id)->visibleTo($me);
     }
 
     /** The same company already on the books — by name, or by GST number. */

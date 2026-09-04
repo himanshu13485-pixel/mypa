@@ -516,7 +516,7 @@ export default function CrmLeadsPage() {
                           also navigating. */}
                       <div className="whitespace-nowrap">
                         {(l.mobile ?? l.phone)
-                          ? <PhoneLink value={l.mobile ?? l.phone} label={l.company_name} icon />
+                          ? <PhoneLink value={l.mobile ?? l.phone} label={l.company_name} subject={{ type: 'lead', uuid: l.uuid }} icon />
                           : '—'}
                       </div>
                       {/* title, because an address that has been truncated is
