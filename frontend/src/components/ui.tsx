@@ -1,4 +1,5 @@
 import { clsx } from 'clsx'
+import { forwardRef } from 'react'
 import type { ButtonHTMLAttributes, CSSProperties, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { AlertTriangle, Inbox, RefreshCw, X } from 'lucide-react'
 import { createPortal } from 'react-dom'
@@ -71,19 +72,27 @@ export function Button({
   )
 }
 
-export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      className={clsx(
-        FIELD,
-        widthClass(className),
-        'tap placeholder:text-slate-400',
-        className,
-      )}
-      {...props}
-    />
-  )
-}
+/*
+ * forwardRef, because the emoji picker needs the real <input> node to insert
+ * at the cursor rather than always at the end of the text — every existing
+ * caller passes no ref, so this changes nothing for any of them.
+ */
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function Input({ className, ...props }, ref) {
+    return (
+      <input
+        ref={ref}
+        className={clsx(
+          FIELD,
+          widthClass(className),
+          'tap placeholder:text-slate-400',
+          className,
+        )}
+        {...props}
+      />
+    )
+  },
+)
 
 export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (

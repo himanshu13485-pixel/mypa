@@ -11,6 +11,8 @@ import type { ConversationMember } from '../api/endpoints'
 import MessageAttachment from '../components/MessageAttachment'
 import PersonModal from '../components/PersonModal'
 import BroadcastModal from '../components/BroadcastModal'
+import { EmojiPicker } from '../components/EmojiPicker'
+import { insertAtCursor } from '../lib/insertAtCursor'
 import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
@@ -212,6 +214,30 @@ export default function MessagesPage() {
   /** True once the opened conversation has been pinned to its newest message. */
   const pinnedRef = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const draftInputRef = useRef<HTMLInputElement>(null)
+
+  /**
+   * Put an emoji where the cursor is, not always at the end.
+   *
+   * "Typing 😊 and finishing the sentence" is the ordinary case a chat emoji
+   * button exists for, and appending to the end instead would move every
+   * emoji you pick mid-sentence to the wrong place the moment you kept
+   * typing.
+   */
+  const insertEmoji = (emoji: string) => {
+    const el = draftInputRef.current
+    const start = el?.selectionStart ?? draft.length
+    const end = el?.selectionEnd ?? draft.length
+    const { text, cursor } = insertAtCursor(draft, emoji, start, end)
+    setDraft(text)
+
+    // The DOM has not re-rendered with the new value yet on this tick.
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(cursor, cursor)
+    })
+  }
+
 
   /*
    * Presence, as the sockets have it.
@@ -1252,7 +1278,9 @@ export default function MessagesPage() {
                 <VoiceRecorder onSend={(blob, seconds) => {
                   sendFiles([new File([blob], `voice-${Date.now()}.webm`, { type: blob.type })], 'voice', seconds)
                 }} />
+                <EmojiPicker onPick={insertEmoji} />
                 <Input
+                  ref={draftInputRef}
                   placeholder={editing ? 'Edit your message…' : 'Type a message…'}
                   value={draft}
                   onChange={(e) => {
