@@ -6,6 +6,7 @@ import { crm, crmAllows, crmCan, CRM_LEAD_STATUS_LABELS, type CrmLeadLogEntry } 
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
+import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { leadStatusBadge } from './CrmLeadsPage'
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -259,9 +260,12 @@ export default function CrmLeadDetailPage() {
           <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Contact</h2>
           <Row label="Company" value={lead.company_name} />
           <Row label="Person" value={lead.contact_person} />
-          <Row label="Mobile" value={lead.mobile} />
-          <Row label="Phone" value={lead.phone} />
-          <Row label="Email" value={lead.email} />
+          {/* Tap to ring, rather than reading the number off the screen and
+              typing it into the dialler — which is what a sales team on a
+              phone was doing every time. */}
+          <Row label="Mobile" value={<PhoneLink value={lead.mobile} />} />
+          <Row label="Phone" value={<PhoneLink value={lead.phone} />} />
+          <Row label="Email" value={<EmailLink value={lead.email} />} />
         </Card>
         <Card>
           <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Pipeline</h2>

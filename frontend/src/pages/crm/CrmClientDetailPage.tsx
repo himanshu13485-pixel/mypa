@@ -4,6 +4,7 @@ import { ArrowLeft, ReceiptText } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, CRM_CLIENT_CATEGORY_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
 import { Button, Card, Spinner } from '../../components/ui'
+import { EmailLink, PhoneLink } from '../../components/ContactLink'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -53,10 +54,10 @@ export default function CrmClientDetailPage() {
           <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Contact</h2>
           <Row label="Person" value={[c.title, c.contact_person].filter(Boolean).join(' ')} />
           <Row label="Designation" value={c.designation} />
-          <Row label="Mobile" value={c.mobile} />
-          <Row label="Telephone" value={c.telephone} />
-          <Row label="Email" value={c.email} />
-          <Row label="Alternate" value={c.alternate_email} />
+          <Row label="Mobile" value={<PhoneLink value={c.mobile} />} />
+          <Row label="Telephone" value={<PhoneLink value={c.telephone} />} />
+          <Row label="Email" value={<EmailLink value={c.email} />} />
+          <Row label="Alternate" value={<EmailLink value={c.alternate_email} />} />
           <Row label="Website" value={c.website} />
         </Card>
         <Card>

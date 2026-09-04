@@ -7,6 +7,7 @@ import { crm, crmAllows, CRM_LEAD_STATUS_LABELS, type CrmLead } from '../../api/
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
+import { PhoneLink } from '../../components/ContactLink'
 import { companyCase, emailCase, nameCase } from './textCase'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -510,7 +511,14 @@ export default function CrmLeadsPage() {
                       <div className="truncate text-xs text-slate-400">{l.contact_person}</div>
                     </td>
                     <td className="max-w-[200px] py-2.5 pr-3">
-                      <div className="whitespace-nowrap">{l.mobile ?? l.phone ?? '—'}</div>
+                      {/* The row opens the lead; the number rings it. Both
+                          on one line, so PhoneLink stops its own click from
+                          also navigating. */}
+                      <div className="whitespace-nowrap">
+                        {(l.mobile ?? l.phone)
+                          ? <PhoneLink value={l.mobile ?? l.phone} icon />
+                          : '—'}
+                      </div>
                       {/* title, because an address that has been truncated is
                           an address nobody can read off the screen. */}
                       {l.email && (

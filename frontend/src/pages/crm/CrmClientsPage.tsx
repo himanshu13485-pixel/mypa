@@ -7,6 +7,7 @@ import { crm, crmAllows, CRM_CLIENT_CATEGORY_LABELS, type CrmClient } from '../.
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
+import { PhoneLink } from '../../components/ContactLink'
 import { codeCase, companyCase, emailCase, nameCase } from './textCase'
 
 const TITLES = ['Mr.', 'Mrs.', 'Miss', 'Ms.', 'Dr.']
@@ -278,7 +279,9 @@ export default function CrmClientsPage() {
                       </div>
                     </td>
                     <td className="py-2.5 pr-3">{[c.title, c.contact_person].filter(Boolean).join(' ') || '—'}</td>
-                    <td className="whitespace-nowrap py-2.5 pr-3">{c.mobile ?? '—'}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3">
+                      {c.mobile ? <PhoneLink value={c.mobile} icon /> : '—'}
+                    </td>
                     <td className="max-w-[180px] truncate py-2.5 pr-3">{c.email ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3">{c.gst_no ?? '—'}</td>
                     <td className="py-2.5 pr-3">{c.assigned_member?.name ?? '—'}</td>
