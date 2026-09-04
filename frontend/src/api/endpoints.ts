@@ -558,6 +558,14 @@ export const chat = {
    * the ones it could not — an announcement group you cannot post in refuses
    * quietly rather than failing the other nine.
    */
+  /**
+   * A whole selection, passed on together — one request, and they land in
+   * the order they were written rather than the order responses come back.
+   */
+  forwardMany: (uuid: string, message_uuids: string[], conversation_uuids: string[]) =>
+    api.post<{ message: string; data: { sent: string[]; refused: string[]; messages: number } }>(
+      `/conversations/${uuid}/messages/forward`, { message_uuids, conversation_uuids },
+    ).then((r) => r.data),
   forward: (uuid: string, messageUuid: string, conversation_uuids: string[]) =>
     api.post<{ message: string; data: { sent: string[]; refused: string[] } }>(
       `/conversations/${uuid}/messages/${messageUuid}/forward`,

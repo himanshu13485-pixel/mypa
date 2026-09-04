@@ -477,6 +477,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::delete('/conversations/{conversation}/messages/{messageUuid}', [MessageController::class, 'destroy']);
         // The same message again, in somebody else's thread.
         Route::post('/conversations/{conversation}/messages/{messageUuid}/forward', [MessageController::class, 'forward']);
+        // A selection, passed on together. A collection-level action, so it
+        // sits a segment shorter than the single forward above and cannot be
+        // confused with it.
+        Route::post('/conversations/{conversation}/messages/forward', [MessageController::class, 'forwardMany']);
         // Kept privately, or held up for everyone.
         Route::post('/conversations/{conversation}/messages/{messageUuid}/star', [MessageController::class, 'star']);
         Route::post('/conversations/{conversation}/messages/{messageUuid}/pin', [MessageController::class, 'pin']);
