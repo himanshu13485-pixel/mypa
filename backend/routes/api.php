@@ -800,7 +800,11 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // there for why this one is not the exports.excel grant.
                 Route::get('/exports/leads', [\App\Http\Controllers\Api\V1\Crm\ExportController::class, 'leads']);
                 Route::get('/leads', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'index']);
-                Route::get('/lead-log', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'log']);
+            });
+            // The lead log is its own screen in the menu, so its own right.
+            Route::get('/lead-log', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'log'])
+                ->middleware('crm.member:lead_log,view');
+            Route::middleware('crm.member:leads,view')->group(function () {
                 Route::get('/leads/{uuid}', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'show']);
                 // Lead Duplication: the requests, own-only for non-deciders.
                 Route::get('/lead-requests', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'accessRequests']);
@@ -901,8 +905,20 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::put('/punch/{id}', [\App\Http\Controllers\Api\V1\Crm\PunchController::class, 'update'])
                 ->middleware('crm.member:punch,edit');
 
-            // Proforma + tax invoices (one engine; the kind rides on the row)
-            Route::middleware('crm.member:invoices,view')->group(function () {
+            /*
+             * Proforma and tax invoices: one engine, and now two rights.
+             *
+             * A proforma is a quote and an invoice is a demand for money, so
+             * a junior may well be trusted with the first and not the second
+             * — which the single 'invoices' right made impossible to express.
+             *
+             * The guard cannot sit in this file, because which right applies
+             * depends on the kind, and the kind is a query parameter on a
+             * list and a column on a row. So these carry membership only, and
+             * InvoiceController::forKind() asks the real question once the
+             * kind is actually known. Every method below opens with it.
+             */
+            Route::middleware('crm.member')->group(function () {
                 Route::get('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'index']);
                 Route::get('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'show']);
                 // Invoice Log / Proforma Log — the trail, same ledger window.
@@ -910,18 +926,23 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // The paper copy, rendered server-side (print dialogs are not
                 // available in every browser the CRM runs in).
                 Route::post('/invoices/{uuid}/email', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'email']);
+                Route::get('/invoices/{uuid}/pdf', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'pdf']);
+                Route::post('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'store']);
+                Route::put('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'update']);
+                Route::post('/invoices/{uuid}/cancel', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'cancel']);
+                /*
+                 * Converting a proforma into a tax invoice needs both: it
+                 * reads the one and raises the other, and somebody trusted
+                 * only with quotes must not be able to turn one into a bill.
+                 */
+                Route::post('/invoices/{uuid}/convert', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'convert']);
+            });
+            // The accounting exports are the tax invoices' own, and are
+            // additionally held by name through the exports.excel capability.
+            Route::middleware('crm.member:invoices,view')->group(function () {
                 Route::get('/exports/invoices', [\App\Http\Controllers\Api\V1\Crm\ExportController::class, 'invoices']);
                 Route::get('/exports/payments', [\App\Http\Controllers\Api\V1\Crm\ExportController::class, 'payments']);
-                Route::get('/invoices/{uuid}/pdf', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'pdf']);
             });
-            Route::post('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'store'])
-                ->middleware('crm.member:invoices,create');
-            Route::put('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'update'])
-                ->middleware('crm.member:invoices,edit');
-            Route::post('/invoices/{uuid}/cancel', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'cancel'])
-                ->middleware('crm.member:invoices,delete');
-            Route::post('/invoices/{uuid}/convert', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'convert'])
-                ->middleware('crm.member:invoices,create');
             Route::post('/invoices/{uuid}/payments', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'addPayment'])
                 ->middleware('crm.member:payments,create');
             Route::put('/invoices/{uuid}/payments/{paymentId}/charge', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'setPaymentCharge'])
@@ -956,19 +977,20 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member:payments,delete');
 
             // Vendors: registered before any bill can name them, exactly as
-            // a client is registered before an invoice. They ride the
-            // expenses rights, being the same head of work.
-            Route::middleware('crm.member:expenses,view')->group(function () {
+            // a client is registered before an invoice. Their own right now,
+            // because Vendors is its own entry in the menu — the rights
+            // screen used to be coarser than the sidebar it governs.
+            Route::middleware('crm.member:vendors,view')->group(function () {
                 Route::get('/vendors', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'index']);
                 Route::get('/vendors/options', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'options']);
                 Route::get('/vendors/{uuid}', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'show']);
             });
             Route::post('/vendors', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'store'])
-                ->middleware('crm.member:expenses,create');
+                ->middleware('crm.member:vendors,create');
             Route::put('/vendors/{uuid}', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'update'])
-                ->middleware('crm.member:expenses,edit');
+                ->middleware('crm.member:vendors,edit');
             Route::delete('/vendors/{uuid}', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'destroy'])
-                ->middleware('crm.member:expenses,delete');
+                ->middleware('crm.member:vendors,delete');
 
             // HR Policy: the house rules everyone is measured against.
             // Readable by all — rules people are judged by should be
@@ -1156,16 +1178,16 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::get('/reports/overview', [\App\Http\Controllers\Api\V1\Crm\ReportController::class, 'overview'])
                 ->middleware('crm.member');
             Route::get('/user-log', [\App\Http\Controllers\Api\V1\Crm\ReportController::class, 'userLog'])
-                ->middleware('crm.member:reports,view');
+                ->middleware('crm.member:user_log,view');
 
             // Commission to a client: an expense tied to a sale, never a
             // line on the invoice.
             Route::get('/commissions', [\App\Http\Controllers\Api\V1\Crm\CommissionController::class, 'index'])
-                ->middleware('crm.member:expenses,view');
+                ->middleware('crm.member:commissions,view');
             Route::post('/commissions', [\App\Http\Controllers\Api\V1\Crm\CommissionController::class, 'store'])
-                ->middleware('crm.member:expenses,create');
+                ->middleware('crm.member:commissions,create');
             Route::delete('/commissions/{uuid}', [\App\Http\Controllers\Api\V1\Crm\CommissionController::class, 'destroy'])
-                ->middleware('crm.member:expenses,delete');
+                ->middleware('crm.member:commissions,delete');
 
             // Internal notes on a document: whoever can see it can speak.
             Route::middleware('crm.member:invoices,view')->group(function () {
@@ -1176,13 +1198,13 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
 
             // Subscriptions: a document told to happen again.
             Route::get('/recurring', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'index'])
-                ->middleware('crm.member:invoices,view');
+                ->middleware('crm.member:recurring,view');
             Route::post('/invoices/{invoiceUuid}/recurring', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'store'])
-                ->middleware('crm.member:invoices,create');
+                ->middleware('crm.member:recurring,create');
             Route::post('/recurring/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'decide'])
-                ->middleware('crm.member:invoices,edit');
+                ->middleware('crm.member:recurring,edit');
             Route::post('/recurring/{uuid}/run', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'run'])
-                ->middleware('crm.member:invoices,create');
+                ->middleware('crm.member:recurring,create');
 
             // "Pay online" links against a proforma or an invoice.
             Route::get('/invoices/{invoiceUuid}/payment-links', [\App\Http\Controllers\Api\V1\Crm\PaymentLinkController::class, 'index'])

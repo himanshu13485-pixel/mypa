@@ -40,11 +40,48 @@ class InvoiceController extends Controller
         'notes' => ['notes'],
     ];
 
+    /**
+     * The right that governs one kind of document.
+     *
+     * A proforma is a quote and a tax invoice is a demand for money, and the
+     * two are now separate rights — a junior can be trusted with the first
+     * and not the second, which one shared 'invoices' right could not say.
+     *
+     * The check lives here rather than in the route file because the kind is
+     * only knowable once the request is in hand: a query parameter on a list,
+     * a column on a row. Every method that touches a document opens with it.
+     */
+    protected function forKind(Request $request, string $kind, string $ability): void
+    {
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        /*
+         * Both slugs written out rather than resolved into a variable.
+         *
+         * CrmModuleRightsTest walks the module list and fails on any right
+         * nothing asks for, by looking for exactly this call. A slug held in
+         * a variable is invisible to that check — and the check is worth more
+         * than the line it saves, because what it prevents is a checkbox that
+         * grants nothing while looking like it granted something.
+         */
+        $allowed = $kind === 'proforma'
+            ? $me?->can('proforma', $ability)
+            : $me?->can('invoices', $ability);
+
+        abort_unless($allowed, 403, $kind === 'proforma'
+            ? 'You do not have rights to proformas.'
+            : 'You do not have rights to invoices.');
+    }
+
     public function index(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
+
+        // Which list this is decides which right it needs.
+        $this->forKind($request, (string) $request->query('kind', 'invoice'), 'view');
 
         $query = Invoice::with(['client:id,uuid,company_name,contact_person', 'issuingCompany:id,name', 'member.user:id,name,email'])
             ->where('organization_id', $org->id)
@@ -187,6 +224,10 @@ class InvoiceController extends Controller
         $org = $request->attributes->get('crm_org');
         [$data, $items, $taxLines] = $this->validatePayload($request, $org->id);
 
+        // Validated first, so the kind being raised is the real one rather
+        // than whatever arrived in the body.
+        $this->forKind($request, (string) $data['kind'], 'create');
+
         $invoice = DB::transaction(function () use ($org, $data, $items, $taxLines, $request) {
             $company = IssuingCompany::where('organization_id', $org->id)->findOrFail($data['issuing_company_id']);
             $number = $company->claimNumber($data['kind']);
@@ -219,6 +260,7 @@ class InvoiceController extends Controller
             'client', 'issuingCompany', 'items', 'taxes', 'payments.bankAccount:id,label',
             'member.user:id,name,email', 'convertedFrom:id,uuid,number', 'convertedTo:id,uuid,number,converted_from_id',
         ]);
+        $this->forKind($request, $invoice->kind, 'view');
 
         return response()->json(['data' => $this->serialize($invoice, full: true)]);
     }
@@ -227,6 +269,7 @@ class InvoiceController extends Controller
     {
         $org = $request->attributes->get('crm_org');
         $invoice = $this->find($request, $uuid);
+        $this->forKind($request, $invoice->kind, 'edit');
 
         if ($invoice->status === 'cancelled') {
             abort(422, 'A cancelled document cannot be edited.');
@@ -256,6 +299,7 @@ class InvoiceController extends Controller
     public function cancel(Request $request, string $uuid): JsonResponse
     {
         $invoice = $this->find($request, $uuid);
+        $this->forKind($request, $invoice->kind, 'delete');
 
         if ($invoice->payments()->exists()) {
             abort(422, 'Payments are recorded against this document; remove them before cancelling.');
@@ -272,6 +316,15 @@ class InvoiceController extends Controller
     public function convert(Request $request, string $uuid, InvoiceConverter $converter): JsonResponse
     {
         $proforma = $this->find($request, $uuid);
+
+        /*
+         * Both rights, because this reads a quote and raises a bill.
+         * Somebody trusted only with proformas must not be able to turn one
+         * into a tax invoice, which is the whole distinction the split exists
+         * to draw.
+         */
+        $this->forKind($request, 'proforma', 'view');
+        $this->forKind($request, 'invoice', 'create');
 
         $invoice = $converter->convert($proforma, $request->user(), $request->attributes->get('crm_member'));
 
@@ -486,6 +539,7 @@ class InvoiceController extends Controller
         $invoice = $this->find($request, $uuid)->load([
             'client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email', 'payments',
         ]);
+        $this->forKind($request, $invoice->kind, 'view');
 
         return $this->documentPdf($invoice)
             ->download(str_replace(['/', '\\', ' '], '-', $invoice->number) . '.pdf');
@@ -501,6 +555,7 @@ class InvoiceController extends Controller
         $invoice = $this->find($request, $uuid)->load([
             'client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email', 'payments',
         ]);
+        $this->forKind($request, $invoice->kind, 'view');
         $org = $request->attributes->get('crm_org');
 
         $data = $request->validate([
@@ -650,6 +705,7 @@ class InvoiceController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
         $kind = $request->query('kind') === 'proforma' ? 'proforma' : 'invoice';
+        $this->forKind($request, $kind, 'view');
 
         // The same ledger window as the list: your own documents only,
         // unless you run the company.

@@ -88,9 +88,18 @@ class CrmModuleRightsTest extends TestCase
         }
     }
 
+    /**
+     * The four that granted nothing are still gone.
+     *
+     * 'proforma' is deliberately not among them any more. It was dead when
+     * this test was written — offered on the rights screen and consulted
+     * nowhere, with proformas actually gated by 'invoices'. It is now a real
+     * right with a real check behind it, which is the opposite problem being
+     * fixed rather than the same one returning.
+     */
     public function test_the_dead_checkboxes_are_gone(): void
     {
-        foreach (['dashboard', 'contests', 'proforma', 'settings'] as $slug) {
+        foreach (['dashboard', 'contests', 'settings'] as $slug) {
             $this->assertArrayNotHasKey($slug, Member::MODULES);
         }
     }

@@ -45,7 +45,10 @@ class CrmCommissionTest extends TestCase
             'clients' => ['view', 'create'],
             'invoices' => ['view', 'create'],
             'expenses' => ['view', 'create'],
-            'reports' => ['view'],
+            // Commissions are their own right since the module split; they
+            // used to ride on 'expenses' along with vendors.
+            'commissions' => ['view', 'create'],
+            'user_log' => ['view'],
         ];
         $this->alice = Member::create([
             'organization_id' => $this->org->id, 'user_id' => $this->aliceUser->id, 'crm_role' => 'employee',

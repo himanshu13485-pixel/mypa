@@ -29,46 +29,66 @@ class Member extends Model
      * on the rights screen.
      *
      * The label lives here rather than in a matching list in the browser,
-     * because a matching list is a list that stops matching. It already had:
-     * 'assets' was added to the modules here and never to the labels there,
-     * so the rights screen drew a row reading "assets" in lower case between
-     * "Salary" and "Newsletters" for however long that has been true.
+     * because a matching list is a list that stops matching.
      *
-     * The names say what the tick actually does, which in several cases is
-     * wider than the old label admitted — 'expenses' carries vendors and
-     * commissions, 'invoices' carries proforma and every log, and 'masters'
-     * is the whole Settings screen rather than the billing part of it.
-     * Somebody handing out rights is deciding what a colleague may reach, and
-     * a name that undersells the tick is how they grant more than they meant.
+     * One right per screen, so far as the server can actually tell screens
+     * apart. The rights page used to be coarser than the menu: a single
+     * "Proforma & invoices" tick opened five entries in the sidebar, so a
+     * junior who was meant to raise proformas got the power to issue tax
+     * invoices along with it. Granting more than you meant to is the one
+     * mistake a permissions screen must not invite.
      *
-     * Four slugs that used to be offered are gone: dashboard, contests,
-     * proforma and settings. Not one of them was consulted anywhere — no
-     * route, no controller, no menu entry — so ticking "Proforma invoices"
-     * granted nothing at all, and the thing it was reached for is gated by
-     * 'invoices'. A checkbox that does nothing is worse than a missing one:
-     * the person ticking it believes they have given somebody access, and
-     * finds out otherwise from the colleague who cannot work.
+     * Every slug here is asked about by a route or a controller. A right that
+     * hid a menu entry and nothing else would be worse than no right at all —
+     * the person ticking it would believe they had restricted something, and
+     * the API would go on answering. That is why Complaints is still one
+     * right: the complaint log is the same endpoint filtered to closed ones,
+     * so there is nothing behind a separate tick to enforce.
      */
     public const MODULES = [
         'employees' => 'Users — employee records',
         'clients' => 'Clients',
-        'leads' => 'Leads & lead log',
+        'leads' => 'Leads',
+        'lead_log' => 'Lead log',
         'targets' => 'Targets',
         'dwr' => 'DWR — everyone’s, not only their own',
         'punch' => 'Punch — correct somebody’s attendance',
         'tasks' => 'Tasks',
         'leaves' => 'Leave approvals',
         'approvals' => 'Approvals',
-        'invoices' => 'Proforma & invoices — logs, recurring, exports',
+        'proforma' => 'Proforma — raise them, and the proforma log',
+        'invoices' => 'Invoices — raise them, the invoice log, and the exports',
+        'recurring' => 'Recurring invoices',
         'payments' => 'Payments, payment links & reminders',
-        'expenses' => 'Expenses, vendors & commissions',
+        'expenses' => 'Expenses',
+        'vendors' => 'Vendors',
+        'commissions' => 'Commissions',
         'salary' => 'Salary runs',
         'assets' => 'Office assets',
         'newsletters' => 'Newsletters',
         'cms' => 'Notice board',
-        'complaints' => 'Complaints (CMS) & complaint log',
+        'complaints' => 'Complaints (CMS) & the complaint log',
         'masters' => 'Billing setup — the whole Settings screen',
-        'reports' => 'User log',
+        'user_log' => 'User log',
+    ];
+
+    /**
+     * What each retired right becomes, for members who already hold one.
+     *
+     * Read by the migration that splits them. Everybody keeps exactly what
+     * they could reach yesterday: somebody who held 'invoices' gets proforma,
+     * invoices and recurring, because that is what the one tick was already
+     * opening. Splitting a right must not be the morning half the office
+     * cannot work.
+     *
+     * Kept here rather than inline in the migration so the two lists cannot
+     * disagree, and so what happened is legible from the model afterwards.
+     */
+    public const SPLIT_MODULES = [
+        'leads' => ['leads', 'lead_log'],
+        'invoices' => ['proforma', 'invoices', 'recurring'],
+        'expenses' => ['expenses', 'vendors', 'commissions'],
+        'reports' => ['user_log'],
     ];
 
     /** Just the slugs, for the places that only ever wanted those. */
