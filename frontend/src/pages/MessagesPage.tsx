@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Forward, Megaphone, Mic, MoreVertical, Paperclip, Pencil, Phone, Pin, Plus,
+  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Copy, Flag, Forward, Megaphone, Mic, MoreVertical, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
@@ -32,6 +32,7 @@ import { Avatar } from '../lib/avatars'
 import { PresenceDot, PresenceInline } from '../components/PresenceDot'
 import { lastSeenLabel, resolvePresence, usePresenceMap } from '../lib/presence'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { useLongPress } from '../lib/useLongPress'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
@@ -216,6 +217,12 @@ export default function MessagesPage() {
    * behaviour, because it genuinely can hover.
    */
   const noHover = useMediaQuery('(hover: none)')
+  /*
+   * Press and hold a bubble to open its actions — the gesture every
+   * messaging app has trained people to reach for. Called once and bound per
+   * row, because a hook cannot be called inside the map below.
+   */
+  const bindLongPress = useLongPress()
   const [typing, setTyping] = useState<{ uuid: string; name: string }[]>([])
   const typingSentRef = useRef(0)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -1087,7 +1094,14 @@ export default function MessagesPage() {
                         m.is_own
                           ? 'rounded-br-sm bg-brand-600 text-white'
                           : 'rounded-bl-sm bg-slate-100 dark:bg-slate-800',
+                        // Only where the gesture is the way in. A mouse has
+                        // hover, and suppressing its text selection to catch
+                        // a press it will never make would be a plain loss.
+                        noHover && 'select-none',
                       )}
+                      {...(noHover && !m.is_deleted
+                        ? bindLongPress(() => { setActionsFor(m.uuid); setReactFor(null) })
+                        : {})}
                     >
                       {/* A message outlives the account that sent it, so the
                           name can be missing. Saying so is better than a line
@@ -1209,6 +1223,29 @@ export default function MessagesPage() {
                         <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Reply" onClick={() => { setReplyTo(m); setEditing(null) }}>
                           <Reply className="size-3.5" />
                         </button>
+                        {/*
+                          * Copy, which the long-press took away.
+                          *
+                          * Holding a bubble now opens this row, so on a touch
+                          * device the browser's own press-to-select-text no
+                          * longer happens — and "copy what someone sent me"
+                          * is far too ordinary a thing to lose. Text only:
+                          * there is nothing to put on a clipboard for a
+                          * message that is just a file.
+                          */}
+                        {!!m.body && (
+                          <button
+                            className="rounded p-1 text-slate-400 hover:text-brand-600"
+                            title="Copy text"
+                            onClick={() => {
+                              navigator.clipboard.writeText(m.body ?? '')
+                                .then(() => toast('Copied.', 'success'))
+                                .catch(() => toastError('This browser would not let the app copy. Select the text by hand.'))
+                            }}
+                          >
+                            <Copy className="size-3.5" />
+                          </button>
+                        )}
                         <button
                           className="rounded p-1 text-slate-400 hover:text-brand-600"
                           title="Forward"
