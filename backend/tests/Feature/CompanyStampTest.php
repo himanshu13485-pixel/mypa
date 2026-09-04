@@ -168,6 +168,53 @@ class CompanyStampTest extends TestCase
 
         // A PDF, not an error page that happens to have arrived with a 200.
         $this->assertStringStartsWith('%PDF', $response->getContent());
+
+        /*
+         * And the stamp is actually IN it — not merely that the document
+         * rendered without crashing.
+         *
+         * "Renders OK" is true whether or not is_file() found the stamp: the
+         * Blade falls back to three blank lines when $stampPath is empty, and
+         * that path renders a perfectly valid PDF too. Confirming the feature
+         * works means confirming the image was embedded, which a raster
+         * image inside a PDF always is, as an XObject of subtype /Image.
+         */
+        $this->assertStringContainsString('/Subtype /Image', $response->getContent());
+    }
+
+    /**
+     * The other half of the same proof: an invoice with no stamp produces no
+     * embedded image at all, so the marker above is not just something every
+     * PDF happens to contain.
+     */
+    public function test_an_invoice_with_no_stamp_embeds_no_image(): void
+    {
+        $client = \App\Models\Crm\Client::create([
+            'organization_id' => $this->org->id,
+            'company_name' => 'A Customer Ltd',
+            'status' => 'active',
+        ]);
+
+        $invoice = \App\Models\Crm\Invoice::create([
+            'organization_id' => $this->org->id,
+            'kind' => 'invoice',
+            'number' => 'INV-2',
+            'issuing_company_id' => $this->company->id,
+            'client_id' => $client->id,
+            'invoice_date' => now()->toDateString(),
+            'currency' => 'INR',
+            'subtotal' => 1000,
+            'total' => 1000,
+            'status' => 'issued',
+            'payment_status' => 'due',
+        ]);
+
+        $response = $this->actingAs($this->adminUser)
+            ->withHeader('X-Crm-Org', $this->org->uuid)
+            ->get("/api/v1/crm/invoices/{$invoice->uuid}/pdf");
+
+        $response->assertOk();
+        $this->assertStringNotContainsString('/Subtype /Image', $response->getContent());
     }
 
     /** Another company's stamp is not this organization's to change. */
