@@ -472,6 +472,17 @@ export const broadcasts = {
     ).then((r) => r.data),
 }
 
+/**
+ * "Ring this on my phone."
+ *
+ * Goes to the caller's own devices and takes no target user — see
+ * DialController for why that absence is the whole security model.
+ */
+export const dial = {
+  toMyPhone: (number: string, label?: string) =>
+    api.post<{ data: { number: string } }>('/dial', { number, label }).then((r) => r.data),
+}
+
 export const people = {
   get: (uuid: string) => api.get<{ data: PersonProfile }>(`/people/${uuid}`).then((r) => r.data.data),
 }

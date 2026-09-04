@@ -26,6 +26,7 @@ const CategoriesPage = lazyRoute('CategoriesPage', () => import('./pages/Categor
 const ConnectionsPage = lazyRoute('ConnectionsPage', () => import('./pages/ConnectionsPage'))
 const MessagesPage = lazyRoute('MessagesPage', () => import('./pages/MessagesPage'))
 const CallsPage = lazyRoute('CallsPage', () => import('./pages/CallsPage'))
+const DialPage = lazyRoute('DialPage', () => import('./pages/DialPage'))
 const NotesPage = lazyRoute('NotesPage', () => import('./pages/NotesPage'))
 const FilesPage = lazyRoute('FilesPage', () => import('./pages/FilesPage'))
 const GroupsPage = lazyRoute('GroupsPage', () => import('./pages/GroupsPage'))
@@ -349,6 +350,8 @@ export default function App() {
             <Route path="/categories" element={<CategoriesPage />} />
             <Route path="/connections" element={<ConnectionsPage />} />
             <Route path="/messages" element={<MessagesPage />} />
+            {/* Where a "call this" notification lands when it is tapped. */}
+            <Route path="/dial" element={<DialPage />} />
             <Route path="/calls" element={<CallsPage />} />
             <Route path="/notes" element={<NotesPage />} />
             <Route path="/files" element={<FilesPage />} />

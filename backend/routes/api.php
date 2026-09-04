@@ -453,6 +453,18 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/broadcasts', [BroadcastController::class, 'store'])
             ->middleware('throttle:6,1');
 
+        /*
+         * "Ring this on my phone." Sent to the caller's own devices only —
+         * there is no target user, which is what keeps it from being a way to
+         * make somebody else's phone dial a number.
+         *
+         * Its own bucket: a person clicks this a few times a minute at most,
+         * and a runaway client should not be able to make a phone buzz on a
+         * loop.
+         */
+        Route::post('/dial', [\App\Http\Controllers\Api\V1\DialController::class, 'store'])
+            ->middleware('throttle:20,1');
+
         // Chat
         Route::get('/conversations', [ConversationController::class, 'index']);
         Route::post('/conversations', [ConversationController::class, 'store']);

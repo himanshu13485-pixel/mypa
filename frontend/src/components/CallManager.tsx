@@ -10,7 +10,7 @@ import { getEcho } from '../lib/echo'
 import { useAuthStore } from '../stores/auth'
 import { usePresenceFeed } from '../lib/presence'
 import { useOnlineAlerts } from '../lib/useOnlineAlerts'
-import { holdMicrophoneInBackground, nativeAudioDevices, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
+import { holdMicrophoneInBackground, inNativeShell, nativeAudioDevices, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
 import { PickUserModal } from './UserSuggest'
 import { useToast } from './Toast'
 import { Button } from './ui'
@@ -818,6 +818,23 @@ export function CallProvider({ children }: { children: ReactNode }) {
     if (!echo) return
 
     const channel = echo.private(`user.${user.uuid}`)
+
+    /*
+     * "Ring this on my phone", sent from this person's own laptop.
+     *
+     * Only the phone acts on it. The laptop that sent it is subscribed to the
+     * same channel — it is the same account — and a browser navigating to a
+     * tel: URL either does nothing or hands the call to Skype, neither of
+     * which is what was asked for.
+     *
+     * location.href rather than window.open: the Android WebView passes a
+     * tel: navigation to the system dialler, and a popup would be blocked
+     * for not coming from a click.
+     */
+    channel.listen('.dial.requested', (payload: { number: string; label?: string | null }) => {
+      if (!inNativeShell() || !payload?.number) return
+      window.location.href = `tel:${payload.number}`
+    })
 
     channel.listen('.call.signal', async (signal: CallSignalPayload) => {
       const call = callRef.current
