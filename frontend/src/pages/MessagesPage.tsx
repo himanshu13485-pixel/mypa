@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Forward, Megaphone, Mic, Paperclip, Pencil, Phone, Pin, Plus,
+  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Forward, Megaphone, Mic, MoreVertical, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
@@ -31,6 +31,7 @@ import type { ChatMessage, ConversationItem } from '../types'
 import { Avatar } from '../lib/avatars'
 import { PresenceDot, PresenceInline } from '../components/PresenceDot'
 import { lastSeenLabel, resolvePresence, usePresenceMap } from '../lib/presence'
+import { useMediaQuery } from '../lib/useMediaQuery'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
@@ -190,6 +191,31 @@ export default function MessagesPage() {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [reactFor, setReactFor] = useState<string | null>(null)
+  /*
+   * Which message has its action row open, on a touchscreen.
+   *
+   * The row used to be revealed by `group-hover` alone, which is a rule that
+   * can only ever fire for a mouse. On a phone — and most of all inside the
+   * Android shell, whose WebView does not fake a hover state the way mobile
+   * Chrome sometimes does — reply, forward, edit, pin, star and delete were
+   * all present in the DOM, correct, tested, and completely unreachable.
+   *
+   * One id rather than a boolean per row, like reactFor above it: opening the
+   * actions on a second message closes the first, which is the behaviour
+   * hover gave for free.
+   */
+  const [actionsFor, setActionsFor] = useState<string | null>(null)
+  /*
+   * Hover capability, not screen size.
+   *
+   * The first cut of this asked useIsPhone(), which would have left every
+   * tablet exactly as broken as the phone was — an iPad is wider than any
+   * phone breakpoint and has no more hover than one. `(hover: none)` asks the
+   * question the bug is actually about, and answers it correctly for the
+   * awkward middle too: a touchscreen laptop with a trackpad keeps the hover
+   * behaviour, because it genuinely can hover.
+   */
+  const noHover = useMediaQuery('(hover: none)')
   const [typing, setTyping] = useState<{ uuid: string; name: string }[]>([])
   const typingSentRef = useRef(0)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -1138,9 +1164,45 @@ export default function MessagesPage() {
                       </div>
                     )}
 
-                    {/* Hover actions */}
-                    {!m.is_deleted && (
-                      <div className={clsx('absolute -top-3 hidden gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm group-hover:flex dark:border-slate-700 dark:bg-slate-800', m.is_own ? 'right-0' : 'left-0')}>
+                    {/*
+                      * Message actions.
+                      *
+                      * On a mouse these appear on hover, as they always have.
+                      * On a touchscreen there is no hover to appear on, so the
+                      * same row gets a visible handle to open it — every one
+                      * of reply, forward, edit, pin, star and delete was
+                      * otherwise unreachable on a phone, which is exactly how
+                      * a feature ships, passes its tests, and still cannot be
+                      * used by the people it was built for.
+                      *
+                      * A visible handle rather than a long-press: long-press
+                      * fights text selection and scrolling for the same
+                      * gesture, and a gesture nobody is told about is not
+                      * much better than no gesture at all.
+                      */}
+                    {!m.is_deleted && noHover && actionsFor !== m.uuid && (
+                      <button
+                        type="button"
+                        aria-label="Message actions"
+                        className={clsx('absolute -top-3 flex size-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm dark:border-slate-700 dark:bg-slate-800', m.is_own ? 'right-0' : 'left-0')}
+                        onClick={() => { setActionsFor(m.uuid); setReactFor(null) }}
+                      >
+                        <MoreVertical className="size-3.5" />
+                      </button>
+                    )}
+                    {!m.is_deleted && (!noHover || actionsFor === m.uuid) && (
+                      <div
+                        className={clsx(
+                          'absolute -top-3 gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm dark:border-slate-700 dark:bg-slate-800',
+                          m.is_own ? 'right-0' : 'left-0',
+                          // Open on tap for touch; on hover, as before, for a mouse.
+                          noHover ? 'flex' : 'hidden group-hover:flex',
+                        )}
+                        // Whatever was tapped in here, the row has done its
+                        // job — collapse it back to the handle. Bubbles after
+                        // the button's own handler, so the action still runs.
+                        onClick={() => { if (noHover) setActionsFor(null) }}
+                      >
                         <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="React" onClick={() => setReactFor(reactFor === m.uuid ? null : m.uuid)}>
                           <Smile className="size-3.5" />
                         </button>

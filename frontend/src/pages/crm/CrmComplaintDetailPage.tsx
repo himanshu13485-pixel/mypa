@@ -10,6 +10,7 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner } from '../../components/ui'
 import { ErrorPill, StatusPill } from './CrmComplaintsPage'
+import { useMediaQuery } from '../../lib/useMediaQuery'
 
 export default function CrmComplaintDetailPage() {
   const { uuid = '' } = useParams()
@@ -320,6 +321,12 @@ function Thread({ title, hint, tone, replies, me, onDelete }: {
   onDelete: (replyUuid: string) => void
 }) {
   const manager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
+  /*
+   * On a touchscreen the remove button cannot fade in on hover, because there
+   * is no hover — and unlike the calendar's add button, nothing else here
+   * deletes a reply, so on a tablet or a phone it simply could not be done.
+   */
+  const noHover = useMediaQuery('(hover: none)')
 
   return (
     <Card>
@@ -353,7 +360,7 @@ function Thread({ title, hint, tone, replies, me, onDelete }: {
                   {(manager || r.author_uuid === me?.member?.uuid) && (
                     <button
                       onClick={() => onDelete(r.uuid)}
-                      className="opacity-0 transition group-hover:opacity-100"
+                      className={clsx('transition', noHover ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
                       aria-label="Remove"
                     >
                       <Trash2 className="size-3.5 text-slate-400 hover:text-red-500" />
