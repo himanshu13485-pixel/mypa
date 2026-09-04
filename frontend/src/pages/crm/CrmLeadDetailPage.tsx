@@ -6,7 +6,7 @@ import { crm, crmAllows, crmCan, CRM_LEAD_STATUS_LABELS, type CrmLeadLogEntry } 
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
-import { DialOnPhoneButton, EmailLink, PhoneLink } from '../../components/ContactLink'
+import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { leadStatusBadge } from './CrmLeadsPage'
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
@@ -263,17 +263,11 @@ export default function CrmLeadDetailPage() {
           {/* Tap to ring, rather than reading the number off the screen and
               typing it into the dialler — which is what a sales team on a
               phone was doing every time. */}
-          {/* The number rings on a phone; the button beside it rings on the
-              laptop user's own phone, since a tel: link there mostly does
-              nothing at all. */}
-          <Row label="Mobile" value={<span className="inline-flex items-center gap-1.5">
-            <PhoneLink value={lead.mobile} />
-            <DialOnPhoneButton value={lead.mobile} label={lead.company_name} />
-          </span>} />
-          <Row label="Phone" value={<span className="inline-flex items-center gap-1.5">
-            <PhoneLink value={lead.phone} />
-            <DialOnPhoneButton value={lead.phone} label={lead.company_name} />
-          </span>} />
+          {/* On a phone this dials; on a laptop it sends the number to the
+              phone in your pocket, since a tel: link there only produces an
+              app chooser that cannot place a call. */}
+          <Row label="Mobile" value={<PhoneLink value={lead.mobile} label={lead.company_name} />} />
+          <Row label="Phone" value={<PhoneLink value={lead.phone} label={lead.company_name} />} />
           <Row label="Email" value={<EmailLink value={lead.email} />} />
         </Card>
         <Card>

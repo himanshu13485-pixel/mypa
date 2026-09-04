@@ -280,7 +280,7 @@ export default function CrmClientsPage() {
                     </td>
                     <td className="py-2.5 pr-3">{[c.title, c.contact_person].filter(Boolean).join(' ') || '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3">
-                      {c.mobile ? <PhoneLink value={c.mobile} icon /> : '—'}
+                      {c.mobile ? <PhoneLink value={c.mobile} label={c.company_name} icon /> : '—'}
                     </td>
                     <td className="max-w-[180px] truncate py-2.5 pr-3">{c.email ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3">{c.gst_no ?? '—'}</td>

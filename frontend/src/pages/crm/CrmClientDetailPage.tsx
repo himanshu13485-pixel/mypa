@@ -54,8 +54,8 @@ export default function CrmClientDetailPage() {
           <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Contact</h2>
           <Row label="Person" value={[c.title, c.contact_person].filter(Boolean).join(' ')} />
           <Row label="Designation" value={c.designation} />
-          <Row label="Mobile" value={<PhoneLink value={c.mobile} />} />
-          <Row label="Telephone" value={<PhoneLink value={c.telephone} />} />
+          <Row label="Mobile" value={<PhoneLink value={c.mobile} label={c.company_name} />} />
+          <Row label="Telephone" value={<PhoneLink value={c.telephone} label={c.company_name} />} />
           <Row label="Email" value={<EmailLink value={c.email} />} />
           <Row label="Alternate" value={<EmailLink value={c.alternate_email} />} />
           <Row label="Website" value={c.website} />
