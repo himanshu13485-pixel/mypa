@@ -126,6 +126,30 @@ class MobileOtpService
         return $otp;
     }
 
+    /**
+     * The one code that always works, on a local machine only.
+     *
+     * Issuing still runs exactly as it does everywhere — a row is created,
+     * a notification goes out — the only thing this shortcuts is DELIVERY,
+     * which on a dev machine usually means mail is not configured, or the
+     * bell nobody is watching. Without it, nobody can get past a sign-in
+     * code screen until mail works, which blocks every other kind of work.
+     *
+     * Gated on app()->environment('local') rather than an .env flag: an env
+     * var is one copy-paste of a production .env away from being true where
+     * it must never be, and 'local' is what Laravel itself calls the
+     * environment this process is running in — nothing this reads can make
+     * it true by mistake.
+     *
+     * A real, unexpired, unconsumed row still has to exist for this user and
+     * purpose. That is not caution for its own sake: verify_mobile and
+     * verify_email read the pending value off that row afterwards ($otp->
+     * mobile carries the new number or address), so skipping the row would
+     * verify a mobile change into no mobile at all. This only ever skips the
+     * comparison against $otp->code, never the lookup.
+     */
+    private const LOCAL_BYPASS_CODE = '123456';
+
     public function verify(User $user, string $code, string $purpose = 'verify_mobile'): MobileOtp
     {
         $otp = MobileOtp::where('user_id', $user->id)
@@ -140,7 +164,9 @@ class MobileOtpService
             ]);
         }
 
-        if (! hash_equals($otp->code, trim($code))) {
+        $bypassed = app()->environment('local') && trim($code) === self::LOCAL_BYPASS_CODE;
+
+        if (! $bypassed && ! hash_equals($otp->code, trim($code))) {
             $otp->increment('attempts');
             throw ValidationException::withMessages([
                 'code' => ['Incorrect code. ' . max(0, 5 - $otp->attempts) . ' attempt(s) left.'],
