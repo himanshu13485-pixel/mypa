@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, KeyRound, Landmark, LifeBuoy, ListChecks, Pencil, Plus, Wallet } from 'lucide-react'
+import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, Image as ImageIcon, KeyRound, Landmark, LifeBuoy, ListChecks, Pencil, Plus, Upload, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
+import { usePrompt } from '../../components/Prompt'
+import { photoUrl } from '../../lib/avatars'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner } from '../../components/ui'
 
 type Company = CrmMasters['issuing_companies'][number]
@@ -498,6 +500,14 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
   })
   const [logo, setLogo] = useState<File | null>(null)
   const [stamp, setStamp] = useState<File | null>(null)
+  /*
+   * The app's own dialog, not window.confirm.
+   *
+   * Several in-app browsers and Android WebViews refuse confirm() outright
+   * and return without showing anything — so Remove would have done nothing
+   * at all, silently, for exactly the people who use this in the APK.
+   */
+  const { confirm } = usePrompt()
 
   const mutation = useMutation({
     mutationFn: async () => {
@@ -555,49 +565,35 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
               A non-INR company bills whole invoices in that currency; each carries a universal INR equivalent at the live rate less the FX margin.
             </p>
           </div>
-          <div>
-            <Label>Company logo (prints on invoices &amp; payslips)</Label>
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={(e) => setLogo(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-emerald-700"
-            />
-            {editing?.logo_path && !logo && <p className="mt-1 text-xs text-emerald-600">Logo on file — upload to replace.</p>}
-          </div>
-          <div>
-            {/* Its own upload, because a stamp is not a second logo: it prints
-                over the signing space at the foot, not in the header. */}
-            <Label>Company stamp (prints beside the signatory)</Label>
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              onChange={(e) => setStamp(e.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-emerald-700"
-            />
-            <p className="mt-1 text-xs text-slate-400">
-              A PNG with a transparent background sits over the signature line properly; anything else
-              prints as a white box on top of it.
-            </p>
-            {editing?.stamp_path && !stamp && (
-              <p className="mt-1 flex items-center gap-2 text-xs text-emerald-600">
-                Stamp on file — upload to replace.
-                <button
-                  type="button"
-                  className="text-red-500 hover:underline"
-                  onClick={() => {
-                    if (editing.id && confirm(`Remove the stamp from this company's documents?`)) {
-                      crm.masterData.deleteCompanyStamp(editing.id)
-                        .then(() => { setStamp(null); onDone() })
-                        .catch((err) => setError(errorMessage(err)))
-                    }
-                  }}
-                >
-                  Remove
-                </button>
-              </p>
-            )}
-          </div>
+          <ImageField
+            className="col-span-2"
+            label="Company logo (prints on invoices & payslips)"
+            path={editing?.logo_path}
+            picked={logo}
+            onPick={setLogo}
+            onRemove={editing?.id ? async () => {
+              if (! await confirm({ title: 'Remove the logo?', message: 'It comes off this company’s invoices and payslips.', actionLabel: 'Remove', danger: true })) return
+              crm.masterData.deleteCompanyLogo(editing.id!)
+                .then(() => { setLogo(null); onDone() })
+                .catch((err) => setError(errorMessage(err)))
+            } : undefined}
+          />
+          {/* Its own upload, because a stamp is not a second logo: it prints
+              over the signing space at the foot, not in the header. */}
+          <ImageField
+            className="col-span-2"
+            label="Company stamp (prints beside the signatory)"
+            hint="A PNG with a transparent background sits over the signature line properly; anything else prints as a white box on top of it."
+            path={editing?.stamp_path}
+            picked={stamp}
+            onPick={setStamp}
+            onRemove={editing?.id ? async () => {
+              if (! await confirm({ title: 'Remove the stamp?', message: 'Documents go back to a blank space to sign in.', actionLabel: 'Remove', danger: true })) return
+              crm.masterData.deleteCompanyStamp(editing.id!)
+                .then(() => { setStamp(null); onDone() })
+                .catch((err) => setError(errorMessage(err)))
+            } : undefined}
+          />
         </div>
         <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
           <input type="checkbox" checked={form.pays_salary} onChange={(e) => setForm((f) => ({ ...f, pays_salary: e.target.checked }))} className="mt-0.5 size-4 accent-emerald-600" />
@@ -1280,3 +1276,108 @@ function ComplaintOptions() {
     </Card>
   )
 }
+
+/**
+ * A picture the company has, or has not, uploaded yet.
+ *
+ * The native file input was the whole trouble: it says "No file chosen"
+ * whichever is true, because all it can describe is this visit to the form —
+ * a file already on the server is not a file it has been handed. So it sat
+ * beside a line reading "Stamp on file" and flatly contradicted it, and
+ * people believed the control rather than the sentence.
+ *
+ * The picture answers it instead. Somebody looking at their own stamp has
+ * nothing left to disbelieve, and the wording underneath only has to say
+ * which of the two it is: what is on the documents now, or what will be once
+ * this form is saved.
+ */
+function ImageField({
+  label,
+  hint,
+  path,
+  picked,
+  onPick,
+  onRemove,
+  className,
+}: {
+  label: string
+  hint?: string
+  className?: string
+  /** What the documents carry today; absent until something is uploaded. */
+  path?: string | null
+  /** Chosen in this form and not yet saved. */
+  picked: File | null
+  onPick: (file: File | null) => void
+  onRemove?: () => void
+}) {
+  /*
+   * The chosen file, shown before it is uploaded — so a wrong pick is caught
+   * here rather than on the next invoice. Revoked on the way out: an object
+   * URL holds the file in memory until it is.
+   */
+  const [preview, setPreview] = useState<string | null>(null)
+  useEffect(() => {
+    if (!picked) return setPreview(null)
+    const url = URL.createObjectURL(picked)
+    setPreview(url)
+
+    return () => URL.revokeObjectURL(url)
+  }, [picked])
+
+  const src = preview ?? (path ? photoUrl(path) : null)
+
+  return (
+    <div className={className}>
+      <Label>{label}</Label>
+      <div className="mt-1 flex items-center gap-3">
+        {/* Checked behind, because a transparent PNG on a plain panel is an
+            invisible one — and transparency is the thing that matters most
+            about a stamp. */}
+        <div
+          className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-dashed border-slate-300 bg-[length:10px_10px] bg-slate-50 dark:border-slate-600 dark:bg-slate-800"
+          style={src ? {
+            backgroundImage:
+              'linear-gradient(45deg,rgba(120,120,120,.16) 25%,transparent 25%,transparent 75%,rgba(120,120,120,.16) 75%),'
+              + 'linear-gradient(45deg,rgba(120,120,120,.16) 25%,transparent 25%,transparent 75%,rgba(120,120,120,.16) 75%)',
+            backgroundPosition: '0 0, 5px 5px',
+          } : undefined}
+        >
+          {src
+            ? <img src={src} alt="" className="max-h-full max-w-full object-contain" />
+            : <ImageIcon className="size-5 text-slate-300 dark:text-slate-600" />}
+        </div>
+
+        <div className="min-w-0">
+          {/* The input itself is hidden and driven by this label, so the
+              browser's own "No file chosen" never gets a say. */}
+          <label className="tap inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-500/15 dark:text-emerald-300">
+            <Upload className="size-3.5" />
+            {src ? 'Replace' : 'Choose image'}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+              className="sr-only"
+            />
+          </label>
+
+          <p className="mt-1 text-xs">
+            {picked
+              ? <span className="text-amber-600 dark:text-amber-400">{picked.name} — saved when you save this company.</span>
+              : path
+                ? <span className="text-emerald-600">On file, and on your documents.</span>
+                : <span className="text-slate-400">Nothing uploaded yet.</span>}
+          </p>
+        </div>
+
+        {onRemove && path && !picked && (
+          <button type="button" onClick={onRemove} className="ml-auto shrink-0 text-xs text-red-500 hover:underline">
+            Remove
+          </button>
+        )}
+      </div>
+      {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
+    </div>
+  )
+}
+

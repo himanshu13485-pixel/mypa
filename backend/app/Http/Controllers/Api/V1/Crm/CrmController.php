@@ -114,7 +114,17 @@ class CrmController extends Controller
                 ->values(),
             'issuing_companies' => IssuingCompany::where('organization_id', $org->id)
                 ->orderBy('name')
-                ->get(['id', 'name', 'gstin', 'pan', 'phone', 'email', 'address', 'state_code', 'invoice_prefix', 'proforma_prefix', 'is_active', 'logo_path', 'currency', 'pays_salary']),
+                /*
+                 * stamp_path sits beside logo_path, and was missing.
+                 *
+                 * Billing setup asks this list whether a stamp is on file, so
+                 * without it the answer was always no: the "Stamp on file"
+                 * line never drew, its Remove button could never be reached,
+                 * and the file input's own "No file chosen" was the only
+                 * thing on screen — saying the opposite of the truth about a
+                 * stamp that was uploaded, stored and printing on documents.
+                 */
+                ->get(['id', 'name', 'gstin', 'pan', 'phone', 'email', 'address', 'state_code', 'invoice_prefix', 'proforma_prefix', 'is_active', 'logo_path', 'stamp_path', 'currency', 'pays_salary']),
             'bank_accounts' => BankAccount::with('issuingCompany:id,name')
                 ->where('organization_id', $org->id)
                 ->orderBy('label')

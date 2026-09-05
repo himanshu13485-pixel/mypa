@@ -2585,6 +2585,9 @@ export const crm = {
       form.append('file', file)
       return api.post<{ message: string }>(`/crm/masters/issuing-companies/${id}/stamp`, form).then((r) => r.data)
     },
+    /** Off the documents again, without having to put another in its place. */
+    deleteCompanyLogo: (id: number) =>
+      api.delete<{ message: string }>(`/crm/masters/issuing-companies/${id}/logo`).then((r) => r.data),
     deleteCompanyStamp: (id: number) =>
       api.delete<{ message: string }>(`/crm/masters/issuing-companies/${id}/stamp`).then((r) => r.data),
     fxRate: (currency: string) =>

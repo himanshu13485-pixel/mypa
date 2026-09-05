@@ -293,6 +293,20 @@ class MasterController extends Controller
         return response()->json(['message' => 'Logo uploaded.', 'data' => ['logo_path' => $path]]);
     }
 
+    /** Taking the logo off again, as the stamp has always been able to be. */
+    public function deleteCompanyLogo(Request $request, int $id): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $company = IssuingCompany::where('organization_id', $org->id)->findOrFail($id);
+
+        if ($company->logo_path) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($company->logo_path);
+            $company->update(['logo_path' => null]);
+        }
+
+        return response()->json(['message' => 'Logo removed.']);
+    }
+
     /**
      * The company's stamp — prints beside the signatory on its documents.
      *
