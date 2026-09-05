@@ -8,6 +8,8 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
+import { KeywordChips } from '../../components/KeywordChips'
+import { readsAsKeywords } from '../../lib/keywords'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -355,7 +357,13 @@ export default function CrmInvoiceViewPage() {
                         .filter(Boolean).join(' — ') || '—'}
                     </div>
                     {columnShown('description') && it.description && (
-                      <div className="mt-0.5 whitespace-pre-wrap text-xs text-slate-500">{it.description}</div>
+                      /* Read back the way it was meant: a list of materials
+                         as separate keywords, prose as prose. */
+                      readsAsKeywords(it.description) ? (
+                        <KeywordChips text={it.description} className="mt-1" />
+                      ) : (
+                        <div className="mt-0.5 whitespace-pre-wrap text-xs text-slate-500">{it.description}</div>
+                      )
                     )}
                     {/* The company's own Work Order method (DCW), printed
                         with the line it belongs to. */}

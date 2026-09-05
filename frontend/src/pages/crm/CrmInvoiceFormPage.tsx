@@ -8,6 +8,7 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Select, Spinner, Textarea } from '../../components/ui'
 import { codeCase, companyCase } from './textCase'
 import { crmPath } from '../../lib/crmPath'
+import { KeywordChips } from '../../components/KeywordChips'
 
 /** One Work Order line. `custom` holds this company's own DCW values. */
 interface ItemRow {
@@ -286,19 +287,39 @@ export default function CrmInvoiceFormPage() {
     }
     if (c.type === 'textarea') {
       return (
-        <Textarea rows={2} value={row[key]} onChange={(e) => setItem(idx, key, e.target.value)} placeholder={c.label} className="w-full" />
+        <>
+          <Textarea rows={2} value={row[key]} onChange={(e) => setItem(idx, key, e.target.value)} placeholder={c.label} className="w-full" />
+          {/* A comma-separated description is a list of things; showing it
+              as one tells the writer what the line will actually say. */}
+          {key === 'description' && (
+            <KeywordChips
+              text={row[key]}
+              onChange={(text) => setItem(idx, key, text)}
+              className="mt-1"
+            />
+          )}
+        </>
       )
     }
 
     return (
-      <Input
-        value={row[key]}
-        onChange={(e) => setItem(idx, key, e.target.value)}
-        // House style on the name-like boxes only; free text stays as typed.
-        onBlur={() => key !== 'description' && setItem(idx, key, companyCase(row[key]))}
-        placeholder={c.label}
-        className="w-full"
-      />
+      <>
+        <Input
+          value={row[key]}
+          onChange={(e) => setItem(idx, key, e.target.value)}
+          // House style on the name-like boxes only; free text stays as typed.
+          onBlur={() => key !== 'description' && setItem(idx, key, companyCase(row[key]))}
+          placeholder={c.label}
+          className="w-full"
+        />
+        {key === 'description' && (
+          <KeywordChips
+            text={row[key]}
+            onChange={(text) => setItem(idx, key, text)}
+            className="mt-1"
+          />
+        )}
+      </>
     )
   }
 
