@@ -55,7 +55,8 @@ import {
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { crm, crmCan, setCrmOrg, type CrmMe } from '../../api/crm'
+import { crm, crmMeQuery, crmCan, setCrmOrg, type CrmMe } from '../../api/crm'
+import { crmPath } from '../../lib/crmPath'
 import { Spinner } from '../../components/ui'
 
 interface NavItem {
@@ -167,7 +168,7 @@ export default function CrmLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const { data: me, isLoading } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me, isLoading } = useQuery(crmMeQuery())
   // The phone menu: the same list as the sidebar, behind the three lines.
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -247,8 +248,8 @@ export default function CrmLayout() {
   const currentSection = SECTIONS
     .flatMap((group) => group.items)
     .find((item) => item.to && item.section && (
-      location.pathname === item.to.split('?')[0]
-      || location.pathname.startsWith(item.to.split('?')[0] + '/')
+      location.pathname === crmPath(item.to).split('?')[0]
+      || location.pathname.startsWith(crmPath(item.to).split('?')[0] + '/')
     ))?.section
 
   useEffect(() => {
@@ -289,8 +290,10 @@ export default function CrmLayout() {
    * decides, and a document page with no kind reads as a tax invoice.
    */
   const isNavActive = (to: string) => {
-    const [path, query] = to.split('?')
-    if (path === '/crm') return location.pathname === '/crm'
+    // The sidebar's entries are written without a company; the address bar
+    // has one. Compared as-is, nothing would ever look active.
+    const [path, query] = crmPath(to).split('?')
+    if (path === crmPath('/crm')) return location.pathname === path
     if (location.pathname !== path && !location.pathname.startsWith(path + '/')) return false
     if (!query) return true
     const want = new URLSearchParams(query)
@@ -372,7 +375,7 @@ export default function CrmLayout() {
                   item.to ? (
                     <NavLink
                       key={item.label}
-                      to={item.to}
+                      to={crmPath(item.to)}
                       end={item.to === '/crm'}
                       className={linkClass(isNavActive(item.to!))}
                     >

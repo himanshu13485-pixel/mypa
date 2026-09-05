@@ -1,4 +1,5 @@
 import { api } from './client'
+import { companyIn } from '../lib/crmPath'
 
 /*
  * The CRM addon's API surface. Kept apart from endpoints.ts on purpose: the
@@ -22,8 +23,17 @@ export function getCrmOrg(): string | null {
   return localStorage.getItem(CRM_ORG_KEY)
 }
 
+/*
+ * Which company every CRM request is answered as.
+ *
+ * The address bar wins. /crm/bhavya-steel/leads asks for bhavya-steel, so a
+ * link opens the same records for whoever clicks it — which is the whole
+ * point of putting the company in the URL. localStorage is only the fallback
+ * for the platform's own unslugged screens and for the moment before the
+ * shell has redirected.
+ */
 api.interceptors.request.use((config) => {
-  const org = localStorage.getItem(CRM_ORG_KEY)
+  const org = companyIn(window.location.pathname) ?? localStorage.getItem(CRM_ORG_KEY)
   if (org && config.url?.startsWith('/crm')) {
     config.headers['X-Crm-Org'] = org
   }
@@ -74,7 +84,13 @@ export interface CrmMe {
     /** Set when this session is itself a borrowed one. */
     impersonating?: { level: 'crm_read' | 'crm' | 'account' } | null
   } | null
-  organization: { uuid: string; name: string; code: string } | null
+  organization: {
+    uuid: string
+    /** The company's own segment in the URL: /crm/bhavya-steel/leads. */
+    slug: string
+    name: string
+    code: string
+  } | null
 }
 
 /**
@@ -1724,6 +1740,8 @@ export interface CrmDashboard {
 
 export interface CrmOrganizationRow {
   uuid: string
+  /** What this company's URLs read as. */
+  slug: string
   name: string
   code: string
   status: string
@@ -2542,7 +2560,7 @@ export const crm = {
     create: (payload: Record<string, unknown>) => api.post('/admin/crm/organizations', payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/admin/crm/organizations/${uuid}`, payload).then((r) => r.data),
     enter: (uuid: string) =>
-      api.post<{ message: string; data: { organization_uuid: string } }>(`/admin/crm/organizations/${uuid}/enter`).then((r) => r.data),
+      api.post<{ message: string; data: { organization_uuid: string; organization_slug: string } }>(`/admin/crm/organizations/${uuid}/enter`).then((r) => r.data),
     members: (uuid: string) =>
       api.get<{ data: { organization: { name: string; code: string }; members: {
         name: string | null; email: string | null; employee_code: string | null; crm_role: string
@@ -2721,4 +2739,19 @@ export const CRM_DISPATCH_STATUS_LABELS: Record<string, string> = {
   partial: 'Partial dispatched',
   dispatched: 'Dispatched',
   in_process: 'In process',
+}
+
+/**
+ * Who am I, in the company the address bar names.
+ *
+ * The company is part of the key, not just of the request. Without it, a
+ * browser that has just moved from one workspace to another shows the old
+ * one's answer from cache — the wrong name in the sidebar, the wrong rights
+ * deciding which menu entries exist — until the refetch lands.
+ */
+export function crmMeQuery() {
+  return {
+    queryKey: ['crm', 'me', companyIn(window.location.pathname)] as const,
+    queryFn: crm.me,
+  }
 }

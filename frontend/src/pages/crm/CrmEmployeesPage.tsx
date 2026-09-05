@@ -3,12 +3,13 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { KeyRound, Plus, Search, UserCog } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm } from '../../api/crm'
+import { crm, crmMeQuery } from '../../api/crm'
 import { enterWorkspace } from '../../lib/impersonation'
 import { errorMessage } from '../../api/client'
 import { usePrompt } from '../../components/Prompt'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const ROLE_LABELS: Record<string, string> = { admin: 'Admin', subadmin: 'Subadmin', employee: 'Employee' }
 
@@ -64,7 +65,7 @@ export default function CrmEmployeesPage() {
   }
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const isAdmin = me?.member?.crm_role === 'admin'
   const { data: masterKey } = useQuery({
     queryKey: ['crm', 'master-key'],
@@ -118,7 +119,7 @@ export default function CrmEmployeesPage() {
           <p className="text-sm text-slate-500">Admins, subadmins and employees of the organization.</p>
         </div>
         {manages && (
-          <Button onClick={() => navigate('/crm/employees/new')}>
+          <Button onClick={() => navigate(crmPath('/crm/employees/new'))}>
             <Plus className="size-4" /> Register employee
           </Button>
         )}
@@ -179,7 +180,7 @@ export default function CrmEmployeesPage() {
                 {data.data.map((m) => (
                   <tr key={m.uuid} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
                     <td className="py-2.5 pr-3">
-                      <Link to={`/crm/employees/${m.uuid}`} className="font-medium text-emerald-600 hover:underline">
+                      <Link to={crmPath(`/crm/employees/${m.uuid}`)} className="font-medium text-emerald-600 hover:underline">
                         {m.name ?? '—'}
                       </Link>
                       <div className="text-xs text-slate-400">{m.email}</div>

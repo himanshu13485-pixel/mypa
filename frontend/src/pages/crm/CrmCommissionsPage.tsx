@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { HandCoins, Plus, Search, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm } from '../../api/crm'
+import { crm, crmMeQuery } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Spinner, Textarea } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -25,7 +26,7 @@ export default function CrmCommissionsPage() {
   const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
 
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const isManager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
 
   const { data, isLoading } = useQuery({
@@ -111,7 +112,7 @@ export default function CrmCommissionsPage() {
                     <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">{c.expense_date}</td>
                     <td className="py-2.5 pr-3">
                       {c.invoice ? (
-                        <Link to={`/crm/invoices/${c.invoice.uuid}`} className="font-medium text-emerald-600 hover:underline">
+                        <Link to={crmPath(`/crm/invoices/${c.invoice.uuid}`)} className="font-medium text-emerald-600 hover:underline">
                           {c.invoice.number}
                         </Link>
                       ) : '—'}

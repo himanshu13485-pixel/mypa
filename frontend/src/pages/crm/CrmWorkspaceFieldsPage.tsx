@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronUp, Clock, Pencil, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, CRM_DCW_ENTITY_LABELS, CRM_FIELD_TYPE_LABELS, CRM_TAX_KIND_LABELS, type CrmCustomField } from '../../api/crm'
+import { crm, crmMeQuery, CRM_DCW_ENTITY_LABELS, CRM_FIELD_TYPE_LABELS, CRM_TAX_KIND_LABELS, type CrmCustomField } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
@@ -36,7 +36,7 @@ export default function CrmWorkspaceFieldsPage() {
   const [error, setError] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({ queryKey: ['crm', 'workspace-fields'], queryFn: crm.workspaceFields.list })
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['crm', 'workspace-fields'] })

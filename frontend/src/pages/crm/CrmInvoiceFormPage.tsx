@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, Trash2, X } from 'lucide-react'
-import { crm, CRM_CLIENT_CATEGORY_LABELS, CRM_DISPATCH_STATUS_LABELS, validityMonths, type CrmWorkOrderColumn } from '../../api/crm'
+import { crm, crmMeQuery, CRM_CLIENT_CATEGORY_LABELS, CRM_DISPATCH_STATUS_LABELS, validityMonths, type CrmWorkOrderColumn } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Select, Spinner, Textarea } from '../../components/ui'
 import { codeCase, companyCase } from './textCase'
+import { crmPath } from '../../lib/crmPath'
 
 /** One Work Order line. `custom` holds this company's own DCW values. */
 interface ItemRow {
@@ -83,7 +84,7 @@ export default function CrmInvoiceFormPage() {
   const [docValues, setDocValues] = useState<Record<string, string | boolean>>({})
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   // The Work Order method this company had approved (DCW) — empty for a
   // company that has not asked for any extra line fields.
   const workOrderFields = masters?.work_order_custom_fields ?? []
@@ -409,7 +410,7 @@ export default function CrmInvoiceFormPage() {
     onSuccess: (res: { message?: string; data?: { uuid?: string } }) => {
       queryClient.invalidateQueries({ queryKey: ['crm'] })
       toast(res.message ?? 'Saved.', 'success')
-      navigate(res.data?.uuid ? `/crm/invoices/${res.data.uuid}` : `/crm/invoices?kind=${kind}`, { replace: true })
+      navigate(res.data?.uuid ? crmPath(`/crm/invoices/${res.data.uuid}`) : crmPath(`/crm/invoices?kind=${kind}`), { replace: true })
     },
     onError: (err) => setError(errorMessage(err)),
   })

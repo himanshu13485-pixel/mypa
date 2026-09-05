@@ -48,8 +48,9 @@ class CrmController extends Controller
 
         // Same org-hat header as the middleware: multi-org users (the Super
         // Admin who entered a company) pick which workspace this session is.
-        if ($orgUuid = $request->header('X-Crm-Org')) {
-            $query->whereHas('organization', fn ($q) => $q->where('uuid', $orgUuid));
+        // Slug or uuid — see EnsureCrmMember for why both.
+        if ($org = $request->header('X-Crm-Org')) {
+            $query->whereHas('organization', fn ($q) => $q->keyed($org));
         }
 
         $member = $query->first();
@@ -63,6 +64,9 @@ class CrmController extends Controller
             'member' => $enabled ? $this->serializeMember($member) : null,
             'organization' => $enabled ? [
                 'uuid' => $member->organization->uuid,
+                // What the address bar shows, and what the shell redirects
+                // to when somebody opens /crm with no company on it.
+                'slug' => $member->organization->slug,
                 'name' => $member->organization->name,
                 'code' => $member->organization->code,
             ] : null,

@@ -10,6 +10,7 @@ import {
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const EMPTY = {
   complained_on: new Date().toISOString().slice(0, 10),
@@ -475,7 +476,7 @@ function ComplaintRow({ complaint: c, canDelete, onDelete }: {
   return (
     <tr className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
       <td className="whitespace-nowrap py-2.5 pr-3">
-        <Link to={`/crm/complaints/${c.uuid}`} className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100">
+        <Link to={crmPath(`/crm/complaints/${c.uuid}`)} className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100">
           {c.cms_no}
         </Link>
         <div className="text-xs text-slate-400">{c.complained_on}</div>

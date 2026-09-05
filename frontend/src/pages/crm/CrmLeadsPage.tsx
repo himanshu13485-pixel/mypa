@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, Download, Plus, Search } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, crmAllows, CRM_LEAD_STATUS_LABELS, type CrmLead } from '../../api/crm'
+import { crm, crmMeQuery, crmAllows, CRM_LEAD_STATUS_LABELS, type CrmLead } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
 import { PhoneLink } from '../../components/ContactLink'
 import { companyCase, emailCase, nameCase } from './textCase'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -109,7 +110,7 @@ export default function CrmLeadsPage() {
   const tidy = (key: keyof typeof EMPTY_FORM, style: (v: string) => string) =>
     setForm((f) => ({ ...f, [key]: style(String(f[key] ?? '')) }))
 
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const isManager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
   // A Team Head reshuffles their own desk; anyone else needs the grant.
   const canBulkTransfer = crmAllows(me, 'leads.bulk_transfer') || !!me?.member?.leads_a_team
@@ -280,7 +281,7 @@ export default function CrmLeadsPage() {
                     <tr key={r.uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
                       <td className="py-2.5 pr-3">
                         {r.lead ? (
-                          <Link to={`/crm/leads/${r.lead.uuid}`} className="font-medium text-emerald-600 hover:underline">
+                          <Link to={crmPath(`/crm/leads/${r.lead.uuid}`)} className="font-medium text-emerald-600 hover:underline">
                             #{r.lead.lead_no} {r.lead.company_name}
                           </Link>
                         ) : '—'}
@@ -488,7 +489,7 @@ export default function CrmLeadsPage() {
                       </td>
                     )}
                     <td className="py-2.5 pr-3">
-                      <Link to={`/crm/leads/${l.uuid}`} className="font-medium text-emerald-600 hover:underline">#{l.lead_no}</Link>
+                      <Link to={crmPath(`/crm/leads/${l.uuid}`)} className="font-medium text-emerald-600 hover:underline">#{l.lead_no}</Link>
                       <div className="text-[11px] uppercase text-slate-400">
                         {l.lead_type}
                         {l.is_urgent && (
@@ -672,7 +673,7 @@ export default function CrmLeadsPage() {
                 {duplicate.can_decide && duplicate.uuid ? (
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <Link
-                      to={`/crm/leads/${duplicate.uuid}`}
+                      to={crmPath(`/crm/leads/${duplicate.uuid}`)}
                       className="text-sm font-medium text-emerald-600 hover:underline"
                     >
                       Open lead #{duplicate.lead_no}

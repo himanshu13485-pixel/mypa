@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { LogOut, UserCog } from 'lucide-react'
 import { borrowedSeat, leaveWorkspace } from '../lib/impersonation'
+import { crmPath } from '../lib/crmPath'
 
 /**
  * A bar across the top saying whose seat this is.
@@ -41,7 +42,7 @@ export default function ImpersonationBanner() {
      * own name. Reloading is the one way to be sure nothing survives the
      * change of identity.
      */
-    navigate('/crm/employees', { replace: true })
+    navigate(crmPath('/crm/employees'), { replace: true })
     window.location.reload()
   }
 

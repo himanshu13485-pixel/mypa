@@ -3,11 +3,12 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, ArrowRightLeft, Banknote, Check, Link2, Link2Off, Mail, Phone, Plus, Search, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmOutstandingRow, type CrmOutstandingSummary, type CrmPaymentEntry } from '../../api/crm'
+import { crm, crmMeQuery, type CrmOutstandingRow, type CrmOutstandingSummary, type CrmPaymentEntry } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
 import { CHART_COLORS, ColumnChart, DonutChart } from './charts'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -46,7 +47,7 @@ export default function CrmPaymentsPage() {
   const [error, setError] = useState<string | null>(null)
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   // Settling and correcting belong to the Company Admin and Subadmin.
   const isManager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
   const settleMutation = useMutation({
@@ -279,7 +280,7 @@ export default function CrmPaymentsPage() {
                     <td className="py-2.5 pr-3">
                       {e.claimed_invoice ? (
                         <span className="text-xs">
-                          <Link to={`/crm/invoices/${e.claimed_invoice.uuid}`} className="font-medium text-emerald-600 hover:underline">
+                          <Link to={crmPath(`/crm/invoices/${e.claimed_invoice.uuid}`)} className="font-medium text-emerald-600 hover:underline">
                             {e.claimed_invoice.number}
                           </Link>
                           {/* Money in against a proforma keeps saying so. */}
@@ -661,7 +662,7 @@ function OutstandingLedger({ data, isLoading, bucket, onBucket, member, onMember
                 {data.data.map((row) => (
                   <tr key={row.uuid} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
                     <td className="py-2.5 pr-3">
-                      <Link to={`/crm/invoices/${row.uuid}`} className="font-medium text-emerald-600 hover:underline">{row.number}</Link>
+                      <Link to={crmPath(`/crm/invoices/${row.uuid}`)} className="font-medium text-emerald-600 hover:underline">{row.number}</Link>
                       <div className="text-xs text-slate-400">{row.invoice_date}</div>
                     </td>
                     <td className="max-w-[200px] py-2.5 pr-3">

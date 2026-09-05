@@ -5,6 +5,7 @@ import { clsx } from 'clsx'
 import { crm, CRM_CLIENT_CATEGORY_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
 import { Button, Card, Spinner } from '../../components/ui'
 import { EmailLink, PhoneLink } from '../../components/ContactLink'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -34,7 +35,7 @@ export default function CrmClientDetailPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate('/crm/clients')} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(crmPath('/crm/clients'))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>
@@ -44,7 +45,7 @@ export default function CrmClientDetailPage() {
             </p>
           </div>
         </div>
-        <Button onClick={() => navigate(`/crm/invoices/new?kind=proforma&client=${c.uuid}`)}>
+        <Button onClick={() => navigate(crmPath(`/crm/invoices/new?kind=proforma&client=${c.uuid}`))}>
           <ReceiptText className="size-4" /> New proforma
         </Button>
       </div>
@@ -126,7 +127,7 @@ export default function CrmClientDetailPage() {
                 {c.invoices.map((i) => (
                   <tr key={i.uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
                     <td className="py-2 pr-3">
-                      <Link to={`/crm/invoices/${i.uuid}`} className="font-medium text-emerald-600 hover:underline">{i.number}</Link>
+                      <Link to={crmPath(`/crm/invoices/${i.uuid}`)} className="font-medium text-emerald-600 hover:underline">{i.number}</Link>
                     </td>
                     <td className="py-2 pr-3 capitalize">{i.kind}</td>
                     <td className="whitespace-nowrap py-2 pr-3 text-slate-500">{i.invoice_date}</td>

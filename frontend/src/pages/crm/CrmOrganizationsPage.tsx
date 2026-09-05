@@ -34,10 +34,15 @@ export default function CrmOrganizationsPage() {
     onSuccess: (res) => {
       // Put on that company's hat, forget everything cached under the old
       // one, and land on its dashboard as admin.
+      //
+      // Straight to the company's own address rather than to /crm and a
+      // redirect: the slug came back with the answer, so there is nothing
+      // left to look up, and going the long way would ask /crm/me one more
+      // time to be told what we were just told.
       setCrmOrg(res.data.organization_uuid)
       queryClient.invalidateQueries({ queryKey: ['crm'] })
       toast(res.message, 'success')
-      navigate('/crm')
+      navigate(`/crm/${res.data.organization_slug}`)
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -116,6 +121,10 @@ export default function CrmOrganizationsPage() {
                       <div className="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-100">
                         <Building2 className="size-4 text-emerald-500" /> {o.name}
                       </div>
+                      {/* Where this company lives. Worth showing, because it
+                          is what everybody who works there sees all day and
+                          what they will paste to each other. */}
+                      <div className="ml-6 font-mono text-[11px] text-slate-400">/crm/{o.slug}</div>
                     </td>
                     <td className="py-2.5 pr-3 font-mono text-xs">{o.code}</td>
                     <td className="max-w-[220px] truncate py-2.5 pr-3 text-slate-500">
@@ -346,6 +355,7 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState(org.name)
   const [code, setCode] = useState(org.code)
+  const [slug, setSlug] = useState(org.slug)
   const [adminEmail, setAdminEmail] = useState(org.admins[0]?.email ?? '')
   const [newPassword, setNewPassword] = useState('')
   const [impersonation, setImpersonation] = useState(org.impersonation_level ?? 'none')
@@ -355,6 +365,7 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
       crm.organizations.update(org.uuid, {
         name,
         code,
+        slug,
         impersonation_level: impersonation,
         ...(newPassword ? { admin_email: adminEmail, admin_password: newPassword } : {}),
       }),
@@ -374,6 +385,20 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
           <Label>Short code</Label>
           <Input value={code} onChange={(e) => setCode(e.target.value)} className="w-full" />
           <p className="mt-1 text-xs text-slate-400">Letters, numbers, dashes — must stay unique across organizations.</p>
+        </div>
+        <div>
+          <Label>Web address</Label>
+          <div className="flex items-center gap-1">
+            <span className="shrink-0 font-mono text-xs text-slate-400">/crm/</span>
+            <Input value={slug} onChange={(e) => setSlug(e.target.value)} className="w-full font-mono" />
+          </div>
+          {/* Changing it is allowed and mostly harmless — an old link lands
+              at a company nothing matches, and the CRM sends the reader on
+              to wherever they actually belong. */}
+          <p className="mt-1 text-xs text-slate-400">
+            What this company&rsquo;s URLs read as. Lowercase letters, numbers and dashes.
+            Changing it leaves older links to be redirected.
+          </p>
         </div>
 
         {/*

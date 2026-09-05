@@ -27,17 +27,24 @@ class EnsureCrmMember
             // Hat off → the real membership, never a leftover oversight one.
             ->orderBy('is_oversight');
 
-        // A user with memberships in several organizations (the Super Admin
-        // who entered a company, typically) says which hat they are wearing
-        // via this header; without it the first membership wins.
-        if ($orgUuid = $request->header('X-Crm-Org')) {
-            $query->whereHas('organization', fn ($q) => $q->where('uuid', $orgUuid));
+        /*
+         * A user with memberships in several organizations (the Super Admin
+         * who entered a company, typically) says which hat they are wearing
+         * via this header; without it the first membership wins.
+         *
+         * The header carries the slug the browser is showing — /crm/bhavya-steel
+         * asks for bhavya-steel — so the address bar and the answer cannot
+         * disagree. A uuid is still accepted, because a session that was open
+         * when slugs shipped is still sending one.
+         */
+        if ($org = $request->header('X-Crm-Org')) {
+            $query->whereHas('organization', fn ($q) => $q->keyed($org));
         }
 
         $member = $query->first();
 
         if (! $member) {
-            abort(403, $orgUuid
+            abort(403, $org
                 ? 'You are not a member of that organization.'
                 : 'CRM access has not been enabled for your account.');
         }

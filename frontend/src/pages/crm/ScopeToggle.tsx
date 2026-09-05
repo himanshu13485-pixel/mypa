@@ -1,6 +1,6 @@
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
-import { crm } from '../../api/crm'
+import { crmMeQuery } from '../../api/crm'
 
 /**
  * The two ledgers of a Team Head: their own sales, and the team's. Screens
@@ -12,7 +12,7 @@ import { crm } from '../../api/crm'
  * nothing to combine; neither gets a switch.
  */
 export function useTeamHead(): boolean {
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const manager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
 
   return !manager && !!me?.has_team

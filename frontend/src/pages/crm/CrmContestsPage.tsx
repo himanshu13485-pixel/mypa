@@ -7,6 +7,7 @@ import { crm, type CrmContestFull, type CrmContestRow, type CrmMe } from '../../
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 export function phaseBadge(phase: string) {
   return clsx(
@@ -85,7 +86,7 @@ export default function CrmContestsPage() {
               <div key={c.uuid} className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
                 <Trophy className={clsx('size-5 shrink-0', c.phase === 'live' ? 'text-emerald-500' : 'text-slate-400')} />
                 <div className="min-w-0 flex-1">
-                  <Link to={`/crm/contests/${c.uuid}`} className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100">
+                  <Link to={crmPath(`/crm/contests/${c.uuid}`)} className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100">
                     {c.title}
                   </Link>
                   <div className="text-xs text-slate-400">
@@ -97,7 +98,7 @@ export default function CrmContestsPage() {
                 </div>
                 <span className={phaseBadge(c.phase)}>{c.phase}</span>
                 {c.phase === 'live' && c.my_answers < c.questions && (
-                  <Link to={`/crm/contests/${c.uuid}`} className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
+                  <Link to={crmPath(`/crm/contests/${c.uuid}`)} className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
                     Play now
                   </Link>
                 )}

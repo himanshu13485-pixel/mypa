@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, KeyRound, Landmark, LifeBuoy, ListChecks, Pencil, Plus, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings } from '../../api/crm'
+import { crm, crmMeQuery, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner } from '../../components/ui'
@@ -162,7 +162,7 @@ export default function CrmSettingsPage() {
 function MasterKey() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const { data: status } = useQuery({
     queryKey: ['crm', 'master-key'],
     queryFn: crm.masterKey.status,

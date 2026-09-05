@@ -7,6 +7,7 @@ import { crm, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS, CRM_RECURRI
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -138,7 +139,7 @@ export default function CrmInvoiceViewPage() {
     onSuccess: (res) => {
       toast(res.message, 'success')
       queryClient.invalidateQueries({ queryKey: ['crm'] })
-      navigate(`/crm/invoices/${res.data.uuid}`)
+      navigate(crmPath(`/crm/invoices/${res.data.uuid}`))
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -168,7 +169,7 @@ export default function CrmInvoiceViewPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(`/crm/invoices?kind=${inv.kind}`)} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(crmPath(`/crm/invoices?kind=${inv.kind}`))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>
@@ -194,7 +195,7 @@ export default function CrmInvoiceViewPage() {
             <Printer className="size-4" /> Print
           </Button>
           {inv.status !== 'cancelled' && !(isProforma && inv.converted_to) && (
-            <Button variant="secondary" onClick={() => navigate(`/crm/invoices/${inv.uuid}/edit`)}><Pencil className="size-4" /> Edit</Button>
+            <Button variant="secondary" onClick={() => navigate(crmPath(`/crm/invoices/${inv.uuid}/edit`))}><Pencil className="size-4" /> Edit</Button>
           )}
           {isProforma && inv.status !== 'cancelled' && !inv.converted_to && (
             <Button onClick={() => { if (confirm(`Convert ${inv.number} into a tax invoice?`)) convertMutation.mutate() }} disabled={convertMutation.isPending}>
@@ -206,7 +207,7 @@ export default function CrmInvoiceViewPage() {
           )}
           {/* Chasing lives with the document it is about. */}
           {!isProforma && inv.status !== 'cancelled' && inv.payment_status !== 'paid' && (
-            <Button variant="secondary" onClick={() => navigate('/crm/payments?tab=outstanding&invoice=' + inv.number)}>
+            <Button variant="secondary" onClick={() => navigate(crmPath('/crm/payments?tab=outstanding&invoice=') + inv.number)}>
               <AlarmClock className="size-4" /> Chase payment
             </Button>
           )}
@@ -272,8 +273,8 @@ export default function CrmInvoiceViewPage() {
 
       {(inv.converted_from || inv.converted_to) && (
         <p className="text-sm text-slate-500 print:hidden">
-          {inv.converted_from && <>Created from proforma <Link className="font-medium text-emerald-600 hover:underline" to={`/crm/invoices/${inv.converted_from.uuid}`}>{inv.converted_from.number}</Link>.</>}
-          {inv.converted_to && <>Converted to invoice <Link className="font-medium text-emerald-600 hover:underline" to={`/crm/invoices/${inv.converted_to.uuid}`}>{inv.converted_to.number}</Link>.</>}
+          {inv.converted_from && <>Created from proforma <Link className="font-medium text-emerald-600 hover:underline" to={crmPath(`/crm/invoices/${inv.converted_from.uuid}`)}>{inv.converted_from.number}</Link>.</>}
+          {inv.converted_to && <>Converted to invoice <Link className="font-medium text-emerald-600 hover:underline" to={crmPath(`/crm/invoices/${inv.converted_to.uuid}`)}>{inv.converted_to.number}</Link>.</>}
         </p>
       )}
 

@@ -59,7 +59,7 @@ const PrivacyPage = lazyRoute('PrivacyPage', () => import('./pages/site/InfoPage
 const SubscriptionPage = lazyRoute('SubscriptionPage', () => import('./pages/SubscriptionPage'))
 const PaymentStatusPage = lazyRoute('PaymentStatusPage', () => import('./pages/PaymentStatusPage'))
 // The CRM addon: its own shell and route tree, fully apart from the personal app.
-const CrmLayout = lazyRoute('CrmLayout', () => import('./pages/crm/CrmLayout'))
+const CrmShell = lazyRoute('CrmShell', () => import('./pages/crm/CrmShell'))
 const CrmDashboard = lazyRoute('CrmDashboard', () => import('./pages/crm/CrmDashboard'))
 const CrmOverviewPage = lazyRoute('CrmOverviewPage', () => import('./pages/crm/CrmOverviewPage'))
 const CrmEmployeesPage = lazyRoute('CrmEmployeesPage', () => import('./pages/crm/CrmEmployeesPage'))
@@ -104,6 +104,76 @@ const CrmPlPage = lazyRoute('CrmPlPage', () => import('./pages/crm/CrmPlPage'))
 const CrmAssetsPage = lazyRoute('CrmAssetsPage', () => import('./pages/crm/CrmAssetsPage'))
 const CrmChurnPage = lazyRoute('CrmChurnPage', () => import('./pages/crm/CrmChurnPage'))
 const CrmCommunicationPage = lazyRoute('CrmCommunicationPage', () => import('./pages/crm/CrmCommunicationPage'))
+
+/*
+ * The CRM's screens, declared once and mounted twice: under /crm/:company,
+ * which is where everybody works, and under a bare /crm, which exists only
+ * so that a link written before companies were in the URL still matches a
+ * route and can be redirected to the slugged one rather than 404ing.
+ *
+ * A fragment rather than an array because <Routes> reads fragments, and one
+ * list is the point — fifty routes kept in step by hand would not stay in
+ * step.
+ */
+const crmScreens = (
+  <>
+    <Route index element={<CrmDashboard />} />
+    <Route path="employees" element={<CrmEmployeesPage />} />
+    <Route path="employees/new" element={<CrmEmployeeFormPage />} />
+    <Route path="employees/:uuid" element={<CrmEmployeeFormPage />} />
+    <Route path="clients" element={<CrmClientsPage />} />
+    <Route path="clients/:uuid" element={<CrmClientDetailPage />} />
+    <Route path="leads" element={<CrmLeadsPage />} />
+    <Route path="leads/:uuid" element={<CrmLeadDetailPage />} />
+    <Route path="lead-log" element={<CrmLeadLogPage />} />
+    <Route path="targets" element={<CrmTargetsPage />} />
+    <Route path="dwr" element={<CrmDwrPage />} />
+    <Route path="punch" element={<CrmPunchPage />} />
+    <Route path="payments" element={<CrmPaymentsPage />} />
+    <Route path="complaints" element={<CrmComplaintsPage />} />
+    <Route path="complaint-log" element={<CrmComplaintLogPage />} />
+    <Route path="hr-policy" element={<CrmHrPolicyPage />} />
+    <Route path="incentives" element={<CrmIncentivesPage />} />
+    <Route path="complaints/:uuid" element={<CrmComplaintDetailPage />} />
+    <Route path="vendors" element={<CrmVendorsPage />} />
+    <Route path="expenses" element={<CrmExpensesPage />} />
+    <Route path="salary" element={<CrmSalaryPage />} />
+    <Route path="leaves" element={<CrmLeavesPage />} />
+    <Route path="tasks" element={<CrmTasksPage />} />
+    <Route path="approvals" element={<CrmApprovalsPage />} />
+    <Route path="newsletters" element={<CrmNewslettersPage />} />
+    <Route path="cms" element={<CrmCmsPage />} />
+    <Route path="user-log" element={<CrmUserLogPage />} />
+    <Route path="reports" element={<CrmReportsPage />} />
+    <Route path="workspace-fields" element={<CrmWorkspaceFieldsPage />} />
+    <Route path="contests" element={<CrmContestsPage />} />
+    <Route path="contests/:uuid" element={<CrmContestPlayPage />} />
+    <Route path="invoices" element={<CrmInvoicesPage />} />
+    <Route path="invoice-log" element={<CrmInvoiceLogPage />} />
+    <Route path="recurring" element={<CrmRecurringPage />} />
+    <Route path="commissions" element={<CrmCommissionsPage />} />
+    <Route path="invoices/new" element={<CrmInvoiceFormPage />} />
+    <Route path="invoices/:uuid" element={<CrmInvoiceViewPage />} />
+    <Route path="invoices/:uuid/edit" element={<CrmInvoiceFormPage />} />
+    <Route path="overview" element={<CrmOverviewPage />} />
+    <Route path="settings" element={<CrmSettingsPage />} />
+    {/* Connect inside the CRM: the same pages as the personal side,
+        same data, just wearing the company shell. */}
+    <Route path="connect/connections" element={<ConnectionsPage />} />
+    <Route path="connect/groups" element={<GroupsPage />} />
+    <Route path="connect/messages" element={<MessagesPage />} />
+    <Route path="connect/calls" element={<CallsPage />} />
+    <Route path="connect/meetings" element={<MeetingsPage />} />
+    <Route path="connect/screen" element={<ScreenPage />} />
+    <Route path="connect/calendar" element={<CalendarPage />} />
+    <Route path="connect/booking" element={<BookingLinkPage />} />
+    <Route path="pl" element={<CrmPlPage />} />
+    <Route path="assets" element={<CrmAssetsPage />} />
+    <Route path="churn" element={<CrmChurnPage />} />
+    <Route path="communication" element={<CrmCommunicationPage />} />
+  </>
+)
+
 
 /**
  * The sections reachable from the sidebar, fetched before anyone asks.
@@ -255,71 +325,34 @@ export default function App() {
               </RequireAuth>
             }
           />
-          {/* CRM addon: its own shell, not the personal Layout. */}
+          {/* CRM addon: its own shell, not the personal Layout.
+
+              Two mounts, one set of screens. /crm/:company is the real one —
+              the segment says whose records are on screen and is what the API
+              is asked to answer as. The bare /crm exists so that anything
+              written before companies were in the URL still matches, and
+              CrmShell sends it to the company's own address. */}
           <Route
             path="/crm"
             element={
               <RequireAuth>
-                <CrmLayout />
+                <CrmShell />
               </RequireAuth>
             }
           >
-            <Route index element={<CrmDashboard />} />
-            <Route path="employees" element={<CrmEmployeesPage />} />
-            <Route path="employees/new" element={<CrmEmployeeFormPage />} />
-            <Route path="employees/:uuid" element={<CrmEmployeeFormPage />} />
-            <Route path="clients" element={<CrmClientsPage />} />
-            <Route path="clients/:uuid" element={<CrmClientDetailPage />} />
-            <Route path="leads" element={<CrmLeadsPage />} />
-            <Route path="leads/:uuid" element={<CrmLeadDetailPage />} />
-            <Route path="lead-log" element={<CrmLeadLogPage />} />
-            <Route path="targets" element={<CrmTargetsPage />} />
-            <Route path="dwr" element={<CrmDwrPage />} />
-            <Route path="punch" element={<CrmPunchPage />} />
-            <Route path="payments" element={<CrmPaymentsPage />} />
-            <Route path="complaints" element={<CrmComplaintsPage />} />
-            <Route path="complaint-log" element={<CrmComplaintLogPage />} />
-            <Route path="hr-policy" element={<CrmHrPolicyPage />} />
-            <Route path="incentives" element={<CrmIncentivesPage />} />
-            <Route path="complaints/:uuid" element={<CrmComplaintDetailPage />} />
-            <Route path="vendors" element={<CrmVendorsPage />} />
-            <Route path="expenses" element={<CrmExpensesPage />} />
-            <Route path="salary" element={<CrmSalaryPage />} />
-            <Route path="leaves" element={<CrmLeavesPage />} />
-            <Route path="tasks" element={<CrmTasksPage />} />
-            <Route path="approvals" element={<CrmApprovalsPage />} />
-            <Route path="newsletters" element={<CrmNewslettersPage />} />
-            <Route path="cms" element={<CrmCmsPage />} />
-            <Route path="user-log" element={<CrmUserLogPage />} />
-            <Route path="reports" element={<CrmReportsPage />} />
-            <Route path="workspace-fields" element={<CrmWorkspaceFieldsPage />} />
             <Route path="field-requests" element={<CrmFieldRequestsPage />} />
-            <Route path="contests" element={<CrmContestsPage />} />
-            <Route path="contests/:uuid" element={<CrmContestPlayPage />} />
-            <Route path="invoices" element={<CrmInvoicesPage />} />
-            <Route path="invoice-log" element={<CrmInvoiceLogPage />} />
-            <Route path="recurring" element={<CrmRecurringPage />} />
-            <Route path="commissions" element={<CrmCommissionsPage />} />
-            <Route path="invoices/new" element={<CrmInvoiceFormPage />} />
-            <Route path="invoices/:uuid" element={<CrmInvoiceViewPage />} />
-            <Route path="invoices/:uuid/edit" element={<CrmInvoiceFormPage />} />
-            <Route path="overview" element={<CrmOverviewPage />} />
-            <Route path="settings" element={<CrmSettingsPage />} />
-            {/* Connect inside the CRM: the same pages as the personal side,
-                same data, just wearing the company shell. */}
-            <Route path="connect/connections" element={<ConnectionsPage />} />
-            <Route path="connect/groups" element={<GroupsPage />} />
-            <Route path="connect/messages" element={<MessagesPage />} />
-            <Route path="connect/calls" element={<CallsPage />} />
-            <Route path="connect/meetings" element={<MeetingsPage />} />
-            <Route path="connect/screen" element={<ScreenPage />} />
-            <Route path="connect/calendar" element={<CalendarPage />} />
-            <Route path="connect/booking" element={<BookingLinkPage />} />
-            <Route path="pl" element={<CrmPlPage />} />
-            <Route path="assets" element={<CrmAssetsPage />} />
-            <Route path="churn" element={<CrmChurnPage />} />
-            <Route path="communication" element={<CrmCommunicationPage />} />
             <Route path="organizations" element={<CrmOrganizationsPage />} />
+            {crmScreens}
+          </Route>
+          <Route
+            path="/crm/:company"
+            element={
+              <RequireAuth>
+                <CrmShell />
+              </RequireAuth>
+            }
+          >
+            {crmScreens}
           </Route>
           {/* No password exists for these accounts, so they cannot come in
               through the ordinary door. */}

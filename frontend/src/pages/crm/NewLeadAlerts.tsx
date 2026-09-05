@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { BellRing, ExternalLink, X } from 'lucide-react'
 import { crm, crmCan, type CrmMe } from '../../api/crm'
 import { Button } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const SNOOZE_KEY = 'crm-new-lead-alert-snooze-until'
 
@@ -77,7 +78,7 @@ export function NewLeadAlerts({ me }: { me: CrmMe | undefined }) {
 
   const openLead = (uuid: string) => {
     setProcessing((prev) => new Set(prev).add(uuid))
-    window.open(`/crm/leads/${uuid}`, '_blank', 'noopener')
+    window.open(crmPath(`/crm/leads/${uuid}`), '_blank', 'noopener')
   }
 
   return (

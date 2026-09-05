@@ -12,6 +12,7 @@ import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner } from '.
 import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { ErrorPill, StatusPill } from './CrmComplaintsPage'
 import { useMediaQuery } from '../../lib/useMediaQuery'
+import { crmPath } from '../../lib/crmPath'
 
 export default function CrmComplaintDetailPage() {
   const { uuid = '' } = useParams()
@@ -72,7 +73,7 @@ export default function CrmComplaintDetailPage() {
     <div className="mx-auto max-w-6xl space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <button onClick={() => navigate('/crm/complaints')} className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+          <button onClick={() => navigate(crmPath('/crm/complaints'))} className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
             <ArrowLeft className="size-3.5" /> All complaints
           </button>
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-slate-900 dark:text-white">
@@ -263,7 +264,7 @@ export default function CrmComplaintDetailPage() {
               ))}
             </dl>
             {complaint.client_uuid && (
-              <Link to={`/crm/clients/${complaint.client_uuid}`} className="mt-2 inline-block text-xs font-medium text-emerald-600 hover:underline">
+              <Link to={crmPath(`/crm/clients/${complaint.client_uuid}`)} className="mt-2 inline-block text-xs font-medium text-emerald-600 hover:underline">
                 Open the client record →
               </Link>
             )}

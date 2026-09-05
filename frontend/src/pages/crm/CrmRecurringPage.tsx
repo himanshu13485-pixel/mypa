@@ -7,6 +7,7 @@ import { crm } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Pager, Select, Spinner } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -113,7 +114,7 @@ export default function CrmRecurringPage() {
                   <tr key={s.uuid} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
                     <td className="py-2.5 pr-3">
                       {s.source ? (
-                        <Link to={`/crm/invoices/${s.source.uuid}`} className="font-medium text-emerald-600 hover:underline">
+                        <Link to={crmPath(`/crm/invoices/${s.source.uuid}`)} className="font-medium text-emerald-600 hover:underline">
                           {s.source.number}
                         </Link>
                       ) : '—'}
@@ -158,7 +159,7 @@ export default function CrmRecurringPage() {
                       <span className="tabular-nums">{s.occurrences}×</span>
                       {s.last_invoice && (
                         <div className="text-xs">
-                          <Link to={`/crm/invoices/${s.last_invoice.uuid}`} className="text-emerald-600 hover:underline">
+                          <Link to={crmPath(`/crm/invoices/${s.last_invoice.uuid}`)} className="text-emerald-600 hover:underline">
                             {s.last_invoice.number}
                           </Link>
                           <span className="text-slate-400"> · {s.last_invoice.payment_status}</span>

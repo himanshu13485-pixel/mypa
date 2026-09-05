@@ -7,6 +7,7 @@ import { crm } from '../../api/crm'
 import { Button, Card, EmptyState, Input, Label, Pager, Select, Spinner } from '../../components/ui'
 import { ErrorPill } from './CrmComplaintsPage'
 import { HBarChart } from './charts'
+import { crmPath } from '../../lib/crmPath'
 
 /**
  * The Complaint Log: every complaint that has been settled, and how it was
@@ -185,7 +186,7 @@ export default function CrmComplaintLogPage() {
                 {data.data.map((c) => (
                   <tr key={c.uuid} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
                     <td className="whitespace-nowrap py-2.5 pr-3">
-                      <Link to={`/crm/complaints/${c.uuid}`} className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100">
+                      <Link to={crmPath(`/crm/complaints/${c.uuid}`)} className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100">
                         {c.cms_no}
                       </Link>
                       <div className="text-xs text-slate-400">{c.complained_on}</div>

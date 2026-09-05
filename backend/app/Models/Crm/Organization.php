@@ -12,7 +12,76 @@ class Organization extends Model
 
     protected $table = 'crm_organizations';
 
-    protected $fillable = ['name', 'code', 'status', 'impersonation_level', 'settings', 'created_by'];
+    protected $fillable = ['name', 'code', 'slug', 'status', 'impersonation_level', 'settings', 'created_by'];
+
+    /**
+     * Words the CRM's own screens answer to, and so words no company may
+     * live at. /crm/reports is the reports screen; a company slugged
+     * "reports" would sit behind a route it can never win.
+     *
+     * Kept in step with the frontend's own list by CrmCompanySlugTest, which
+     * reads that list out of crmPath.ts and fails when it knows a screen this
+     * does not — because the company handed that slug could never be opened.
+     */
+    public const RESERVED_SLUGS = [
+        'organizations', 'employees', 'clients', 'leads', 'lead-log', 'targets', 'dwr',
+        'punch', 'payments', 'complaints', 'complaint-log', 'hr-policy', 'incentives',
+        'vendors', 'expenses', 'salary', 'leaves', 'tasks', 'approvals', 'newsletters',
+        'cms', 'user-log', 'reports', 'workspace-fields', 'field-requests', 'contests',
+        'invoices', 'invoice-log', 'recurring', 'commissions', 'overview', 'settings',
+        'connect', 'pl', 'assets', 'churn', 'communication', 'new', 'edit',
+    ];
+
+    /**
+     * Every company gets an address, whether or not whoever made it thought
+     * about one. A row with no slug is a company that cannot be opened, and
+     * there is no caller for whom that is the wanted outcome.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $org) {
+            $org->slug = $org->slug ?: self::slugFor($org->name ?: 'company');
+        });
+    }
+
+    /**
+     * A readable slug for a company name that nothing else is using.
+     *
+     * The fallbacks are the point. A name in a script Str::slug cannot
+     * transliterate comes out empty; two companies called Sharma Traders
+     * collide; a company called Reports lands on a route. All three still
+     * have to end up somewhere the router can reach, so none of them is
+     * allowed to return nothing.
+     */
+    public static function slugFor(string $name, ?int $ignoreId = null): string
+    {
+        $base = \Illuminate\Support\Str::limit(\Illuminate\Support\Str::slug($name) ?: 'company', 48, '');
+
+        if (in_array($base, self::RESERVED_SLUGS, true)) {
+            $base .= '-co';
+        }
+
+        $slug = $base;
+        $n = 1;
+
+        while (self::where('slug', $slug)->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))->exists()) {
+            $slug = $base . '-' . (++$n);
+        }
+
+        return $slug;
+    }
+
+    /**
+     * Find a company by whatever the client said it was.
+     *
+     * The URL carries the slug and older sessions carry the uuid, and both
+     * have to keep working — a browser that was inside the CRM when this
+     * shipped still has a uuid in its localStorage.
+     */
+    public function scopeKeyed(\Illuminate\Database\Eloquent\Builder $query, string $key): void
+    {
+        $query->where(fn ($q) => $q->where('slug', $key)->orWhere('uuid', $key));
+    }
 
     /**
      * How far this company's admin may sit in a member's seat, granted by the

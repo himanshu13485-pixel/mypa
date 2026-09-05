@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRightLeft, Flag, PhoneCall, Send, Trash2, Users, RotateCcw } from 'lucide-react'
-import { crm, crmAllows, crmCan, CRM_LEAD_STATUS_LABELS, type CrmLeadLogEntry } from '../../api/crm'
+import { crm, crmMeQuery, crmAllows, crmCan, CRM_LEAD_STATUS_LABELS, type CrmLeadLogEntry } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { leadStatusBadge } from './CrmLeadsPage'
 import { format } from 'date-fns'
+import { crmPath } from '../../lib/crmPath'
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined || value === '') return null
@@ -115,12 +116,12 @@ export default function CrmLeadDetailPage() {
     onSuccess: (res) => {
       toast(res.message, 'success')
       queryClient.invalidateQueries({ queryKey: ['crm'] })
-      navigate(`/crm/clients/${res.data.client_uuid}`)
+      navigate(crmPath(`/crm/clients/${res.data.client_uuid}`))
     },
     onError: (err) => toastError(errorMessage(err)),
   })
 
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const isManager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
   const canReopen = crmAllows(me, 'leads.reopen')
   const teamUuids = me?.member?.team_member_uuids ?? null
@@ -184,7 +185,7 @@ export default function CrmLeadDetailPage() {
     mutationFn: () => crm.leads.remove(uuid!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
-      navigate('/crm/leads')
+      navigate(crmPath('/crm/leads'))
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -197,7 +198,7 @@ export default function CrmLeadDetailPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate('/crm/leads')} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(crmPath('/crm/leads'))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>
@@ -225,7 +226,7 @@ export default function CrmLeadDetailPage() {
             {lead.is_urgent ? 'Clear urgent' : 'Mark urgent'}
           </Button>
           {lead.client ? (
-            <Link to={`/crm/clients/${lead.client.uuid}`} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/30">
+            <Link to={crmPath(`/crm/clients/${lead.client.uuid}`)} className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 ring-1 ring-inset ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/30">
               Client: {lead.client.company_name}
             </Link>
           ) : (

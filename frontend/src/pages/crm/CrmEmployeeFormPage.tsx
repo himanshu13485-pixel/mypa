@@ -3,12 +3,13 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2, Download, FileText, Pencil, Plus, Search, Trash2, UserX } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmAccountMatch, type CrmEmployeeFull } from '../../api/crm'
+import { crm, crmMeQuery, type CrmAccountMatch, type CrmEmployeeFull } from '../../api/crm'
 import { LETTER_LABELS, letterAvailability, openLetter, type LetterType } from './letters'
 import CrmCompensationCard from './CrmCompensationCard'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const TITLES = ['Mr.', 'Mrs.', 'Miss', 'Ms.', 'Dr.']
 
@@ -195,7 +196,7 @@ export default function CrmEmployeeFormPage() {
   const [error, setError] = useState<string | null>(null)
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   // Company authority, not a grantable right: a Team Head reads their
   // subtree here but never edits pay, documents or the profile itself.
   const manages = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
@@ -374,7 +375,7 @@ export default function CrmEmployeeFormPage() {
     onSuccess: (res: { message?: string; data?: { uuid?: string } }) => {
       queryClient.invalidateQueries({ queryKey: ['crm'] })
       toast(res.message ?? 'Saved.', 'success')
-      if (!editing && res.data?.uuid) navigate(`/crm/employees/${res.data.uuid}`, { replace: true })
+      if (!editing && res.data?.uuid) navigate(crmPath(`/crm/employees/${res.data.uuid}`), { replace: true })
       setError(null)
     },
     onError: (err) => setError(errorMessage(err)),
@@ -384,7 +385,7 @@ export default function CrmEmployeeFormPage() {
     mutationFn: () => crm.employees.deactivate(uuid!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm'] })
-      navigate('/crm/employees')
+      navigate(crmPath('/crm/employees'))
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -429,7 +430,7 @@ export default function CrmEmployeeFormPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate('/crm/employees')} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(crmPath('/crm/employees'))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>
@@ -1245,7 +1246,7 @@ function KpiAssignmentCard({ uuid }: { uuid: string }) {
  * final needs the person to have actually left.
  */
 function LettersCard({ existing }: { existing: CrmEmployeeFull }) {
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const orgName = me?.organization?.name ?? 'The Company'
   const availability = letterAvailability(existing)
   const [showFnf, setShowFnf] = useState(false)
@@ -1376,7 +1377,7 @@ function MemberAssetsCard({ memberUuid, manages }: { memberUuid: string; manages
           </p>
         </div>
         {manages && (
-          <a href="/crm/assets" className="text-xs font-medium text-emerald-600 hover:underline">Open Office Assets</a>
+          <a href={crmPath('/crm/assets')} className="text-xs font-medium text-emerald-600 hover:underline">Open Office Assets</a>
         )}
       </div>
       {(data ?? []).length === 0 ? (

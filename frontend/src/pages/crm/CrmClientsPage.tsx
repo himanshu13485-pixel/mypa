@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeftRight, Check, Pencil, Plus, Search, Trash2, Users, X } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, crmAllows, CRM_CLIENT_CATEGORY_LABELS, type CrmClient } from '../../api/crm'
+import { crm, crmMeQuery, crmAllows, CRM_CLIENT_CATEGORY_LABELS, type CrmClient } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
 import { PhoneLink } from '../../components/ContactLink'
 import { codeCase, companyCase, emailCase, nameCase } from './textCase'
+import { crmPath } from '../../lib/crmPath'
 
 const TITLES = ['Mr.', 'Mrs.', 'Miss', 'Ms.', 'Dr.']
 
@@ -47,7 +48,7 @@ export default function CrmClientsPage() {
     queryFn: () => crm.clients.list({ search: applied || undefined, status: status || undefined, page }),
   })
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
 
   // Only Admin/Subadmin hand clients around; everyone else owns what they add.
   const isManager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
@@ -265,7 +266,7 @@ export default function CrmClientsPage() {
                 {data.data.map((c) => (
                   <tr key={c.uuid} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
                     <td className="max-w-[220px] py-2.5 pr-3">
-                      <Link to={`/crm/clients/${c.uuid}`} className="block truncate font-medium text-emerald-600 hover:underline">{c.company_name}</Link>
+                      <Link to={crmPath(`/crm/clients/${c.uuid}`)} className="block truncate font-medium text-emerald-600 hover:underline">{c.company_name}</Link>
                       <div className="truncate text-xs text-slate-400">
                         {[c.city, c.category ? CRM_CLIENT_CATEGORY_LABELS[c.category] : null].filter(Boolean).join(' · ')}
                         {c.is_repeat && (
