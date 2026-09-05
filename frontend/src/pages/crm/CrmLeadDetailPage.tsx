@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowRightLeft, Flag, PhoneCall, Send, Trash2, Users, RotateCcw } from 'lucide-react'
+import { ArrowLeft, ArrowRightLeft, Flag, Pencil, PhoneCall, Send, Trash2, Users, RotateCcw } from 'lucide-react'
 import { crm, crmMeQuery, crmAllows, crmCan, CRM_LEAD_STATUS_LABELS, type CrmLeadLogEntry } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
@@ -78,6 +78,12 @@ export default function CrmLeadDetailPage() {
   const { data: lead, isLoading } = useQuery({
     queryKey: ['crm', 'lead', uuid],
     queryFn: () => crm.leads.get(uuid!),
+    /*
+     * A lead that is not yours does not become yours on the third ask.
+     * Retrying spent ten seconds spinning before the screen would admit it,
+     * which is the whole of what a wrong link used to look like.
+     */
+    retry: false,
   })
 
   const refresh = () => {
@@ -151,11 +157,45 @@ export default function CrmLeadDetailPage() {
     },
     onError: (err) => toastError(errorMessage(err)),
   })
-  const [quick, setQuick] = useState({ source: '', subject: '', lead_type: 'new', amount: '' })
+  const [quick, setQuick] = useState({
+    company_name: '', contact_person: '', mobile: '', phone: '', email: '', requirement: '',
+    source: '', subject: '', lead_type: 'new', amount: '',
+  })
+
+  /** Whose contact details these are is the lead's identity — see the note by the fields. */
+  const canEditContacts = crmAllows(me, 'leads.edit_contacts')
+
+  /** Fill the form from the lead, wherever it was opened from. */
+  const openEdit = () => {
+    if (!lead) return
+    setQuick({
+      company_name: lead.company_name ?? '',
+      contact_person: lead.contact_person ?? '',
+      mobile: lead.mobile ?? '',
+      phone: lead.phone ?? '',
+      email: lead.email ?? '',
+      requirement: lead.requirement ?? '',
+      source: lead.source ?? '',
+      subject: lead.subject ?? '',
+      lead_type: lead.lead_type,
+      amount: Number(lead.amount) ? String(lead.amount) : '',
+    })
+    setQuickEdit(true)
+  }
 
   const quickMutation = useMutation({
     mutationFn: () => crm.leads.update(uuid!, {
-      company_name: lead!.company_name,
+      company_name: quick.company_name,
+      contact_person: quick.contact_person || null,
+      /*
+       * Sent as they were unless this person may change them. The server
+       * refuses a changed number without the right anyway — this stops a
+       * form that merely displayed them from being read as an attempt.
+       */
+      mobile: canEditContacts ? (quick.mobile || null) : (lead!.mobile ?? null),
+      phone: canEditContacts ? (quick.phone || null) : (lead!.phone ?? null),
+      email: canEditContacts ? (quick.email || null) : (lead!.email ?? null),
+      requirement: quick.requirement || null,
       source: quick.source || null,
       subject: quick.subject || null,
       lead_type: quick.lead_type,
@@ -190,8 +230,34 @@ export default function CrmLeadDetailPage() {
     onError: (err) => toastError(errorMessage(err)),
   })
 
-  if (isLoading || !lead) {
+  if (isLoading) {
     return <div className="flex justify-center py-20"><Spinner /></div>
+  }
+
+  /*
+   * A lead this person cannot see is a 404, not a slow load.
+   *
+   * Without this the screen span forever — which is what a link to somebody
+   * else's lead looks like, and links get passed around now that the URL
+   * carries the company.
+   */
+  if (!lead) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+        <p className="text-sm font-medium text-slate-600 dark:text-slate-300">
+          This lead is not one you can open.
+        </p>
+        {/* Deliberately not the server's reason. Whether the lead is gone or
+            simply somebody else's is not a difference worth telling a person
+            who cannot see it either way. */}
+        <p className="max-w-sm text-xs text-slate-400">
+          It may have been deleted, or it belongs to a colleague and has not been shared with you.
+        </p>
+        <Button size="sm" variant="secondary" onClick={() => navigate(crmPath('/crm/leads'))}>
+          <ArrowLeft className="size-3.5" /> Back to leads
+        </Button>
+      </div>
+    )
   }
 
   return (
@@ -215,6 +281,14 @@ export default function CrmLeadDetailPage() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
+          {/* Editing the lead itself, from the lead itself. It used to mean
+              going back to the list, finding the row and opening it there —
+              which is a long way round to fix a misspelt company name. */}
+          {canEditPipeline && (
+            <Button variant="secondary" onClick={openEdit}>
+              <Pencil className="size-4" /> Edit
+            </Button>
+          )}
           {/* Urgency rides above every scheduled lead — in the list and in
               the follow-up popup alike. Anyone on the lead may flip it. */}
           <Button
@@ -271,6 +345,14 @@ export default function CrmLeadDetailPage() {
           <Row label="Mobile" value={<PhoneLink value={lead.mobile} label={lead.company_name} subject={{ type: 'lead', uuid: lead.uuid }} />} />
           <Row label="Phone" value={<PhoneLink value={lead.phone} label={lead.company_name} subject={{ type: 'lead', uuid: lead.uuid }} />} />
           <Row label="Email" value={<EmailLink value={lead.email} />} />
+          {/* Reachable from the card the details are on, rather than only
+              from a button at the top — this is where somebody notices the
+              spelling is wrong. */}
+          {canEditPipeline && (
+            <button onClick={openEdit} className="mt-2 text-xs font-medium text-emerald-600 hover:underline">
+              Edit lead details
+            </button>
+          )}
         </Card>
         <Card>
           <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Pipeline</h2>
@@ -281,20 +363,9 @@ export default function CrmLeadDetailPage() {
           <Row label="Subject" value={lead.subject} />
           <Row label="Type" value={lead.lead_type === 'new' ? 'New' : 'Existing'} />
           <Row label="Expected amount" value={Number(lead.amount) ? '₹' + Number(lead.amount).toLocaleString('en-IN') : undefined} />
-          {(isManager || canEditPipeline) && (
-            <button
-              onClick={() => {
-                setQuick({
-                  source: lead.source ?? '',
-                  subject: lead.subject ?? '',
-                  lead_type: lead.lead_type,
-                  amount: Number(lead.amount) ? String(lead.amount) : '',
-                })
-                setQuickEdit(true)
-              }}
-              className="mt-2 text-xs font-medium text-emerald-600 hover:underline"
-            >
-              {isManager ? 'Edit source, subject, type or amount' : 'Edit subject or amount'}
+          {canEditPipeline && (
+            <button onClick={openEdit} className="mt-2 text-xs font-medium text-emerald-600 hover:underline">
+              Edit lead details
             </button>
           )}
           <Row label="Amount" value={Number(lead.amount) ? '₹' + Number(lead.amount).toLocaleString('en-IN') : null} />
@@ -310,6 +381,11 @@ export default function CrmLeadDetailPage() {
           {lead.requirement
             ? <p className="whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{lead.requirement}</p>
             : <p className="text-sm text-slate-400">Nothing noted yet.</p>}
+          {canEditPipeline && (
+            <button onClick={openEdit} className="mt-2 text-xs font-medium text-emerald-600 hover:underline">
+              {lead.requirement ? 'Edit' : 'Write what they need'}
+            </button>
+          )}
         </Card>
       </div>
 
@@ -411,9 +487,71 @@ export default function CrmLeadDetailPage() {
       )}
 
       {quickEdit && (
-        <Modal title={`Lead #${lead.lead_no} — pipeline details`} onClose={() => setQuickEdit(false)}>
+        <Modal title={`Lead #${lead.lead_no} — edit details`} onClose={() => setQuickEdit(false)} wide>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Company</Label>
+                <Input value={quick.company_name} onChange={(e) => setQuick((q) => ({ ...q, company_name: e.target.value }))} className="w-full" />
+              </div>
+              <div>
+                <Label>Contact person</Label>
+                <Input value={quick.contact_person} onChange={(e) => setQuick((q) => ({ ...q, contact_person: e.target.value }))} className="w-full" />
+              </div>
+              {/*
+                * The contacts ARE the lead's identity: two leads with one
+                * mobile between them is the same person twice, which is what
+                * Lead Duplication exists to catch. So changing them is the
+                * Admin's, or an employee the Admin has named — everyone else
+                * sees what is there and asks.
+                */}
+              <div>
+                <Label>Mobile</Label>
+                <Input
+                  value={quick.mobile}
+                  onChange={(e) => setQuick((q) => ({ ...q, mobile: e.target.value }))}
+                  disabled={!canEditContacts}
+                  title={canEditContacts ? undefined : 'Contact changes need your Admin'}
+                  className="w-full"
+                />
+              </div>
+              <div>
+                <Label>Phone</Label>
+                <Input
+                  value={quick.phone}
+                  onChange={(e) => setQuick((q) => ({ ...q, phone: e.target.value }))}
+                  disabled={!canEditContacts}
+                  title={canEditContacts ? undefined : 'Contact changes need your Admin'}
+                  className="w-full"
+                />
+              </div>
+              <div className="col-span-2">
+                <Label>Email</Label>
+                <Input
+                  type="email"
+                  value={quick.email}
+                  onChange={(e) => setQuick((q) => ({ ...q, email: e.target.value }))}
+                  disabled={!canEditContacts}
+                  title={canEditContacts ? undefined : 'Contact changes need your Admin'}
+                  className="w-full"
+                />
+              </div>
+              {!canEditContacts && (
+                <p className="col-span-2 -mt-1 text-xs text-slate-400">
+                  The mobile, phone and e-mail are the lead&rsquo;s identity — ask your Company Admin
+                  to change them.
+                </p>
+              )}
+              <div className="col-span-2">
+                <Label>Requirement</Label>
+                <Textarea
+                  rows={3}
+                  value={quick.requirement}
+                  onChange={(e) => setQuick((q) => ({ ...q, requirement: e.target.value }))}
+                  placeholder="What are they after?"
+                  className="w-full"
+                />
+              </div>
               {/* Where a lead came from and what kind it is shape the
                   reports, so those stay the Admin's; the subject and the
                   figure are the salesperson's own working notes. */}
@@ -447,7 +585,11 @@ export default function CrmLeadDetailPage() {
                 <Input type="number" min="0" value={quick.amount} onChange={(e) => setQuick((q) => ({ ...q, amount: e.target.value }))} className="w-full" />
               </div>
             </div>
-            <Button className="w-full" disabled={quickMutation.isPending} onClick={() => quickMutation.mutate()}>
+            <Button
+              className="w-full"
+              disabled={!quick.company_name.trim() || quickMutation.isPending}
+              onClick={() => quickMutation.mutate()}
+            >
               {quickMutation.isPending ? 'Saving…' : 'Save details'}
             </Button>
           </div>
