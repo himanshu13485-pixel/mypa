@@ -33,7 +33,7 @@ describe('when a description is a list at all', () => {
     /*
      * The important one. A description that was never meant as keywords must
      * keep reading as a description — one chip wrapped around a sentence is
-     * a worse way to show it than plain text.
+     * a worse way to show it than plain text. No comma, no list.
      */
     expect(readsAsKeywords('Annual subscription including weekly updates')).toBe(false)
     expect(readsAsKeywords('')).toBe(false)
@@ -43,8 +43,21 @@ describe('when a description is a list at all', () => {
     expect(readsAsKeywords('brass, steel')).toBe(true)
   })
 
-  it('says no when the commas were only trailing', () => {
-    expect(readsAsKeywords('brass,')).toBe(false)
+  it('says yes to a list of one, because the comma said so', () => {
+    /*
+     * This used to be false, on the reasoning that one keyword is not a
+     * list. But somebody who has typed "brass," has said they are listing
+     * things and has so far named one — and waiting for a second before
+     * showing the first is the app arguing with them about what they are
+     * doing. The comma is the intent; the count is not.
+     */
+    expect(readsAsKeywords('brass,')).toBe(true)
+    expect(readsAsKeywords('brass,  ')).toBe(true)
+  })
+
+  it('still says no when a separator names nothing', () => {
+    expect(readsAsKeywords(',')).toBe(false)
+    expect(readsAsKeywords(' , , ')).toBe(false)
   })
 })
 

@@ -53,11 +53,18 @@ export function joinKeywords(words: string[]): string {
 /**
  * Whether this description is a list at all.
  *
- * One keyword is not a list, it is a description — and a lone chip around a
- * whole sentence reads as a mistake rather than as a feature.
+ * The comma decides, not the count. Somebody who types "brass," has told you
+ * they are listing things and has so far named one of them — waiting for a
+ * second before showing the first is the app disagreeing with them about
+ * what they are doing.
+ *
+ * A separator is what makes it a list, so a description with none stays
+ * plain text. That is the whole of the prose protection: "Annual
+ * subscription including weekly updates" has no comma in it and is left
+ * alone, where a lone chip around the sentence would read as a mistake.
  */
 export function readsAsKeywords(text: string): boolean {
-  return splitKeywords(text).length > 1
+  return /[,\n]/.test(text) && splitKeywords(text).length > 0
 }
 
 /**
