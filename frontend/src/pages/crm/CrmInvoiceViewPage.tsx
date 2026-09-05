@@ -475,6 +475,19 @@ export default function CrmInvoiceViewPage() {
 
         {inv.notes && <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500 dark:border-slate-800">{inv.notes}</p>}
 
+        {/* Where to send the money. Above the signatory, as on the PDF —
+            the client reads it before they stop reading. */}
+        {inv.bank && (
+          <p className="mt-6 text-xs text-slate-600 dark:text-slate-300">
+            <span className="font-semibold">Bank details: </span>
+            {[
+              inv.bank.bank_name,
+              inv.bank.account_no ? `A/c ${inv.bank.account_no}` : null,
+              inv.bank.ifsc ? `IFSC ${inv.bank.ifsc}` : null,
+            ].filter(Boolean).join(' \u00b7 ')}
+          </p>
+        )}
+
         {/*
           * The signing space, as the PDF has always had it.
           *
@@ -497,6 +510,26 @@ export default function CrmInvoiceViewPage() {
           )}
           <div>Authorised signatory</div>
         </div>
+
+        {/*
+          * The line every computer-issued invoice in India carries.
+          *
+          * Rule 46 of the CGST Rules requires an invoice to be signed by the
+          * supplier and exempts one issued electronically under the IT Act
+          * from that, which is what this sentence asserts. "Physical" rather
+          * than simply "signature" on purpose: the document may well be
+          * digitally signed, and claiming it needs none at all would say
+          * something different from what is meant.
+          *
+          * Below the signatory, because it explains the absence of a
+          * signature and has to be read after somebody notices there is not
+          * one — and it was on the PDF alone, so a page printed from here
+          * went out with a blank signing space and nothing accounting for it.
+          */}
+        <p className="mt-5 text-center text-[11px] text-slate-500">
+          This is a computer-generated {isProforma ? 'document' : 'invoice'} and does not require a
+          physical signature.
+        </p>
       </Card>
 
       {!isProforma && (

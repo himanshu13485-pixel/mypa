@@ -686,15 +686,7 @@ class InvoiceController extends Controller
                 ->where('source', 'builtin')
                 ->keyBy('key')
                 ->all(),
-            // The issuing company's OWN account first; an unassigned
-            // org-wide account only as the fallback.
-            'bank' => BankAccount::where('organization_id', $invoice->organization_id)
-                ->where('is_active', true)
-                ->where(fn ($q) => $q->where('issuing_company_id', $invoice->issuing_company_id)
-                    ->orWhereNull('issuing_company_id'))
-                ->orderByRaw('case when issuing_company_id is null then 1 else 0 end')
-                ->orderBy('id')
-                ->first(),
+            'bank' => $this->bankFor($invoice),
         ])->setPaper('a4');
 
         return $pdf;
@@ -1215,6 +1207,25 @@ class InvoiceController extends Controller
         }
     }
 
+    /**
+     * Which account this document tells the client to pay into.
+     *
+     * The issuing company's OWN active account first; an unassigned org-wide
+     * one only as the fallback. Asked in one place because the PDF and the
+     * screen both print it, and two copies of a rule about where money is
+     * sent is two chances for them to stop agreeing.
+     */
+    private function bankFor(Invoice $invoice): ?BankAccount
+    {
+        return BankAccount::where('organization_id', $invoice->organization_id)
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->where('issuing_company_id', $invoice->issuing_company_id)
+                ->orWhereNull('issuing_company_id'))
+            ->orderByRaw('case when issuing_company_id is null then 1 else 0 end')
+            ->orderBy('id')
+            ->first();
+    }
+
     private function serialize(Invoice $i, bool $full = false): array
     {
         $base = [
@@ -1323,6 +1334,16 @@ class InvoiceController extends Controller
                 ])->values()
                 : [],
             'custom_fields' => $i->custom_fields ?? (object) [],
+            /*
+             * The bank line the document carries, resolved the same way the
+             * PDF resolves it — so the copy somebody prints from the screen
+             * names the same account as the copy they download.
+             */
+            'bank' => ($bank = $this->bankFor($i)) ? [
+                'bank_name' => $bank->bank_name,
+                'account_no' => $bank->account_no,
+                'ifsc' => $bank->ifsc,
+            ] : null,
             'fx_rate' => $i->fx_rate,
             'subtotal_fx' => $i->subtotal_fx,
             'notes' => $i->notes,

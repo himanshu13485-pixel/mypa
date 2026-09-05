@@ -664,6 +664,12 @@ export interface CrmInvoiceItem {
 }
 
 export interface CrmInvoiceFull extends CrmInvoiceRow {
+  /**
+   * Where the document tells the client to pay — the issuing company's own
+   * account, or an org-wide one. Resolved server-side so the printed page
+   * and the PDF can never name different accounts.
+   */
+  bank: { bank_name: string | null; account_no: string | null; ifsc: string | null } | null
   client_full: { address: string | null; city: string | null; state: string | null; pincode: string | null; country: string | null; gst_no: string | null; email: string | null; mobile: string | null } | null
   issuing_company_full: {
     address: string | null; gstin: string | null; pan: string | null
