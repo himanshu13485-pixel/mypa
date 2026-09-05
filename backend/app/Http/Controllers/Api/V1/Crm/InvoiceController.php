@@ -83,7 +83,18 @@ class InvoiceController extends Controller
         // Which list this is decides which right it needs.
         $this->forKind($request, (string) $request->query('kind', 'invoice'), 'view');
 
-        $query = Invoice::with(['client:id,uuid,company_name,contact_person', 'issuingCompany:id,name', 'member.user:id,name,email'])
+        $query = Invoice::with([
+            'client:id,uuid,company_name,contact_person', 'issuingCompany:id,name', 'member.user:id,name,email',
+            /*
+             * Only the memberships, not the lines.
+             *
+             * The list shows what each invoice is FOR, which is the one thing
+             * on the work order a person scans a list looking for. Two columns
+             * of one relation is a single extra query for the page — loading
+             * whole line items to read one field off them would not be.
+             */
+            'items:id,invoice_id,membership',
+        ])
             ->where('organization_id', $org->id)
             // Own ledger only, unless you run the company.
             ->visibleTo($me)
@@ -1236,6 +1247,19 @@ class InvoiceController extends Controller
             'payment_status' => $i->payment_status,
             'dispatch_status' => $i->dispatch_status,
             'converted' => $i->relationLoaded('convertedTo') && $i->convertedTo !== null,
+            /*
+             * What this invoice is for, in the company's own word for it.
+             *
+             * Distinct, because an invoice of six lines against one
+             * membership is one answer repeated, not six. Null rather than an
+             * empty list when the lines were not loaded, so a caller can tell
+             * "this invoice names none" from "nobody asked".
+             */
+            'memberships' => $i->relationLoaded('items')
+                ? $i->items->pluck('membership')
+                    ->map(fn ($m) => is_string($m) ? trim($m) : $m)
+                    ->filter()->unique()->values()->all()
+                : null,
             // "Recurring · 2 of 12", stamped when the copy was raised.
             'recurring_note' => $i->recurring_note,
             // The schedule link is the fact; the note is the choice — the

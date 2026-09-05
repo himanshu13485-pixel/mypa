@@ -608,6 +608,12 @@ export interface CrmInvoiceRow {
   total: string
   total_fx?: string | null
   fx_currency?: string | null
+  /**
+   * What the invoice is for, from its work order lines — distinct, so six
+   * lines against one membership read as one answer rather than six. Null
+   * when the caller did not ask for the lines.
+   */
+  memberships?: string[] | null
   payment_status: string
   dispatch_status: string
   converted?: boolean

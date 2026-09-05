@@ -35,6 +35,18 @@ export default function CrmInvoicesPage() {
   const [page, setPage] = useState(1)
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
+
+  /*
+   * The Membership column, worded and shown as this company has it.
+   *
+   * The same question the document asks — a company that renamed it to
+   * "Scheme" or switched it off entirely on its work order means that here
+   * too, and a list carrying a column its documents do not have is a list
+   * about a different company.
+   */
+  const membershipColumn = (masters?.work_order_method ?? [])
+    .find((c) => c.source === 'builtin' && c.key === 'membership')
+  const showMembership = !!membershipColumn && !membershipColumn.hidden
   const { data: me } = useQuery(crmMeQuery())
 
   // One click from the list: the proforma becomes a tax invoice, nothing is
@@ -219,11 +231,14 @@ export default function CrmInvoicesPage() {
           <EmptyState title={`No ${kind === 'proforma' ? 'proforma invoices' : 'invoices'} found`} hint="Adjust the filters or create one." />
         ) : (
           <div className="-mx-4 overflow-x-auto px-4">
-            <table className="w-full min-w-[820px] text-sm">
+            <table className={clsx('w-full text-sm', showMembership ? 'min-w-[980px]' : 'min-w-[820px]')}>
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                   <th className="py-2 pr-3 font-medium">Number</th>
                   <th className="py-2 pr-3 font-medium">Client</th>
+                  {showMembership && (
+                    <th className="py-2 pr-3 font-medium">{membershipColumn?.label ?? 'Membership'}</th>
+                  )}
                   <th className="py-2 pr-3 font-medium">Issuing company</th>
                   <th className="py-2 pr-3 font-medium">Salesperson</th>
                   <th className="py-2 pr-3 font-medium">Date</th>
@@ -255,6 +270,17 @@ export default function CrmInvoicesPage() {
                       )}
                     </td>
                     <td className="max-w-[200px] truncate py-2.5 pr-3">{i.client?.company_name ?? '—'}</td>
+                    {showMembership && (
+                      /* Titled as well as truncated: an invoice against three
+                         memberships is exactly the row somebody is looking
+                         for, and it is the one that will not fit. */
+                      <td
+                        className="max-w-[160px] truncate py-2.5 pr-3"
+                        title={(i.memberships ?? []).join(', ') || undefined}
+                      >
+                        {(i.memberships ?? []).join(', ') || '—'}
+                      </td>
+                    )}
                     <td className="max-w-[160px] truncate py-2.5 pr-3">{i.issuing_company?.name ?? '—'}</td>
                     <td className="py-2.5 pr-3">{i.salesperson?.name ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">{i.invoice_date}</td>
