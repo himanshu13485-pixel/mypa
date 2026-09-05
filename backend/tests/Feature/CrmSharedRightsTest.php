@@ -71,7 +71,19 @@ class CrmSharedRightsTest extends TestCase
             ->withHeader('X-Crm-Org', $this->org->slug)
             ->putJson('/api/v1/crm/employees-shared-rights', $payload + [
                 'rights' => self::EVERYDAY,
-                'apply_to_all' => true,
+                'apply_to' => 'all',
+            ]);
+    }
+
+    /** The same, to named people rather than to the lot of them. */
+    private function copyTo(User $who, array $members)
+    {
+        return $this->actingAs($who)
+            ->withHeader('X-Crm-Org', $this->org->slug)
+            ->putJson('/api/v1/crm/employees-shared-rights', [
+                'rights' => self::EVERYDAY,
+                'apply_to' => 'chosen',
+                'member_uuids' => collect($members)->map(fn (User $u) => $this->memberOf($u)->uuid)->all(),
             ]);
     }
 
@@ -187,7 +199,7 @@ class CrmSharedRightsTest extends TestCase
             ->withHeader('X-Crm-Org', $this->org->slug)
             ->putJson('/api/v1/crm/employees-shared-rights', [
                 'rights' => ['leadz' => ['view']],
-                'apply_to_all' => true,
+                'apply_to' => 'all',
             ])->assertStatus(422);
     }
 
@@ -199,7 +211,7 @@ class CrmSharedRightsTest extends TestCase
             ->withHeader('X-Crm-Org', $this->org->slug)
             ->putJson('/api/v1/crm/employees-shared-rights', [
                 'rights' => ['leads' => ['view'], 'clients' => []],
-                'apply_to_all' => true,
+                'apply_to' => 'all',
             ])->assertOk();
 
         // A stored set says what somebody has, not everything that exists.
@@ -212,7 +224,7 @@ class CrmSharedRightsTest extends TestCase
             ->withHeader('X-Crm-Org', $this->org->slug)
             ->putJson('/api/v1/crm/employees-shared-rights', [
                 'rights' => self::EVERYDAY,
-                'apply_to_all' => false,
+                'apply_to' => 'nobody',
                 'set_as_default' => true,
             ])->assertOk()->assertJsonPath('data.applied', 0);
 
@@ -243,6 +255,82 @@ class CrmSharedRightsTest extends TestCase
             ])->assertStatus(403);
 
         $this->assertSame([], $this->org->fresh()->defaultMemberRights());
+    }
+
+    public function test_it_can_go_to_one_person_rather_than_the_whole_company(): void
+    {
+        /*
+         * Which is most of the real uses. Somebody moves from sales to
+         * accounts and needs one colleague's rights; copying that to
+         * everybody to save ticking twenty boxes would be a cure worse than
+         * the complaint.
+         */
+        $moved = $this->staff('employee', ['leads' => ['view']]);
+        $untouched = $this->staff('employee', ['clients' => ['view']]);
+
+        $this->copyTo($this->admin, [$moved])->assertOk()->assertJsonPath('data.applied', 1);
+
+        $this->assertSame(self::EVERYDAY, $this->memberOf($moved)->rights);
+        $this->assertSame(['clients' => ['view']], $this->memberOf($untouched)->rights);
+    }
+
+    public function test_it_can_go_to_several_without_going_to_all(): void
+    {
+        $first = $this->staff('employee');
+        $second = $this->staff('employee');
+        $third = $this->staff('employee', ['leads' => ['view']]);
+
+        $this->copyTo($this->admin, [$first, $second])->assertOk()->assertJsonPath('data.applied', 2);
+
+        $this->assertSame(self::EVERYDAY, $this->memberOf($first)->rights);
+        $this->assertSame(self::EVERYDAY, $this->memberOf($second)->rights);
+        $this->assertSame(['leads' => ['view']], $this->memberOf($third)->rights);
+    }
+
+    public function test_naming_somebody_out_of_reach_reaches_nobody(): void
+    {
+        /*
+         * The picker only ever offers people the caller may set rights on, so
+         * a uuid outside that list arrived by hand. Silently applying it
+         * would make the list decoration and the check a suggestion.
+         */
+        $subadmin = $this->staff('subadmin', [], ['employees.rights']);
+        $peer = $this->staff('subadmin', ['leads' => ['view']]);
+
+        $this->copyTo($subadmin, [$peer])->assertStatus(422);
+
+        $this->assertSame(['leads' => ['view']], $this->memberOf($peer)->rights);
+    }
+
+    public function test_naming_nobody_while_choosing_is_refused(): void
+    {
+        // Rather than quietly doing nothing and reporting success, which
+        // reads exactly like it worked.
+        $this->staff('employee');
+
+        $this->actingAs($this->admin)
+            ->withHeader('X-Crm-Org', $this->org->slug)
+            ->putJson('/api/v1/crm/employees-shared-rights', [
+                'rights' => self::EVERYDAY,
+                'apply_to' => 'chosen',
+                'member_uuids' => [],
+            ])->assertStatus(422);
+    }
+
+    public function test_the_screen_is_told_who_it_may_offer(): void
+    {
+        $employee = $this->staff('employee');
+        $this->staff('admin');
+
+        $body = $this->actingAs($this->admin)
+            ->withHeader('X-Crm-Org', $this->org->slug)
+            ->getJson('/api/v1/crm/employees-shared-rights')
+            ->assertOk()->json('data');
+
+        // The names the picker draws — and only people who may be picked.
+        $this->assertCount(1, $body['members']);
+        $this->assertSame($this->memberOf($employee)->uuid, $body['members'][0]['uuid']);
+        $this->assertNotNull($body['members'][0]['name']);
     }
 
     public function test_the_widest_click_in_the_crm_is_written_down(): void

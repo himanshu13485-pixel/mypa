@@ -19,7 +19,8 @@ use Illuminate\Validation\Rule;
  * one answer.
  *
  * So this does the two things that keeps true: hands the set on the screen to
- * everybody it may be handed to, and remembers it as where a new hire starts.
+ * whoever should have it — everybody, or the two people who have just changed
+ * desks — and remembers it as where a new hire starts.
  *
  * Who it reaches is not a new rule. It is the same question the employee form
  * asks one person at a time — Member::maySetRightsOn — asked of everybody at
@@ -47,6 +48,19 @@ class SharedRightsController extends Controller
             // somebody reads the rest of the sentence.
             'employees' => $targets->where('crm_role', 'employee')->count(),
             'subadmins' => $targets->where('crm_role', 'subadmin')->count(),
+            /*
+             * Named, not just counted, so the screen can offer them one at a
+             * time. Copying to everybody is the common case and not the only
+             * one — somebody who has moved desks needs one colleague's rights
+             * changed, and doing that by hand for one person is fine right up
+             * until it is three.
+             */
+            'members' => $targets->map(fn (Member $m) => [
+                'uuid' => $m->uuid,
+                'name' => $m->user?->name,
+                'crm_role' => $m->crm_role,
+                'employee_code' => $m->employee_code,
+            ])->values(),
             'may_set_default' => $me->crm_role === 'admin',
             'default_rights' => (object) $org->defaultMemberRights(),
             'default_capabilities' => $org->defaultMemberCapabilities(),
@@ -66,9 +80,21 @@ class SharedRightsController extends Controller
             'rights.*.*' => [Rule::in(Member::ABILITIES)],
             'capabilities' => ['nullable', 'array'],
             'capabilities.*' => [Rule::in(array_keys(Member::CAPABILITIES))],
-            'apply_to_all' => ['boolean'],
+            /*
+             * Who gets them: everybody this caller may reach, the people
+             * named below, or nobody — the last being somebody who only
+             * wants to change where new hires start.
+             */
+            'apply_to' => ['nullable', Rule::in(['all', 'chosen', 'nobody'])],
+            'member_uuids' => ['nullable', 'array'],
+            'member_uuids.*' => ['string'],
             'set_as_default' => ['boolean'],
         ]);
+
+        $applyTo = $data['apply_to'] ?? 'nobody';
+
+        abort_if($applyTo === 'chosen' && empty($data['member_uuids']), 422,
+            'Pick at least one person, or choose everybody.');
 
         /*
          * Module names are checked, which the one-person form does not do —
@@ -90,8 +116,23 @@ class SharedRightsController extends Controller
 
         $applied = 0;
 
-        if ($data['apply_to_all'] ?? false) {
+        if ($applyTo !== 'nobody') {
             $targets = $this->recipients($request);
+
+            if ($applyTo === 'chosen') {
+                /*
+                 * Filtered from the same list rather than looked up by uuid.
+                 * A uuid that is not in it is somebody this caller may not
+                 * set rights on, and quietly dropping it is the right answer
+                 * — the list is what the screen offered, so anything else
+                 * arrived by hand.
+                 */
+                $wanted = array_flip($data['member_uuids']);
+                $targets = $targets->filter(fn (Member $m) => isset($wanted[$m->uuid]))->values();
+
+                abort_if($targets->isEmpty(), 422,
+                    'None of those people are yours to set rights on.');
+            }
 
             DB::transaction(function () use ($targets, $rights, $capabilities, &$applied) {
                 foreach ($targets as $member) {
@@ -108,6 +149,7 @@ class SharedRightsController extends Controller
              */
             AuditLog::record($request->user(), 'crm.rights.applied_to_all', $org, [
                 'members' => $applied,
+                'to' => $applyTo,
                 'modules' => array_keys($rights),
                 'capabilities' => $capabilities,
             ]);
@@ -148,6 +190,8 @@ class SharedRightsController extends Controller
         $me = $request->attributes->get('crm_member');
 
         return Member::visible()
+            // Named on the picker, so the names come with them.
+            ->with('user:id,name')
             ->where('organization_id', $org->id)
             ->where('status', 'active')
             ->where('crm_role', '!=', 'admin')

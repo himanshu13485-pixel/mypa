@@ -1844,6 +1844,8 @@ export const crm = {
         count: number
         employees: number
         subadmins: number
+        /** Named, so the screen can offer them one at a time. */
+        members: { uuid: string; name: string | null; crm_role: string; employee_code: string | null }[]
         may_set_default: boolean
         default_rights: Record<string, string[]>
         default_capabilities: string[]
@@ -1851,7 +1853,9 @@ export const crm = {
     shareRights: (payload: {
       rights: Record<string, string[]>
       capabilities?: string[]
-      apply_to_all?: boolean
+      /** Everybody reachable, the people named, or nobody. */
+      apply_to?: 'all' | 'chosen' | 'nobody'
+      member_uuids?: string[]
       set_as_default?: boolean
     }) =>
       api.put<{ message: string; data: { applied: number } }>('/crm/employees-shared-rights', payload)

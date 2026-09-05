@@ -939,7 +939,7 @@ export default function CrmEmployeeFormPage() {
               {/* One answer to "what may an employee see", rather than
                   twenty — worked out here, then handed to everybody. */}
               <Button size="sm" variant="secondary" onClick={() => setSharing(true)}>
-                <Users className="size-4" /> Copy to everyone
+                <Users className="size-4" /> Copy to…
               </Button>
               <Button size="sm" variant="secondary" onClick={() => grantEverything(masters.modules, masters.abilities)}>
                 Select all
@@ -1634,13 +1634,18 @@ function DocumentsCard({ uuid, existing }: { uuid: string; existing: CrmEmployee
 }
 
 /**
- * Giving the rights on screen to everybody they may be given to.
+ * Giving the rights on screen to other people.
  *
- * The count is the whole reason this is a dialog rather than a button that
- * just does it. "This replaces what 14 people have now" is a different
- * sentence from "are you sure?", and it is the one that stops the wrong
- * click — so the dialog asks the server who it would reach before it reaches
- * them, and will not offer the button until it knows.
+ * Two shapes of the same act: everybody the caller may reach, or a few named
+ * people. Everybody is the common case; one person is what actually happens
+ * when somebody changes desks, and copying to the whole company to save
+ * ticking twenty boxes would be a cure worse than the complaint.
+ *
+ * Either way the count is the whole reason this is a dialog rather than a
+ * button that just does it. "This replaces what 14 people have now" is a
+ * different sentence from "are you sure?", and it is the one that stops the
+ * wrong click — so the dialog asks the server who it could reach before it
+ * reaches anybody, and will not offer the button until it knows.
  */
 function ShareRightsModal({
   rights,
@@ -1658,6 +1663,9 @@ function ShareRightsModal({
   const { toast } = useToast()
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
+  /** Everybody, or the people ticked below. */
+  const [who, setWho] = useState<'all' | 'chosen'>('all')
+  const [picked, setPicked] = useState<string[]>([])
 
   const { data: reach, isLoading } = useQuery({
     queryKey: ['crm', 'shared-rights'],
@@ -1668,12 +1676,13 @@ function ShareRightsModal({
     mutationFn: () => crm.employees.shareRights({
       rights,
       capabilities,
-      apply_to_all: true,
+      apply_to: who,
+      member_uuids: who === 'chosen' ? picked : undefined,
       set_as_default: alsoDefault && !!reach?.may_set_default,
     }),
     onSuccess: (res) => {
-      // Everybody's rights just moved, so nothing cached about employees or
-      // about this reader's own menu is to be trusted.
+      // Rights just moved, so nothing cached about employees or about this
+      // reader's own menu is to be trusted.
       queryClient.invalidateQueries({ queryKey: ['crm'] })
       toast(res.message, 'success')
       onClose()
@@ -1681,15 +1690,20 @@ function ShareRightsModal({
     onError: (err) => setError(errorMessage(err)),
   })
 
+  const toggle = (uuid: string) =>
+    setPicked((p) => (p.includes(uuid) ? p.filter((u) => u !== uuid) : [...p, uuid]))
+
   /* Said plainly, because "everyone" quietly including three subadmins is
      exactly the sort of thing somebody should not find out afterwards. */
-  const who = !reach ? '' : [
+  const everyone = !reach ? '' : [
     reach.employees === 1 ? '1 employee' : `${reach.employees} employees`,
     reach.subadmins ? (reach.subadmins === 1 ? '1 subadmin' : `${reach.subadmins} subadmins`) : null,
   ].filter(Boolean).join(' and ')
 
+  const count = who === 'all' ? (reach?.count ?? 0) : picked.length
+
   return (
-    <Modal title="Copy these rights to everyone" onClose={onClose}>
+    <Modal title="Copy these rights to…" onClose={onClose}>
       <div className="space-y-3">
         <ErrorNote message={error} />
 
@@ -1701,10 +1715,61 @@ function ShareRightsModal({
           </p>
         ) : (
           <>
+            {/*
+              * Everybody is the common case and not the only one. Somebody
+              * who has moved from sales to accounts needs one colleague's
+              * rights changed, and doing that by copying to the whole
+              * company would be a cure worse than the complaint.
+              */}
+            <div className="flex gap-2">
+              {([['all', `Everyone — ${everyone}`], ['chosen', 'Only the people I pick']] as const).map(([key, text]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setWho(key)}
+                  className={clsx(
+                    'flex-1 rounded-xl border px-3 py-2 text-left text-xs transition-colors',
+                    who === key
+                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                      : 'border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800',
+                  )}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+
+            {who === 'chosen' && (
+              <div className="scroll-pane max-h-56 space-y-0.5 overflow-y-auto rounded-xl border border-slate-200 p-1.5 dark:border-slate-700">
+                {reach.members.map((m) => (
+                  <label
+                    key={m.uuid}
+                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={picked.includes(m.uuid)}
+                      onChange={() => toggle(m.uuid)}
+                      className="size-4 accent-emerald-600"
+                    />
+                    <span className="min-w-0 flex-1 truncate">{m.name ?? '—'}</span>
+                    {/* A subadmin among the employees is worth seeing before
+                        ticking, not after. */}
+                    <span className="shrink-0 text-xs text-slate-400">
+                      {m.employee_code ? m.employee_code + ' · ' : ''}{m.crm_role}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+
             <p className="text-sm text-slate-600 dark:text-slate-300">
-              Give the rights ticked on this screen to <span className="font-medium">{who}</span>.
-              This replaces what each of them has now, so anything set for one person on
-              purpose is lost.
+              {count === 0
+                ? 'Nobody picked yet.'
+                : <>Give the rights ticked on this screen to <span className="font-medium">
+                    {count === 1 ? '1 person' : `${count} people`}
+                  </span>. This replaces what each of them has now, so anything set for one person
+                  on purpose is lost.</>}
             </p>
             <p className="text-xs text-slate-400">
               Admins are left alone — they hold everything by the job.
@@ -1734,10 +1799,10 @@ function ShareRightsModal({
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button
-            disabled={!reach || reach.count === 0 || mutation.isPending}
+            disabled={!reach || count === 0 || mutation.isPending}
             onClick={() => mutation.mutate()}
           >
-            {mutation.isPending ? 'Copying…' : 'Copy to everyone'}
+            {mutation.isPending ? 'Copying…' : 'Copy rights'}
           </Button>
         </div>
       </div>
