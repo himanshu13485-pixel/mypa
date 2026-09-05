@@ -8,6 +8,7 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
+import { photoUrl } from '../../lib/avatars'
 import { KeywordChips } from '../../components/KeywordChips'
 import { readsAsKeywords } from '../../lib/keywords'
 
@@ -284,6 +285,16 @@ export default function CrmInvoiceViewPage() {
       <Card className="print:shadow-none print:ring-0">
         <div className="flex flex-wrap justify-between gap-4 border-b border-slate-100 pb-4 dark:border-slate-800">
           <div>
+            {/* The letterhead. On screen and on paper alike — Print captures
+                this card, so a logo the PDF alone knew about was a logo that
+                never printed. */}
+            {inv.issuing_company_full?.logo_path && (
+              <img
+                src={photoUrl(inv.issuing_company_full.logo_path)}
+                alt=""
+                className="mb-1.5 max-h-[52px] max-w-[180px] object-contain"
+              />
+            )}
             <div className="text-lg font-bold text-slate-900 dark:text-white">{inv.issuing_company?.name}</div>
             {inv.issuing_company_full?.address && <div className="mt-0.5 max-w-xs text-xs text-slate-500">{inv.issuing_company_full.address}</div>}
             {inv.issuing_company_full?.gstin && <div className="text-xs text-slate-500">GSTIN: {inv.issuing_company_full.gstin}</div>}
@@ -463,6 +474,29 @@ export default function CrmInvoiceViewPage() {
         )}
 
         {inv.notes && <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500 dark:border-slate-800">{inv.notes}</p>}
+
+        {/*
+          * The signing space, as the PDF has always had it.
+          *
+          * The stamp sits over the space rather than beside it, which is where
+          * a rubber stamp lands on paper; a company with no stamp keeps the
+          * blank space to sign in. This block is the reason the whole change
+          * exists — Print prints this card, so without it a printed invoice
+          * went out unsigned and unstamped while the downloaded PDF did not.
+          */}
+        <div className="mt-8 text-right text-xs text-slate-500">
+          <div>For {inv.issuing_company?.name}</div>
+          {inv.issuing_company_full?.stamp_path ? (
+            <img
+              src={photoUrl(inv.issuing_company_full.stamp_path)}
+              alt=""
+              className="ml-auto my-1 max-h-[76px] max-w-[150px] object-contain"
+            />
+          ) : (
+            <div className="h-12" />
+          )}
+          <div>Authorised signatory</div>
+        </div>
       </Card>
 
       {!isProforma && (

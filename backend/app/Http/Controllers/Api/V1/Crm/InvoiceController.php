@@ -1259,6 +1259,11 @@ class InvoiceController extends Controller
             ]),
             'issuing_company_full' => $i->issuingCompany?->only([
                 'address', 'gstin', 'pan', 'state_code', 'phone', 'email',
+                // The letterhead and the rubber stamp. Sent so the screen can
+                // draw the same document the PDF does — the Print button
+                // prints what is on screen, so a header only the PDF knew
+                // about was a header printing never had.
+                'logo_path', 'stamp_path',
             ]),
             'client_category' => $i->client_category,
             'pricing_tier' => $i->pricing_tier,

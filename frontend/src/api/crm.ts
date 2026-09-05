@@ -659,7 +659,13 @@ export interface CrmInvoiceItem {
 
 export interface CrmInvoiceFull extends CrmInvoiceRow {
   client_full: { address: string | null; city: string | null; state: string | null; pincode: string | null; country: string | null; gst_no: string | null; email: string | null; mobile: string | null } | null
-  issuing_company_full: { address: string | null; gstin: string | null; pan: string | null; state_code: string | null; phone: string | null; email: string | null } | null
+  issuing_company_full: {
+    address: string | null; gstin: string | null; pan: string | null
+    state_code: string | null; phone: string | null; email: string | null
+    /** The letterhead and the rubber stamp, so the screen draws the document. */
+    logo_path?: string | null
+    stamp_path?: string | null
+  } | null
   client_category: string | null
   pricing_tier: string
   terms_of_payment: string | null
