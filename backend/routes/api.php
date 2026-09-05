@@ -1223,6 +1223,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // Where each of the company's own fields sits in its form and
                 // on the printed document — one order, read by both.
                 Route::put('/workspace-fields/order', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'reorder']);
+                /*
+                 * Changing a field the company already has — a plan added to
+                 * a dropdown, most often. An approved field keeps working as
+                 * it does; the change waits for the Super Admin.
+                 *
+                 * Below /order deliberately. A {uuid} route registered above
+                 * it matches the literal word "order" first, and reordering
+                 * would quietly become an edit of a field that does not
+                 * exist.
+                 */
+                Route::put('/workspace-fields/{uuid}', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'update']);
             });
 
             // Reports: the controller holds the stricter door — the Admin,

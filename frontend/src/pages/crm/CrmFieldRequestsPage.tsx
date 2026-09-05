@@ -71,17 +71,21 @@ export default function CrmFieldRequestsPage() {
                 <div className="flex flex-wrap items-center gap-2">
                   <Building2 className="size-4 shrink-0 text-emerald-500" />
                   <span className="font-medium text-slate-800 dark:text-slate-100">{f.organization?.name}</span>
-                  <span className="text-slate-400">wants</span>
+                  {/* Two different asks land in this queue: a field that
+                      does not exist yet, and a change to one that is live and
+                      being used. Reading them the same way is how a change
+                      gets waved through as though nothing were at stake. */}
+                  <span className="text-slate-400">{f.pending ? 'wants to change' : 'wants'}</span>
                   <span className="font-medium text-slate-800 dark:text-slate-100">"{f.label}"</span>
                   <span className={clsx(
                     'rounded-full px-2 py-0.5 text-[11px] font-medium',
-                    f.status === 'approved' && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
-                    f.status === 'pending' && 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
-                    f.status === 'rejected' && 'bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400',
+                    !f.pending && f.status === 'approved' && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
+                    (f.pending || f.status === 'pending') && 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
+                    !f.pending && f.status === 'rejected' && 'bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400',
                   )}>
-                    {f.status}
+                    {f.pending ? 'change pending' : f.status}
                   </span>
-                  {f.status === 'pending' && (
+                  {(f.status === 'pending' || f.pending) && (
                     <div className="ml-auto flex gap-1">
                       <Button size="sm" onClick={() => decideMutation.mutate({ uuid: f.uuid, verdict: 'approved' })}>
                         <Check className="size-3.5" /> Approve
@@ -99,6 +103,23 @@ export default function CrmFieldRequestsPage() {
                   {f.is_required && ' · required'}
                   {f.options && f.options.length > 0 && <> · options: {f.options.join(', ')}</>}
                 </div>
+                {/*
+                  * A change: what it is now is above, what it would become is
+                  * here. Both, because approving a line that only shows the
+                  * proposal is approving something you cannot see the effect
+                  * of — and this field is live on somebody's invoices.
+                  */}
+                {f.pending && (
+                  <div className="mt-1 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                    Would become: {f.pending.label && <>“{f.pending.label}”</>}
+                    {f.pending.type && <> · {CRM_FIELD_TYPE_LABELS[f.pending.type] ?? f.pending.type}</>}
+                    {f.pending.is_hidden && <> · not used</>}
+                    {f.pending.options && f.pending.options.length > 0
+                      && <> · options: {f.pending.options.join(', ')}</>}
+                    {f.pending_at && <> · asked {f.pending_at.slice(0, 16)}</>}
+                    {f.pending_by && <> by {f.pending_by}</>}
+                  </div>
+                )}
                 {/* Received when and from whom; decided when and by whom. */}
                 <div className="mt-0.5 text-xs text-slate-400">
                   Received {f.created_at?.slice(0, 16) ?? '—'}

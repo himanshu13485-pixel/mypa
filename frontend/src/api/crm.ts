@@ -118,6 +118,17 @@ export interface CrmCustomField {
   decided_by: string | null
   decided_at: string | null
   decision_note: string | null
+  /**
+   * A change asked for and not yet allowed.
+   *
+   * Sent beside the live values rather than instead of them: the field goes
+   * on working as it is, and both screens can say what it would become.
+   */
+  pending?: Partial<Pick<CrmCustomField,
+    'label' | 'type' | 'options' | 'is_required' | 'help' | 'is_hidden'
+    | 'tax_kind' | 'tax_basis' | 'default_rate' | 'reason'>> | null
+  pending_by?: string | null
+  pending_at?: string | null
   organization?: { uuid: string; name: string } | null
   created_at: string | null
 }
@@ -2370,6 +2381,13 @@ export const crm = {
       }>('/crm/workspace-fields').then((r) => r.data),
     request: (payload: Record<string, unknown>) =>
       api.post<{ message: string }>('/crm/workspace-fields', payload).then((r) => r.data),
+    /**
+     * Change a field the company already has — a plan added to a dropdown,
+     * most often. An approved field keeps working exactly as it does; the
+     * change waits for the Super Admin.
+     */
+    change: (uuid: string, payload: Record<string, unknown>) =>
+      api.put<{ message: string }>('/crm/workspace-fields/' + uuid, payload).then((r) => r.data),
     remove: (uuid: string) => api.delete('/crm/workspace-fields/' + uuid).then((r) => r.data),
     /**
      * The order this company's own fields appear in, on the form and on the

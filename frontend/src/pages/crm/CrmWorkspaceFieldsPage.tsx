@@ -16,6 +16,18 @@ function statusBadge(status: string) {
   )
 }
 
+/** A proposed change, in a line: what actually differs, not the whole field. */
+function describe(pending: NonNullable<CrmCustomField['pending']>): string {
+  const parts: string[] = []
+
+  if (pending.label) parts.push(`“${pending.label}”`)
+  if (pending.type) parts.push(CRM_FIELD_TYPE_LABELS[pending.type] ?? pending.type)
+  if (pending.options?.length) parts.push(pending.options.join(', '))
+  if (pending.is_hidden) parts.push('not used')
+
+  return parts.join(' · ') || 'a change'
+}
+
 const EMPTY = {
   entity: 'client', label: '', type: 'text', options: '', is_required: false,
   help: '', reason: '', builtin_key: '', is_hidden: false,
@@ -34,6 +46,8 @@ export default function CrmWorkspaceFieldsPage() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ ...EMPTY })
   const [error, setError] = useState<string | null>(null)
+  /** The field being changed, when this is an edit rather than a request. */
+  const [editing, setEditing] = useState<CrmCustomField | null>(null)
 
   const { data, isLoading } = useQuery({ queryKey: ['crm', 'workspace-fields'], queryFn: crm.workspaceFields.list })
   const { data: me } = useQuery(crmMeQuery())
@@ -43,30 +57,56 @@ export default function CrmWorkspaceFieldsPage() {
     queryClient.invalidateQueries({ queryKey: ['crm', 'masters'] })
   }
 
+  /*
+   * What the form is asking for, whichever door it came through. Written
+   * once because asking for a field and changing one are the same answer to
+   * the same set of questions — two copies would be two places for the
+   * options splitter to stop matching.
+   */
+  const payload = () => ({
+    entity: form.entity,
+    label: form.label,
+    type: form.type,
+    is_hidden: form.is_hidden,
+    tax_kind: form.entity === 'tax' ? form.tax_kind : null,
+    tax_basis: form.entity === 'tax' ? form.tax_basis : null,
+    default_rate: form.entity === 'tax' && form.default_rate !== '' ? Number(form.default_rate) : null,
+    options: form.type === 'select'
+      ? form.options.split(/[\n,]+/).map((o) => o.trim()).filter(Boolean)
+      : null,
+    is_required: form.is_required,
+    help: form.help || null,
+    reason: form.reason || null,
+  })
+
+  const done = (res: { message?: string }) => {
+    refresh()
+    setShowForm(false)
+    setEditing(null)
+    setForm({ ...EMPTY })
+    toast(res.message ?? 'Saved.', 'success')
+  }
+
   const requestMutation = useMutation({
-    mutationFn: () =>
-      crm.workspaceFields.request({
-        entity: form.entity,
-        label: form.label,
-        type: form.type,
-        builtin_key: form.builtin_key || null,
-        is_hidden: form.is_hidden,
-        tax_kind: form.entity === 'tax' ? form.tax_kind : null,
-        tax_basis: form.entity === 'tax' ? form.tax_basis : null,
-        default_rate: form.entity === 'tax' && form.default_rate !== '' ? Number(form.default_rate) : null,
-        options: form.type === 'select'
-          ? form.options.split(/[\n,]+/).map((o) => o.trim()).filter(Boolean)
-          : null,
-        is_required: form.is_required,
-        help: form.help || null,
-        reason: form.reason || null,
-      }),
-    onSuccess: (res) => {
-      refresh()
-      setShowForm(false)
-      setForm({ ...EMPTY })
-      toast(res.message, 'success')
-    },
+    mutationFn: () => crm.workspaceFields.request({
+      ...payload(),
+      builtin_key: form.builtin_key || null,
+    }),
+    onSuccess: done,
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  /*
+   * Changing a field the company already has.
+   *
+   * A field that is live stays live and keeps its current wording — the
+   * change is held until the Super Admin allows it. Which is the point:
+   * before this, the only way to alter an approved column was to delete it,
+   * and deleting took effect at once.
+   */
+  const changeMutation = useMutation({
+    mutationFn: () => crm.workspaceFields.change(editing!.uuid, payload()),
+    onSuccess: done,
     onError: (err) => setError(errorMessage(err)),
   })
 
@@ -136,6 +176,36 @@ export default function CrmWorkspaceFieldsPage() {
     setShowForm(true)
   }
 
+  /**
+   * Change a field the company already has.
+   *
+   * Opened on what is outstanding rather than on what is live — somebody
+   * coming back to a change they asked for yesterday should find yesterday's
+   * answer in the boxes, not have to type it again.
+   */
+  const openEdit = (f: CrmCustomField) => {
+    const from = { ...f, ...(f.pending ?? {}) }
+
+    setEditing(f)
+    setForm({
+      ...EMPTY,
+      entity: f.entity,
+      builtin_key: f.is_builtin ? f.key : '',
+      label: from.label ?? '',
+      type: from.type ?? 'text',
+      options: (from.options ?? []).join('\n'),
+      is_required: !!from.is_required,
+      is_hidden: !!from.is_hidden,
+      help: from.help ?? '',
+      reason: from.reason ?? '',
+      tax_kind: from.tax_kind ?? 'tax',
+      tax_basis: from.tax_basis ?? 'taxable',
+      default_rate: from.default_rate != null ? String(from.default_rate) : '',
+    })
+    setError(null)
+    setShowForm(true)
+  }
+
   const activeBuiltin = form.builtin_key ? data?.builtins?.[form.entity]?.[form.builtin_key] : undefined
   const isTax = form.entity === 'tax'
 
@@ -195,19 +265,41 @@ export default function CrmWorkspaceFieldsPage() {
                       {c.options && c.options.length > 0 && <> · {c.options.join(', ')}</>}
                       {builtin && <> · can {builtin.can.join(', ')}</>}
                     </div>
+                    {/* What it is is above; this is what it would become.
+                        Both, because "awaiting the Super Admin" on its own
+                        reads as though the column has already stopped
+                        working. */}
+                    {row?.pending && (
+                      <div className="mt-0.5 text-xs text-amber-500">
+                        Waiting to become: {describe(row.pending)}
+                      </div>
+                    )}
                   </div>
-                  {row?.status === 'pending' && <span className={statusBadge('pending')}>Awaiting Super Admin</span>}
-                  {c.customised && row?.status !== 'pending' && <span className={statusBadge('approved')}>Customised</span>}
+                  {(row?.status === 'pending' || row?.pending) && (
+                    <span className={statusBadge('pending')}>Awaiting Super Admin</span>
+                  )}
+                  {c.customised && row?.status === 'approved' && !row?.pending && (
+                    <span className={statusBadge('approved')}>Customised</span>
+                  )}
                   {row ? (
-                    <button
-                      onClick={() => {
-                        if (confirm(`Restore “${builtin?.label ?? c.key}” to its default?`)) removeMutation.mutate(row.uuid)
-                      }}
-                      aria-label="Restore default"
-                      className="rounded p-1.5 text-slate-400 hover:text-red-500"
-                    >
-                      <RotateCcw className="size-4" />
-                    </button>
+                    <>
+                      {/* Editable, which it was not: changing an approved
+                          column used to mean deleting it, and deleting took
+                          effect at once — so adding one plan cost you the
+                          whole list until the Super Admin got round to it. */}
+                      <Button size="sm" variant="secondary" onClick={() => openEdit(row)}>
+                        <Pencil className="size-3.5" /> Edit
+                      </Button>
+                      <button
+                        onClick={() => {
+                          if (confirm(`Restore “${builtin?.label ?? c.key}” to its default?`)) removeMutation.mutate(row.uuid)
+                        }}
+                        aria-label="Restore default"
+                        className="rounded p-1.5 text-slate-400 hover:text-red-500"
+                      >
+                        <RotateCcw className="size-4" />
+                      </button>
+                    </>
                   ) : (
                     <Button size="sm" variant="secondary" onClick={() => openColumn(section.entity, c.key)}>
                       <Pencil className="size-3.5" /> Customise
@@ -330,9 +422,15 @@ export default function CrmWorkspaceFieldsPage() {
                     )}
                   </div>
                   {f.decision_note && <div className="mt-0.5 text-xs text-red-400">Note: {f.decision_note}</div>}
+                  {f.pending && (
+                    <div className="mt-0.5 text-xs text-amber-500">
+                      Waiting to become: {describe(f.pending)}
+                    </div>
+                  )}
                 </div>
-                <span className={statusBadge(f.status)}>
-                  {f.status === 'pending' ? 'Awaiting Super Admin' : f.status}
+                <span className={statusBadge(f.pending ? 'pending' : f.status)}>
+                  {f.status === 'pending' ? 'Awaiting Super Admin'
+                    : f.pending ? 'Change awaiting Super Admin' : f.status}
                 </span>
                 {/*
                   * Where this field sits on the form and on the printed
@@ -369,6 +467,14 @@ export default function CrmWorkspaceFieldsPage() {
                   </div>
                 )}
                 <button
+                  onClick={() => openEdit(f)}
+                  aria-label={`Edit ${f.label}`}
+                  title="Change this field"
+                  className="rounded p-1.5 text-slate-400 hover:text-emerald-600"
+                >
+                  <Pencil className="size-4" />
+                </button>
+                <button
                   onClick={() => {
                     const msg = f.status === 'approved'
                       ? `Remove "${f.label}" from your forms? Values already saved on clients are kept.`
@@ -388,14 +494,21 @@ export default function CrmWorkspaceFieldsPage() {
 
       {showForm && (
         <Modal
-          title={activeBuiltin
-            ? `Customise ${activeBuiltin.label}`
-            : isTax ? 'Add a tax line' : 'Request a workspace field'}
-          onClose={() => setShowForm(false)}
+          title={editing
+            ? `Change ${editing.label}`
+            : activeBuiltin
+              ? `Customise ${activeBuiltin.label}`
+              : isTax ? 'Add a tax line' : 'Request a workspace field'}
+          onClose={() => { setShowForm(false); setEditing(null) }}
         >
           <div className="space-y-3">
             <ErrorNote message={error} />
-            {activeBuiltin ? (
+            {editing?.status === 'approved' ? (
+              <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                This field is live. It goes on working exactly as it does now — your change reaches
+                your documents once the Super Admin approves it.
+              </p>
+            ) : activeBuiltin ? (
               <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500 dark:bg-slate-800/60">
                 One of our Work Order columns. You can {activeBuiltin.can.join(', ')} it — the column keeps its
                 current wording until the Super Admin decides.
@@ -500,8 +613,12 @@ export default function CrmWorkspaceFieldsPage() {
               <Label>Why do you need it?</Label>
               <Textarea rows={2} value={form.reason} onChange={(e) => set('reason', e.target.value)} placeholder="Helps the Super Admin decide" className="w-full" />
             </div>
-            <Button className="w-full" disabled={!form.label || requestMutation.isPending} onClick={() => requestMutation.mutate()}>
-              {requestMutation.isPending ? 'Sending…' : 'Send for approval'}
+            <Button
+              className="w-full"
+              disabled={!form.label || requestMutation.isPending || changeMutation.isPending}
+              onClick={() => (editing ? changeMutation : requestMutation).mutate()}
+            >
+              {requestMutation.isPending || changeMutation.isPending ? 'Sending…' : 'Send for approval'}
             </Button>
           </div>
         </Modal>
