@@ -100,6 +100,10 @@ class CrmController extends Controller
             'lead_subjects' => $org->optionList('lead_subjects'),
             'lead_statuses' => \App\Models\Crm\Lead::STATUSES,
             'modules' => Member::moduleSlugs(),
+            // Where a new employee's ticks start, so the form can arrive
+            // filled in rather than empty on a company that has decided.
+            'default_rights' => (object) $org->defaultMemberRights(),
+            'default_capabilities' => $org->defaultMemberCapabilities(),
             // Sent with them, so the rights screen cannot label a row from a
             // list of its own that has quietly stopped matching this one.
             'module_labels' => Member::MODULES,

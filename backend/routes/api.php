@@ -759,6 +759,22 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                  * reasons it was.
                  */
                 Route::post('/employees/{uuid}/impersonate', [\App\Http\Controllers\Api\V1\Crm\ImpersonationController::class, 'start']);
+                /*
+                 * One set of rights for everybody, rather than twenty answers
+                 * to the same question.
+                 *
+                 * A dash rather than /employees/shared-rights, for the same
+                 * reason employees-lookup above has one: GET /employees/{uuid}
+                 * is registered in an earlier group, so a path under
+                 * /employees/ would be read as somebody's uuid and never
+                 * reach here at all.
+                 *
+                 * Behind crm.manager like its neighbours, but the controller
+                 * is what decides — it asks the same maySetRightsOn question
+                 * the one-person form asks, of everybody at once.
+                 */
+                Route::get('/employees-shared-rights', [\App\Http\Controllers\Api\V1\Crm\SharedRightsController::class, 'show']);
+                Route::put('/employees-shared-rights', [\App\Http\Controllers\Api\V1\Crm\SharedRightsController::class, 'update']);
                 Route::put('/employees/{uuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'update']);
                 Route::post('/employees/{uuid}/salary', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'addSalary']);
                 Route::delete('/employees/{uuid}/salary/{recordId}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'deleteSalary']);

@@ -374,6 +374,12 @@ export interface CrmMasters {
    */
   module_labels: Record<string, string>
   abilities: string[]
+  /**
+   * Where a new employee's ticks start, when the company has decided on one
+   * answer rather than twenty. Empty until an Admin saves one.
+   */
+  default_rights: Record<string, string[]>
+  default_capabilities: string[]
   /** What the rights screen offers beyond the module matrix. */
   capabilities: { key: string; group: string; label: string }[]
   issuing_companies: {
@@ -1817,6 +1823,28 @@ export const crm = {
   employees: {
     list: (params: { search?: string; crm_role?: string; status?: string; reports_to?: string; page?: number }) =>
       api.get<Paginated<CrmEmployee>>('/crm/employees', { params }).then((r) => r.data),
+    /**
+     * One set of rights for everybody, rather than twenty answers to the same
+     * question. `sharedRights` says who a copy would reach; `shareRights`
+     * hands it over, and can remember it as where a new hire starts.
+     */
+    sharedRights: () =>
+      api.get<{ data: {
+        count: number
+        employees: number
+        subadmins: number
+        may_set_default: boolean
+        default_rights: Record<string, string[]>
+        default_capabilities: string[]
+      } }>('/crm/employees-shared-rights').then((r) => r.data.data),
+    shareRights: (payload: {
+      rights: Record<string, string[]>
+      capabilities?: string[]
+      apply_to_all?: boolean
+      set_as_default?: boolean
+    }) =>
+      api.put<{ message: string; data: { applied: number } }>('/crm/employees-shared-rights', payload)
+        .then((r) => r.data),
     /** One's own record — documents, letters basis — no employees right needed. */
     myProfile: () =>
       api.get<{ data: CrmEmployeeFull & { letters_allowed: boolean } }>('/crm/my/profile').then((r) => r.data.data),

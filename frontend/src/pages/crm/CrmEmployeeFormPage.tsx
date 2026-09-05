@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CheckCircle2, Download, FileText, Pencil, Plus, Search, Trash2, UserX } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Download, FileText, Pencil, Plus, Search, Trash2, Users, UserX } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, type CrmAccountMatch, type CrmEmployeeFull } from '../../api/crm'
 import { LETTER_LABELS, letterAvailability, openLetter, type LetterType } from './letters'
@@ -89,6 +89,9 @@ export default function CrmEmployeeFormPage() {
   const [rights, setRights] = useState<Record<string, string[]>>({})
   /** How deeply this Subadmin may open an employee's workspace; '' is not at all. */
   const [lendSeat, setLendSeat] = useState('')
+  /** The "give these to everybody" dialog, and whether to save them as the start. */
+  const [sharing, setSharing] = useState(false)
+  const [alsoDefault, setAlsoDefault] = useState(true)
   /*
    * Grants a Subadmin holds only by name — their role covers the rest.
    *
@@ -287,6 +290,23 @@ export default function CrmEmployeeFormPage() {
     setCapabilities(existing.capabilities ?? [])
     setLendSeat(existing.impersonation_level ?? '')
   }, [existing])
+
+  /*
+   * A new hire starts where the company decided new hires start.
+   *
+   * Once, on the register form, and never again. /crm/masters refetches on
+   * its own — a window regaining focus is enough — and without the latch this
+   * effect would run a second time and put back everything the person had
+   * just unticked. Empty until an Admin has saved a default, which is how it
+   * worked before there was one and the safe way round.
+   */
+  const started = useRef(false)
+  useEffect(() => {
+    if (editing || !masters || started.current) return
+    started.current = true
+    setRights({ ...masters.default_rights })
+    setCapabilities([...masters.default_capabilities])
+  }, [editing, masters])
 
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((f) => ({ ...f, [key]: value }))
@@ -915,7 +935,12 @@ export default function CrmEmployeeFormPage() {
               <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Module rights</h2>
               <p className="mt-0.5 text-xs text-slate-400">What this {form.crm_role} can see and do. Admins always have everything.</p>
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
+              {/* One answer to "what may an employee see", rather than
+                  twenty — worked out here, then handed to everybody. */}
+              <Button size="sm" variant="secondary" onClick={() => setSharing(true)}>
+                <Users className="size-4" /> Copy to everyone
+              </Button>
               <Button size="sm" variant="secondary" onClick={() => grantEverything(masters.modules, masters.abilities)}>
                 Select all
               </Button>
@@ -924,6 +949,15 @@ export default function CrmEmployeeFormPage() {
               </Button>
             </div>
           </div>
+          {sharing && (
+            <ShareRightsModal
+              rights={rights}
+              capabilities={capabilities}
+              alsoDefault={alsoDefault}
+              onAlsoDefault={setAlsoDefault}
+              onClose={() => setSharing(false)}
+            />
+          )}
           <div className="-mx-4 mt-3 overflow-x-auto px-4">
             <table className="w-full min-w-[560px] text-sm">
               <thead>
@@ -1596,5 +1630,117 @@ function DocumentsCard({ uuid, existing }: { uuid: string; existing: CrmEmployee
         </ul>
       )}
     </Card>
+  )
+}
+
+/**
+ * Giving the rights on screen to everybody they may be given to.
+ *
+ * The count is the whole reason this is a dialog rather than a button that
+ * just does it. "This replaces what 14 people have now" is a different
+ * sentence from "are you sure?", and it is the one that stops the wrong
+ * click — so the dialog asks the server who it would reach before it reaches
+ * them, and will not offer the button until it knows.
+ */
+function ShareRightsModal({
+  rights,
+  capabilities,
+  alsoDefault,
+  onAlsoDefault,
+  onClose,
+}: {
+  rights: Record<string, string[]>
+  capabilities: string[]
+  alsoDefault: boolean
+  onAlsoDefault: (on: boolean) => void
+  onClose: () => void
+}) {
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
+  const [error, setError] = useState<string | null>(null)
+
+  const { data: reach, isLoading } = useQuery({
+    queryKey: ['crm', 'shared-rights'],
+    queryFn: crm.employees.sharedRights,
+  })
+
+  const mutation = useMutation({
+    mutationFn: () => crm.employees.shareRights({
+      rights,
+      capabilities,
+      apply_to_all: true,
+      set_as_default: alsoDefault && !!reach?.may_set_default,
+    }),
+    onSuccess: (res) => {
+      // Everybody's rights just moved, so nothing cached about employees or
+      // about this reader's own menu is to be trusted.
+      queryClient.invalidateQueries({ queryKey: ['crm'] })
+      toast(res.message, 'success')
+      onClose()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  /* Said plainly, because "everyone" quietly including three subadmins is
+     exactly the sort of thing somebody should not find out afterwards. */
+  const who = !reach ? '' : [
+    reach.employees === 1 ? '1 employee' : `${reach.employees} employees`,
+    reach.subadmins ? (reach.subadmins === 1 ? '1 subadmin' : `${reach.subadmins} subadmins`) : null,
+  ].filter(Boolean).join(' and ')
+
+  return (
+    <Modal title="Copy these rights to everyone" onClose={onClose}>
+      <div className="space-y-3">
+        <ErrorNote message={error} />
+
+        {isLoading || !reach ? (
+          <Spinner />
+        ) : reach.count === 0 ? (
+          <p className="text-sm text-slate-500">
+            There is nobody else here to copy these to yet.
+          </p>
+        ) : (
+          <>
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Give the rights ticked on this screen to <span className="font-medium">{who}</span>.
+              This replaces what each of them has now, so anything set for one person on
+              purpose is lost.
+            </p>
+            <p className="text-xs text-slate-400">
+              Admins are left alone — they hold everything by the job.
+            </p>
+
+            {/* Only an Admin sets policy. A named Subadmin sets rights. */}
+            {reach.may_set_default && (
+              <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={alsoDefault}
+                  onChange={(e) => onAlsoDefault(e.target.checked)}
+                  className="mt-0.5 size-4 accent-emerald-600"
+                />
+                <span>
+                  Also start new employees here
+                  <span className="block text-xs text-slate-400">
+                    Everyone registered from now on arrives with these ticked, still editable
+                    before saving.
+                  </span>
+                </span>
+              </label>
+            )}
+          </>
+        )}
+
+        <div className="flex justify-end gap-2 pt-1">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={!reach || reach.count === 0 || mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            {mutation.isPending ? 'Copying…' : 'Copy to everyone'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }

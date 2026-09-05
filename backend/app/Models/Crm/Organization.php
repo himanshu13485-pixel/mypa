@@ -354,6 +354,29 @@ class Organization extends Model
     }
 
     /**
+     * Where a new employee's rights start.
+     *
+     * A company that has worked out one answer to "what may an employee see"
+     * should not have to tick it again for every hire. Empty until an Admin
+     * saves one, which means a new hire starts with nothing — the safe way
+     * round, and the way it worked before there was a default at all.
+     */
+    public function defaultMemberRights(): array
+    {
+        $rights = data_get($this->settings, 'employees.default_rights', []);
+
+        return is_array($rights) ? $rights : [];
+    }
+
+    /** And the named acts they start with, on the same terms. */
+    public function defaultMemberCapabilities(): array
+    {
+        $capabilities = data_get($this->settings, 'employees.default_capabilities', []);
+
+        return is_array($capabilities) ? array_values($capabilities) : [];
+    }
+
+    /**
      * How long the office gives itself to close a complaint. The Admin sets
      * it; 48 hours is the default, and a complaint may still name its own.
      */
