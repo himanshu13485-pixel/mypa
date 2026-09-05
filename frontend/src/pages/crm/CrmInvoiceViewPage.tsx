@@ -549,9 +549,16 @@ export default function CrmInvoiceViewPage() {
         </Card>
       )}
 
-      {/* The consolidated figures — the same block that ends the PDF: every
-          number an accountant asks for, on one card. */}
-      <Card>
+      {/*
+        * The consolidated figures: every number an accountant asks for, on
+        * one card.
+        *
+        * Screen only. It is the office's working view of the document, not
+        * part of the document — the client's copy ends at the signatory, and
+        * a printed invoice carrying a second set of totals underneath the
+        * grand total invites the question of which one is the bill.
+        */}
+      <Card className="print:hidden">
         <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Consolidated summary</h2>
         <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
           {([
