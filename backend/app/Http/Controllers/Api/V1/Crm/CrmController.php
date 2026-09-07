@@ -124,7 +124,7 @@ class CrmController extends Controller
                  * thing on screen — saying the opposite of the truth about a
                  * stamp that was uploaded, stored and printing on documents.
                  */
-                ->get(['id', 'name', 'gstin', 'pan', 'phone', 'email', 'address', 'state_code', 'invoice_prefix', 'proforma_prefix', 'is_active', 'logo_path', 'stamp_path', 'currency', 'pays_salary']),
+                ->get(['id', 'name', 'gstin', 'pan', 'phone', 'email', 'address', 'state_code', 'invoice_prefix', 'proforma_prefix', 'next_invoice_no', 'next_proforma_no', 'is_active', 'logo_path', 'stamp_path', 'currency', 'pays_salary']),
             'bank_accounts' => BankAccount::with('issuingCompany:id,name')
                 ->where('organization_id', $org->id)
                 ->orderBy('label')

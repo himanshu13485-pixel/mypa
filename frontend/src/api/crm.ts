@@ -408,6 +408,9 @@ export interface CrmMasters {
     state_code: string | null
     invoice_prefix: string
     proforma_prefix: string
+    /** What the next document of each kind will be numbered, after the prefix. */
+    next_invoice_no: number
+    next_proforma_no: number
     is_active: boolean
   }[]
   bank_accounts: { id: number; label: string; bank_name: string | null; account_no: string | null; ifsc: string | null; is_active: boolean; issuing_company_id?: number | null; issuing_company_name?: string | null }[]

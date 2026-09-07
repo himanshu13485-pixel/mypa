@@ -72,8 +72,11 @@ export default function CrmSettingsPage() {
                   <tr key={c.id} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
                     <td className="py-2.5 pr-3 font-medium">{c.name}</td>
                     <td className="py-2.5 pr-3">{c.gstin ?? '—'}</td>
-                    <td className="py-2.5 pr-3">{c.invoice_prefix}…</td>
-                    <td className="py-2.5 pr-3">{c.proforma_prefix}…</td>
+                    {/* The number the next one gets, rather than an ellipsis
+                        standing in for it — the whole question somebody opens
+                        this table to answer. */}
+                    <td className="py-2.5 pr-3">{c.invoice_prefix}{c.next_invoice_no}</td>
+                    <td className="py-2.5 pr-3">{c.proforma_prefix}{c.next_proforma_no}</td>
                     <td className="py-2.5 pr-3">{c.currency ?? 'INR'}</td>
                     <td className="py-2.5 pr-3">{c.pays_salary ? '✓ Salary company' : '—'}</td>
                     <td className="py-2.5 pr-3">{c.is_active ? 'Yes' : 'No'}</td>
@@ -494,6 +497,10 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
     state_code: editing?.state_code ?? '',
     invoice_prefix: editing?.invoice_prefix ?? 'INV-',
     proforma_prefix: editing?.proforma_prefix ?? 'PI-',
+    // Held as text so the box can be emptied mid-edit; a number input whose
+    // state is a number snaps back to 1 the moment it is cleared.
+    next_invoice_no: String(editing?.next_invoice_no ?? 1),
+    next_proforma_no: String(editing?.next_proforma_no ?? 1),
     is_active: editing?.is_active ?? true,
     currency: editing?.currency ?? 'INR',
     pays_salary: editing?.pays_salary ?? false,
@@ -511,7 +518,14 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const res = await crm.masterData.saveCompany({ ...form, address: form.address || null, gstin: form.gstin || null, state_code: form.state_code || null }, editing?.id) as { data?: { id?: number } }
+      const res = await crm.masterData.saveCompany({
+        ...form,
+        address: form.address || null,
+        gstin: form.gstin || null,
+        state_code: form.state_code || null,
+        next_invoice_no: startFrom(form.next_invoice_no),
+        next_proforma_no: startFrom(form.next_proforma_no),
+      }, editing?.id) as { data?: { id?: number } }
       const id = editing?.id ?? res?.data?.id
       if (stamp && id) {
         await crm.masterData.uploadCompanyStamp(id, stamp)
@@ -546,13 +560,55 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
             <Label>State code</Label>
             <Input value={form.state_code} onChange={(e) => setForm((f) => ({ ...f, state_code: e.target.value }))} placeholder="07" className="w-full" />
           </div>
-          <div>
-            <Label>Invoice prefix</Label>
-            <Input value={form.invoice_prefix} onChange={(e) => setForm((f) => ({ ...f, invoice_prefix: e.target.value }))} className="w-full" />
-          </div>
-          <div>
-            <Label>Proforma prefix</Label>
-            <Input value={form.proforma_prefix} onChange={(e) => setForm((f) => ({ ...f, proforma_prefix: e.target.value }))} className="w-full" />
+        </div>
+
+        {/*
+          * The numbering, which is this company's alone — a second issuing
+          * company counts from its own start, and neither can reach the
+          * other's numbers.
+          */}
+        <div className="rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+          <p className="mb-2 text-sm font-semibold">Numbering</p>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Invoice prefix</Label>
+              <Input value={form.invoice_prefix} onChange={(e) => setForm((f) => ({ ...f, invoice_prefix: e.target.value }))} className="w-full" />
+            </div>
+            <div>
+              <Label>Start invoices from</Label>
+              <Input
+                type="number"
+                min={1}
+                value={form.next_invoice_no}
+                onChange={(e) => setForm((f) => ({ ...f, next_invoice_no: e.target.value }))}
+                className="w-full"
+              />
+            </div>
+            <SeriesPreview
+              label="invoice"
+              number={form.invoice_prefix + startFrom(form.next_invoice_no)}
+              issued={editing && editing.next_invoice_no > 1}
+            />
+
+            <div>
+              <Label>Proforma prefix</Label>
+              <Input value={form.proforma_prefix} onChange={(e) => setForm((f) => ({ ...f, proforma_prefix: e.target.value }))} className="w-full" />
+            </div>
+            <div>
+              <Label>Start proformas from</Label>
+              <Input
+                type="number"
+                min={1}
+                value={form.next_proforma_no}
+                onChange={(e) => setForm((f) => ({ ...f, next_proforma_no: e.target.value }))}
+                className="w-full"
+              />
+            </div>
+            <SeriesPreview
+              label="proforma"
+              number={form.proforma_prefix + startFrom(form.next_proforma_no)}
+              issued={editing && editing.next_proforma_no > 1}
+            />
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -1378,6 +1434,38 @@ function ImageField({
       </div>
       {hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}
     </div>
+  )
+}
+
+/**
+ * The number in a "start from" box, as a number.
+ *
+ * Empty or nonsense reads as 1 rather than as NaN, which would otherwise
+ * reach the server as null and silently leave the counter where it was.
+ */
+function startFrom(text: string): number {
+  const n = Math.floor(Number(text))
+
+  return Number.isFinite(n) && n > 0 ? n : 1
+}
+
+/**
+ * What the next document will actually be called.
+ *
+ * A prefix and a counter are two halves of an answer, and neither box shows
+ * it — so the line spells out the number that will be on the next invoice,
+ * where a stray space or a doubled dash is obvious before it is printed on
+ * something and sent to a client.
+ */
+function SeriesPreview({ label, number, issued }: { label: string; number: string; issued?: boolean }) {
+  return (
+    <p className="col-span-2 -mt-1 text-xs text-slate-500 dark:text-slate-400">
+      The next {label} will be numbered <span className="font-semibold text-slate-700 dark:text-slate-200">{number}</span>
+      {/* Said only where it can bite: a company that has issued nothing has
+          no numbers to walk back onto, and does not need warning about it. */}
+      {issued && ', and each one after it counts up by one. Numbers already issued cannot be taken again.'}
+      {! issued && ', and each one after it counts up by one.'}
+    </p>
   )
 }
 

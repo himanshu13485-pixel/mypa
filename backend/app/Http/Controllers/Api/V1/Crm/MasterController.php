@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Api\V1\Crm;
 use App\Http\Controllers\Controller;
 use App\Models\Crm\ActivityLog;
 use App\Models\Crm\BankAccount;
+use App\Models\Crm\Invoice;
 use App\Models\Crm\IssuingCompany;
 use App\Support\TextCase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Billing master data: the companies invoices are issued from (each with its
@@ -261,7 +263,7 @@ class MasterController extends Controller
     {
         $org = $request->attributes->get('crm_org');
         $company = IssuingCompany::where('organization_id', $org->id)->findOrFail($id);
-        $company->update($this->validateCompany($request));
+        $company->update($this->validateCompany($request, $company));
         $this->keepOneSalaryCompany($org->id, $company);
 
         return response()->json(['message' => 'Issuing company updated.', 'data' => $company->fresh()]);
@@ -589,7 +591,7 @@ class MasterController extends Controller
         return response()->json(['message' => 'Communication setup saved.']);
     }
 
-    private function validateCompany(Request $request): array
+    private function validateCompany(Request $request, ?IssuingCompany $company = null): array
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
@@ -624,7 +626,114 @@ class MasterController extends Controller
             $data['email'] = TextCase::email($data['email']);
         }
 
+        /*
+         * A null on a column that has a default means "leave it alone".
+         *
+         * These six are all NOT NULL in the table and all optional in the
+         * payload, so a client that sends the field explicitly empty — an
+         * older form, a partial update written by hand — used to have the
+         * null written straight into the column and got a 500 out of the
+         * database rather than an answer. Dropping the key here leaves the
+         * stored value standing, which is what sending nothing at all does
+         * and what sending nothing in particular ought to do too.
+         */
+        foreach (['invoice_prefix', 'proforma_prefix', 'next_invoice_no', 'next_proforma_no', 'is_active', 'pays_salary'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === null) {
+                unset($data[$field]);
+            }
+        }
+
+        $this->guardSeries($data, $company);
+
         return $data;
+    }
+
+    /**
+     * Refuse to move a series back onto numbers it has already issued.
+     *
+     * Set the counter to 5 on a company that has reached INV-40 and the next
+     * six invoices collide with six that exist. The table's own unique key
+     * catches that, so nothing is actually duplicated — but it catches it as
+     * a database error, thrown at whoever tries to raise an invoice, days
+     * later, saying nothing about a setting somebody else changed. Refusing
+     * it here puts the complaint in front of the person who can act on it,
+     * at the moment they are acting.
+     *
+     * Only a value the admin actually changed is judged. A company whose
+     * stored counter is already below its own history — which predates this
+     * check — can still have its address corrected without being made to fix
+     * the numbering first.
+     */
+    private function guardSeries(array $data, ?IssuingCompany $company): void
+    {
+        // A company being created has issued nothing, so any start is free.
+        if (! $company) {
+            return;
+        }
+
+        $series = [
+            'invoice' => ['next_invoice_no', 'invoice_prefix', 'invoice'],
+            'proforma' => ['next_proforma_no', 'proforma_prefix', 'proforma'],
+        ];
+
+        foreach ($series as $kind => [$field, $prefixField, $label]) {
+            $wanted = $data[$field] ?? null;
+            if ($wanted === null || (int) $wanted === (int) $company->{$field}) {
+                continue;
+            }
+
+            // Judged against the prefix being SAVED, not the stored one — a
+            // company starting a new financial year changes both at once,
+            // and under a prefix nothing has been issued with, starting
+            // again from 1 is right rather than wrong.
+            $prefix = (string) ($data[$prefixField] ?? $company->{$prefixField});
+            $floor = $this->numberFloor($company, $kind, $prefix);
+
+            if ((int) $wanted < $floor) {
+                throw ValidationException::withMessages([$field => $company->name
+                    . ' has already issued ' . $prefix . ($floor - 1) . ', so its next '
+                    . $label . ' number cannot be below ' . $floor
+                    . '. Change the prefix as well to start a new series.']);
+            }
+        }
+    }
+
+    /**
+     * The lowest number this series can be set to without reusing one.
+     *
+     * Read from the documents themselves rather than from the counter, so it
+     * still holds if the counter was ever edited around. Cancelled documents
+     * count: the number stays spent, which is the whole point of cancelling
+     * rather than deleting.
+     *
+     * Only numbers under THIS prefix are considered, and only where what
+     * follows it is entirely digits — "INV-40" against prefix "INV-" is the
+     * fortieth invoice, whereas "PI-2024/40" against the same prefix is not
+     * this series at all and should not hold it back.
+     */
+    private function numberFloor(IssuingCompany $company, string $kind, string $prefix): int
+    {
+        $highest = 0;
+
+        // Matched in PHP rather than with LIKE: a prefix is free-typed, and
+        // an underscore or percent in one would silently widen the pattern.
+        Invoice::where('issuing_company_id', $company->id)
+            ->where('kind', $kind)
+            ->select(['id', 'number'])
+            ->lazyById(500)
+            ->each(function (Invoice $doc) use ($prefix, &$highest) {
+                $number = (string) $doc->number;
+                if (! str_starts_with($number, $prefix)) {
+                    return;
+                }
+
+                $tail = substr($number, strlen($prefix));
+                if ($tail !== '' && ctype_digit($tail)) {
+                    $highest = max($highest, (int) $tail);
+                }
+            });
+
+        return $highest + 1;
     }
 
     // ---- Bank accounts -----------------------------------------------------
