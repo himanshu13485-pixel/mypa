@@ -274,6 +274,45 @@ class SignInCodeTest extends TestCase
         $this->signIn('harshgrapout', $flood . ',' . $mine)->assertStatus(202);
     }
 
+    public function test_one_account_stays_trusted_on_every_device_it_signs_in_on(): void
+    {
+        // The laptop asks once.
+        $laptop = $this->trust('harshgrapout');
+
+        // The phone is a device of its own and asks once too — that IS the
+        // check, and the point of asking per device rather than per login.
+        $this->signIn('harshgrapout', null)->assertStatus(202);
+        $phone = $this->postJson('/api/v1/auth/login/verify', [
+            'identifier' => 'harshgrapout',
+            'code' => MobileOtp::where('user_id', $this->user->id)->where('purpose', 'login')->latest('id')->value('code'),
+        ])->assertOk()->json('device_token');
+
+        // Trusting the phone did not untrust the laptop: both stand, and
+        // nothing prunes the older one to make room.
+        $this->signIn('harshgrapout', $laptop)->assertOk()->assertJsonStructure(['token']);
+        $this->signIn('harshgrapout', $phone)->assertOk()->assertJsonStructure(['token']);
+        $this->assertSame(2, TrustedDevice::where('user_id', $this->user->id)->count());
+    }
+
+    public function test_going_back_to_the_earlier_account_asks_for_nothing(): void
+    {
+        $this->colleague();
+
+        // The browser as it really behaves: it keeps what it is given and
+        // offers the lot, newest first.
+        $browser = [];
+        $browser[] = $this->trust('harshgrapout');
+        array_unshift($browser, $this->trust('nikhilgrapout'));
+
+        // Back to the first account after using the second — the case that
+        // asked for a code every time.
+        $this->signIn('harshgrapout', implode(',', $browser))->assertOk()->assertJsonStructure(['token']);
+
+        // And back and forth again, as a shared desk actually goes.
+        $this->signIn('nikhilgrapout', implode(',', $browser))->assertOk()->assertJsonStructure(['token']);
+        $this->signIn('harshgrapout', implode(',', $browser))->assertOk()->assertJsonStructure(['token']);
+    }
+
     // ---- Trust that is used does not quietly run out ------------------------
 
     public function test_using_a_trusted_device_extends_its_welcome(): void
