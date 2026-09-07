@@ -94,6 +94,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Punch', section: 'punch', icon: Fingerprint, to: '/crm/punch' },
     { label: 'Tasks', section: 'tasks', icon: CheckSquare, to: '/crm/tasks', badge: 'tasks' },
     { label: 'Leaves', section: 'leaves', icon: CalendarOff, to: '/crm/leaves', badge: 'leaves' },
+    { label: 'Leave log', icon: ListChecks, to: '/crm/leave-log', module: 'leave_log' },
   ]},
   // The Netvork Connect suite, hosted inside the CRM: the same
   // connections, chats, calls, meetings and screen tools as the personal

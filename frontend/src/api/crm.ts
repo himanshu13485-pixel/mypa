@@ -1633,6 +1633,38 @@ export interface CrmLeaveSummary {
   account: CrmLeaveAccount
 }
 
+/** One line of the Leave Log: something that happened to a leave request. */
+export interface CrmLeaveLogEntry {
+  id: number
+  /** leave.requested | leave.approved | leave.rejected | leave.cancelled | leave.approval_withdrawn */
+  action: string
+  /** Who did it. Null where the actor's membership has since been removed. */
+  by: string | null
+  at: string
+  /** Whose leave it was, as recorded at the time. */
+  employee: string | null
+  category: string | null
+  dates: string | null
+  days: number | null
+  unpaid_days: number | null
+  days_refunded: number | null
+  reason: string | null
+  note: string | null
+  /** Where the request stands now — a different question from what happened. */
+  leave: { uuid: string; status: string } | null
+}
+
+export interface CrmLeaveLogSummary {
+  total: number
+  approved_days: number
+  unpaid_days: number
+  by_action: { action: string; count: number }[]
+  by_employee: { employee: string; days: number; count: number }[]
+  daily: { day: string; count: number }[]
+  /** The actions this org has actually recorded — the filter's options. */
+  actions: string[]
+}
+
 export interface CrmTask {
   uuid: string
   title: string
@@ -2338,6 +2370,10 @@ export const crm = {
     decide: (uuid: string, status: 'approved' | 'rejected', note?: string) =>
       api.post(`/crm/leaves/${uuid}/decide`, { status, note: note || null }).then((r) => r.data),
     cancel: (uuid: string) => api.delete(`/crm/leaves/${uuid}`).then((r) => r.data),
+    /** The Leave Log — its own right, so its own screen. */
+    log: (params: Record<string, string | number | undefined>) =>
+      api.get<Paginated<CrmLeaveLogEntry> & { summary: CrmLeaveLogSummary }>('/crm/leave-log', { params })
+        .then((r) => r.data),
   },
 
   tasks: {

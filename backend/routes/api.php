@@ -1138,6 +1138,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             });
             Route::post('/leaves/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'decide'])
                 ->middleware('crm.member:leaves,edit');
+            // The Leave Log — its own sidebar entry, so its own right, which
+            // the controller asks about itself.
+            Route::get('/leave-log', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'log'])
+                ->middleware('crm.member');
 
             // Tasks with the approval flow
             Route::middleware('crm.member')->group(function () {

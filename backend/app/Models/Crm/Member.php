@@ -54,6 +54,7 @@ class Member extends Model
         'punch' => 'Punch — correct somebody’s attendance',
         'tasks' => 'Tasks',
         'leaves' => 'Leave approvals',
+        'leave_log' => 'Leave log',
         'approvals' => 'Approvals',
         'proforma' => 'Proforma',
         'proforma_log' => 'Proforma log',

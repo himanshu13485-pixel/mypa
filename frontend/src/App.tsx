@@ -84,6 +84,7 @@ const CrmHrPolicyPage = lazyRoute('CrmHrPolicyPage', () => import('./pages/crm/C
 const CrmIncentivesPage = lazyRoute('CrmIncentivesPage', () => import('./pages/crm/CrmIncentivesPage'))
 const CrmSalaryPage = lazyRoute('CrmSalaryPage', () => import('./pages/crm/CrmSalaryPage'))
 const CrmLeavesPage = lazyRoute('CrmLeavesPage', () => import('./pages/crm/CrmLeavesPage'))
+const CrmLeaveLogPage = lazyRoute('CrmLeaveLogPage', () => import('./pages/crm/CrmLeaveLogPage'))
 const CrmTasksPage = lazyRoute('CrmTasksPage', () => import('./pages/crm/CrmTasksPage'))
 const CrmApprovalsPage = lazyRoute('CrmApprovalsPage', () => import('./pages/crm/CrmApprovalsPage'))
 const CrmNewslettersPage = lazyRoute('CrmNewslettersPage', () => import('./pages/crm/CrmNewslettersPage'))
@@ -139,6 +140,7 @@ const crmScreens = (
     <Route path="expenses" element={<CrmExpensesPage />} />
     <Route path="salary" element={<CrmSalaryPage />} />
     <Route path="leaves" element={<CrmLeavesPage />} />
+    <Route path="leave-log" element={<CrmLeaveLogPage />} />
     <Route path="tasks" element={<CrmTasksPage />} />
     <Route path="approvals" element={<CrmApprovalsPage />} />
     <Route path="newsletters" element={<CrmNewslettersPage />} />
