@@ -4,12 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2b4de4">
-<meta name="description" content="Netvork — leads, quotations, invoices, payments, attendance and payroll in one book. Free plan, no card required.">
-<title>Netvork — The whole business, in one book</title>
+<meta name="description" content="Netvork — leads, quotations, invoices, payments, attendance and payroll on one system. Free plan, no card required.">
+<title>Netvork — Leads, invoices, payments and payroll on one system</title>
 <link rel="icon" type="image/svg+xml" href="/icons/icon.svg">
 <link rel="apple-touch-icon" href="/icons/icon.svg">
 
 <script>
+  /* Inside the installed app there is no audience for a brochure. */
   if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
     window.location.replace('/dashboard')
   }
@@ -18,7 +19,9 @@
     if (saved && JSON.parse(saved).state && JSON.parse(saved).state.token) {
       window.top.location.replace('/dashboard')
     }
-  } catch (e) {}
+  } catch (e) { /* not signed in */ }
+  /* The theme, settled before first paint. The key is the app's own, so a
+     choice made here is the one the app opens with. */
   try {
     var t = localStorage.getItem('mypa-theme')
     var d = t === 'dark' || (!t && window.matchMedia('(prefers-color-scheme: dark)').matches)
@@ -28,343 +31,337 @@
 
 <style>
 /* ===========================================================================
-   A ledger.
-
-   The product keeps a company's books, so the page is one: paper with a
-   ruled grid and a red margin rule, a stitched spine down the left, the
-   stacked edges of the leaves underneath, thumb tabs cut into the fore-edge,
-   and a page number in every corner. Leaves turn on the spine as you read
-   past them.
-
-   The ink is the app's brand blue and the ruling is drawn from the same
-   slate ramp, so it is still recognisably the product — a ledger rendered
-   in the app's colours rather than a different brand wearing paper.
+   Tokens — the app's own, from src/index.css and components/ui.tsx.
+   Brand blue, the slate ramp, depth from light rather than from outlines.
    =========================================================================== */
-:root{
+:root {
   --b300:#96b8fa; --b400:#6492f5; --b500:#406cf0; --b600:#2b4de4; --b700:#233ad1;
-  --desk:#dfe3ec;                 /* the surface the book rests on */
-  --paper:#fcfbf8;                /* the leaf */
-  --paper2:#f6f5f1;               /* a shaded panel on the leaf */
-  --rule:rgb(64 108 240 / .13);   /* the horizontal ruling */
-  --margin-rule:rgb(200 78 78 / .38);
-  --ink:#111827; --ink2:#4a5568; --ink3:#93a0b4;
-  --hair:rgb(17 24 39 / .1);
-  --edge:#e8e6df;                 /* the visible edges of the pages below */
-  --shadow:0 1px 2px rgb(16 24 40 / .05);
-  --lift:0 12px 26px -12px rgb(16 24 40 / .28);
-  --book:0 40px 90px -40px rgb(20 28 50 / .5), 0 2px 6px rgb(20 28 50 / .1);
-  color-scheme:light;
+  --page:#eef1f6; --surf:#fff; --surf2:#f8fafc; --glass:rgb(255 255 255 / .72);
+  --ink:#0b1220; --ink2:#475569; --ink3:#8c9ab0;
+  --hair:rgb(15 23 42 / .07); --hair2:rgb(15 23 42 / .12);
+  --shadow:0 1px 2px rgb(16 24 40 / .04), 0 1px 3px rgb(16 24 40 / .06);
+  --lift:0 10px 20px -8px rgb(16 24 40 / .14), 0 30px 60px -30px rgb(16 24 40 / .3);
+  --hero:0 40px 90px -40px rgb(21 33 72 / .45);
+  --aurora-1:rgb(64 108 240 / .40); --aurora-2:rgb(150 184 250 / .45); --aurora-3:rgb(43 77 228 / .28);
+  --grid-line:rgb(15 23 42 / .045);
+  color-scheme: light;
 }
-html.dark{
-  --desk:#05070e;
-  --paper:#0e1526;
-  --paper2:#131c31;
-  --rule:rgb(100 146 245 / .13);
-  --margin-rule:rgb(224 120 120 / .3);
-  --ink:#eef3fb; --ink2:#aebbd0; --ink3:#67768f;
-  --hair:rgb(255 255 255 / .1);
-  --edge:#0a1121;
+html.dark {
+  --page:#050914; --surf:#0d1424; --surf2:#111a2e; --glass:rgb(13 20 36 / .72);
+  --ink:#f2f6fc; --ink2:#b3c0d4; --ink3:#6c7c96;
+  --hair:rgb(255 255 255 / .09); --hair2:rgb(255 255 255 / .16);
   --shadow:none;
-  --lift:0 18px 40px -18px rgb(0 0 0 / .8);
-  --book:0 50px 110px -40px rgb(0 0 0 / .95), 0 2px 6px rgb(0 0 0 / .5);
-  color-scheme:dark;
+  --lift:0 20px 50px -20px rgb(0 0 0 / .8);
+  --hero:0 50px 110px -40px rgb(0 0 0 / .9);
+  --aurora-1:rgb(64 108 240 / .40); --aurora-2:rgb(100 146 245 / .26); --aurora-3:rgb(35 58 209 / .40);
+  --grid-line:rgb(255 255 255 / .045);
+  color-scheme: dark;
 }
 
 *{margin:0;padding:0;box-sizing:border-box}
 html{scroll-behavior:smooth}
 body{
-  background:var(--desk); color:var(--ink); overflow-x:hidden;
+  background:var(--page); color:var(--ink); overflow-x:hidden;
   font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
-  font-feature-settings:'tnum' 1; -webkit-font-smoothing:antialiased; line-height:1.6;
-}
-/* The desk itself: a soft pool of light under the book. */
-body::before{
-  content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
-  background:radial-gradient(70% 50% at 50% 0%,rgb(64 108 240 / .1),transparent 70%);
+  font-feature-settings:'tnum' 1,'cv05' 1; -webkit-font-smoothing:antialiased; line-height:1.55;
 }
 a{color:inherit;text-decoration:none}
-::selection{background:rgb(64 108 240 / .2)}
+::selection{background:rgb(64 108 240 / .22)}
+.wrap{width:min(100%,1180px);margin:0 auto;padding:0 22px}
 
-/* Headings in a serif, because that is what a ledger's headings are set in
-   and it costs nothing — every one of these ships with the OS. */
-h1,h2,h3,.ser{font-family:ui-serif,Georgia,'Iowan Old Style','Palatino Linotype','Book Antiqua',serif}
-h1,h2,h3{letter-spacing:-.015em;line-height:1.08;font-weight:600}
-h1{font-size:clamp(2.5rem,5.6vw,4.3rem)}
-h2{font-size:clamp(1.85rem,3.6vw,2.9rem)}
-h3{font-size:1.12rem;line-height:1.3}
-em{font-style:italic;color:var(--b600)}
-html.dark em{color:var(--b400)}
+/* Display type: tight, heavy, and much bigger than body copy — most of the
+   character on a page like this comes from the size jump, not from a font. */
+h1,h2,h3{letter-spacing:-.033em;line-height:1.04;font-weight:680}
+h1{font-size:clamp(2.7rem,6.4vw,5rem)}
+h2{font-size:clamp(2rem,4.2vw,3.3rem);letter-spacing:-.03em}
+h3{font-size:1.06rem;letter-spacing:-.018em;line-height:1.3}
+.grad{
+  background:linear-gradient(102deg,var(--b600),var(--b400) 46%,#8ea9f8);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+html.dark .grad{background:linear-gradient(102deg,#8fb0ff,var(--b400) 45%,#c3d4ff)}
 
-/* ============================================================== the binding */
-.book{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding-bottom:60px}
-/* The stacked edges of every leaf underneath the one being read. */
-.book::before,.book::after{
-  content:'';position:absolute;top:14px;bottom:74px;width:9px;border-radius:0 4px 4px 0;
-  background:repeating-linear-gradient(90deg,var(--edge) 0 2px,rgb(0 0 0 / .07) 2px 3px);
-  box-shadow:var(--shadow);
-}
-.book::before{right:-9px}
-.book::after{right:-18px;top:22px;bottom:82px;opacity:.6}
-@media(max-width:900px){.book::before,.book::after{display:none}}
-
-/* --------------------------------------------------------------- the leaf */
-.leaf{
-  position:relative;background:var(--paper);
-  box-shadow:inset 0 0 0 1px var(--hair),var(--book);
-  padding:clamp(38px,5vw,70px) clamp(24px,5vw,86px) clamp(46px,6vw,84px) clamp(44px,7vw,120px);
-  /* Turned on the spine, so the left edge stays put and the outer edge lifts. */
-  transform-origin:left center;
-  will-change:transform,opacity;
-}
-.leaf + .leaf{border-top:1px solid var(--hair)}
-.leaf:first-of-type{border-radius:3px 8px 8px 3px}
-.leaf:last-of-type{border-radius:3px 8px 8px 3px}
-
-/* The ruling. Faint horizontal lines the text sits on, and one red rule down
-   the margin where a bookkeeper would start the column. */
-.leaf::before{
-  content:'';position:absolute;inset:0;pointer-events:none;
-  background-image:repeating-linear-gradient(180deg,transparent 0 31px,var(--rule) 31px 32px);
-  -webkit-mask-image:linear-gradient(180deg,transparent,#000 8%,#000 92%,transparent);
-  mask-image:linear-gradient(180deg,transparent,#000 8%,#000 92%,transparent);
-}
-.leaf::after{
-  content:'';position:absolute;top:0;bottom:0;left:clamp(30px,5vw,86px);width:1px;
-  background:var(--margin-rule);pointer-events:none;
-}
-@media(max-width:700px){.leaf::after{display:none}}
-.leaf > *{position:relative;z-index:1}
-
-/* The spine: stitching down the binding edge. */
-.spine{
-  position:absolute;left:0;top:0;bottom:0;width:clamp(14px,2.4vw,26px);pointer-events:none;z-index:2;
-  background:linear-gradient(90deg,rgb(17 24 39 / .14),rgb(17 24 39 / .03) 45%,transparent);
-}
-html.dark .spine{background:linear-gradient(90deg,rgb(0 0 0 / .6),rgb(0 0 0 / .18) 45%,transparent)}
-.spine::after{
-  content:'';position:absolute;left:calc(50% - 1px);top:26px;bottom:26px;width:2px;border-radius:2px;
-  background:repeating-linear-gradient(180deg,var(--ink3) 0 9px,transparent 9px 20px);opacity:.5;
-}
-
-/* The folio, bottom outer corner, as every page of a ledger carries. */
-.folio{
-  position:absolute;right:clamp(20px,4vw,58px);bottom:clamp(18px,2.6vw,34px);z-index:2;
-  font-family:ui-serif,Georgia,serif;font-size:13px;color:var(--ink3);letter-spacing:.14em;
-}
-
-/* ------------------------------------------------------------- thumb tabs
-   Cut into the fore-edge, as an accounts book has for its sections. */
-.tabs{
-  position:fixed;right:0;top:50%;transform:translateY(-50%);z-index:40;display:none;
-  flex-direction:column;gap:5px;
-}
-@media(min-width:1320px){.tabs{display:flex}}
-.tabs a{
-  padding:11px 14px 11px 13px;border-radius:8px 0 0 8px;font-size:11.5px;font-weight:640;
-  letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);background:var(--paper2);
-  box-shadow:inset 0 0 0 1px var(--hair),var(--shadow);
-  writing-mode:vertical-rl;transition:.22s;
-}
-.tabs a:hover,.tabs a.on{color:#fff;background:linear-gradient(180deg,var(--b500),var(--b600));padding-right:19px}
-
-/* ------------------------------------------------------------------ header */
-header{position:sticky;top:0;z-index:50;transition:.3s}
-header.stuck{background:color-mix(in srgb,var(--paper) 88%,transparent);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 1px 0 var(--hair)}
-.bar{display:flex;align-items:center;gap:18px;height:66px;width:min(100%,1180px);margin:0 auto;padding:0 clamp(20px,4vw,44px)}
-.logo{display:inline-flex;align-items:center;gap:11px;font-size:17px;font-weight:600;letter-spacing:-.01em}
-.logo i{
-  display:grid;place-items:center;width:32px;height:32px;border-radius:9px;font-style:normal;
-  font-family:ui-serif,Georgia,serif;font-weight:700;font-size:16px;color:#fff;
-  background:linear-gradient(150deg,var(--b400),var(--b700));box-shadow:0 6px 14px -7px rgb(43 77 228 / .9);
-}
-nav.links{display:none;gap:2px;margin-left:16px}
-nav.links a{padding:8px 12px;border-radius:9px;font-size:14px;color:var(--ink2);transition:.18s}
-nav.links a:hover{background:var(--hair);color:var(--ink)}
-.right{margin-left:auto;display:flex;align-items:center;gap:9px}
-@media(min-width:1000px){nav.links{display:flex}}
-@media(max-width:620px){.hide-xs{display:none}}
-
+/* ---------------------------------------------------------------- controls */
 .btn{
-  display:inline-flex;align-items:center;justify-content:center;gap:9px;height:44px;padding:0 21px;
-  border:0;border-radius:11px;font-size:14.5px;font-weight:580;cursor:pointer;white-space:nowrap;
-  transition:transform .14s cubic-bezier(.2,.8,.3,1),box-shadow .2s,background .2s;
+  display:inline-flex;align-items:center;justify-content:center;gap:9px;height:46px;padding:0 22px;
+  border:0;border-radius:13px;font-size:14.5px;font-weight:580;cursor:pointer;white-space:nowrap;
+  transition:transform .14s cubic-bezier(.2,.8,.3,1),box-shadow .18s,background-color .18s;
 }
 .btn:active{transform:scale(.975)}
-.btn-p{color:#fff;background:linear-gradient(180deg,var(--b500),var(--b600));box-shadow:0 1px 0 rgb(255 255 255/.28) inset,0 9px 20px -10px rgb(43 77 228/.9)}
-.btn-p:hover{transform:translateY(-1px);box-shadow:0 1px 0 rgb(255 255 255/.3) inset,0 15px 30px -12px rgb(43 77 228/.95)}
-.btn-g{background:var(--paper);color:var(--ink);box-shadow:inset 0 0 0 1px var(--hair),var(--shadow)}
-.btn-g:hover{background:var(--paper2);transform:translateY(-1px)}
-.tbtn{display:grid;place-items:center;width:40px;height:40px;flex:none;border:0;border-radius:11px;background:transparent;color:var(--ink2);cursor:pointer}
+.btn-p{
+  color:#fff;background:linear-gradient(180deg,var(--b500),var(--b600));
+  box-shadow:0 1px 0 rgb(255 255 255 / .28) inset,0 10px 22px -10px rgb(43 77 228 / .85);
+}
+.btn-p:hover{box-shadow:0 1px 0 rgb(255 255 255 / .3) inset,0 16px 34px -12px rgb(43 77 228 / .95);transform:translateY(-1px)}
+.btn-g{background:var(--surf);color:var(--ink);box-shadow:inset 0 0 0 1px var(--hair2),var(--shadow)}
+.btn-g:hover{background:var(--surf2);transform:translateY(-1px)}
+
+/* ----------------------------------------------------------------- chrome */
+header{position:sticky;top:0;z-index:60;border-bottom:1px solid transparent;transition:border-color .3s,background .3s}
+header.stuck{background:var(--glass);backdrop-filter:blur(14px) saturate(180%);-webkit-backdrop-filter:blur(14px) saturate(180%);border-bottom-color:var(--hair)}
+.bar{display:flex;align-items:center;gap:18px;height:70px}
+.logo{display:inline-flex;align-items:center;gap:11px;font-weight:680;font-size:16px;letter-spacing:-.02em}
+.logo i{
+  display:grid;place-items:center;width:32px;height:32px;border-radius:10px;font-style:normal;
+  font-weight:800;font-size:15px;color:#fff;background:linear-gradient(150deg,var(--b400),var(--b700));
+  box-shadow:0 6px 14px -6px rgb(43 77 228 / .9),0 1px 0 rgb(255 255 255 / .3) inset;
+}
+nav.links{display:none;gap:2px;margin-left:14px}
+nav.links a{padding:8px 12px;border-radius:10px;font-size:14px;color:var(--ink2);transition:.18s}
+nav.links a:hover{background:var(--hair);color:var(--ink)}
+.right{margin-left:auto;display:flex;align-items:center;gap:9px}
+.tbtn{display:grid;place-items:center;width:40px;height:40px;flex:none;border:0;border-radius:11px;background:transparent;color:var(--ink2);cursor:pointer;transition:.18s}
 .tbtn:hover{background:var(--hair);color:var(--ink)}
 .tbtn .moon{display:none}
-html.dark .tbtn .moon{display:block}html.dark .tbtn .sun{display:none}
+html.dark .tbtn .moon{display:block}
+html.dark .tbtn .sun{display:none}
+@media(min-width:960px){nav.links{display:flex}}
+@media(max-width:640px){.hide-xs{display:none}}
 
-/* --------------------------------------------------------------- the entry */
-.entry{display:inline-flex;align-items:baseline;gap:11px;font-family:ui-serif,Georgia,serif;font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink3)}
-.entry b{font-weight:600;color:var(--b600)}
-html.dark .entry b{color:var(--b400)}
-.entry::before{content:'';align-self:center;width:26px;height:1px;background:currentColor;opacity:.5}
-
-.lede{margin-top:22px;max-width:48ch;font-size:clamp(16px,1.2vw,18px);color:var(--ink2)}
-.cta{display:flex;flex-wrap:wrap;gap:11px;margin-top:30px}
-.fine{margin-top:16px;font-size:13px;color:var(--ink3);display:flex;align-items:center;gap:8px}
-.fine svg{width:15px;height:15px;color:#10b981}
-.head p{margin-top:16px;max-width:60ch;color:var(--ink2);font-size:clamp(15.5px,1.1vw,17px)}
-.head h2{margin-top:14px;max-width:19ch}
-
-/* ================================================== the ledger, on the leaf */
-.spread{display:grid;gap:clamp(32px,4vw,52px);align-items:center;margin-top:34px}
-@media(min-width:1020px){.spread{grid-template-columns:1.02fr 1fr}}
-
-.ledger{
-  position:relative;background:var(--paper2);border-radius:10px;overflow:hidden;
-  box-shadow:inset 0 0 0 1px var(--hair),var(--lift);
+/* =========================================================== the atmosphere
+   Three slow aurora blobs and a faint grid. This is where the page stops
+   looking like a template: the background is lit rather than filled. */
+.sky{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:0}
+.sky::after{
+  content:'';position:absolute;inset:0;
+  background-image:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px);
+  background-size:64px 64px;
+  -webkit-mask-image:radial-gradient(88% 62% at 50% 22%,#000 25%,transparent 78%);
+  mask-image:radial-gradient(88% 62% at 50% 22%,#000 25%,transparent 78%);
 }
-.ledger-top{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--hair)}
-.ledger-top .ser{font-size:14.5px;font-weight:600}
-.ledger-top .ref{margin-left:auto;font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink3)}
-.ledger-body{padding:14px 16px 18px}
-.sums{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;margin-bottom:14px;background:var(--hair);border-radius:8px;overflow:hidden}
-.sums div{background:var(--paper);padding:12px 13px}
-.sums .v{font-family:ui-serif,Georgia,serif;font-size:20px;font-weight:600;letter-spacing:-.01em}
-.sums .k{font-size:11px;color:var(--ink3);margin-top:2px;letter-spacing:.06em;text-transform:uppercase}
-.v.cr{color:#0d8a5f}.v.dr{color:#b3541e}
-html.dark .v.cr{color:#4ade80}html.dark .v.dr{color:#fbbf24}
+.blob{position:absolute;border-radius:50%;filter:blur(78px);will-change:transform}
+.b1{width:620px;height:620px;left:-160px;top:-220px;background:var(--aurora-1);animation:drift1 26s ease-in-out infinite}
+.b2{width:540px;height:540px;right:-140px;top:-120px;background:var(--aurora-2);animation:drift2 32s ease-in-out infinite}
+.b3{width:520px;height:520px;left:38%;top:180px;background:var(--aurora-3);animation:drift3 38s ease-in-out infinite}
+@keyframes drift1{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(90px,60px) scale(1.12)}}
+@keyframes drift2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-80px,90px) scale(1.08)}}
+@keyframes drift3{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-60px,-70px) scale(1.15)}}
+
+/* ------------------------------------------------------------------- hero */
+.hero{position:relative;padding:clamp(48px,7vw,86px) 0 clamp(56px,7vw,92px)}
+.hero-in{position:relative;z-index:2;display:grid;gap:clamp(38px,5vw,56px);align-items:center}
+@media(min-width:1020px){.hero-in{grid-template-columns:1.04fr 1fr}}
+
+.pill{
+  display:inline-flex;align-items:center;gap:9px;padding:6px 14px 6px 7px;border-radius:999px;
+  font-size:13px;font-weight:560;color:var(--ink2);background:var(--glass);
+  box-shadow:inset 0 0 0 1px var(--hair2),var(--shadow);
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+.pill b{
+  display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:11.5px;
+  font-weight:640;color:#fff;background:linear-gradient(180deg,var(--b500),var(--b600));
+}
+.lede{margin-top:24px;max-width:47ch;font-size:clamp(16px,1.25vw,18.5px);color:var(--ink2)}
+.cta{display:flex;flex-wrap:wrap;gap:11px;margin-top:32px}
+.fine{margin-top:18px;font-size:13px;color:var(--ink3);display:flex;align-items:center;gap:8px}
+.fine svg{width:15px;height:15px;color:#10b981}
+
+/* ------------------------------------------------------- the product, tilted
+   A flat rectangle of a screenshot reads as a stock image. Perspective and a
+   card floating off the surface read as software. */
+.stage{position:relative;perspective:1600px}
+.pane{
+  position:relative;border-radius:20px;background:var(--surf);overflow:hidden;
+  box-shadow:inset 0 0 0 1px var(--hair),var(--hero);
+  transform:rotateY(-11deg) rotateX(5deg) rotateZ(.6deg);
+  transform-style:preserve-3d;transition:transform .9s cubic-bezier(.2,.8,.3,1);
+}
+.stage:hover .pane{transform:rotateY(-5deg) rotateX(2deg)}
+@media(max-width:1019px){.pane{transform:none}.stage:hover .pane{transform:none}}
+.pane-top{display:flex;align-items:center;gap:9px;padding:13px 16px;border-bottom:1px solid var(--hair);background:var(--surf2)}
+.pane-top s{width:9px;height:9px;border-radius:50%;background:var(--ink3);opacity:.4}
+.pane-top span{font-size:13px;font-weight:600;color:var(--ink2);margin-left:4px}
+.pane-body{padding:16px}
+
+.kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.kpi{padding:12px 13px;border-radius:13px;background:var(--surf2);box-shadow:inset 0 0 0 1px var(--hair)}
+.kpi .v{font-size:20px;font-weight:700;letter-spacing:-.03em}
+.kpi .k{font-size:11px;color:var(--ink3);margin-top:2px}
+.v.up{color:#059669}.v.dn{color:#d97706}
+html.dark .v.up{color:#34d399}html.dark .v.dn{color:#fbbf24}
 
 .scroller{overflow-x:auto}
-table.rows{width:100%;min-width:370px;border-collapse:collapse;font-size:13.5px}
-table.rows th{text-align:left;font-size:10.5px;font-weight:640;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3);padding:4px 8px 8px}
-table.rows td{padding:10px 8px;border-top:1px solid var(--rule);color:var(--ink2);white-space:nowrap}
-table.rows td.n{color:var(--ink);font-weight:600;font-family:ui-serif,Georgia,serif}
+table.rows{width:100%;min-width:360px;border-collapse:collapse;font-size:13.5px}
+table.rows th{text-align:left;font-size:10.5px;font-weight:640;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);padding:5px 8px}
+table.rows td{padding:10px 8px;border-top:1px solid var(--hair);color:var(--ink2);white-space:nowrap}
+table.rows td.n{color:var(--ink);font-weight:600}
 table.rows td.a{text-align:right;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
-.tag{display:inline-block;padding:2.5px 9px;border-radius:5px;font-size:11.5px;font-weight:600}
-.t-paid{background:#d6f2e4;color:#0d6b4a}.t-over{background:#fadedb;color:#a63a2c}
-.t-part{background:#fbeed2;color:#98600f}.t-pro{background:#dfe3fb;color:#3b45a8}
+.tag{display:inline-block;padding:2.5px 9px;border-radius:999px;font-size:11.5px;font-weight:580}
+.t-paid{background:#d1fae5;color:#047857}.t-over{background:#fee2e2;color:#b91c1c}
+.t-part{background:#fef3c7;color:#b45309}.t-pro{background:#e0e7ff;color:#4338ca}
 html.dark .t-paid{background:rgb(16 185 129/.16);color:#6ee7b7}
 html.dark .t-over{background:rgb(239 68 68/.16);color:#fca5a5}
 html.dark .t-part{background:rgb(245 158 11/.16);color:#fcd34d}
-html.dark .t-pro{background:rgb(99 102 241/.2);color:#a5b4fc}
+html.dark .t-pro{background:rgb(99 102 241/.18);color:#a5b4fc}
 
-/* The corner that lifts — the affordance of a page you can turn. */
-.dogear{
-  position:absolute;right:0;bottom:0;width:56px;height:56px;cursor:default;
-  background:linear-gradient(135deg,transparent 50%,var(--paper) 50%);
-  box-shadow:-3px -3px 9px -3px rgb(16 24 40 / .28);
-  transition:width .35s cubic-bezier(.2,.8,.3,1),height .35s cubic-bezier(.2,.8,.3,1);
+/* The toast: proof the thing is alive, and the one bit of the hero that moves
+   on its own. */
+.toast{
+  position:absolute;left:-26px;bottom:38px;z-index:3;display:flex;align-items:center;gap:11px;
+  padding:12px 16px 12px 13px;border-radius:15px;background:var(--surf);
+  box-shadow:inset 0 0 0 1px var(--hair),var(--lift);
+  animation:float 5.5s ease-in-out infinite;
 }
-.ledger:hover .dogear{width:76px;height:76px}
-html.dark .dogear{background:linear-gradient(135deg,transparent 50%,var(--paper) 50%);box-shadow:-3px -3px 9px -3px rgb(0 0 0 / .8)}
+.toast .ring{display:grid;place-items:center;width:34px;height:34px;border-radius:11px;background:#d1fae5;color:#047857;flex:none}
+html.dark .toast .ring{background:rgb(16 185 129/.18);color:#6ee7b7}
+.toast .ring svg{width:18px;height:18px}
+.toast .t1{font-size:13.5px;font-weight:620}
+.toast .t2{font-size:11.5px;color:var(--ink3)}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-11px)}}
+@media(max-width:1019px){.toast{left:auto;right:14px;bottom:-18px}}
 
-/* -------------------------------------------------------- the running entry
-   The five stages, written the way a day book writes them: a date column, a
-   particular, and a folio pointing at the next entry. */
-.daybook{margin-top:38px;border-top:1px solid var(--hair)}
-.dbrow{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:start;padding:20px 0;border-bottom:1px solid var(--rule)}
-@media(min-width:720px){.dbrow{grid-template-columns:96px 46px 1fr auto;align-items:center}}
-.dbrow .no{font-family:ui-serif,Georgia,serif;font-size:12.5px;letter-spacing:.14em;color:var(--ink3);text-transform:uppercase}
-.dbrow .mk{
-  display:grid;place-items:center;width:40px;height:40px;border-radius:11px;color:#fff;
-  background:linear-gradient(155deg,var(--b400),var(--b700));box-shadow:0 8px 18px -9px rgb(43 77 228/.95);
+/* ------------------------------------------------------------- the marquee */
+.strip{position:relative;z-index:2;padding:26px 0;border-top:1px solid var(--hair);border-bottom:1px solid var(--hair);background:var(--glass);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.strip .cap{text-align:center;font-size:11.5px;font-weight:640;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);margin-bottom:16px}
+.mask{overflow:hidden;-webkit-mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent);mask-image:linear-gradient(90deg,transparent,#000 7%,#000 93%,transparent)}
+.track{display:flex;width:max-content;animation:slide 34s linear infinite}
+.track:hover{animation-play-state:paused}
+.track ul{display:flex;gap:12px;padding-right:12px;list-style:none}
+.track li{
+  padding:9px 17px;border-radius:999px;font-size:14px;color:var(--ink3);white-space:nowrap;
+  background:var(--surf);box-shadow:inset 0 0 0 1px var(--hair);
+  text-decoration:line-through 1.5px;text-decoration-color:var(--b500);
 }
-.dbrow .mk svg{width:19px;height:19px}
-.dbrow h3{font-size:17px}
-.dbrow p{font-size:14px;color:var(--ink2);margin-top:2px}
-.dbrow .fol{font-size:12.5px;color:var(--ink3);font-family:ui-serif,Georgia,serif;letter-spacing:.1em;white-space:nowrap}
+@keyframes slide{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 
-/* -------------------------------------------------------------- the columns */
-.cols{display:grid;gap:0;margin-top:34px;border-top:1px solid var(--hair)}
-@media(min-width:760px){.cols{grid-template-columns:repeat(2,1fr);column-gap:clamp(30px,4vw,64px)}}
-@media(min-width:1080px){.cols.three{grid-template-columns:repeat(3,1fr)}}
-.col{padding:24px 0;border-bottom:1px solid var(--rule)}
-.col .ico{display:grid;place-items:center;width:36px;height:36px;margin-bottom:13px;border-radius:10px;color:var(--b600);background:rgb(64 108 240 / .1);box-shadow:inset 0 0 0 1px rgb(64 108 240 / .16)}
-html.dark .col .ico{color:var(--b300)}
-.col .ico svg{width:19px;height:19px}
-.col p{margin-top:7px;font-size:14.5px;color:var(--ink2)}
+/* -------------------------------------------------------------- the flow
+   Five stages with a line drawn through them, because the product's whole
+   claim is that these are one thing rather than five. */
+.flow{display:grid;gap:14px;margin-top:44px;position:relative}
+@media(min-width:760px){.flow{grid-template-columns:repeat(5,1fr);gap:0}}
+.node{position:relative;padding:22px 18px;text-align:center}
+@media(min-width:760px){
+  .node::before{content:'';position:absolute;top:39px;left:-50%;width:100%;height:2px;background:linear-gradient(90deg,transparent,var(--hair2),transparent)}
+  .node:first-child::before{display:none}
+}
+.node .dot{
+  position:relative;z-index:2;display:grid;place-items:center;width:46px;height:46px;margin:0 auto 14px;
+  border-radius:15px;color:#fff;background:linear-gradient(155deg,var(--b400),var(--b700));
+  box-shadow:0 10px 22px -10px rgb(43 77 228 / .95),0 1px 0 rgb(255 255 255 / .3) inset;
+}
+.node .dot svg{width:21px;height:21px}
+.node h3{font-size:15px}
+.node p{font-size:13px;color:var(--ink3);margin-top:3px}
 
-ul.ticks{margin-top:20px;display:grid;gap:10px;list-style:none}
+/* ------------------------------------------------------------------ bands */
+.band{position:relative;padding:clamp(72px,9vw,124px) 0}
+.band.tinted{background:var(--surf);border-top:1px solid var(--hair);border-bottom:1px solid var(--hair)}
+.kick{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:640;letter-spacing:.05em;text-transform:uppercase;color:var(--b600)}
+html.dark .kick{color:var(--b400)}
+.kick::before{content:'';width:22px;height:2px;border-radius:2px;background:currentColor}
+.head h2{margin-top:16px;max-width:17ch}
+.head p{margin-top:18px;max-width:60ch;color:var(--ink2);font-size:clamp(15.5px,1.15vw,17px)}
+
+/* ------------------------------------------------------------------ bento
+   Deliberately uneven. A grid of six identical cards is the shape every
+   template takes; the sizes here follow how much each one has to say. */
+.bento{display:grid;gap:14px;margin-top:46px;grid-template-columns:1fr}
+@media(min-width:700px){.bento{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1020px){.bento{grid-template-columns:repeat(3,1fr)}.bento .wide{grid-column:span 2}}
+.tile{
+  position:relative;padding:26px;border-radius:19px;background:var(--surf);overflow:hidden;
+  box-shadow:inset 0 0 0 1px var(--hair),var(--shadow);
+  transition:transform .3s cubic-bezier(.2,.8,.3,1),box-shadow .3s;
+}
+.tile:hover{transform:translateY(-3px);box-shadow:inset 0 0 0 1px var(--hair2),var(--lift)}
+.tile .ico{
+  display:grid;place-items:center;width:40px;height:40px;margin-bottom:16px;border-radius:13px;
+  color:var(--b600);background:linear-gradient(160deg,rgb(64 108 240/.14),rgb(64 108 240/.05));
+  box-shadow:inset 0 0 0 1px rgb(64 108 240/.18);
+}
+html.dark .tile .ico{color:var(--b300)}
+.tile .ico svg{width:20px;height:20px}
+.tile p{margin-top:9px;font-size:14.5px;color:var(--ink2)}
+/* A faint brand glow in the corner of the big tile, so the grid has a focus. */
+.tile.wide::after{content:'';position:absolute;right:-90px;top:-90px;width:280px;height:280px;border-radius:50%;background:rgb(64 108 240/.12);filter:blur(50px);pointer-events:none}
+
+.mini{margin-top:20px;display:grid;gap:8px}
+.mini .row{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:12px;background:var(--surf2);box-shadow:inset 0 0 0 1px var(--hair);font-size:13.5px}
+.mini .row .g{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink)}
+.mini .row i{display:grid;place-items:center;width:26px;height:26px;border-radius:8px;font-style:normal;font-size:11px;font-weight:700;color:var(--b600);background:rgb(64 108 240/.12)}
+html.dark .mini .row i{color:var(--b300)}
+
+/* ------------------------------------------------------------------ split */
+.split{display:grid;gap:clamp(30px,4vw,56px);align-items:center;margin-top:56px}
+@media(min-width:940px){.split{grid-template-columns:1fr 1fr}.split.flip .art{order:-1}}
+.split h3{font-size:clamp(1.4rem,2.4vw,1.9rem);letter-spacing:-.028em}
+.split > div > p{margin-top:14px;color:var(--ink2);font-size:15.5px}
+ul.ticks{margin-top:22px;display:grid;gap:11px;list-style:none}
 ul.ticks li{display:flex;gap:11px;font-size:14.5px;color:var(--ink2)}
-ul.ticks svg{width:18px;height:18px;flex:none;margin-top:2px;color:var(--b500)}
+ul.ticks svg{width:19px;height:19px;flex:none;margin-top:1px;color:var(--b500)}
 html.dark ul.ticks svg{color:var(--b400)}
+.art{position:relative;padding:22px;border-radius:20px;background:var(--surf);box-shadow:inset 0 0 0 1px var(--hair),var(--lift)}
+.art::before{content:'';position:absolute;inset:auto -10% -30% -10%;height:200px;background:rgb(64 108 240/.1);filter:blur(60px);border-radius:50%;z-index:-1}
 
-/* ------------------------------------------------------------- the invoice */
-.doc{position:relative;background:var(--paper2);border-radius:10px;padding:24px;box-shadow:inset 0 0 0 1px var(--hair),var(--lift)}
-.doc .l{display:flex;justify-content:space-between;font-size:13.5px;color:var(--ink2);padding:5px 0}
-.doc .l b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
-.doc .rule{height:1px;background:var(--rule);margin:7px 0}
-.doc .tot{display:flex;justify-content:space-between;font-family:ui-serif,Georgia,serif;font-size:18px;font-weight:600;padding-top:5px}
-.stamp{position:absolute;right:22px;bottom:20px;transform:rotate(-12deg);padding:7px 13px;border-radius:6px;font-family:ui-serif,Georgia,serif;font-size:12px;font-weight:700;letter-spacing:.16em;color:#0d6b4a;box-shadow:inset 0 0 0 2px currentColor;opacity:.66}
+.doc{display:grid;gap:10px}
+.doc .line{display:flex;justify-content:space-between;font-size:13.5px;color:var(--ink2)}
+.doc .line b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.doc .rule{height:1px;background:var(--hair)}
+.doc .tot{display:flex;justify-content:space-between;font-size:16px;font-weight:700;letter-spacing:-.02em}
+.stamp{
+  position:absolute;right:20px;bottom:16px;transform:rotate(-13deg);padding:7px 13px;border-radius:8px;
+  font-size:11.5px;font-weight:800;letter-spacing:.1em;color:#047857;
+  box-shadow:inset 0 0 0 2px currentColor;opacity:.72;
+}
 html.dark .stamp{color:#34d399}
 
-/* ------------------------------------------------------------- the register */
-.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:5px}
-.cal span{aspect-ratio:1;border-radius:6px;display:grid;place-items:center;font-size:11.5px;color:var(--ink3);background:var(--paper);box-shadow:inset 0 0 0 1px var(--hair)}
-.cal span.p{background:rgb(16 185 129/.13);color:#0d6b4a;font-weight:640}
-.cal span.l{background:rgb(64 108 240/.13);color:var(--b600);font-weight:640}
-.cal span.a{background:rgb(239 68 68/.11);color:#a63a2c;font-weight:640}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.cal span{aspect-ratio:1;border-radius:8px;display:grid;place-items:center;font-size:11.5px;color:var(--ink3);background:var(--surf2);box-shadow:inset 0 0 0 1px var(--hair)}
+.cal span.p{background:rgb(16 185 129/.14);color:#047857;font-weight:640}
+.cal span.l{background:rgb(64 108 240/.14);color:var(--b600);font-weight:640}
+.cal span.a{background:rgb(239 68 68/.12);color:#b91c1c;font-weight:640}
 html.dark .cal span.p{color:#6ee7b7}html.dark .cal span.l{color:var(--b300)}html.dark .cal span.a{color:#fca5a5}
-.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:15px;font-size:12.5px;color:var(--ink3)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:16px;font-size:12.5px;color:var(--ink3)}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
 
-/* --------------------------------------------------------- the balance page */
-.balance{display:grid;gap:0;margin-top:30px;border-top:1px solid var(--hair)}
-@media(min-width:780px){.balance{grid-template-columns:repeat(2,1fr);column-gap:clamp(30px,5vw,70px)}}
-.bl{display:flex;align-items:baseline;gap:16px;padding:15px 0;border-bottom:1px solid var(--rule)}
-.bl .n{font-family:ui-serif,Georgia,serif;font-size:26px;font-weight:600;color:var(--b600);min-width:46px}
-html.dark .bl .n{color:var(--b400)}
-.bl p{font-size:14px;color:var(--ink2)}
+/* ------------------------------------------------------------------ stats */
+.stats{display:grid;gap:14px;grid-template-columns:repeat(2,1fr)}
+@media(min-width:900px){.stats{grid-template-columns:repeat(4,1fr)}}
+.stat{padding:26px 22px;border-radius:18px;background:var(--surf);box-shadow:inset 0 0 0 1px var(--hair),var(--shadow)}
+.stat .n{font-size:clamp(1.9rem,3.4vw,2.6rem);font-weight:720;letter-spacing:-.04em;line-height:1}
+.stat .l{margin-top:9px;font-size:13.5px;color:var(--ink3)}
 
-/* ------------------------------------------------------------- the last leaf */
-.leaf.closing{background:linear-gradient(165deg,var(--b600),var(--b700) 58%,#1a2c93);text-align:center}
-.leaf.closing::before{background-image:repeating-linear-gradient(180deg,transparent 0 31px,rgb(255 255 255 / .07) 31px 32px)}
-.leaf.closing::after{background:rgb(255 255 255 / .18)}
-.leaf.closing h2{color:#fff;margin:0 auto;max-width:17ch}
-.leaf.closing p{color:rgb(255 255 255 / .82);margin:18px auto 0;max-width:48ch;font-size:16.5px}
-.leaf.closing .cta{justify-content:center;margin-top:30px}
-.leaf.closing .entry{color:rgb(255 255 255 / .6)}
-.leaf.closing .entry b{color:#fff}
-.leaf.closing .fine{justify-content:center;color:rgb(255 255 255 / .72)}
-.leaf.closing .fine svg{color:#a7f3d0}
-.leaf.closing .folio{color:rgb(255 255 255 / .55)}
-.btn-w{background:#fff;color:var(--b700);box-shadow:0 12px 26px -12px rgb(0 0 0 / .55)}
-.btn-w:hover{background:#eef2ff;transform:translateY(-1px)}
-.btn-o{background:rgb(255 255 255 / .13);color:#fff;box-shadow:inset 0 0 0 1px rgb(255 255 255 / .32)}
-.btn-o:hover{background:rgb(255 255 255 / .22)}
+/* ------------------------------------------------------------------ close */
+.close{position:relative;overflow:hidden;padding:clamp(76px,10vw,132px) 0;text-align:center;
+  background:linear-gradient(160deg,var(--b600),var(--b700) 55%,#1b2f9e)}
+.close .sky{opacity:.5}
+.close h2{color:#fff;margin:0 auto;max-width:16ch}
+.close p{margin:20px auto 0;max-width:46ch;color:rgb(255 255 255 / .8);font-size:16.5px}
+.close .cta{justify-content:center;margin-top:34px}
+.close .btn-w{background:#fff;color:var(--b700);box-shadow:0 14px 30px -12px rgb(0 0 0 / .5)}
+.close .btn-w:hover{background:#f2f5ff;transform:translateY(-1px)}
+.close .btn-o{background:rgb(255 255 255 / .12);color:#fff;box-shadow:inset 0 0 0 1px rgb(255 255 255 / .3)}
+.close .btn-o:hover{background:rgb(255 255 255 / .2)}
+.close .fine{justify-content:center;color:rgb(255 255 255 / .7)}
+.close .fine svg{color:#a7f3d0}
 
-footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:26px clamp(20px,4vw,44px) 44px}
-.foot{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:center;font-size:13.5px;color:var(--ink3)}
-.foot nav{display:flex;flex-wrap:wrap;gap:12px 18px;margin-left:auto}
+footer{padding:34px 0 44px}
+.foot{display:flex;flex-wrap:wrap;gap:14px 20px;align-items:center;font-size:13.5px;color:var(--ink3)}
+.foot nav{display:flex;flex-wrap:wrap;gap:14px 18px;margin-left:auto}
 .foot nav a:hover{color:var(--ink)}
 
-/* ------------------------------------------------------------- ink drying in */
-.rv{opacity:0;transform:translateY(16px);transition:opacity .75s cubic-bezier(.2,.8,.3,1),transform .75s cubic-bezier(.2,.8,.3,1)}
+/* ----------------------------------------------------------------- reveal */
+.rv{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.8,.3,1),transform .7s cubic-bezier(.2,.8,.3,1)}
 .rv.in{opacity:1;transform:none}
 
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation:none!important;transition:none!important}
   .rv{opacity:1;transform:none}
-  .leaf{transform:none!important;opacity:1!important}
   html{scroll-behavior:auto}
 }
 </style>
 </head>
 <body>
 
-<nav class="tabs" aria-label="Sections of the book">
-  <a href="#daybook" data-tab="daybook">Day book</a>
-  <a href="#ledger" data-tab="ledger">Ledger</a>
-  <a href="#billing" data-tab="billing">Billing</a>
-  <a href="#register" data-tab="register">Register</a>
-  <a href="#balance" data-tab="balance">Balance</a>
-</nav>
-
 <header id="hdr">
-  <div class="bar">
+  <div class="wrap bar">
     <a class="logo" href="/"><i>N</i>Netvork</a>
     <nav class="links">
-      <a href="#daybook">Day book</a>
-      <a href="#ledger">Ledger</a>
+      <a href="#flow">How it works</a>
+      <a href="#core">What it does</a>
       <a href="#billing">Billing</a>
-      <a href="#register">Register</a>
+      <a href="#people">People</a>
       <a href="/pricing">Pricing</a>
     </nav>
     <div class="right">
@@ -378,45 +375,45 @@ footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:
   </div>
 </header>
 
-<div class="book" id="book">
-
-  <!-- ============================================================= leaf i -->
-  <section class="leaf" id="cover">
-    <span class="spine"></span><span class="folio">i</span>
-    <div class="spread">
-      <div>
-        <p class="entry rv">Netvork &nbsp;·&nbsp; <b>Est. 2026</b></p>
-        <h1 class="rv" style="margin-top:20px">The whole business,<br>in <em>one book</em>.</h1>
-        <p class="lede rv">
-          Leads, quotations, invoices, payments, attendance and payroll written into the same
-          set of books — instead of the spreadsheets, registers and half-connected apps a
-          growing business keeps them in now.
-        </p>
-        <div class="cta rv">
-          <a class="btn btn-p" href="/register">Open your book
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
-          </a>
-          <a class="btn btn-g" href="#daybook">Turn the page</a>
-        </div>
-        <p class="fine rv">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
-          Free plan · no card required
-        </p>
+<!-- ==================================================================== hero -->
+<section class="hero">
+  <div class="sky"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i></div>
+  <div class="wrap hero-in">
+    <div>
+      <p class="pill rv"><b>New</b> Attendance, leave and payroll are in</p>
+      <h1 class="rv" style="margin-top:24px">
+        Every lead.<br>Every invoice.<br><span class="grad">One system.</span>
+      </h1>
+      <p class="lede rv">
+        Leads, quotations, invoices, payments, attendance and payroll in one place —
+        replacing the spreadsheets and half-connected apps a growing business runs its day on.
+      </p>
+      <div class="cta rv">
+        <a class="btn btn-p" href="/register">Start free
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="btn btn-g" href="#flow">See how it works</a>
       </div>
+      <p class="fine rv">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+        Free plan · no card required
+      </p>
+    </div>
 
-      <div class="ledger rv">
-        <div class="ledger-top"><span class="ser">Sales ledger</span><span class="ref">Folio 41</span></div>
-        <div class="ledger-body">
-          <div class="sums">
-            <div><div class="v">₹18.4L</div><div class="k">Raised</div></div>
-            <div><div class="v cr">₹15.9L</div><div class="k">Received</div></div>
-            <div><div class="v dr">₹2.5L</div><div class="k">Outstanding</div></div>
+    <div class="stage rv">
+      <div class="pane">
+        <div class="pane-top"><s></s><s></s><s></s><span>Invoices</span></div>
+        <div class="pane-body">
+          <div class="kpis">
+            <div class="kpi"><div class="v">₹18.4L</div><div class="k">Raised</div></div>
+            <div class="kpi"><div class="v up">₹15.9L</div><div class="k">Collected</div></div>
+            <div class="kpi"><div class="v dn">₹2.5L</div><div class="k">Overdue</div></div>
           </div>
           <div class="scroller">
             <table class="rows">
-              <thead><tr><th>Number</th><th>Particulars</th><th style="text-align:right">Amount</th><th>State</th></tr></thead>
+              <thead><tr><th>Number</th><th>Client</th><th style="text-align:right">Total</th><th>Payment</th></tr></thead>
               <tbody>
-                <tr><td class="n">INV-4417</td><td>Nandini Mehta</td><td class="a">₹2,40,000</td><td><span class="tag t-paid">Settled</span></td></tr>
+                <tr><td class="n">INV-4417</td><td>Nandini Mehta</td><td class="a">₹2,40,000</td><td><span class="tag t-paid">Paid</span></td></tr>
                 <tr><td class="n">INV-4416</td><td>Ravi Krishnan</td><td class="a">₹86,500</td><td><span class="tag t-over">Overdue</span></td></tr>
                 <tr><td class="n">INV-4415</td><td>Sana Desai</td><td class="a">₹1,12,000</td><td><span class="tag t-part">Part paid</span></td></tr>
                 <tr><td class="n">PI-208</td><td>Arjun Thakur</td><td class="a">₹54,750</td><td><span class="tag t-pro">Proforma</span></td></tr>
@@ -424,111 +421,111 @@ footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:
             </table>
           </div>
         </div>
-        <span class="dogear" aria-hidden="true"></span>
+      </div>
+      <div class="toast">
+        <span class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+        <span>
+          <span class="t1">₹2,40,000 received</span><br>
+          <span class="t2">INV-4417 settled · matched automatically</span>
+        </span>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- ============================================================ leaf ii -->
-  <section class="leaf" id="daybook">
-    <span class="spine"></span><span class="folio">ii</span>
+<!-- ================================================================= marquee -->
+<div class="strip">
+  <p class="cap">Instead of paying for</p>
+  <div class="mask">
+    <div class="track">
+      <ul><li>Spreadsheet CRM</li><li>Invoice software</li><li>Payment follow-ups</li><li>Attendance register</li><li>Payroll sheet</li><li>Expense book</li><li>Complaint inbox</li><li>Shared drive</li></ul>
+      <ul aria-hidden="true"><li>Spreadsheet CRM</li><li>Invoice software</li><li>Payment follow-ups</li><li>Attendance register</li><li>Payroll sheet</li><li>Expense book</li><li>Complaint inbox</li><li>Shared drive</li></ul>
+    </div>
+  </div>
+</div>
+
+<!-- ==================================================================== flow -->
+<section class="band" id="flow">
+  <div class="wrap">
     <div class="head rv">
-      <span class="entry">The day book</span>
-      <h2>One entry, carried through to the last column</h2>
-      <p>Each stage hands the next everything it already knows, so nobody writes a client, a rate or a line item twice to move the work along.</p>
+      <span class="kick">How it works</span>
+      <h2>One thing, from enquiry to payslip</h2>
+      <p>Each stage hands the next one everything it already knows, so nobody retypes a client, a rate or a line item to move the work forward.</p>
     </div>
-
-    <div class="daybook">
-      <div class="dbrow rv">
-        <span class="no">Entry 01</span>
-        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M6 12h12M10 19h4"/></svg></span>
-        <div><h3>An enquiry arrives</h3><p>It is owned by somebody from the moment it lands, and every follow-up is written against it.</p></div>
-        <span class="fol">carried to 02</span>
-      </div>
-      <div class="dbrow rv">
-        <span class="no">Entry 02</span>
-        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></span>
-        <div><h3>A quotation goes out</h3><p>A proforma on your letterhead, numbered in its own series, with the tax already worked out.</p></div>
-        <span class="fol">carried to 03</span>
-      </div>
-      <div class="dbrow rv">
-        <span class="no">Entry 03</span>
-        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h16v18l-4-2-4 2-4-2-4 2z"/><path d="M8 8h8M8 12h5"/></svg></span>
-        <div><h3>The order is confirmed</h3><p>The proforma becomes a tax invoice — the same lines, the same figures, a new number in the sales series.</p></div>
-        <span class="fol">carried to 04</span>
-      </div>
-      <div class="dbrow rv">
-        <span class="no">Entry 04</span>
-        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span>
-        <div><h3>The money comes in</h3><p>Matched against the invoice and settled — at once, or after an admin has checked it, as your company works.</p></div>
-        <span class="fol">carried to 05</span>
-      </div>
-      <div class="dbrow rv">
-        <span class="no">Entry 05</span>
-        <span class="mk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.9"/></svg></span>
-        <div><h3>The people are paid</h3><p>A salary run from the company that pays it, with the month's leave already accounted for.</p></div>
-        <span class="fol">closed</span>
-      </div>
+    <div class="flow">
+      <div class="node rv"><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M6 12h12M10 19h4"/></svg></span><h3>Lead</h3><p>Owned and chased</p></div>
+      <div class="node rv"><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg></span><h3>Quotation</h3><p>A proforma out</p></div>
+      <div class="node rv"><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h16v18l-4-2-4 2-4-2-4 2z"/><path d="M8 8h8M8 12h5"/></svg></span><h3>Tax invoice</h3><p>Converted, not retyped</p></div>
+      <div class="node rv"><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span><h3>Payment</h3><p>Chased and matched</p></div>
+      <div class="node rv"><span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.9"/></svg></span><h3>Payslip</h3><p>For whoever did it</p></div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- =========================================================== leaf iii -->
-  <section class="leaf" id="ledger">
-    <span class="spine"></span><span class="folio">iii</span>
+<!-- ==================================================================== bento -->
+<section class="band tinted" id="core">
+  <div class="wrap">
     <div class="head rv">
-      <span class="entry">The ledger</span>
-      <h2>An account per client, and everything posted to it</h2>
-      <p>A lead becomes a client without anybody retyping it. From then on the account carries its own history — every quotation and invoice raised against it, what has been paid, the complaints logged, and the notes your team writes but the client never sees.</p>
+      <span class="kick">One record at the centre</span>
+      <h2>Everything about a client, in one place</h2>
+      <p>A lead becomes a client without anybody retyping it. From then on the client carries its own history — every quotation and invoice raised against it, what has been paid, the complaints logged, and the notes your team writes but the client never sees.</p>
     </div>
 
-    <div class="cols three">
-      <div class="col rv">
+    <div class="bento">
+      <div class="tile wide rv">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 00-3-3.9"/></svg></div>
         <h3>Leads &amp; clients</h3>
-        <p>Every lead is owned, with the follow-ups logged against it. Transfer it, share it, reopen it — the log says who did, and when.</p>
+        <p>Every lead is owned by somebody, with the follow-ups logged against it. Transfer it, share it, reopen it — the log says who did, and when.</p>
+        <div class="mini">
+          <div class="row"><i>NM</i>Nandini Mehta<span class="g">₹2,40,000</span></div>
+          <div class="row"><i>RK</i>Ravi Krishnan<span class="g">₹86,500</span></div>
+          <div class="row"><i>SD</i>Sana Desai<span class="g">₹1,12,000</span></div>
+        </div>
       </div>
-      <div class="col rv">
+
+      <div class="tile rv">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg></div>
         <h3>Quotes &amp; invoices</h3>
-        <p>Raise a proforma and convert it when the order lands — the same lines, a new number in a series of its own.</p>
+        <p>Raise a proforma and convert it to a tax invoice when the order lands — the same lines, the same figures, a new number.</p>
       </div>
-      <div class="col rv">
+
+      <div class="tile rv">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20M6 15h4"/></svg></div>
         <h3>Payments</h3>
         <p>Payment links, part payments against one invoice, and reminders that chase whatever is still owed.</p>
       </div>
-      <div class="col rv">
-        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg></div>
-        <h3>Costs &amp; commissions</h3>
-        <p>Expenses, vendors, commissions and incentives posted against the same clients, so profit is a report and not an argument.</p>
-      </div>
-      <div class="col rv">
+
+      <div class="tile rv">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 16l2 2 4-4"/></svg></div>
         <h3>Attendance &amp; leave</h3>
-        <p>Punch in from the app, file a daily work report, and ask for leave in the place the leave is approved.</p>
+        <p>Punch in from the app, file a daily work report, and ask for leave in the same place the leave is approved.</p>
       </div>
-      <div class="col rv">
+
+      <div class="tile rv">
         <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg></div>
         <h3>Payroll</h3>
-        <p>Salary runs that produce a payslip from the company that actually pays it, unpaid leave already accounted for.</p>
+        <p>Salary runs that produce a payslip from the company that actually pays it, with unpaid leave already accounted for.</p>
+      </div>
+
+      <div class="tile rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 15l4-5 3 3 5-7"/></svg></div>
+        <h3>Reports</h3>
+        <p>What was raised, what came in, what it cost and what is still owed — with an export for whoever wants it in a spreadsheet.</p>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- ============================================================ leaf iv -->
-  <section class="leaf" id="billing">
-    <span class="spine"></span><span class="folio">iv</span>
+<!-- ================================================================= billing -->
+<section class="band" id="billing">
+  <div class="wrap">
     <div class="head rv">
-      <span class="entry">Sales &amp; billing</span>
+      <span class="kick">Billing</span>
       <h2>Quotation to tax invoice, without retyping it</h2>
     </div>
-    <div class="spread" style="margin-top:30px">
+    <div class="split">
       <div class="rv">
-        <p style="color:var(--ink2);font-size:15.5px">
-          Raise a proforma, and convert it the moment the order is confirmed. Tax is worked out
-          per line, and each of your registered companies counts through a numbering series of
-          its own — so two companies billing on the same day never collide.
-        </p>
+        <p>Raise a proforma, and convert it the moment the order is confirmed. Tax is worked out per line, and each of your registered companies counts through a numbering series of its own — so two companies billing on the same day never collide.</p>
         <ul class="ticks">
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>CGST, SGST, IGST and TDS worked out per line</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>A numbering series per company, with no gaps in it</li>
@@ -536,36 +533,34 @@ footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Print, preview and download are the same document</li>
         </ul>
       </div>
-      <div class="doc rv">
-        <div class="l"><span>Brass fittings · 120 units</span><b>₹1,80,000</b></div>
-        <div class="l"><span>Steel casing · 40 units</span><b>₹36,000</b></div>
-        <div class="rule"></div>
-        <div class="l"><span>CGST 9%</span><b>₹19,440</b></div>
-        <div class="l"><span>SGST 9%</span><b>₹19,440</b></div>
-        <div class="rule"></div>
-        <div class="tot"><span>Total</span><span>₹2,54,880</span></div>
-        <div class="l" style="margin-top:26px"><span>For Bhavya Steel Pvt Ltd</span></div>
-        <div class="l" style="margin-top:32px;color:var(--ink3)"><span>Authorised signatory</span></div>
-        <span class="stamp">SETTLED</span>
+      <div class="art rv">
+        <div class="doc">
+          <div class="line"><span>Brass fittings · 120 units</span><b>₹1,80,000</b></div>
+          <div class="line"><span>Steel casing · 40 units</span><b>₹36,000</b></div>
+          <div class="rule"></div>
+          <div class="line"><span>CGST 9%</span><b>₹19,440</b></div>
+          <div class="line"><span>SGST 9%</span><b>₹19,440</b></div>
+          <div class="rule"></div>
+          <div class="tot"><span>Total</span><span>₹2,54,880</span></div>
+          <div class="line" style="margin-top:26px"><span>For Bhavya Steel Pvt Ltd</span></div>
+          <div class="line" style="margin-top:34px;color:var(--ink3)"><span>Authorised signatory</span></div>
+        </div>
+        <span class="stamp">PAID</span>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- ============================================================= leaf v -->
-  <section class="leaf" id="register">
-    <span class="spine"></span><span class="folio">v</span>
+<!-- ================================================================== people -->
+<section class="band tinted" id="people">
+  <div class="wrap">
     <div class="head rv">
-      <span class="entry">The register</span>
-      <h2>Who was in, who was owed, and what they were paid</h2>
+      <span class="kick">People</span>
+      <h2>The people who did the work, on the same system</h2>
     </div>
-    <div class="spread" style="margin-top:30px">
+    <div class="split flip">
       <div class="rv">
-        <p style="color:var(--ink2);font-size:15.5px">
-          Punch in from the app, file a daily work report, and ask for leave in the place the
-          leave is approved. Approved days come out of a paid-leave account, and whatever the
-          balance cannot cover is named as unpaid when it is approved — not discovered on the
-          payslip.
-        </p>
+        <p>Punch in from the app, file a daily work report, and ask for leave in the place the leave is approved. Approved days come out of a paid-leave account, and whatever the balance cannot cover is named as unpaid when it is approved — not discovered on the payslip.</p>
         <ul class="ticks">
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Attendance and daily work reports, per employee</li>
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Leave requests, approvals, and a log of both</li>
@@ -573,7 +568,7 @@ footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:
           <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Approval rights handed to whoever you name</li>
         </ul>
       </div>
-      <div class="doc rv" style="padding:22px">
+      <div class="art rv">
         <div class="cal">
           <span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span>
           <span class="p">1</span><span class="p">2</span><span class="p">3</span><span class="p">4</span><span class="p">5</span><span>6</span><span>7</span>
@@ -582,42 +577,45 @@ footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:
           <span class="p">22</span><span class="p">23</span><span class="p">24</span><span class="p">25</span><span class="p">26</span><span>27</span><span>28</span>
         </div>
         <div class="legend">
-          <span><i style="background:rgb(16 185 129/.5)"></i>Present</span>
-          <span><i style="background:rgb(64 108 240/.55)"></i>Approved leave</span>
-          <span><i style="background:rgb(239 68 68/.45)"></i>Absent</span>
+          <span><i style="background:rgb(16 185 129/.55)"></i>Present</span>
+          <span><i style="background:rgb(64 108 240/.6)"></i>Approved leave</span>
+          <span><i style="background:rgb(239 68 68/.5)"></i>Absent</span>
         </div>
       </div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- ============================================================ leaf vi -->
-  <section class="leaf" id="balance">
-    <span class="spine"></span><span class="folio">vi</span>
-    <div class="head rv">
-      <span class="entry">Balance carried forward</span>
-      <h2>What one book saves you keeping</h2>
+<!-- =================================================================== stats -->
+<section class="band">
+  <div class="wrap">
+    <div class="head rv" style="margin-bottom:44px">
+      <span class="kick">Built in, not bolted on</span>
+      <h2>What you stop paying for separately</h2>
     </div>
-    <div class="balance">
-      <div class="bl rv"><span class="n">6</span><p>Subscriptions one book replaces — CRM, invoicing, payments, attendance, payroll and reporting.</p></div>
-      <div class="bl rv"><span class="n">1</span><p>Account per client. The quotation, the invoice, the payment and the complaint all post to it.</p></div>
-      <div class="bl rv"><span class="n">0</span><p>Numbers reused. A series can never be wound back onto an invoice already issued.</p></div>
-      <div class="bl rv"><span class="n">∞</span><p>Devices per account. Each is trusted once, and none of them costs a colleague theirs.</p></div>
+    <div class="stats">
+      <div class="stat rv"><div class="n grad">6</div><div class="l">Subscriptions one system replaces — CRM, invoicing, payments, attendance, payroll and reporting.</div></div>
+      <div class="stat rv"><div class="n grad">1</div><div class="l">Record per client. The quotation, the invoice, the payment and the complaint all point at it.</div></div>
+      <div class="stat rv"><div class="n grad">0</div><div class="l">Numbers reused. A series can never be wound back onto an invoice you have already issued.</div></div>
+      <div class="stat rv"><div class="n grad">∞</div><div class="l">Devices per account. Each is trusted once, and none of them costs a colleague theirs.</div></div>
     </div>
 
-    <div class="cols" style="margin-top:34px">
-      <div class="col rv"><h3>Permissions enforced on the server</h3><p>Roles and the per-module rights matrix are checked by middleware on every request. Hiding a button in the interface is not how access control works here.</p></div>
-      <div class="col rv"><h3>Private by construction</h3><p>Internal notes never reach the client they describe. Staff see their own book unless you widen it, and what an admin does lands in a log nobody can quietly rewrite.</p></div>
+    <div class="bento" style="margin-top:22px">
+      <div class="tile rv"><h3>Permissions enforced on the server</h3><p>Roles and the per-module rights matrix are checked by middleware on every request. Hiding a button in the interface is not how access control works here.</p></div>
+      <div class="tile rv"><h3>Private by construction</h3><p>Internal notes never reach the client they describe. Staff see their own book unless you widen it, and what an admin does lands in a log nobody can quietly rewrite.</p></div>
+      <div class="tile rv"><h3>Every change, on the record</h3><p>Leads, invoices, payments and leave each carry a log of who changed what and when, with one user log across the lot.</p></div>
     </div>
-  </section>
+  </div>
+</section>
 
-  <!-- =========================================================== last leaf -->
-  <section class="leaf closing">
-    <span class="spine"></span><span class="folio">vii</span>
-    <p class="entry rv" style="justify-content:center">Open an account</p>
-    <h2 class="rv" style="margin-top:18px">Keep the whole business in one book.</h2>
+<!-- =================================================================== close -->
+<section class="close">
+  <div class="sky"><i class="blob b1" style="background:rgb(255 255 255 / .16)"></i><i class="blob b3" style="background:rgb(150 184 250 / .22)"></i></div>
+  <div class="wrap" style="position:relative;z-index:2">
+    <h2 class="rv">Put the whole business in one place.</h2>
     <p class="rv">Start on the free plan and move up when the book grows.</p>
     <div class="cta rv">
-      <a class="btn btn-w" href="/register">Open your book
+      <a class="btn btn-w" href="/register">Create your account
         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
       </a>
       <a class="btn btn-o" href="/login">Sign in</a>
@@ -626,12 +624,11 @@ footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
       Free plan · no card required
     </p>
-  </section>
-
-</div>
+  </div>
+</section>
 
 <footer>
-  <div class="foot">
+  <div class="wrap foot">
     <span>© 2026 Netvork · Built for growing businesses</span>
     <nav>
       <a href="/pricing">Pricing</a><a href="/about">About us</a><a href="/contact">Contact us</a>
@@ -641,6 +638,8 @@ footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:
 </footer>
 
 <script>
+/* The whole page renders without this: no framework, no bundle to unpack,
+   nothing fetched from a CDN. What is left is polish. */
 (function () {
   var root = document.documentElement
 
@@ -651,64 +650,17 @@ footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:
     try { localStorage.setItem('mypa-theme', dark ? 'dark' : 'light') } catch (e) {}
   })
 
-  var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+  /* The header earns its background only once something has scrolled under
+     it — a blurred bar over the top of the hero is a bar over nothing. */
   var hdr = document.getElementById('hdr')
-  var leaves = [].slice.call(document.querySelectorAll('.leaf'))
-  var tabs = [].slice.call(document.querySelectorAll('.tabs a'))
+  var onScroll = function () { hdr.classList.toggle('stuck', window.scrollY > 8) }
+  addEventListener('scroll', onScroll, { passive: true })
+  onScroll()
 
-  /*
-   * Turning the leaf.
-   *
-   * A leaf you have read past does not simply scroll away — it lifts on the
-   * binding and swings over, the way the page you have finished does. The
-   * rotation is tied to how far past the top of the window it has gone, so
-   * the turn happens at the speed the reader is reading rather than on a
-   * timer of its own; scrolling back turns it down again.
-   *
-   * The spine is the axis (transform-origin sits on the left edge) and the
-   * angle stops well short of 90°, because a page seen exactly edge-on is a
-   * page that has vanished, and the text on it should stay legible until it
-   * is genuinely gone.
-   */
-  function turn() {
-    hdr.classList.toggle('stuck', scrollY > 8)
-
-    for (var i = 0; i < leaves.length; i++) {
-      var el = leaves[i]
-      var r = el.getBoundingClientRect()
-      // 0 while the leaf is still being read; 1 once it is fully past the top.
-      var p = Math.min(1, Math.max(0, -r.top / Math.max(r.height * 0.72, 1)))
-      if (p <= 0) {
-        el.style.transform = ''
-        el.style.opacity = ''
-        el.style.zIndex = ''
-      } else {
-        var e = p * p * (3 - 2 * p)   // ease, so the lift starts gently
-        el.style.transform = 'perspective(2400px) rotateY(' + (-e * 26).toFixed(2) + 'deg) translateZ(' + (-e * 40).toFixed(1) + 'px)'
-        el.style.opacity = (1 - e * 0.55).toFixed(3)
-        // A turning leaf passes over the one beneath it, never under.
-        el.style.zIndex = String(20 - i)
-      }
-    }
-
-    // Which section the thumb tabs should show as open.
-    var here = ''
-    for (var j = 0; j < leaves.length; j++) {
-      var t = leaves[j].getBoundingClientRect().top
-      if (t < innerHeight * 0.4) here = leaves[j].id
-    }
-    tabs.forEach(function (a) { a.classList.toggle('on', a.getAttribute('data-tab') === here) })
-  }
-
-  if (!reduced) {
-    addEventListener('scroll', function () { requestAnimationFrame(turn) }, { passive: true })
-    addEventListener('resize', turn, { passive: true })
-  }
-  turn()
-
-  /* The ink drying in as each entry is reached. */
+  /* Reveal on approach, staggered within each group so a row of tiles
+     arrives as a row rather than all at once. */
   var items = [].slice.call(document.querySelectorAll('.rv'))
-  if (!('IntersectionObserver' in window) || reduced) {
+  if (!('IntersectionObserver' in window)) {
     items.forEach(function (el) { el.classList.add('in') })
     return
   }
@@ -716,11 +668,11 @@ footer{position:relative;z-index:1;width:min(100%,1180px);margin:0 auto;padding:
     entries.forEach(function (e) {
       if (!e.isIntersecting) return
       var sibs = [].slice.call(e.target.parentNode.children).filter(function (n) { return n.classList.contains('rv') })
-      e.target.style.transitionDelay = Math.min(sibs.indexOf(e.target), 5) * 80 + 'ms'
+      e.target.style.transitionDelay = Math.min(sibs.indexOf(e.target), 5) * 70 + 'ms'
       e.target.classList.add('in')
       io.unobserve(e.target)
     })
-  }, { rootMargin: '0px 0px -8% 0px', threshold: 0.05 })
+  }, { rootMargin: '0px 0px -8% 0px', threshold: 0.06 })
   items.forEach(function (el) { io.observe(el) })
 })()
 </script>
