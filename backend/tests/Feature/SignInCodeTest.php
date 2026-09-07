@@ -177,6 +177,133 @@ class SignInCodeTest extends TestCase
         $this->assertSame(0, TrustedDevice::where('user_id', $this->user->id)->count());
     }
 
+    // ---- One machine, several people ---------------------------------------
+
+    /** A second account on this computer, with a password of its own. */
+    private function colleague(): User
+    {
+        $other = User::factory()->create([
+            'email' => 'nikhil@grapmail.test',
+            'username' => 'nikhilgrapout',
+            'password' => 'Password123',
+            'email_verified_at' => now(),
+        ]);
+        $other->settings()->create([]);
+        $other->profile()->create(['timezone' => 'Asia/Kolkata']);
+
+        return $other;
+    }
+
+    /** Answer the code for this username and return the device token. */
+    private function trust(string $username): string
+    {
+        $this->postJson('/api/v1/auth/login', [
+            'identifier' => $username, 'password' => 'Password123',
+        ])->assertStatus(202);
+
+        $user = User::where('username', $username)->firstOrFail();
+        $code = MobileOtp::where('user_id', $user->id)->where('purpose', 'login')->latest('id')->value('code');
+
+        return $this->postJson('/api/v1/auth/login/verify', [
+            'identifier' => $username, 'code' => $code,
+        ])->assertOk()->json('device_token');
+    }
+
+    private function signIn(string $username, ?string $tokens): \Illuminate\Testing\TestResponse
+    {
+        return $this->withHeaders($tokens === null ? [] : ['X-Device-Token' => $tokens])
+            ->postJson('/api/v1/auth/login', [
+                'identifier' => $username, 'password' => 'Password123',
+            ]);
+    }
+
+    public function test_two_people_on_one_computer_keep_their_own_trust(): void
+    {
+        $this->colleague();
+
+        // Each answers a code once, and the browser keeps both tokens.
+        $mine = $this->trust('harshgrapout');
+        $theirs = $this->trust('nikhilgrapout');
+        $browser = $mine . ',' . $theirs;
+
+        // Neither has cost the other their trust — which a single stored
+        // token did, so two people alternating were asked EVERY time.
+        $this->signIn('harshgrapout', $browser)->assertOk()->assertJsonStructure(['token']);
+        $this->signIn('nikhilgrapout', $browser)->assertOk()->assertJsonStructure(['token']);
+    }
+
+    public function test_one_persons_token_never_signs_in_the_other(): void
+    {
+        $this->colleague();
+        $mine = $this->trust('harshgrapout');
+
+        // Offered on a colleague's sign-in it matches no row of theirs, so
+        // they are asked for a code — trust belongs to a person, not a box.
+        $this->signIn('nikhilgrapout', $mine)->assertStatus(202);
+    }
+
+    public function test_tokens_that_belong_to_nobody_are_simply_ignored(): void
+    {
+        $mine = $this->trust('harshgrapout');
+
+        $this->signIn('harshgrapout', 'rubbish,' . $mine . ',more-rubbish')
+            ->assertOk()
+            ->assertJsonStructure(['token']);
+
+        // Rubbish alone still buys nothing.
+        $this->signIn('harshgrapout', 'rubbish,more-rubbish')->assertStatus(202);
+    }
+
+    public function test_a_browser_that_only_knows_one_token_still_works(): void
+    {
+        // What every already-signed-in browser is holding on the day this
+        // ships: one bare token, no list. It must not be asked again.
+        $mine = $this->trust('harshgrapout');
+
+        $this->signIn('harshgrapout', $mine)->assertOk()->assertJsonStructure(['token']);
+    }
+
+    public function test_only_so_many_tokens_are_ever_read(): void
+    {
+        $mine = $this->trust('harshgrapout');
+
+        // A header stuffed with junk cannot make the server hash all of it;
+        // the real token sits past the cap and so is never reached.
+        $flood = implode(',', array_map(fn ($i) => 'junk' . $i, range(1, TrustedDevice::MAX_OFFERED)));
+
+        $this->signIn('harshgrapout', $flood . ',' . $mine)->assertStatus(202);
+    }
+
+    // ---- Trust that is used does not quietly run out ------------------------
+
+    public function test_using_a_trusted_device_extends_its_welcome(): void
+    {
+        AppSetting::set('trusted_device_days', '60');
+        $mine = $this->trust('harshgrapout');
+
+        $device = TrustedDevice::where('user_id', $this->user->id)->firstOrFail();
+        // Nearly out of time, as a machine trusted two months ago would be.
+        $device->forceFill(['expires_at' => now()->addDay(), 'last_used_at' => now()->subDays(59)])->save();
+
+        $this->signIn('harshgrapout', $mine)->assertOk();
+
+        $device->refresh();
+        // The window slides from this sign-in, so somebody who uses their
+        // own machine daily is never turned back into a stranger.
+        $this->assertTrue($device->expires_at->greaterThan(now()->addDays(59)));
+        $this->assertTrue($device->last_used_at->greaterThan(now()->subMinute()));
+    }
+
+    public function test_trust_that_has_run_out_is_not_revived(): void
+    {
+        $mine = $this->trust('harshgrapout');
+
+        TrustedDevice::where('user_id', $this->user->id)
+            ->update(['expires_at' => now()->subDay()]);
+
+        $this->signIn('harshgrapout', $mine)->assertStatus(202);
+    }
+
     public function test_the_wrong_password_never_reaches_the_code_step(): void
     {
         Notification::fake();

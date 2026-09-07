@@ -342,7 +342,16 @@ class AuthController extends Controller
             return true;
         }
 
-        return TrustedDevice::findLive($user, $request->header('X-Device-Token')) === null;
+        $device = TrustedDevice::findLive($user, $request->header('X-Device-Token'));
+        if (! $device) {
+            return true;
+        }
+
+        // Looked up here, so renewed here: asking again lower down would be
+        // a second query for a row already in hand.
+        $device->renew((int) AppSetting::get('trusted_device_days'));
+
+        return false;
     }
 
     /**

@@ -26,7 +26,7 @@ class Organization extends Model
     public const RESERVED_SLUGS = [
         'organizations', 'employees', 'clients', 'leads', 'lead-log', 'targets', 'dwr',
         'punch', 'payments', 'complaints', 'complaint-log', 'hr-policy', 'incentives',
-        'vendors', 'expenses', 'salary', 'leaves', 'tasks', 'approvals', 'newsletters',
+        'vendors', 'expenses', 'salary', 'leaves', 'leave-log', 'tasks', 'approvals', 'newsletters',
         'cms', 'user-log', 'reports', 'workspace-fields', 'field-requests', 'contests',
         'invoices', 'invoice-log', 'recurring', 'commissions', 'overview', 'settings',
         'connect', 'pl', 'assets', 'churn', 'communication', 'new', 'edit',

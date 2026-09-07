@@ -7,7 +7,7 @@ import NetvorkMark from '../../components/Logo'
 import { useAuthStore } from '../../stores/auth'
 import { Button, ErrorNote, Input, Label } from '../../components/ui'
 import { returnState, returnTo } from '../../lib/returnTo'
-import { forgetDevice, rememberDevice } from '../../lib/deviceTrust'
+import { rememberDevice } from '../../lib/deviceTrust'
 
 /** Long enough that a slow mail server is waited for, not queued behind. */
 const RESEND_COOLDOWN_SECONDS = 60
@@ -93,10 +93,16 @@ export default function Login() {
         device_name: 'web',
         remember_device: rememberDeviceChoice,
       })
-      // Handed over once and only here: this browser can skip the code
-      // next time, but never the password.
+      /*
+       * Handed over once and only here: this browser can skip the code next
+       * time, but never the password.
+       *
+       * Nothing is forgotten when the box is unticked. Reaching this step at
+       * all means this account had no trust on this machine — a trusted one
+       * is never asked for a code — so there is nothing of theirs to clear,
+       * and clearing the slot used to throw away a COLLEAGUE'S trust instead.
+       */
       if (res.device_token) rememberDevice(res.device_token)
-      else forgetDevice()
       setAuth(res.token, res.data)
       navigate(next, { replace: true })
     } catch (err) {
