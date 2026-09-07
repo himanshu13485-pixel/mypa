@@ -315,6 +315,45 @@ html.dark .cal span.p{color:#6ee7b7}html.dark .cal span.l{color:var(--b300)}html
 .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:16px;font-size:12.5px;color:var(--ink3)}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
 
+/* ------------------------------------------------------------ the companies
+   Two cards side by side, because the point is that they differ in every
+   field that matters and still live in one account. */
+.firms{display:grid;gap:14px;margin-top:34px}
+@media(min-width:720px){.firms{grid-template-columns:repeat(2,1fr)}}
+.firm{padding:22px;border-radius:18px;background:var(--surf);box-shadow:inset 0 0 0 1px var(--hair),var(--shadow)}
+.firm .nm{display:flex;align-items:center;gap:10px;font-size:15.5px;font-weight:620}
+.firm .nm i{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;font-style:normal;font-size:12px;font-weight:700;color:#fff;background:linear-gradient(150deg,var(--b400),var(--b700))}
+.firm dl{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;margin-top:16px;font-size:13.5px}
+.firm dt{color:var(--ink3)}
+.firm dd{color:var(--ink);font-weight:560;text-align:right;font-variant-numeric:tabular-nums}
+.firm .pay{margin-top:16px;padding-top:13px;border-top:1px solid var(--hair);font-size:12.5px;color:var(--ink3)}
+.firm .pay b{color:var(--b600);font-weight:640}
+html.dark .firm .pay b{color:var(--b400)}
+
+/* --------------------------------------------------------- the rest of it
+   The modules a six-tile grid had no room for, named rather than summarised
+   — a reader looking for "complaints" or "assets" finds the word itself. */
+.rest{margin-top:34px;padding-top:26px;border-top:1px solid var(--hair)}
+.rest .cap{font-size:12.5px;font-weight:640;letter-spacing:.05em;text-transform:uppercase;color:var(--ink3)}
+.rest ul{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px;list-style:none}
+.rest li{padding:7px 14px;border-radius:999px;font-size:13.5px;color:var(--ink2);background:var(--surf);box-shadow:inset 0 0 0 1px var(--hair)}
+
+/* ------------------------------------------------------------ rights matrix
+   Drawn as the screen actually is: modules down the side, the four abilities
+   across, and a tick in each cell somebody has been given. */
+.matrix{border-radius:16px;background:var(--surf);overflow:hidden;box-shadow:inset 0 0 0 1px var(--hair),var(--lift)}
+.matrix .mtop{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--hair);background:var(--surf2)}
+.matrix .mtop b{font-size:13.5px;font-weight:620}
+.matrix .mtop span{margin-left:auto;font-size:11.5px;color:var(--ink3)}
+table.mx{width:100%;border-collapse:collapse;font-size:13px}
+table.mx th{font-size:10.5px;font-weight:640;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);padding:10px 6px;text-align:center}
+table.mx th:first-child{text-align:left;padding-left:16px}
+table.mx td{padding:8px 6px;border-top:1px solid var(--hair);text-align:center;color:var(--ink3)}
+table.mx td:first-child{text-align:left;padding-left:16px;color:var(--ink2);white-space:nowrap}
+table.mx .y{color:var(--b600);font-weight:700}
+html.dark table.mx .y{color:var(--b400)}
+.matrix .mfoot{padding:12px 16px;border-top:1px solid var(--hair);font-size:12.5px;color:var(--ink3);background:var(--surf2)}
+
 /* ------------------------------------------------------------------ stats */
 .stats{display:grid;gap:14px;grid-template-columns:repeat(2,1fr)}
 @media(min-width:900px){.stats{grid-template-columns:repeat(4,1fr)}}
@@ -380,7 +419,7 @@ footer{padding:34px 0 44px}
   <div class="sky"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i></div>
   <div class="wrap hero-in">
     <div>
-      <p class="pill rv"><b>New</b> Attendance, leave and payroll are in</p>
+      <p class="pill rv"><b>28 modules</b> One system, one set of books</p>
       <h1 class="rv" style="margin-top:24px">
         Every lead.<br>Every invoice.<br><span class="grad">One system.</span>
       </h1>
@@ -402,21 +441,21 @@ footer{padding:34px 0 44px}
 
     <div class="stage rv">
       <div class="pane">
-        <div class="pane-top"><s></s><s></s><s></s><span>Invoices</span></div>
+        <div class="pane-top"><s></s><s></s><s></s><span>Invoices — all issuing companies</span></div>
         <div class="pane-body">
           <div class="kpis">
-            <div class="kpi"><div class="v">₹18.4L</div><div class="k">Raised</div></div>
-            <div class="kpi"><div class="v up">₹15.9L</div><div class="k">Collected</div></div>
-            <div class="kpi"><div class="v dn">₹2.5L</div><div class="k">Overdue</div></div>
+            <div class="kpi"><div class="v">₹8,42,000</div><div class="k">Basic value</div></div>
+            <div class="kpi"><div class="v up">₹6,10,400</div><div class="k">Received</div></div>
+            <div class="kpi"><div class="v dn">₹2,31,600</div><div class="k">Due amount</div></div>
           </div>
           <div class="scroller">
             <table class="rows">
-              <thead><tr><th>Number</th><th>Client</th><th style="text-align:right">Total</th><th>Payment</th></tr></thead>
+              <thead><tr><th>Number</th><th>Client</th><th>Issuing company</th><th style="text-align:right">Total</th><th>Payment</th><th>Dispatch</th></tr></thead>
               <tbody>
-                <tr><td class="n">INV-4417</td><td>Nandini Mehta</td><td class="a">₹2,40,000</td><td><span class="tag t-paid">Paid</span></td></tr>
-                <tr><td class="n">INV-4416</td><td>Ravi Krishnan</td><td class="a">₹86,500</td><td><span class="tag t-over">Overdue</span></td></tr>
-                <tr><td class="n">INV-4415</td><td>Sana Desai</td><td class="a">₹1,12,000</td><td><span class="tag t-part">Part paid</span></td></tr>
-                <tr><td class="n">PI-208</td><td>Arjun Thakur</td><td class="a">₹54,750</td><td><span class="tag t-pro">Proforma</span></td></tr>
+                <tr><td class="n">INV-41</td><td>Tata Motors</td><td>Bhavya Steel</td><td class="a">₹2,40,000</td><td><span class="tag t-paid">Paid</span></td><td>Dispatched</td></tr>
+                <tr><td class="n">INV-40</td><td>Kirloskar</td><td>Bhavya Steel</td><td class="a">₹86,500</td><td><span class="tag t-part">Partial</span></td><td>In process</td></tr>
+                <tr><td class="n">BE/12</td><td>Emirates Trading</td><td>Bhavya Exports</td><td class="a">$4,200</td><td><span class="tag t-over">Due</span></td><td>Pending</td></tr>
+                <tr><td class="n">PI-208</td><td>Godrej &amp; Boyce</td><td>Bhavya Steel</td><td class="a">₹54,750</td><td><span class="tag t-pro">Proforma</span></td><td>—</td></tr>
               </tbody>
             </table>
           </div>
@@ -425,8 +464,8 @@ footer{padding:34px 0 44px}
       <div class="toast">
         <span class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
         <span>
-          <span class="t1">₹2,40,000 received</span><br>
-          <span class="t2">INV-4417 settled · matched automatically</span>
+          <span class="t1">₹2,40,000 matched to INV-41</span><br>
+          <span class="t2">Settled — this company settles on the spot</span>
         </span>
       </div>
     </div>
@@ -477,9 +516,9 @@ footer{padding:34px 0 44px}
         <h3>Leads &amp; clients</h3>
         <p>Every lead is owned by somebody, with the follow-ups logged against it. Transfer it, share it, reopen it — the log says who did, and when.</p>
         <div class="mini">
-          <div class="row"><i>NM</i>Nandini Mehta<span class="g">₹2,40,000</span></div>
-          <div class="row"><i>RK</i>Ravi Krishnan<span class="g">₹86,500</span></div>
-          <div class="row"><i>SD</i>Sana Desai<span class="g">₹1,12,000</span></div>
+          <div class="row"><i>TM</i>Tata Motors<span class="g">₹2,40,000</span></div>
+          <div class="row"><i>KL</i>Kirloskar<span class="g">₹86,500</span></div>
+          <div class="row"><i>GB</i>Godrej &amp; Boyce<span class="g">₹54,750</span></div>
         </div>
       </div>
 
@@ -512,6 +551,21 @@ footer{padding:34px 0 44px}
         <h3>Reports</h3>
         <p>What was raised, what came in, what it cost and what is still owed — with an export for whoever wants it in a spreadsheet.</p>
       </div>
+    </div>
+
+    <div class="rest rv">
+      <p class="cap">And, on the same record</p>
+      <ul>
+        <li>Targets</li><li>Incentives</li><li>Contests</li><li>Recurring invoices</li>
+        <li>Vendors</li><li>Office assets</li><li>Complaints (CMS)</li><li>Approvals</li>
+        <li>Notice board</li><li>Newsletters</li><li>Daily work reports</li>
+        <li>Meetings, chat &amp; calls</li>
+      </ul>
+      <p class="cap" style="margin-top:26px">And five audit logs</p>
+      <ul>
+        <li>Lead log</li><li>Proforma log</li><li>Invoice log</li><li>Complaint log</li>
+        <li>Leave log</li><li>User log</li>
+      </ul>
     </div>
   </div>
 </section>
@@ -551,8 +605,43 @@ footer{padding:34px 0 44px}
   </div>
 </section>
 
+<!-- =============================================================== companies -->
+<section class="band tinted">
+  <div class="wrap">
+    <div class="head rv">
+      <span class="kick">More than one company</span>
+      <h2>A domestic arm and an export arm, in one account</h2>
+      <p>Each registered company keeps its own GSTIN, its own numbering series, its own letterhead and stamp, its own bank account and its own billing currency. They never share a number and never print each other's details.</p>
+    </div>
+    <div class="firms">
+      <div class="firm rv">
+        <div class="nm"><i>BS</i>Bhavya Steel Pvt Ltd</div>
+        <dl>
+          <dt>GSTIN</dt><dd>27AABCB1234C1ZX</dd>
+          <dt>Invoice series</dt><dd>INV-41</dd>
+          <dt>Proforma series</dt><dd>PI-208</dd>
+          <dt>Billing currency</dt><dd>INR</dd>
+          <dt>Bank on the PDF</dt><dd>HDFC ····5678</dd>
+        </dl>
+        <p class="pay"><b>✓ Pays the salaries</b> — payslips are issued from here</p>
+      </div>
+      <div class="firm rv">
+        <div class="nm"><i>BE</i>Bhavya Exports LLP</div>
+        <dl>
+          <dt>GSTIN</dt><dd>27AAECB9876D1Z2</dd>
+          <dt>Invoice series</dt><dd>BE/12</dd>
+          <dt>Proforma series</dt><dd>BEP/4</dd>
+          <dt>Billing currency</dt><dd>USD</dd>
+          <dt>Bank on the PDF</dt><dd>ICICI ····2210</dd>
+        </dl>
+        <p class="pay">Invoices in USD, with an INR equivalent at the live rate</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ================================================================== people -->
-<section class="band tinted" id="people">
+<section class="band" id="people">
   <div class="wrap">
     <div class="head rv">
       <span class="kick">People</span>
@@ -590,20 +679,47 @@ footer{padding:34px 0 44px}
 <section class="band">
   <div class="wrap">
     <div class="head rv" style="margin-bottom:44px">
-      <span class="kick">Built in, not bolted on</span>
-      <h2>What you stop paying for separately</h2>
+      <span class="kick">Control</span>
+      <h2>Everyone sees exactly what you gave them</h2>
     </div>
     <div class="stats">
-      <div class="stat rv"><div class="n grad">6</div><div class="l">Subscriptions one system replaces — CRM, invoicing, payments, attendance, payroll and reporting.</div></div>
-      <div class="stat rv"><div class="n grad">1</div><div class="l">Record per client. The quotation, the invoice, the payment and the complaint all point at it.</div></div>
-      <div class="stat rv"><div class="n grad">0</div><div class="l">Numbers reused. A series can never be wound back onto an invoice you have already issued.</div></div>
-      <div class="stat rv"><div class="n grad">∞</div><div class="l">Devices per account. Each is trusted once, and none of them costs a colleague theirs.</div></div>
+      <div class="stat rv"><div class="n grad">28</div><div class="l">Modules an employee can be given or refused — leads, proforma, invoices, payments, salary, each on its own.</div></div>
+      <div class="stat rv"><div class="n grad">112</div><div class="l">Ticks on the rights screen: every module against view, create, edit and delete.</div></div>
+      <div class="stat rv"><div class="n grad">16</div><div class="l">Named permissions beyond the grid — transfer a client, settle a payment, download the accounting export.</div></div>
+      <div class="stat rv"><div class="n grad">8</div><div class="l">Billing currencies. A company that bills abroad invoices in its own, with an INR equivalent at the live rate.</div></div>
     </div>
 
-    <div class="bento" style="margin-top:22px">
-      <div class="tile rv"><h3>Permissions enforced on the server</h3><p>Roles and the per-module rights matrix are checked by middleware on every request. Hiding a button in the interface is not how access control works here.</p></div>
-      <div class="tile rv"><h3>Private by construction</h3><p>Internal notes never reach the client they describe. Staff see their own book unless you widen it, and what an admin does lands in a log nobody can quietly rewrite.</p></div>
-      <div class="tile rv"><h3>Every change, on the record</h3><p>Leads, invoices, payments and leave each carry a log of who changed what and when, with one user log across the lot.</p></div>
+    <div class="split" style="margin-top:52px">
+      <div class="rv">
+        <span class="kick">Who can see what</span>
+        <h3 style="margin-top:16px;font-size:clamp(1.4rem,2.4vw,1.9rem);letter-spacing:-.028em">A grid, not a job title</h3>
+        <p style="margin-top:14px;color:var(--ink2);font-size:15.5px">
+          Every employee gets their own answer for all 28 modules, against view, create, edit and
+          delete — plus sixteen named permissions for the delicate acts, like transferring a client
+          or settling a payment. Copy one person's rights onto another, or onto everybody.
+        </p>
+        <ul class="ticks">
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Checked by middleware on every request, not by hiding a button</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Staff see their own book until you widen it; team heads see their team's</li>
+          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Internal notes never reach the client they describe</li>
+        </ul>
+      </div>
+      <div class="matrix rv">
+        <div class="mtop"><b>Module rights — Riya Sharma</b><span>28 modules</span></div>
+        <table class="mx">
+          <thead><tr><th>Module</th><th>View</th><th>Create</th><th>Edit</th><th>Delete</th></tr></thead>
+          <tbody>
+            <tr><td>Leads</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td>·</td></tr>
+            <tr><td>Clients</td><td class="y">✓</td><td class="y">✓</td><td>·</td><td>·</td></tr>
+            <tr><td>Proforma</td><td class="y">✓</td><td class="y">✓</td><td>·</td><td>·</td></tr>
+            <tr><td>Invoices</td><td class="y">✓</td><td>·</td><td>·</td><td>·</td></tr>
+            <tr><td>Payments</td><td class="y">✓</td><td>·</td><td>·</td><td>·</td></tr>
+            <tr><td>Leave approvals</td><td class="y">✓</td><td>·</td><td class="y">✓</td><td>·</td></tr>
+            <tr><td>Salary runs</td><td>·</td><td>·</td><td>·</td><td>·</td></tr>
+          </tbody>
+        </table>
+        <div class="mfoot">…and 21 more, plus 16 named permissions</div>
+      </div>
     </div>
   </div>
 </section>
