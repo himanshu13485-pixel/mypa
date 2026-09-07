@@ -8,7 +8,7 @@ import {
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
 import { auth, badges as badgesApi } from '../api/endpoints'
-import { crm as crmApi } from '../api/crm'
+import { crmMeQuery } from '../api/crm'
 import { ensurePushRegistered } from '../lib/alerts'
 import { disconnectEcho } from '../lib/echo'
 import { isStaff, useAuthStore } from '../stores/auth'
@@ -162,8 +162,7 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
   // shown to members of a CRM organization and to super admins (who manage
   // the addon). Asked once per session — membership rarely changes mid-visit.
   const { data: crmMe } = useQuery({
-    queryKey: ['crm', 'me'],
-    queryFn: crmApi.me,
+    ...crmMeQuery(),
     staleTime: 5 * 60_000,
   })
   const showCrm = !!crmMe && (crmMe.enabled || crmMe.is_super_admin)

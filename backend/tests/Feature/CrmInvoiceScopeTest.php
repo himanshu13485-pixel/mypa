@@ -271,8 +271,9 @@ class CrmInvoiceScopeTest extends TestCase
         $this->raiseInvoice($this->strangerUser, 'Stranger Client');
 
         // Reports moved behind the Admin door - a team head is refused even
-        // with the reports module right; the module right keeps the User Log.
-        $this->head->update(['rights' => $this->head->rights + ['reports' => ['view']]]);
+        // with the User Log right, which is what that module right now opens
+        // and is all it ever actually opened.
+        $this->head->update(['rights' => $this->head->rights + ['user_log' => ['view']]]);
         $this->actingAs($this->headUser)->getJson('/api/v1/crm/reports/overview?scope=mine')
             ->assertForbidden();
         $this->actingAs($this->headUser)->getJson('/api/v1/crm/user-log')->assertOk();

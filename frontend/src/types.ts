@@ -601,6 +601,26 @@ export interface ChatMessage {
 
 export interface CallInfo {
   uuid: string
+  /**
+   * Which kind of call this was: one the app carried, or one that left on
+   * somebody's own SIM. Both live in one history, because a person's day
+   * contains both and remembering which screen a call is filed under is not
+   * their job.
+   */
+  channel?: 'netvork' | 'phone'
+  /**
+   * True when the length was typed in by the caller rather than counted by
+   * the server — which is every phone call, because Android does not let an
+   * app watch a cellular one.
+   */
+  duration_is_reported?: boolean
+  number?: string | null
+  label?: string | null
+  placed_from?: 'phone' | 'laptop'
+  placed_at?: string | null
+  outcome?: string | null
+  outcome_label?: string | null
+  notes?: string | null
   conversation_uuid: string
   is_group?: boolean
   group_name?: string | null

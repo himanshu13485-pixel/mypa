@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Boxes, History, Plus, Trash2, Undo2, UserCheck, Wrench } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmAsset } from '../../api/crm'
+import { crm, crmMeQuery, type CrmAsset } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
@@ -40,7 +40,7 @@ export default function CrmAssetsPage() {
     queryFn: () => crm.assets.list({ status: status || undefined, category: category || undefined, search: search || undefined, member: holder || undefined }),
   })
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['crm', 'assets'] })
   const act = (fn: () => Promise<{ message: string }>) =>

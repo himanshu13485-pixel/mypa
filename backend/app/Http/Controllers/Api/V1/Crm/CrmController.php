@@ -48,8 +48,9 @@ class CrmController extends Controller
 
         // Same org-hat header as the middleware: multi-org users (the Super
         // Admin who entered a company) pick which workspace this session is.
-        if ($orgUuid = $request->header('X-Crm-Org')) {
-            $query->whereHas('organization', fn ($q) => $q->where('uuid', $orgUuid));
+        // Slug or uuid — see EnsureCrmMember for why both.
+        if ($org = $request->header('X-Crm-Org')) {
+            $query->whereHas('organization', fn ($q) => $q->keyed($org));
         }
 
         $member = $query->first();
@@ -63,6 +64,9 @@ class CrmController extends Controller
             'member' => $enabled ? $this->serializeMember($member) : null,
             'organization' => $enabled ? [
                 'uuid' => $member->organization->uuid,
+                // What the address bar shows, and what the shell redirects
+                // to when somebody opens /crm with no company on it.
+                'slug' => $member->organization->slug,
                 'name' => $member->organization->name,
                 'code' => $member->organization->code,
             ] : null,
@@ -96,6 +100,10 @@ class CrmController extends Controller
             'lead_subjects' => $org->optionList('lead_subjects'),
             'lead_statuses' => \App\Models\Crm\Lead::STATUSES,
             'modules' => Member::moduleSlugs(),
+            // Where a new employee's ticks start, so the form can arrive
+            // filled in rather than empty on a company that has decided.
+            'default_rights' => (object) $org->defaultMemberRights(),
+            'default_capabilities' => $org->defaultMemberCapabilities(),
             // Sent with them, so the rights screen cannot label a row from a
             // list of its own that has quietly stopped matching this one.
             'module_labels' => Member::MODULES,
@@ -106,7 +114,17 @@ class CrmController extends Controller
                 ->values(),
             'issuing_companies' => IssuingCompany::where('organization_id', $org->id)
                 ->orderBy('name')
-                ->get(['id', 'name', 'gstin', 'pan', 'phone', 'email', 'address', 'state_code', 'invoice_prefix', 'proforma_prefix', 'is_active', 'logo_path', 'currency', 'pays_salary']),
+                /*
+                 * stamp_path sits beside logo_path, and was missing.
+                 *
+                 * Billing setup asks this list whether a stamp is on file, so
+                 * without it the answer was always no: the "Stamp on file"
+                 * line never drew, its Remove button could never be reached,
+                 * and the file input's own "No file chosen" was the only
+                 * thing on screen — saying the opposite of the truth about a
+                 * stamp that was uploaded, stored and printing on documents.
+                 */
+                ->get(['id', 'name', 'gstin', 'pan', 'phone', 'email', 'address', 'state_code', 'invoice_prefix', 'proforma_prefix', 'is_active', 'logo_path', 'stamp_path', 'currency', 'pays_salary']),
             'bank_accounts' => BankAccount::with('issuingCompany:id,name')
                 ->where('organization_id', $org->id)
                 ->orderBy('label')

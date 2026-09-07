@@ -7,6 +7,10 @@ import { crm, crmCan, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS, CRM
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
+import { photoUrl } from '../../lib/avatars'
+import { KeywordChips } from '../../components/KeywordChips'
+import { readsAsKeywords } from '../../lib/keywords'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -142,7 +146,7 @@ export default function CrmInvoiceViewPage() {
     onSuccess: (res) => {
       toast(res.message, 'success')
       queryClient.invalidateQueries({ queryKey: ['crm'] })
-      navigate(`/crm/invoices/${res.data.uuid}`)
+      navigate(crmPath(`/crm/invoices/${res.data.uuid}`))
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -182,7 +186,7 @@ export default function CrmInvoiceViewPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(`/crm/invoices?kind=${inv.kind}`)} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(crmPath(`/crm/invoices?kind=${inv.kind}`))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>
@@ -208,7 +212,7 @@ export default function CrmInvoiceViewPage() {
             <Printer className="size-4" /> Print
           </Button>
           {inv.status !== 'cancelled' && !(isProforma && inv.converted_to) && (
-            <Button variant="secondary" onClick={() => navigate(`/crm/invoices/${inv.uuid}/edit`)}><Pencil className="size-4" /> Edit</Button>
+            <Button variant="secondary" onClick={() => navigate(crmPath(`/crm/invoices/${inv.uuid}/edit`))}><Pencil className="size-4" /> Edit</Button>
           )}
           {isProforma && inv.status !== 'cancelled' && !inv.converted_to && (
             <Button onClick={() => { if (confirm(`Convert ${inv.number} into a tax invoice?`)) convertMutation.mutate() }} disabled={convertMutation.isPending}>
@@ -220,7 +224,7 @@ export default function CrmInvoiceViewPage() {
           )}
           {/* Chasing lives with the document it is about. */}
           {!isProforma && inv.status !== 'cancelled' && inv.payment_status !== 'paid' && (
-            <Button variant="secondary" onClick={() => navigate('/crm/payments?tab=outstanding&invoice=' + inv.number)}>
+            <Button variant="secondary" onClick={() => navigate(crmPath('/crm/payments?tab=outstanding&invoice=') + inv.number)}>
               <AlarmClock className="size-4" /> Chase payment
             </Button>
           )}
@@ -304,8 +308,8 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
 
       {(inv.converted_from || inv.converted_to) && (
         <p className="text-sm text-slate-500 print:hidden">
-          {inv.converted_from && <>Created from proforma <Link className="font-medium text-emerald-600 hover:underline" to={`/crm/invoices/${inv.converted_from.uuid}`}>{inv.converted_from.number}</Link>.</>}
-          {inv.converted_to && <>Converted to invoice <Link className="font-medium text-emerald-600 hover:underline" to={`/crm/invoices/${inv.converted_to.uuid}`}>{inv.converted_to.number}</Link>.</>}
+          {inv.converted_from && <>Created from proforma <Link className="font-medium text-emerald-600 hover:underline" to={crmPath(`/crm/invoices/${inv.converted_from.uuid}`)}>{inv.converted_from.number}</Link>.</>}
+          {inv.converted_to && <>Converted to invoice <Link className="font-medium text-emerald-600 hover:underline" to={crmPath(`/crm/invoices/${inv.converted_to.uuid}`)}>{inv.converted_to.number}</Link>.</>}
         </p>
       )}
 
@@ -313,6 +317,16 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
       <Card className="print:shadow-none print:ring-0">
         <div className="flex flex-wrap justify-between gap-4 border-b border-slate-100 pb-4 dark:border-slate-800">
           <div>
+            {/* The letterhead. On screen and on paper alike — Print captures
+                this card, so a logo the PDF alone knew about was a logo that
+                never printed. */}
+            {inv.issuing_company_full?.logo_path && (
+              <img
+                src={photoUrl(inv.issuing_company_full.logo_path)}
+                alt=""
+                className="mb-1.5 max-h-[52px] max-w-[180px] object-contain"
+              />
+            )}
             <div className="text-lg font-bold text-slate-900 dark:text-white">{inv.issuing_company?.name}</div>
             {inv.issuing_company_full?.address && <div className="mt-0.5 max-w-xs text-xs text-slate-500">{inv.issuing_company_full.address}</div>}
             {inv.issuing_company_full?.gstin && <div className="text-xs text-slate-500">GSTIN: {inv.issuing_company_full.gstin}</div>}
@@ -386,7 +400,13 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
                         .filter(Boolean).join(' — ') || '—'}
                     </div>
                     {columnShown('description') && it.description && (
-                      <div className="mt-0.5 whitespace-pre-wrap text-xs text-slate-500">{it.description}</div>
+                      /* Read back the way it was meant: a list of materials
+                         as separate keywords, prose as prose. */
+                      readsAsKeywords(it.description) ? (
+                        <KeywordChips text={it.description} className="mt-1" />
+                      ) : (
+                        <div className="mt-0.5 whitespace-pre-wrap text-xs text-slate-500">{it.description}</div>
+                      )
                     )}
                     {/* The company's own Work Order method (DCW), printed
                         with the line it belongs to. */}
@@ -486,6 +506,62 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
         )}
 
         {inv.notes && <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500 dark:border-slate-800">{inv.notes}</p>}
+
+        {/* Where to send the money. Above the signatory, as on the PDF —
+            the client reads it before they stop reading. */}
+        {inv.bank && (
+          <p className="mt-6 text-xs text-slate-600 dark:text-slate-300">
+            <span className="font-semibold">Bank details: </span>
+            {[
+              inv.bank.bank_name,
+              inv.bank.account_no ? `A/c ${inv.bank.account_no}` : null,
+              inv.bank.ifsc ? `IFSC ${inv.bank.ifsc}` : null,
+            ].filter(Boolean).join(' \u00b7 ')}
+          </p>
+        )}
+
+        {/*
+          * The signing space, as the PDF has always had it.
+          *
+          * The stamp sits over the space rather than beside it, which is where
+          * a rubber stamp lands on paper; a company with no stamp keeps the
+          * blank space to sign in. This block is the reason the whole change
+          * exists — Print prints this card, so without it a printed invoice
+          * went out unsigned and unstamped while the downloaded PDF did not.
+          */}
+        <div className="mt-8 text-right text-xs text-slate-500">
+          <div>For {inv.issuing_company?.name}</div>
+          {inv.issuing_company_full?.stamp_path ? (
+            <img
+              src={photoUrl(inv.issuing_company_full.stamp_path)}
+              alt=""
+              className="ml-auto my-1 max-h-[76px] max-w-[150px] object-contain"
+            />
+          ) : (
+            <div className="h-12" />
+          )}
+          <div>Authorised signatory</div>
+        </div>
+
+        {/*
+          * The line every computer-issued invoice in India carries.
+          *
+          * Rule 46 of the CGST Rules requires an invoice to be signed by the
+          * supplier and exempts one issued electronically under the IT Act
+          * from that, which is what this sentence asserts. "Physical" rather
+          * than simply "signature" on purpose: the document may well be
+          * digitally signed, and claiming it needs none at all would say
+          * something different from what is meant.
+          *
+          * Below the signatory, because it explains the absence of a
+          * signature and has to be read after somebody notices there is not
+          * one — and it was on the PDF alone, so a page printed from here
+          * went out with a blank signing space and nothing accounting for it.
+          */}
+        <p className="mt-5 text-center text-[11px] text-slate-500">
+          This is a computer-generated {isProforma ? 'document' : 'invoice'} and does not require a
+          physical signature.
+        </p>
       </Card>
 
       {!isProforma && (
@@ -538,9 +614,16 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
         </Card>
       )}
 
-      {/* The consolidated figures — the same block that ends the PDF: every
-          number an accountant asks for, on one card. */}
-      <Card>
+      {/*
+        * The consolidated figures: every number an accountant asks for, on
+        * one card.
+        *
+        * Screen only. It is the office's working view of the document, not
+        * part of the document — the client's copy ends at the signatory, and
+        * a printed invoice carrying a second set of totals underneath the
+        * grand total invites the question of which one is the bill.
+        */}
+      <Card className="print:hidden">
         <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Consolidated summary</h2>
         <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
           {([

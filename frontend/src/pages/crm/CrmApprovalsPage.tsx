@@ -9,6 +9,7 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
 import { decisionBadge } from './CrmLeavesPage'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -106,7 +107,7 @@ export default function CrmApprovalsPage() {
       {inbox && (inbox.leaves !== null || inbox.tasks !== null || inbox.invoice_updates !== null || inbox.client_access !== null) && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {inbox.leaves !== null && (
-            <Link to="/crm/leaves?status=pending" className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-900/5 transition-transform hover:scale-[1.01] dark:bg-slate-900 dark:ring-white/10">
+            <Link to={crmPath('/crm/leaves?status=pending')} className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-900/5 transition-transform hover:scale-[1.01] dark:bg-slate-900 dark:ring-white/10">
               <CalendarOff className="size-6 text-purple-500" />
               <div>
                 <div className="text-lg font-semibold text-slate-900 dark:text-white">{inbox.leaves}</div>
@@ -115,7 +116,7 @@ export default function CrmApprovalsPage() {
             </Link>
           )}
           {inbox.tasks !== null && (
-            <Link to="/crm/tasks?status=submitted" className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-900/5 transition-transform hover:scale-[1.01] dark:bg-slate-900 dark:ring-white/10">
+            <Link to={crmPath('/crm/tasks?status=submitted')} className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-900/5 transition-transform hover:scale-[1.01] dark:bg-slate-900 dark:ring-white/10">
               <CheckSquare className="size-6 text-sky-500" />
               <div>
                 <div className="text-lg font-semibold text-slate-900 dark:text-white">{inbox.tasks}</div>
@@ -133,7 +134,7 @@ export default function CrmApprovalsPage() {
             </button>
           )}
           {inbox.client_access !== null && (
-            <Link to="/crm/clients?tab=requests" className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-900/5 transition-transform hover:scale-[1.01] dark:bg-slate-900 dark:ring-white/10">
+            <Link to={crmPath('/crm/clients?tab=requests')} className="flex items-center gap-3 rounded-2xl bg-white p-4 shadow-card ring-1 ring-slate-900/5 transition-transform hover:scale-[1.01] dark:bg-slate-900 dark:ring-white/10">
               <Users className="size-6 text-emerald-500" />
               <div>
                 <div className="text-lg font-semibold text-slate-900 dark:text-white">{inbox.client_access}</div>
@@ -219,9 +220,9 @@ export default function CrmApprovalsPage() {
                         <td className="py-2.5 pr-3">
                           {/* Whoever decides should read a name, not a number. */}
                           {a.invoice ? (
-                            <Link to={`/crm/invoices/${a.invoice.uuid}`} className="font-medium text-emerald-600 hover:underline">{a.invoice.number}</Link>
+                            <Link to={crmPath(`/crm/invoices/${a.invoice.uuid}`)} className="font-medium text-emerald-600 hover:underline">{a.invoice.number}</Link>
                           ) : a.client ? (
-                            <Link to={`/crm/clients/${a.client.uuid}`} className="font-medium text-emerald-600 hover:underline">{a.client.company_name}</Link>
+                            <Link to={crmPath(`/crm/clients/${a.client.uuid}`)} className="font-medium text-emerald-600 hover:underline">{a.client.company_name}</Link>
                           ) : (
                             <span className="text-xs text-slate-400">General</span>
                           )}
@@ -266,7 +267,7 @@ export default function CrmApprovalsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <ClipboardCheck className="size-4 shrink-0 text-amber-500" />
                     {u.invoice && (
-                      <Link to={`/crm/invoices/${u.invoice.uuid}`} className="font-medium text-emerald-600 hover:underline">{u.invoice.number}</Link>
+                      <Link to={crmPath(`/crm/invoices/${u.invoice.uuid}`)} className="font-medium text-emerald-600 hover:underline">{u.invoice.number}</Link>
                     )}
                     <span className="text-xs text-slate-400">by {u.requested_by ?? '—'} · {u.created_at?.slice(0, 16)}</span>
                     <span className={decisionBadge(u.status)}>{u.status}</span>

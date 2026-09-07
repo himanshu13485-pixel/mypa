@@ -4,6 +4,7 @@ import { AlarmClock, ExternalLink, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmCan, type CrmMe } from '../../api/crm'
 import { Button } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const SNOOZE_KEY = 'crm-lead-alert-snooze-until'
 
@@ -80,7 +81,7 @@ export function LeadFollowUpAlerts({ me }: { me: CrmMe | undefined }) {
 
   const openLead = (uuid: string) => {
     setProcessing((prev) => new Set(prev).add(uuid))
-    window.open(`/crm/leads/${uuid}`, '_blank', 'noopener')
+    window.open(crmPath(`/crm/leads/${uuid}`), '_blank', 'noopener')
   }
 
   return (

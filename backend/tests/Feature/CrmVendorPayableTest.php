@@ -41,7 +41,7 @@ class CrmVendorPayableTest extends TestCase
         ]);
         Member::create([
             'organization_id' => $this->org->id, 'user_id' => $this->employeeUser->id, 'crm_role' => 'employee',
-            'rights' => ['expenses' => ['view']],
+            'rights' => ['expenses' => ['view'], 'vendors' => ['view']],
         ]);
     }
 
@@ -340,7 +340,7 @@ class CrmVendorPayableTest extends TestCase
         $this->assertEquals(12000, $detail['outstanding']);
     }
 
-    public function test_registering_a_vendor_needs_the_expenses_right(): void
+    public function test_registering_a_vendor_needs_the_vendors_right(): void
     {
         $this->actingAs($this->employeeUser)->postJson('/api/v1/crm/vendors', [
             'company_name' => 'Sneaky Supplies',

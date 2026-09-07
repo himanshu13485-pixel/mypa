@@ -4,10 +4,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRightLeft, Plus, Search, Download, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { ScopeToggle } from './ScopeToggle'
-import { crm, crmCan, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
+import { crm, crmCan, crmMeQuery, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -34,7 +35,19 @@ export default function CrmInvoicesPage() {
   const [page, setPage] = useState(1)
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+
+  /*
+   * The Membership column, worded and shown as this company has it.
+   *
+   * The same question the document asks — a company that renamed it to
+   * "Scheme" or switched it off entirely on its work order means that here
+   * too, and a list carrying a column its documents do not have is a list
+   * about a different company.
+   */
+  const membershipColumn = (masters?.work_order_method ?? [])
+    .find((c) => c.source === 'builtin' && c.key === 'membership')
+  const showMembership = !!membershipColumn && !membershipColumn.hidden
+  const { data: me } = useQuery(crmMeQuery())
   // Deleting is granted on the profile, like every other delete in the CRM.
   const canDelete = crmCan(me, 'invoices', 'delete')
   const [selected, setSelected] = useState<string[]>([])
@@ -58,7 +71,7 @@ export default function CrmInvoicesPage() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['crm'] })
       toast(res.message, 'success')
-      navigate(`/crm/invoices/${res.data.uuid}`)
+      navigate(crmPath(`/crm/invoices/${res.data.uuid}`))
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -137,7 +150,7 @@ export default function CrmInvoicesPage() {
               <Download className="size-4" /> Excel
             </Button>
           )}
-          <Button onClick={() => navigate(`/crm/invoices/new?kind=${kind}`)}>
+          <Button onClick={() => navigate(crmPath(`/crm/invoices/new?kind=${kind}`))}>
             <Plus className="size-4" /> {kind === 'proforma' ? 'New proforma' : 'New invoice'}
           </Button>
         </div>
@@ -259,7 +272,7 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                 </button>
               </div>
             )}
-            <table className="w-full min-w-[820px] text-sm">
+            <table className={clsx('w-full text-sm', showMembership ? 'min-w-[980px]' : 'min-w-[820px]')}>
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                   {canDelete && (
@@ -275,6 +288,9 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                   )}
                   <th className="py-2 pr-3 font-medium">Number</th>
                   <th className="py-2 pr-3 font-medium">Client</th>
+                  {showMembership && (
+                    <th className="py-2 pr-3 font-medium">{membershipColumn?.label ?? 'Membership'}</th>
+                  )}
                   <th className="py-2 pr-3 font-medium">Issuing company</th>
                   <th className="py-2 pr-3 font-medium">Salesperson</th>
                   <th className="py-2 pr-3 font-medium">Date</th>
@@ -304,7 +320,7 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                       </td>
                     )}
                     <td className="py-2.5 pr-3">
-                      <Link to={`/crm/invoices/${i.uuid}`} className="font-medium text-emerald-600 hover:underline">{i.number}</Link>
+                      <Link to={crmPath(`/crm/invoices/${i.uuid}`)} className="font-medium text-emerald-600 hover:underline">{i.number}</Link>
                       {i.status === 'cancelled' && <span className="ml-1.5 text-[10px] uppercase text-red-400">cancelled</span>}
                       {kind === 'proforma' && i.converted && <span className="ml-1.5 text-[10px] uppercase text-emerald-500">converted</span>}
                       {/* Raised by a schedule — the office sees it even when
@@ -319,6 +335,17 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                       )}
                     </td>
                     <td className="max-w-[200px] truncate py-2.5 pr-3">{i.client?.company_name ?? '—'}</td>
+                    {showMembership && (
+                      /* Titled as well as truncated: an invoice against three
+                         memberships is exactly the row somebody is looking
+                         for, and it is the one that will not fit. */
+                      <td
+                        className="max-w-[160px] truncate py-2.5 pr-3"
+                        title={(i.memberships ?? []).join(', ') || undefined}
+                      >
+                        {(i.memberships ?? []).join(', ') || '—'}
+                      </td>
+                    )}
                     <td className="max-w-[160px] truncate py-2.5 pr-3">{i.issuing_company?.name ?? '—'}</td>
                     <td className="py-2.5 pr-3">{i.salesperson?.name ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">{i.invoice_date}</td>
@@ -345,7 +372,7 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                     {kind === 'proforma' && (
                       <td className="whitespace-nowrap py-2.5 text-right">
                         {i.converted_to_doc ? (
-                          <Link to={`/crm/invoices/${i.converted_to_doc.uuid}`} className="text-xs font-medium text-emerald-600 hover:underline">
+                          <Link to={crmPath(`/crm/invoices/${i.converted_to_doc.uuid}`)} className="text-xs font-medium text-emerald-600 hover:underline">
                             → {i.converted_to_doc.number}
                           </Link>
                         ) : i.status !== 'cancelled' ? (

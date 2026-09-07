@@ -4,6 +4,7 @@ import { ExternalLink, ShieldAlert, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmCan, type CrmMe } from '../../api/crm'
 import { Button } from '../../components/ui'
+import { crmPath } from '../../lib/crmPath'
 
 const SNOOZE_KEY = 'crm-complaint-alert-snooze-until'
 
@@ -89,7 +90,7 @@ export function ComplaintAlerts({ me }: { me: CrmMe | undefined }) {
                   {c.overdue && ' · OVERDUE'}
                 </div>
               </div>
-              <Button size="sm" variant="secondary" onClick={() => window.open(`/crm/complaints/${c.uuid}`, '_blank', 'noopener')}>
+              <Button size="sm" variant="secondary" onClick={() => window.open(crmPath(`/crm/complaints/${c.uuid}`), '_blank', 'noopener')}>
                 <ExternalLink className="size-3.5" /> Open
               </Button>
             </li>

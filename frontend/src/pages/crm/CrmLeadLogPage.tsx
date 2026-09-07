@@ -5,6 +5,7 @@ import { Search } from 'lucide-react'
 import { crm } from '../../api/crm'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
 import { LogEntry } from './CrmLeadDetailPage'
+import { crmPath } from '../../lib/crmPath'
 
 /**
  * The Lead Log: everything that happened to every lead, newest first — the
@@ -69,7 +70,7 @@ export default function CrmLeadLogPage() {
             {data.data.map((log) => (
               <div key={log.id}>
                 {log.lead_no !== null && (log.lead_uuid ? (
-                  <Link to={`/crm/leads/${log.lead_uuid}`} className="mb-0.5 ml-5 inline-block text-xs font-medium text-emerald-600 hover:underline">
+                  <Link to={crmPath(`/crm/leads/${log.lead_uuid}`)} className="mb-0.5 ml-5 inline-block text-xs font-medium text-emerald-600 hover:underline">
                     Lead #{log.lead_no}
                   </Link>
                 ) : (

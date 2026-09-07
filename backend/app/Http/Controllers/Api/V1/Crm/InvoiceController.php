@@ -40,13 +40,61 @@ class InvoiceController extends Controller
         'notes' => ['notes'],
     ];
 
+    /**
+     * The right that governs one kind of document.
+     *
+     * A proforma is a quote and a tax invoice is a demand for money, and the
+     * two are now separate rights — a junior can be trusted with the first
+     * and not the second, which one shared 'invoices' right could not say.
+     *
+     * The check lives here rather than in the route file because the kind is
+     * only knowable once the request is in hand: a query parameter on a list,
+     * a column on a row. Every method that touches a document opens with it.
+     */
+    protected function forKind(Request $request, string $kind, string $ability): void
+    {
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        /*
+         * Both slugs written out rather than resolved into a variable.
+         *
+         * CrmModuleRightsTest walks the module list and fails on any right
+         * nothing asks for, by looking for exactly this call. A slug held in
+         * a variable is invisible to that check — and the check is worth more
+         * than the line it saves, because what it prevents is a checkbox that
+         * grants nothing while looking like it granted something.
+         */
+        $allowed = $kind === 'proforma'
+            ? $me?->can('proforma', $ability)
+            : $me?->can('invoices', $ability);
+
+        abort_unless($allowed, 403, $kind === 'proforma'
+            ? 'You do not have rights to proformas.'
+            : 'You do not have rights to invoices.');
+    }
+
     public function index(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
 
-        $query = Invoice::with(['client:id,uuid,company_name,contact_person', 'issuingCompany:id,name', 'member.user:id,name,email'])
+        // Which list this is decides which right it needs.
+        $this->forKind($request, (string) $request->query('kind', 'invoice'), 'view');
+
+        $query = Invoice::with([
+            'client:id,uuid,company_name,contact_person', 'issuingCompany:id,name', 'member.user:id,name,email',
+            /*
+             * Only the memberships, not the lines.
+             *
+             * The list shows what each invoice is FOR, which is the one thing
+             * on the work order a person scans a list looking for. Two columns
+             * of one relation is a single extra query for the page — loading
+             * whole line items to read one field off them would not be.
+             */
+            'items:id,invoice_id,membership',
+        ])
             ->where('organization_id', $org->id)
             // Own ledger only, unless you run the company.
             ->visibleTo($me)
@@ -187,6 +235,10 @@ class InvoiceController extends Controller
         $org = $request->attributes->get('crm_org');
         [$data, $items, $taxLines] = $this->validatePayload($request, $org->id);
 
+        // Validated first, so the kind being raised is the real one rather
+        // than whatever arrived in the body.
+        $this->forKind($request, (string) $data['kind'], 'create');
+
         $invoice = DB::transaction(function () use ($org, $data, $items, $taxLines, $request) {
             $company = IssuingCompany::where('organization_id', $org->id)->findOrFail($data['issuing_company_id']);
             $number = $company->claimNumber($data['kind']);
@@ -219,6 +271,7 @@ class InvoiceController extends Controller
             'client', 'issuingCompany', 'items', 'taxes', 'payments.bankAccount:id,label',
             'member.user:id,name,email', 'convertedFrom:id,uuid,number', 'convertedTo:id,uuid,number,converted_from_id',
         ]);
+        $this->forKind($request, $invoice->kind, 'view');
 
         return response()->json(['data' => $this->serialize($invoice, full: true)]);
     }
@@ -227,6 +280,7 @@ class InvoiceController extends Controller
     {
         $org = $request->attributes->get('crm_org');
         $invoice = $this->find($request, $uuid);
+        $this->forKind($request, $invoice->kind, 'edit');
 
         if ($invoice->status === 'cancelled') {
             abort(422, 'A cancelled document cannot be edited.');
@@ -256,6 +310,7 @@ class InvoiceController extends Controller
     public function cancel(Request $request, string $uuid): JsonResponse
     {
         $invoice = $this->find($request, $uuid);
+        $this->forKind($request, $invoice->kind, 'delete');
 
         if ($invoice->payments()->exists()) {
             abort(422, 'Payments are recorded against this document; remove them before cancelling.');
@@ -285,6 +340,7 @@ class InvoiceController extends Controller
     public function destroy(Request $request, string $uuid): JsonResponse
     {
         $invoice = $this->find($request, $uuid);
+        $this->forKind($request, $invoice->kind, 'delete');
 
         [$deletable, $why] = $this->deletable($invoice);
         abort_unless($deletable, 422, $why);
@@ -316,6 +372,10 @@ class InvoiceController extends Controller
 
         foreach ($data['uuids'] as $uuid) {
             $invoice = $this->find($request, $uuid);
+            // Asked per document: a list can hold both kinds, and being
+            // trusted with quotes is not being trusted with bills.
+            $this->forKind($request, $invoice->kind, 'delete');
+
             [$deletable, $why] = $this->deletable($invoice);
 
             if (! $deletable) {
@@ -357,6 +417,15 @@ class InvoiceController extends Controller
     public function convert(Request $request, string $uuid, InvoiceConverter $converter): JsonResponse
     {
         $proforma = $this->find($request, $uuid);
+
+        /*
+         * Both rights, because this reads a quote and raises a bill.
+         * Somebody trusted only with proformas must not be able to turn one
+         * into a tax invoice, which is the whole distinction the split exists
+         * to draw.
+         */
+        $this->forKind($request, 'proforma', 'view');
+        $this->forKind($request, 'invoice', 'create');
 
         $invoice = $converter->convert($proforma, $request->user(), $request->attributes->get('crm_member'));
 
@@ -571,6 +640,7 @@ class InvoiceController extends Controller
         $invoice = $this->find($request, $uuid)->load([
             'client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email', 'payments',
         ]);
+        $this->forKind($request, $invoice->kind, 'view');
 
         return $this->documentPdf($invoice)
             ->download(str_replace(['/', '\\', ' '], '-', $invoice->number) . '.pdf');
@@ -586,6 +656,7 @@ class InvoiceController extends Controller
         $invoice = $this->find($request, $uuid)->load([
             'client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email', 'payments',
         ]);
+        $this->forKind($request, $invoice->kind, 'view');
         $org = $request->attributes->get('crm_org');
 
         $data = $request->validate([
@@ -705,15 +776,7 @@ class InvoiceController extends Controller
                 ->where('source', 'builtin')
                 ->keyBy('key')
                 ->all(),
-            // The issuing company's OWN account first; an unassigned
-            // org-wide account only as the fallback.
-            'bank' => BankAccount::where('organization_id', $invoice->organization_id)
-                ->where('is_active', true)
-                ->where(fn ($q) => $q->where('issuing_company_id', $invoice->issuing_company_id)
-                    ->orWhereNull('issuing_company_id'))
-                ->orderByRaw('case when issuing_company_id is null then 1 else 0 end')
-                ->orderBy('id')
-                ->first(),
+            'bank' => $this->bankFor($invoice),
         ])->setPaper('a4');
 
         return $pdf;
@@ -735,6 +798,23 @@ class InvoiceController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
         $kind = $request->query('kind') === 'proforma' ? 'proforma' : 'invoice';
+
+        /*
+         * The log is its own entry in the sidebar, so its own right — reading
+         * the trail is a different job from raising the document, and a
+         * company may well want one without the other.
+         */
+        /** @var Member $me */
+        $reader = $request->attributes->get('crm_member');
+        abort_unless(
+            $kind === 'proforma'
+                ? $reader?->can('proforma_log', 'view')
+                : $reader?->can('invoice_log', 'view'),
+            403,
+            $kind === 'proforma'
+                ? 'You do not have rights to the proforma log.'
+                : 'You do not have rights to the invoice log.',
+        );
 
         // The same ledger window as the list: your own documents only,
         // unless you run the company.
@@ -1217,6 +1297,25 @@ class InvoiceController extends Controller
         }
     }
 
+    /**
+     * Which account this document tells the client to pay into.
+     *
+     * The issuing company's OWN active account first; an unassigned org-wide
+     * one only as the fallback. Asked in one place because the PDF and the
+     * screen both print it, and two copies of a rule about where money is
+     * sent is two chances for them to stop agreeing.
+     */
+    private function bankFor(Invoice $invoice): ?BankAccount
+    {
+        return BankAccount::where('organization_id', $invoice->organization_id)
+            ->where('is_active', true)
+            ->where(fn ($q) => $q->where('issuing_company_id', $invoice->issuing_company_id)
+                ->orWhereNull('issuing_company_id'))
+            ->orderByRaw('case when issuing_company_id is null then 1 else 0 end')
+            ->orderBy('id')
+            ->first();
+    }
+
     private function serialize(Invoice $i, bool $full = false): array
     {
         $base = [
@@ -1249,6 +1348,19 @@ class InvoiceController extends Controller
             'payment_status' => $i->payment_status,
             'dispatch_status' => $i->dispatch_status,
             'converted' => $i->relationLoaded('convertedTo') && $i->convertedTo !== null,
+            /*
+             * What this invoice is for, in the company's own word for it.
+             *
+             * Distinct, because an invoice of six lines against one
+             * membership is one answer repeated, not six. Null rather than an
+             * empty list when the lines were not loaded, so a caller can tell
+             * "this invoice names none" from "nobody asked".
+             */
+            'memberships' => $i->relationLoaded('items')
+                ? $i->items->pluck('membership')
+                    ->map(fn ($m) => is_string($m) ? trim($m) : $m)
+                    ->filter()->unique()->values()->all()
+                : null,
             // "Recurring · 2 of 12", stamped when the copy was raised.
             'recurring_note' => $i->recurring_note,
             // The schedule link is the fact; the note is the choice — the
@@ -1272,6 +1384,11 @@ class InvoiceController extends Controller
             ]),
             'issuing_company_full' => $i->issuingCompany?->only([
                 'address', 'gstin', 'pan', 'state_code', 'phone', 'email',
+                // The letterhead and the rubber stamp. Sent so the screen can
+                // draw the same document the PDF does — the Print button
+                // prints what is on screen, so a header only the PDF knew
+                // about was a header printing never had.
+                'logo_path', 'stamp_path',
             ]),
             'client_category' => $i->client_category,
             'pricing_tier' => $i->pricing_tier,
@@ -1307,6 +1424,16 @@ class InvoiceController extends Controller
                 ])->values()
                 : [],
             'custom_fields' => $i->custom_fields ?? (object) [],
+            /*
+             * The bank line the document carries, resolved the same way the
+             * PDF resolves it — so the copy somebody prints from the screen
+             * names the same account as the copy they download.
+             */
+            'bank' => ($bank = $this->bankFor($i)) ? [
+                'bank_name' => $bank->bank_name,
+                'account_no' => $bank->account_no,
+                'ifsc' => $bank->ifsc,
+            ] : null,
             'fx_rate' => $i->fx_rate,
             'subtotal_fx' => $i->subtotal_fx,
             'notes' => $i->notes,

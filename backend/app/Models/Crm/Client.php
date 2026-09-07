@@ -88,4 +88,22 @@ class Client extends Model
     {
         return $this->morphMany(Document::class, 'documentable');
     }
+
+    /**
+     * The clients one member may see, on the same rule the list uses.
+     *
+     * Lifted out of ClientController so the call log can ask the identical
+     * question rather than carry a second copy of the answer.
+     */
+    public function scopeVisibleTo($query, \App\Models\Crm\Member $me)
+    {
+        if (in_array($me->crm_role, ['admin', 'subadmin'], true)) {
+            return $query;
+        }
+
+        $team = $me->teamMemberIds();
+
+        return $query->where(fn ($q) => $q->whereIn('assigned_member_id', $team)
+            ->orWhereHas('sharedWith', fn ($sh) => $sh->whereIn('crm_members.id', $team)));
+    }
 }

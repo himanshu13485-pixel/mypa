@@ -31,6 +31,7 @@ class OrganizationAdminController extends Controller
             ->get()
             ->map(fn ($o) => [
                 'uuid' => $o->uuid,
+                'slug' => $o->slug,
                 'name' => $o->name,
                 'code' => $o->code,
                 'status' => $o->status,
@@ -53,6 +54,11 @@ class OrganizationAdminController extends Controller
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'code' => ['nullable', 'string', 'max:32', 'alpha_dash', 'unique:crm_organizations,code'],
+            // What the company's URL will read as. Left out, it is made from
+            // the name — which is what almost always happens.
+            'slug' => ['nullable', 'string', 'max:64', 'regex:/^[a-z0-9]+(-[a-z0-9]+)*$/',
+                'not_in:' . implode(',', Organization::RESERVED_SLUGS),
+                'unique:crm_organizations,slug'],
             'admin_name' => ['required', 'string', 'max:255'],
             'admin_email' => ['required', 'email', 'max:255'],
             'admin_password' => ['nullable', PasswordRule::min(8)->letters()->numbers()],
@@ -62,6 +68,7 @@ class OrganizationAdminController extends Controller
             $org = Organization::create([
                 'name' => $data['name'],
                 'code' => ($data['code'] ?? null) ?: Str::upper(Str::random(6)),
+                'slug' => ($data['slug'] ?? null) ?: Organization::slugFor($data['name']),
                 'created_by' => $request->user()->id,
             ]);
 
@@ -96,7 +103,10 @@ class OrganizationAdminController extends Controller
             return $org;
         });
 
-        return response()->json(['message' => 'CRM enabled for ' . $org->name . '.', 'data' => ['uuid' => $org->uuid]], 201);
+        return response()->json(['message' => 'CRM enabled for ' . $org->name . '.', 'data' => [
+            'uuid' => $org->uuid,
+            'slug' => $org->slug,
+        ]], 201);
     }
 
     /**
@@ -149,6 +159,8 @@ class OrganizationAdminController extends Controller
 
         return response()->json(['message' => 'Opened ' . $organization->name . ' as admin.', 'data' => [
             'organization_uuid' => $organization->uuid,
+            // Where to send the browser: the company's own address.
+            'organization_slug' => $organization->slug,
         ]]);
     }
 
@@ -191,6 +203,15 @@ class OrganizationAdminController extends Controller
             'name' => ['nullable', 'string', 'max:255'],
             'code' => ['nullable', 'string', 'max:32', 'alpha_dash',
                 \Illuminate\Validation\Rule::unique('crm_organizations', 'code')->ignore($organization->id)],
+            /*
+             * Renaming the address. Allowed, because a company that has been
+             * renamed should not be stuck at its old one — and cheap, because
+             * the shell redirects anything it cannot place to wherever the
+             * person's membership actually is, so an old bookmark still lands.
+             */
+            'slug' => ['nullable', 'string', 'max:64', 'regex:/^[a-z0-9]+(-[a-z0-9]+)*$/',
+                'not_in:' . implode(',', Organization::RESERVED_SLUGS),
+                \Illuminate\Validation\Rule::unique('crm_organizations', 'slug')->ignore($organization->id)],
             'status' => ['nullable', \Illuminate\Validation\Rule::in(['active', 'suspended'])],
             /*
              * How far this company's admin may sit in a member's seat.
@@ -208,7 +229,7 @@ class OrganizationAdminController extends Controller
         ]);
 
         $organization->update(array_filter(
-            collect($data)->only(['name', 'code', 'status', 'impersonation_level'])->all(),
+            collect($data)->only(['name', 'code', 'slug', 'status', 'impersonation_level'])->all(),
             fn ($v) => $v !== null,
         ));
 

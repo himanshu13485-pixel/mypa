@@ -20,9 +20,9 @@ const EMPTY = {
 
 export default function CrmVendorsPage() {
   const { me } = useOutletContext<{ me: CrmMe | undefined }>()
-  const canCreate = crmCan(me, 'expenses', 'create')
-  const canEdit = crmCan(me, 'expenses', 'edit')
-  const canDelete = crmCan(me, 'expenses', 'delete')
+  const canCreate = crmCan(me, 'vendors', 'create')
+  const canEdit = crmCan(me, 'vendors', 'edit')
+  const canDelete = crmCan(me, 'vendors', 'delete')
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 

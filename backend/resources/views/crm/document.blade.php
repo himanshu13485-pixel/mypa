@@ -21,25 +21,37 @@
   /* DejaVu is dompdf's built-in face and the one that carries ₹. */
   * { font-family: DejaVu Sans, sans-serif; }
   body { color: #0f172a; font-size: 11px; margin: 0; }
-  .muted { color: #64748b; }
+  /*
+   * Everything on this document is printed at full strength.
+   *
+   * The greys these once carried — slate-500 for the labels, slate-400 for
+   * the legal note — are a screen convention: on a backlit panel they read
+   * as secondary, and on paper they read as faint. An office printer with a
+   * tired cartridge finishes the job, and the line nobody could make out was
+   * usually the one saying what the document is.
+   *
+   * The hierarchy is still there, in size, weight and case. It just is not
+   * in the ink.
+   */
+  .muted { color: #0f172a; }
   .right { text-align: right; }
   h1 { font-size: 18px; margin: 0 0 2px; }
   table { width: 100%; border-collapse: collapse; }
   .head td { vertical-align: top; padding: 0 0 14px; }
   .parties td { vertical-align: top; padding: 10px 0; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
   .lines { margin-top: 14px; }
-  .lines th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #64748b; border-bottom: 1px solid #cbd5e1; padding: 6px 6px 6px 0; }
+  .lines th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #0f172a; border-bottom: 1px solid #cbd5e1; padding: 6px 6px 6px 0; }
   .lines td { padding: 7px 6px 7px 0; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
   .lines th.num, .lines td.num { text-align: right; padding-right: 0; }
   .totals { width: 45%; margin-left: 55%; margin-top: 12px; }
   .totals td { padding: 3px 0; }
   .totals .grand td { border-top: 1px solid #0f172a; font-weight: bold; font-size: 13px; padding-top: 6px; }
   .chip { display: inline-block; padding: 1px 7px; border-radius: 8px; background: #f1f5f9; font-size: 10px; }
-  .extras { color: #64748b; font-size: 10px; margin-top: 2px; }
-  .foot { margin-top: 26px; font-size: 10px; color: #64748b; }
+  .extras { color: #0f172a; font-size: 10px; margin-top: 2px; }
+  .foot { margin-top: 26px; font-size: 10px; color: #0f172a; }
   /* Quieter than the footer it follows: it is a statement about the
      document, not part of it. */
-  .note { margin-top: 18px; text-align: center; font-size: 9px; color: #94a3b8; }
+  .note { margin-top: 18px; text-align: center; font-size: 9px; color: #0f172a; }
   .sign { margin-top: 34px; text-align: right; font-size: 10px; }
   /* Capped so a large upload cannot push the signatory line onto a
      page of its own, and centred in the signing space. */

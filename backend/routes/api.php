@@ -196,19 +196,19 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
         Route::post('/auth/email/verification-notification', [AuthController::class, 'resendVerification'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:6,1');
+            ->middleware('throttle:verify-email');
         Route::post('/auth/mobile/verify', [AuthController::class, 'verifyMobile'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:verify-otp');
         Route::post('/auth/mobile/resend-otp', [AuthController::class, 'resendMobileOtp'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:5,1');
+            ->middleware('throttle:resend-otp');
         Route::post('/auth/email/resend-otp', [AuthController::class, 'resendEmailOtp'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:5,1');
+            ->middleware('throttle:resend-otp');
         Route::post('/auth/email/verify-otp', [AuthController::class, 'verifyEmailOtp'])
             ->withoutMiddleware('verified.email')
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:verify-otp');
         Route::get('/auth/sessions', [AuthController::class, 'sessions']);
         Route::delete('/auth/sessions/{tokenId}', [AuthController::class, 'revokeSession']);
         Route::get('/auth/login-history', [AuthController::class, 'loginHistory']);
@@ -223,7 +223,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         // Closing an account for good. Throttled because it is irreversible
         // and there is no reason to attempt it more than once a minute.
         Route::delete('/me', [\App\Http\Controllers\Api\V1\AccountController::class, 'destroy'])
-            ->middleware('throttle:5,1');
+            ->middleware('throttle:profile-update');
         Route::get('/me/app-id/qr', [AppIdController::class, 'myQr']);
 
         /*
@@ -276,7 +276,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         // Identity change requests (approval-based)
         Route::get('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'index']);
         Route::post('/me/change-requests', [\App\Http\Controllers\Api\V1\ChangeRequestController::class, 'store'])
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:change-request');
 
         // Categories
         Route::apiResource('categories', CategoryController::class);
@@ -325,7 +325,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
          * relationship; the rules live in the controller.
          */
         Route::get('/people/{uuid}', [\App\Http\Controllers\Api\V1\PersonController::class, 'show'])
-            ->middleware('throttle:60,1');
+            ->middleware('throttle:person-lookup');
 
         // My own invite link, for somebody who is not on Netvork yet.
         Route::get('/invite-link', [\App\Http\Controllers\Api\V1\InviteController::class, 'mine']);
@@ -347,7 +347,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/join-group/{token}', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'preview'])
             ->where('token', '[A-Za-z0-9]{16,32}');
         Route::post('/join-group/{token}', [\App\Http\Controllers\Api\V1\GroupInviteController::class, 'join'])
-            ->middleware('throttle:20,1')->where('token', '[A-Za-z0-9]{16,32}');
+            ->middleware('throttle:join-group')->where('token', '[A-Za-z0-9]{16,32}');
 
         // Meetings (Meet-style link rooms)
         Route::get('/meetings', [\App\Http\Controllers\Api\V1\MeetingController::class, 'index']);
@@ -451,7 +451,48 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
          * person does on purpose and well short of what a script wants.
          */
         Route::post('/broadcasts', [BroadcastController::class, 'store'])
-            ->middleware('throttle:6,1');
+            ->middleware('throttle:broadcast');
+
+        /*
+         * "Ring this on my phone." Sent to the caller's own devices only —
+         * there is no target user, which is what keeps it from being a way to
+         * make somebody else's phone dial a number.
+         *
+         * Its own bucket: a person clicks this a few times a minute at most,
+         * and a runaway client should not be able to make a phone buzz on a
+         * loop.
+         */
+        Route::post('/dial', [\App\Http\Controllers\Api\V1\DialController::class, 'store'])
+            ->middleware('throttle:dial');
+
+        /*
+         * The calls that leave the app, on somebody's own SIM.
+         *
+         * Recorded as the dialler opens rather than afterwards: waiting until
+         * the person comes back to the app loses every call where they rang,
+         * talked, and put the phone down — which on a sales floor is most of
+         * them.
+         *
+         * Its own limiter for the same reason as the dial: an inline throttle
+         * would share the group's counter and refuse on the first real call.
+         */
+        /*
+         * Placing one needs the company workspace, because what is being
+         * rung is a lead, a client or a complaint, and resolving which —
+         * and checking it is the caller's to ring — is a question only the
+         * CRM member can answer.
+         */
+        Route::post('/phone-calls', [\App\Http\Controllers\Api\V1\PhoneCallController::class, 'store'])
+            ->middleware(['crm.member', 'throttle:dial']);
+
+        /*
+         * Saying how it went does not. These are about the caller's own
+         * calls wherever they were made, and a person answering "how did
+         * that go?" on their phone should not have to be inside a workspace
+         * for the answer to be accepted.
+         */
+        Route::get('/phone-calls/pending', [\App\Http\Controllers\Api\V1\PhoneCallController::class, 'pending']);
+        Route::patch('/phone-calls/{phoneCall}', [\App\Http\Controllers\Api\V1\PhoneCallController::class, 'update']);
 
         // Chat
         Route::get('/conversations', [ConversationController::class, 'index']);
@@ -477,6 +518,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::delete('/conversations/{conversation}/messages/{messageUuid}', [MessageController::class, 'destroy']);
         // The same message again, in somebody else's thread.
         Route::post('/conversations/{conversation}/messages/{messageUuid}/forward', [MessageController::class, 'forward']);
+        // A selection, passed on together. A collection-level action, so it
+        // sits a segment shorter than the single forward above and cannot be
+        // confused with it.
+        Route::post('/conversations/{conversation}/messages/forward', [MessageController::class, 'forwardMany']);
         // Kept privately, or held up for everyone.
         Route::post('/conversations/{conversation}/messages/{messageUuid}/star', [MessageController::class, 'star']);
         Route::post('/conversations/{conversation}/messages/{messageUuid}/pin', [MessageController::class, 'pin']);
@@ -536,10 +581,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/subscription', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'mySubscription']);
         Route::post('/subscription/quote', [\App\Http\Controllers\Api\V1\BillingController::class, 'quote']);
         Route::post('/subscription/checkout', [\App\Http\Controllers\Api\V1\BillingController::class, 'checkout'])
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:checkout');
         Route::post('/subscription/cancel', [\App\Http\Controllers\Api\V1\BillingController::class, 'cancelSubscription']);
         Route::post('/payments/{order}/verify', [\App\Http\Controllers\Api\V1\BillingController::class, 'verifyOrder'])
-            ->middleware('throttle:30,1');
+            ->middleware('throttle:payment-verify');
         Route::get('/payments', [\App\Http\Controllers\Api\V1\BillingController::class, 'payments']);
         Route::get('/invoices', [\App\Http\Controllers\Api\V1\BillingController::class, 'invoices']);
         Route::get('/invoices/{invoice}', [\App\Http\Controllers\Api\V1\BillingController::class, 'invoiceView']);
@@ -555,7 +600,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
 
         // Report a user or message (moderation intake)
         Route::post('/reports', [\App\Http\Controllers\Api\V1\ReportUserController::class, 'store'])
-            ->middleware('throttle:10,1');
+            ->middleware('throttle:report-file');
 
         // --- Internal Work (Admin / Subadmin / Salesperson) ----------------
         Route::prefix('admin/internal')->middleware(['role:admin,super_admin,subadmin,salesperson', 'module:internal,view'])->group(function () {
@@ -714,6 +759,22 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                  * reasons it was.
                  */
                 Route::post('/employees/{uuid}/impersonate', [\App\Http\Controllers\Api\V1\Crm\ImpersonationController::class, 'start']);
+                /*
+                 * One set of rights for everybody, rather than twenty answers
+                 * to the same question.
+                 *
+                 * A dash rather than /employees/shared-rights, for the same
+                 * reason employees-lookup above has one: GET /employees/{uuid}
+                 * is registered in an earlier group, so a path under
+                 * /employees/ would be read as somebody's uuid and never
+                 * reach here at all.
+                 *
+                 * Behind crm.manager like its neighbours, but the controller
+                 * is what decides — it asks the same maySetRightsOn question
+                 * the one-person form asks, of everybody at once.
+                 */
+                Route::get('/employees-shared-rights', [\App\Http\Controllers\Api\V1\Crm\SharedRightsController::class, 'show']);
+                Route::put('/employees-shared-rights', [\App\Http\Controllers\Api\V1\Crm\SharedRightsController::class, 'update']);
                 Route::put('/employees/{uuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'update']);
                 Route::post('/employees/{uuid}/salary', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'addSalary']);
                 Route::delete('/employees/{uuid}/salary/{recordId}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'deleteSalary']);
@@ -749,10 +810,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                  */
                 Route::get('/master-key', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'show']);
                 Route::put('/master-key', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'store'])
-                    ->middleware('throttle:6,60');
+                    ->middleware('throttle:master-key');
                 Route::delete('/master-key', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'destroy']);
                 Route::post('/employees/{uuid}/reset-password', [\App\Http\Controllers\Api\V1\Crm\MasterKeyController::class, 'reset'])
-                    ->middleware('throttle:10,60');
+                    ->middleware('throttle:password-reset');
             });
 
             // Clients
@@ -784,7 +845,14 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // there for why this one is not the exports.excel grant.
                 Route::get('/exports/leads', [\App\Http\Controllers\Api\V1\Crm\ExportController::class, 'leads']);
                 Route::get('/leads', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'index']);
-                Route::get('/lead-log', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'log']);
+            });
+            // The lead log is its own screen in the menu, so its own right.
+            // A lead's call history: who rang it, when, and how it went.
+            Route::get('/leads/{uuid}/calls', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'calls'])
+                ->middleware('crm.member:leads,view');
+            Route::get('/lead-log', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'log'])
+                ->middleware('crm.member:lead_log,view');
+            Route::middleware('crm.member:leads,view')->group(function () {
                 Route::get('/leads/{uuid}', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'show']);
                 // Lead Duplication: the requests, own-only for non-deciders.
                 Route::get('/lead-requests', [\App\Http\Controllers\Api\V1\Crm\LeadController::class, 'accessRequests']);
@@ -885,8 +953,20 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::put('/punch/{id}', [\App\Http\Controllers\Api\V1\Crm\PunchController::class, 'update'])
                 ->middleware('crm.member:punch,edit');
 
-            // Proforma + tax invoices (one engine; the kind rides on the row)
-            Route::middleware('crm.member:invoices,view')->group(function () {
+            /*
+             * Proforma and tax invoices: one engine, and now two rights.
+             *
+             * A proforma is a quote and an invoice is a demand for money, so
+             * a junior may well be trusted with the first and not the second
+             * — which the single 'invoices' right made impossible to express.
+             *
+             * The guard cannot sit in this file, because which right applies
+             * depends on the kind, and the kind is a query parameter on a
+             * list and a column on a row. So these carry membership only, and
+             * InvoiceController::forKind() asks the real question once the
+             * kind is actually known. Every method below opens with it.
+             */
+            Route::middleware('crm.member')->group(function () {
                 Route::get('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'index']);
                 Route::get('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'show']);
                 // Invoice Log / Proforma Log — the trail, same ledger window.
@@ -894,24 +974,31 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // The paper copy, rendered server-side (print dialogs are not
                 // available in every browser the CRM runs in).
                 Route::post('/invoices/{uuid}/email', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'email']);
+                Route::get('/invoices/{uuid}/pdf', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'pdf']);
+                Route::post('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'store']);
+                Route::put('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'update']);
+                Route::post('/invoices/{uuid}/cancel', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'cancel']);
+                /*
+                 * Converting a proforma into a tax invoice needs both: it
+                 * reads the one and raises the other, and somebody trusted
+                 * only with quotes must not be able to turn one into a bill.
+                 */
+                Route::post('/invoices/{uuid}/convert', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'convert']);
+                /*
+                 * Deleting outright, one or many. The right is checked in
+                 * the controller like every other write here, because which
+                 * right applies depends on whether the row is a quote or a
+                 * bill — and a bulk list can hold both.
+                 */
+                Route::post('/invoices/bulk-delete', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'bulkDestroy']);
+                Route::delete('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'destroy']);
+            });
+            // The accounting exports are the tax invoices' own, and are
+            // additionally held by name through the exports.excel capability.
+            Route::middleware('crm.member:invoices,view')->group(function () {
                 Route::get('/exports/invoices', [\App\Http\Controllers\Api\V1\Crm\ExportController::class, 'invoices']);
                 Route::get('/exports/payments', [\App\Http\Controllers\Api\V1\Crm\ExportController::class, 'payments']);
-                Route::get('/invoices/{uuid}/pdf', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'pdf']);
             });
-            Route::post('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'store'])
-                ->middleware('crm.member:invoices,create');
-            Route::put('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'update'])
-                ->middleware('crm.member:invoices,edit');
-            Route::post('/invoices/{uuid}/cancel', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'cancel'])
-                ->middleware('crm.member:invoices,delete');
-            // Deleting outright, and in bulk from the list. Same right as
-            // cancelling, which is the gentler act of the two.
-            Route::post('/invoices/bulk-delete', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'bulkDestroy'])
-                ->middleware('crm.member:invoices,delete');
-            Route::delete('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'destroy'])
-                ->middleware('crm.member:invoices,delete');
-            Route::post('/invoices/{uuid}/convert', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'convert'])
-                ->middleware('crm.member:invoices,create');
             Route::post('/invoices/{uuid}/payments', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'addPayment'])
                 ->middleware('crm.member:payments,create');
             Route::put('/invoices/{uuid}/payments/{paymentId}/charge', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'setPaymentCharge'])
@@ -946,19 +1033,20 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member:payments,delete');
 
             // Vendors: registered before any bill can name them, exactly as
-            // a client is registered before an invoice. They ride the
-            // expenses rights, being the same head of work.
-            Route::middleware('crm.member:expenses,view')->group(function () {
+            // a client is registered before an invoice. Their own right now,
+            // because Vendors is its own entry in the menu — the rights
+            // screen used to be coarser than the sidebar it governs.
+            Route::middleware('crm.member:vendors,view')->group(function () {
                 Route::get('/vendors', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'index']);
                 Route::get('/vendors/options', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'options']);
                 Route::get('/vendors/{uuid}', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'show']);
             });
             Route::post('/vendors', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'store'])
-                ->middleware('crm.member:expenses,create');
+                ->middleware('crm.member:vendors,create');
             Route::put('/vendors/{uuid}', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'update'])
-                ->middleware('crm.member:expenses,edit');
+                ->middleware('crm.member:vendors,edit');
             Route::delete('/vendors/{uuid}', [\App\Http\Controllers\Api\V1\Crm\VendorController::class, 'destroy'])
-                ->middleware('crm.member:expenses,delete');
+                ->middleware('crm.member:vendors,delete');
 
             // HR Policy: the house rules everyone is measured against.
             // Readable by all — rules people are judged by should be
@@ -1094,6 +1182,11 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // CMS notice board: everyone reads, editors manage
             // Complaint Management System: client issues and the office's
             // own working-out of them, in one record.
+            // The complaint log is its own screen in the menu, so its own
+            // right — and its own endpoint, so the right has something to be
+            // refused at rather than only a menu entry to hide.
+            Route::get('/complaint-log', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'log'])
+                ->middleware('crm.member:complaint_log,view');
             Route::middleware('crm.member:complaints,view')->group(function () {
                 Route::get('/complaints', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'index']);
                 Route::get('/complaints-due', [\App\Http\Controllers\Api\V1\Crm\ComplaintController::class, 'due']);
@@ -1138,6 +1231,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // Where each of the company's own fields sits in its form and
                 // on the printed document — one order, read by both.
                 Route::put('/workspace-fields/order', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'reorder']);
+                /*
+                 * Changing a field the company already has — a plan added to
+                 * a dropdown, most often. An approved field keeps working as
+                 * it does; the change waits for the Super Admin.
+                 *
+                 * Below /order deliberately. A {uuid} route registered above
+                 * it matches the literal word "order" first, and reordering
+                 * would quietly become an edit of a field that does not
+                 * exist.
+                 */
+                Route::put('/workspace-fields/{uuid}', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'update']);
             });
 
             // Reports: the controller holds the stricter door — the Admin,
@@ -1146,16 +1250,16 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::get('/reports/overview', [\App\Http\Controllers\Api\V1\Crm\ReportController::class, 'overview'])
                 ->middleware('crm.member');
             Route::get('/user-log', [\App\Http\Controllers\Api\V1\Crm\ReportController::class, 'userLog'])
-                ->middleware('crm.member:reports,view');
+                ->middleware('crm.member:user_log,view');
 
             // Commission to a client: an expense tied to a sale, never a
             // line on the invoice.
             Route::get('/commissions', [\App\Http\Controllers\Api\V1\Crm\CommissionController::class, 'index'])
-                ->middleware('crm.member:expenses,view');
+                ->middleware('crm.member:commissions,view');
             Route::post('/commissions', [\App\Http\Controllers\Api\V1\Crm\CommissionController::class, 'store'])
-                ->middleware('crm.member:expenses,create');
+                ->middleware('crm.member:commissions,create');
             Route::delete('/commissions/{uuid}', [\App\Http\Controllers\Api\V1\Crm\CommissionController::class, 'destroy'])
-                ->middleware('crm.member:expenses,delete');
+                ->middleware('crm.member:commissions,delete');
 
             // Internal notes on a document: whoever can see it can speak.
             Route::middleware('crm.member:invoices,view')->group(function () {
@@ -1166,13 +1270,13 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
 
             // Subscriptions: a document told to happen again.
             Route::get('/recurring', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'index'])
-                ->middleware('crm.member:invoices,view');
+                ->middleware('crm.member:recurring,view');
             Route::post('/invoices/{invoiceUuid}/recurring', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'store'])
-                ->middleware('crm.member:invoices,create');
+                ->middleware('crm.member:recurring,create');
             Route::post('/recurring/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'decide'])
-                ->middleware('crm.member:invoices,edit');
+                ->middleware('crm.member:recurring,edit');
             Route::post('/recurring/{uuid}/run', [\App\Http\Controllers\Api\V1\Crm\RecurringInvoiceController::class, 'run'])
-                ->middleware('crm.member:invoices,create');
+                ->middleware('crm.member:recurring,create');
 
             // "Pay online" links against a proforma or an invoice.
             Route::get('/invoices/{invoiceUuid}/payment-links', [\App\Http\Controllers\Api\V1\Crm\PaymentLinkController::class, 'index'])
@@ -1206,6 +1310,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::post('/masters/issuing-companies', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeCompany']);
                 Route::put('/masters/issuing-companies/{id}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'updateCompany']);
                 Route::post('/masters/issuing-companies/{id}/logo', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'uploadCompanyLogo']);
+                Route::delete('/masters/issuing-companies/{id}/logo', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'deleteCompanyLogo']);
                 // The rubber stamp, which prints beside the signatory.
                 Route::post('/masters/issuing-companies/{id}/stamp', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'uploadCompanyStamp']);
                 Route::delete('/masters/issuing-companies/{id}/stamp', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'deleteCompanyStamp']);

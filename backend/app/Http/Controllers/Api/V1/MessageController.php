@@ -21,6 +21,15 @@ class MessageController extends Controller
     /** How many messages one conversation may hold up at once. */
     private const MAX_PINS = 5;
 
+    /**
+     * How many messages one forward may carry.
+     *
+     * A selection is a handful of things worth passing on, not a thread
+     * export — and every one is copied on disk into every destination, so the
+     * cost is messages times destinations.
+     */
+    public const MAX_FORWARD_AT_ONCE = 30;
+
     public function index(Request $request, Conversation $conversation): JsonResponse
     {
         $me = $request->user();
@@ -238,6 +247,86 @@ class MessageController extends Controller
             'conversation_uuids.*' => ['uuid'],
         ]);
 
+        [$sent, $refused] = $this->deliverForwards($me, $data['conversation_uuids'], collect([$original]));
+
+        abort_if($sent === [] && $refused === [], 422, 'None of those conversations are yours.');
+
+        return response()->json([
+            'message' => count($sent) === 1
+                ? 'Forwarded.'
+                : 'Forwarded to ' . count($sent) . ' conversations.',
+            'data' => ['sent' => $sent, 'refused' => $refused],
+        ], 201);
+    }
+
+    /**
+     * Several messages at once, the way a selection is forwarded.
+     *
+     * Its own route rather than the browser calling the single forward in a
+     * loop: a loop is one request per message per destination, it can half
+     * fail with nothing sensible to tell anybody, and — the part that
+     * actually shows — the copies arrive in whatever order the responses
+     * happen to come back in.
+     *
+     * Here they are re-read in the order they were written and delivered in
+     * that order, so an exchange forwarded on reads on the other side the way
+     * it read on this one.
+     */
+    public function forwardMany(Request $request, Conversation $conversation): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $data = $request->validate([
+            'message_uuids' => ['required', 'array', 'min:1', 'max:' . self::MAX_FORWARD_AT_ONCE],
+            'message_uuids.*' => ['uuid'],
+            'conversation_uuids' => ['required', 'array', 'min:1', 'max:10'],
+            'conversation_uuids.*' => ['uuid'],
+        ], [
+            'message_uuids.max' => self::MAX_FORWARD_AT_ONCE . ' messages at a time is the limit.',
+        ]);
+
+        /*
+         * Ordered by id, not by the order the uuids arrived in. The client
+         * sends a set — what was ticked — and the thread's own order is the
+         * only one that means anything on the other side.
+         */
+        $originals = $conversation->messages()
+            ->with('attachments')
+            ->whereIn('uuid', $data['message_uuids'])
+            ->orderBy('id')
+            ->get();
+
+        abort_if($originals->isEmpty(), 404, 'Those messages are no longer here.');
+
+        [$sent, $refused] = $this->deliverForwards($me, $data['conversation_uuids'], $originals);
+
+        abort_if($sent === [] && $refused === [], 422, 'None of those conversations are yours.');
+
+        $count = $originals->count();
+        $noun = $count === 1 ? 'message' : 'messages';
+
+        return response()->json([
+            'message' => count($sent) === 1
+                ? "Forwarded {$count} {$noun}."
+                : "Forwarded {$count} {$noun} to " . count($sent) . ' conversations.',
+            'data' => ['sent' => $sent, 'refused' => $refused, 'messages' => $count],
+        ], 201);
+    }
+
+    /**
+     * Put every one of $originals into every one of $conversationUuids.
+     *
+     * Shared by the single forward and the many, because they differ only in
+     * how many messages they carry — and a second copy of the attachment
+     * duplication, the block check and the notification is a second place for
+     * them to drift apart.
+     *
+     * @param  \Illuminate\Support\Collection<int, Message>  $originals
+     * @return array{0: list<string>, 1: list<string>}  uuids sent to, and refused
+     */
+    protected function deliverForwards(User $me, array $conversationUuids, $originals): array
+    {
         /*
          * Only threads this person is actually in.
          *
@@ -245,7 +334,7 @@ class MessageController extends Controller
          * either a stale list or somebody trying their luck, and neither is
          * worth failing the other nine destinations over.
          */
-        $targets = Conversation::whereIn('uuid', $data['conversation_uuids'])
+        $targets = Conversation::whereIn('uuid', $conversationUuids)
             ->get()
             ->filter(fn (Conversation $c) => $c->hasMember($me));
 
@@ -266,56 +355,75 @@ class MessageController extends Controller
                 continue;
             }
 
-            $copy = $target->messages()->create([
-                'user_id' => $me->id,
-                'type' => $original->type,
-                'body' => $original->body,
-                'is_forwarded' => true,
-            ]);
-
-            /*
-             * Attachments are copied on disk, not pointed at.
-             *
-             * Two rows sharing one file means deleting either message takes
-             * the other one's attachment with it. The copy costs storage,
-             * which is why it is charged to the same quota an upload is.
-             */
-            foreach ($original->attachments as $attachment) {
-                $path = 'chat-files/' . $target->id . '/' . \Illuminate\Support\Str::random(40);
-
-                if (! \Illuminate\Support\Facades\Storage::disk('local')->exists($attachment->path)) {
+            $last = null;
+            foreach ($originals as $original) {
+                if ($original->trashed()) {
                     continue;
                 }
+                $last = $this->copyInto($target, $original, $me);
+            }
 
-                \Illuminate\Support\Facades\Storage::disk('local')
-                    ->copy($attachment->path, $path);
-
-                $copy->attachments()->create([
-                    'name' => $attachment->name,
-                    'path' => $path,
-                    'mime_type' => $attachment->mime_type,
-                    'size' => $attachment->size,
-                    'duration_seconds' => $attachment->duration_seconds,
-                ]);
+            if (! $last) {
+                continue;
             }
 
             $target->update(['last_message_at' => now()]);
             $target->members()->updateExistingPivot($me->id, ['last_read_at' => now()]);
 
-            broadcast(new MessageSent($copy->load(['user', 'conversation'])))->toOthers();
-            $this->notifyMembers($target, $copy, $me);
+            /*
+             * One notification for the batch, not one per message.
+             *
+             * Forwarding a ten-message exchange should not put ten lines on
+             * somebody's lock screen. The last copy carries the preview,
+             * which is what typing them would have left too.
+             */
+            $this->notifyMembers($target, $last, $me);
 
             $sent[] = $target->uuid;
         }
 
-        abort_if($sent === [] && $refused === [], 422, 'None of those conversations are yours.');
+        return [$sent, $refused];
+    }
 
-        return response()->json([
-            'message' => count($sent) === 1
-                ? 'Forwarded.'
-                : 'Forwarded to ' . count($sent) . ' conversations.',
-            'data' => ['sent' => $sent, 'refused' => $refused],
-        ], 201);
+    /** One message, copied into one conversation. Returns the copy. */
+    protected function copyInto(Conversation $target, Message $original, User $me): Message
+    {
+        $copy = $target->messages()->create([
+            'user_id' => $me->id,
+            'type' => $original->type,
+            'body' => $original->body,
+            'is_forwarded' => true,
+        ]);
+
+        /*
+         * Attachments are copied on disk, not pointed at.
+         *
+         * Two rows sharing one file means deleting either message takes
+         * the other one's attachment with it. The copy costs storage,
+         * which is why it is charged to the same quota an upload is.
+         */
+        foreach ($original->attachments as $attachment) {
+            $path = 'chat-files/' . $target->id . '/' . \Illuminate\Support\Str::random(40);
+
+            if (! \Illuminate\Support\Facades\Storage::disk('local')->exists($attachment->path)) {
+                continue;
+            }
+
+            \Illuminate\Support\Facades\Storage::disk('local')
+                ->copy($attachment->path, $path);
+
+            $copy->attachments()->create([
+                'name' => $attachment->name,
+                'path' => $path,
+                'mime_type' => $attachment->mime_type,
+                'size' => $attachment->size,
+                'duration_seconds' => $attachment->duration_seconds,
+            ]);
+        }
+
+        broadcast(new MessageSent($copy->load(['user', 'conversation'])))->toOthers();
+
+        return $copy;
     }
 
     /**

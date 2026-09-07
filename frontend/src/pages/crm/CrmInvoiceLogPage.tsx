@@ -6,6 +6,7 @@ import { clsx } from 'clsx'
 import { crm, CRM_PAYMENT_STATUS_LABELS, type CrmInvoiceLogEntry } from '../../api/crm'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
 import { ColumnChart, DonutChart } from './charts'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -40,7 +41,7 @@ function Entry({ log }: { log: CrmInvoiceLogEntry }) {
       <div className="flex flex-wrap items-baseline gap-x-2">
         <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{actionLabel(log.action)}</span>
         {log.document ? (
-          <Link to={`/crm/invoices/${log.document.uuid}`} className="text-sm font-medium text-emerald-600 hover:underline">
+          <Link to={crmPath(`/crm/invoices/${log.document.uuid}`)} className="text-sm font-medium text-emerald-600 hover:underline">
             {log.number ?? log.document.number}
           </Link>
         ) : (

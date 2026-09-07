@@ -1,4 +1,5 @@
 import { api } from './client'
+import { companyIn } from '../lib/crmPath'
 
 /*
  * The CRM addon's API surface. Kept apart from endpoints.ts on purpose: the
@@ -22,8 +23,17 @@ export function getCrmOrg(): string | null {
   return localStorage.getItem(CRM_ORG_KEY)
 }
 
+/*
+ * Which company every CRM request is answered as.
+ *
+ * The address bar wins. /crm/bhavya-steel/leads asks for bhavya-steel, so a
+ * link opens the same records for whoever clicks it — which is the whole
+ * point of putting the company in the URL. localStorage is only the fallback
+ * for the platform's own unslugged screens and for the moment before the
+ * shell has redirected.
+ */
 api.interceptors.request.use((config) => {
-  const org = localStorage.getItem(CRM_ORG_KEY)
+  const org = companyIn(window.location.pathname) ?? localStorage.getItem(CRM_ORG_KEY)
   if (org && config.url?.startsWith('/crm')) {
     config.headers['X-Crm-Org'] = org
   }
@@ -74,7 +84,13 @@ export interface CrmMe {
     /** Set when this session is itself a borrowed one. */
     impersonating?: { level: 'crm_read' | 'crm' | 'account' } | null
   } | null
-  organization: { uuid: string; name: string; code: string } | null
+  organization: {
+    uuid: string
+    /** The company's own segment in the URL: /crm/bhavya-steel/leads. */
+    slug: string
+    name: string
+    code: string
+  } | null
 }
 
 /**
@@ -102,6 +118,17 @@ export interface CrmCustomField {
   decided_by: string | null
   decided_at: string | null
   decision_note: string | null
+  /**
+   * A change asked for and not yet allowed.
+   *
+   * Sent beside the live values rather than instead of them: the field goes
+   * on working as it is, and both screens can say what it would become.
+   */
+  pending?: Partial<Pick<CrmCustomField,
+    'label' | 'type' | 'options' | 'is_required' | 'help' | 'is_hidden'
+    | 'tax_kind' | 'tax_basis' | 'default_rate' | 'reason'>> | null
+  pending_by?: string | null
+  pending_at?: string | null
   organization?: { uuid: string; name: string } | null
   created_at: string | null
 }
@@ -358,6 +385,12 @@ export interface CrmMasters {
    */
   module_labels: Record<string, string>
   abilities: string[]
+  /**
+   * Where a new employee's ticks start, when the company has decided on one
+   * answer rather than twenty. Empty until an Admin saves one.
+   */
+  default_rights: Record<string, string[]>
+  default_capabilities: string[]
   /** What the rights screen offers beyond the module matrix. */
   capabilities: { key: string; group: string; label: string }[]
   issuing_companies: {
@@ -575,6 +608,12 @@ export interface CrmInvoiceRow {
   total: string
   total_fx?: string | null
   fx_currency?: string | null
+  /**
+   * What the invoice is for, from its work order lines — distinct, so six
+   * lines against one membership read as one answer rather than six. Null
+   * when the caller did not ask for the lines.
+   */
+  memberships?: string[] | null
   payment_status: string
   dispatch_status: string
   converted?: boolean
@@ -625,8 +664,20 @@ export interface CrmInvoiceItem {
 }
 
 export interface CrmInvoiceFull extends CrmInvoiceRow {
+  /**
+   * Where the document tells the client to pay — the issuing company's own
+   * account, or an org-wide one. Resolved server-side so the printed page
+   * and the PDF can never name different accounts.
+   */
+  bank: { bank_name: string | null; account_no: string | null; ifsc: string | null } | null
   client_full: { address: string | null; city: string | null; state: string | null; pincode: string | null; country: string | null; gst_no: string | null; email: string | null; mobile: string | null } | null
-  issuing_company_full: { address: string | null; gstin: string | null; pan: string | null; state_code: string | null; phone: string | null; email: string | null } | null
+  issuing_company_full: {
+    address: string | null; gstin: string | null; pan: string | null
+    state_code: string | null; phone: string | null; email: string | null
+    /** The letterhead and the rubber stamp, so the screen draws the document. */
+    logo_path?: string | null
+    stamp_path?: string | null
+  } | null
   client_category: string | null
   pricing_tier: string
   terms_of_payment: string | null
@@ -1724,6 +1775,8 @@ export interface CrmDashboard {
 
 export interface CrmOrganizationRow {
   uuid: string
+  /** What this company's URLs read as. */
+  slug: string
   name: string
   code: string
   status: string
@@ -1770,6 +1823,19 @@ export const crm = {
    * value only ever travels one way, and the server has no endpoint that
    * hands it back.
    */
+  /** A lead's call history: who rang it, when, and how it went. */
+  leadCalls: (uuid: string) =>
+    api.get<{
+      data: import('./endpoints').PhoneCallRow[]
+      summary: {
+        total: number
+        connected: number
+        talk_seconds: number
+        callers: string[]
+        durations_are_reported: boolean
+      }
+    }>(`/crm/leads/${uuid}/calls`).then((r) => r.data),
+
   masterKey: {
     status: () =>
       api.get<{ data: { is_set: boolean; set_at: string | null; set_by: string | null } }>(
@@ -1786,6 +1852,32 @@ export const crm = {
   employees: {
     list: (params: { search?: string; crm_role?: string; status?: string; reports_to?: string; page?: number }) =>
       api.get<Paginated<CrmEmployee>>('/crm/employees', { params }).then((r) => r.data),
+    /**
+     * One set of rights for everybody, rather than twenty answers to the same
+     * question. `sharedRights` says who a copy would reach; `shareRights`
+     * hands it over, and can remember it as where a new hire starts.
+     */
+    sharedRights: () =>
+      api.get<{ data: {
+        count: number
+        employees: number
+        subadmins: number
+        /** Named, so the screen can offer them one at a time. */
+        members: { uuid: string; name: string | null; crm_role: string; employee_code: string | null }[]
+        may_set_default: boolean
+        default_rights: Record<string, string[]>
+        default_capabilities: string[]
+      } }>('/crm/employees-shared-rights').then((r) => r.data.data),
+    shareRights: (payload: {
+      rights: Record<string, string[]>
+      capabilities?: string[]
+      /** Everybody reachable, the people named, or nobody. */
+      apply_to?: 'all' | 'chosen' | 'nobody'
+      member_uuids?: string[]
+      set_as_default?: boolean
+    }) =>
+      api.put<{ message: string; data: { applied: number } }>('/crm/employees-shared-rights', payload)
+        .then((r) => r.data),
     /** One's own record — documents, letters basis — no employees right needed. */
     myProfile: () =>
       api.get<{ data: CrmEmployeeFull & { letters_allowed: boolean } }>('/crm/my/profile').then((r) => r.data.data),
@@ -2111,6 +2203,16 @@ export const crm = {
     list: (params: Record<string, string | number | undefined>) =>
       api.get<Paginated<CrmComplaint> & { summary: CrmComplaintSummary }>('/crm/complaints', { params })
         .then((r) => r.data),
+    /**
+     * The log screen — closed complaints, behind its own right.
+     *
+     * Its own endpoint rather than list({ status: 'closed' }), because a
+     * right that only hid the menu entry would restrict nothing: the same
+     * records would still answer through the list.
+     */
+    log: (params: Record<string, string | number | undefined>) =>
+      api.get<Paginated<CrmComplaint> & { summary: CrmComplaintSummary }>('/crm/complaint-log', { params })
+        .then((r) => r.data),
     options: () =>
       api.get<{ data: CrmComplaintOptions }>('/crm/complaints/options').then((r) => r.data.data),
     /** The popup's feed: open complaints that are mine to answer. */
@@ -2301,6 +2403,13 @@ export const crm = {
       }>('/crm/workspace-fields').then((r) => r.data),
     request: (payload: Record<string, unknown>) =>
       api.post<{ message: string }>('/crm/workspace-fields', payload).then((r) => r.data),
+    /**
+     * Change a field the company already has — a plan added to a dropdown,
+     * most often. An approved field keeps working exactly as it does; the
+     * change waits for the Super Admin.
+     */
+    change: (uuid: string, payload: Record<string, unknown>) =>
+      api.put<{ message: string }>('/crm/workspace-fields/' + uuid, payload).then((r) => r.data),
     remove: (uuid: string) => api.delete('/crm/workspace-fields/' + uuid).then((r) => r.data),
     /**
      * The order this company's own fields appear in, on the form and on the
@@ -2490,6 +2599,9 @@ export const crm = {
       form.append('file', file)
       return api.post<{ message: string }>(`/crm/masters/issuing-companies/${id}/stamp`, form).then((r) => r.data)
     },
+    /** Off the documents again, without having to put another in its place. */
+    deleteCompanyLogo: (id: number) =>
+      api.delete<{ message: string }>(`/crm/masters/issuing-companies/${id}/logo`).then((r) => r.data),
     deleteCompanyStamp: (id: number) =>
       api.delete<{ message: string }>(`/crm/masters/issuing-companies/${id}/stamp`).then((r) => r.data),
     fxRate: (currency: string) =>
@@ -2527,7 +2639,7 @@ export const crm = {
     create: (payload: Record<string, unknown>) => api.post('/admin/crm/organizations', payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/admin/crm/organizations/${uuid}`, payload).then((r) => r.data),
     enter: (uuid: string) =>
-      api.post<{ message: string; data: { organization_uuid: string } }>(`/admin/crm/organizations/${uuid}/enter`).then((r) => r.data),
+      api.post<{ message: string; data: { organization_uuid: string; organization_slug: string } }>(`/admin/crm/organizations/${uuid}/enter`).then((r) => r.data),
     members: (uuid: string) =>
       api.get<{ data: { organization: { name: string; code: string }; members: {
         name: string | null; email: string | null; employee_code: string | null; crm_role: string
@@ -2706,4 +2818,19 @@ export const CRM_DISPATCH_STATUS_LABELS: Record<string, string> = {
   partial: 'Partial dispatched',
   dispatched: 'Dispatched',
   in_process: 'In process',
+}
+
+/**
+ * Who am I, in the company the address bar names.
+ *
+ * The company is part of the key, not just of the request. Without it, a
+ * browser that has just moved from one workspace to another shows the old
+ * one's answer from cache — the wrong name in the sidebar, the wrong rights
+ * deciding which menu entries exist — until the refetch lands.
+ */
+export function crmMeQuery() {
+  return {
+    queryKey: ['crm', 'me', companyIn(window.location.pathname)] as const,
+    queryFn: crm.me,
+  }
 }

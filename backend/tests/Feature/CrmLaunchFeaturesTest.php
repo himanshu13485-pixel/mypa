@@ -1053,14 +1053,32 @@ class CrmLaunchFeaturesTest extends TestCase
                 'items' => [['plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
             ])->assertCreated()->json('data.uuid');
 
-        // An employee without the delete right cannot, however they ask.
-        $plain = $raise();
-        $this->actingAs($this->empUser)->deleteJson('/api/v1/crm/invoices/' . $plain)->assertForbidden();
+        /*
+         * An employee who raised the document themselves, and was given
+         * everything except the delete right, still cannot delete it. Their
+         * own document on purpose: an invoice they cannot see answers 404
+         * before any right is consulted, and the gate being tested here is
+         * the right rather than the ledger window.
+         */
+        $this->emp->update(['rights' => array_merge($this->emp->rights, ['invoices' => ['view', 'create', 'edit']])]);
+        $own = $this->actingAs($this->empUser)->postJson('/api/v1/crm/invoices', [
+            'kind' => 'invoice', 'issuing_company_id' => $co->id, 'client_uuid' => $client->uuid,
+            'invoice_date' => now()->toDateString(),
+            'items' => [['plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
+        ])->assertCreated()->json('data.uuid');
+
+        $this->actingAs($this->empUser)->deleteJson('/api/v1/crm/invoices/' . $own)->assertForbidden();
         $this->actingAs($this->empUser)->postJson('/api/v1/crm/invoices/bulk-delete', [
-            'uuids' => [$plain],
+            'uuids' => [$own],
         ])->assertForbidden();
 
-        // The Admin holds it by the nature of the job.
+        // Given the right, the same person may.
+        $this->emp->update(['rights' => array_merge($this->emp->rights, ['invoices' => ['view', 'create', 'edit', 'delete']])]);
+        $this->actingAs($this->empUser)->deleteJson('/api/v1/crm/invoices/' . $own)->assertOk();
+        $this->assertDatabaseMissing('crm_invoices', ['uuid' => $own]);
+
+        // And the Admin holds it by the nature of the job.
+        $plain = $raise();
         $this->actingAs($this->adminUser)->deleteJson('/api/v1/crm/invoices/' . $plain)->assertOk();
         $this->assertDatabaseMissing('crm_invoices', ['uuid' => $plain]);
 

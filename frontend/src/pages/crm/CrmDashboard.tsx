@@ -6,9 +6,10 @@ import { clsx } from 'clsx'
 import { ScopeToggle, useTeamHead } from './ScopeToggle'
 import { Avatar } from '../../lib/avatars'
 import { LETTER_LABELS, letterAvailability, openLetter, type LetterType } from './letters'
-import { crm, CRM_LEAD_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
+import { crm, crmMeQuery, CRM_LEAD_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
 import { Card, EmptyState, Spinner , Select } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
+import { crmPath } from '../../lib/crmPath'
 
 const LEAD_STATUS_COLORS: Record<string, string> = {
   unattended: CHART_COLORS[2],
@@ -34,7 +35,7 @@ export default function CrmDashboard() {
   // A Team Head's dashboard opens on their own sales; the combined view is
   // a switch away and never mixed in by accident.
   const teamHead = useTeamHead()
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const [scope, setScope] = useState<'mine' | 'team'>('mine')
   const [salesperson, setSalesperson] = useState('')
   const effectiveScope = teamHead ? scope : 'team'
@@ -71,7 +72,7 @@ export default function CrmDashboard() {
         <p className="text-sm text-slate-500">
           {data.invoices.proforma_open > 0 && (
             <>
-              <Link to="/crm/invoices?kind=proforma" className="font-medium text-emerald-600 hover:underline">
+              <Link to={crmPath('/crm/invoices?kind=proforma')} className="font-medium text-emerald-600 hover:underline">
                 {data.invoices.proforma_open} open proforma
               </Link>{' '}
               waiting to convert ·{' '}
@@ -159,7 +160,7 @@ export default function CrmDashboard() {
                   {data.recent_invoices.map((i) => (
                     <tr key={i.uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
                       <td className="py-2 pr-3">
-                        <Link to={`/crm/invoices/${i.uuid}`} className="font-medium text-emerald-600 hover:underline">
+                        <Link to={crmPath(`/crm/invoices/${i.uuid}`)} className="font-medium text-emerald-600 hover:underline">
                           {i.number}
                         </Link>
                         <span className="ml-1.5 text-[10px] uppercase text-slate-400">{i.kind}</span>
@@ -221,7 +222,7 @@ export default function CrmDashboard() {
  */
 function MyHrFileCard() {
   const { data: mine } = useQuery({ queryKey: ['crm', 'my-profile'], queryFn: crm.employees.myProfile })
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const orgName = me?.organization?.name ?? 'The Company'
 
   if (!mine) return null

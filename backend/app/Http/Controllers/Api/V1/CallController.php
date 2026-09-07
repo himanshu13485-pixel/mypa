@@ -545,11 +545,79 @@ class CallController extends Controller
         ]]);
     }
 
+    /**
+     * One history, two kinds of call.
+     *
+     * A Netvork call is between two accounts and the app knows everything
+     * about it. A phone call left on somebody's own SIM and the app knows
+     * only that it was dialled, plus whatever the caller said afterwards.
+     * Both belong in the same list — a person's day contains both, and
+     * remembering which screen a call is filed under is not their job.
+     *
+     * Every row says which it was, because the difference matters when you
+     * read it: a Netvork call's four minutes were counted by the server, and
+     * a phone call's four minutes were typed in by the person who made it.
+     *
+     * Merged in PHP rather than in SQL. A union across two tables with
+     * different shapes, then paginated, is a query nobody will be able to
+     * change safely later — and the page size here is twenty rows.
+     */
     public function history(Request $request): JsonResponse
     {
         $me = $request->user();
 
-        $calls = Call::whereHas('participants', fn ($p) => $p->where('users.id', $me->id))
+        $channel = $request->query('channel');
+        $page = max(1, (int) $request->query('page', 1));
+        $perPage = 20;
+
+        $rows = collect();
+
+        if ($channel !== 'phone') {
+            $rows = $rows->concat($this->netvorkHistory($request, $me));
+        }
+
+        if ($channel !== 'netvork') {
+            $rows = $rows->concat($this->phoneHistory($me));
+        }
+
+        $sorted = $rows->sortByDesc('sort_at')->values();
+
+        $slice = $sorted->forPage($page, $perPage)->values()
+            ->map(function (array $row) {
+                unset($row['sort_at']);
+
+                return $row;
+            });
+
+        return response()->json([
+            'data' => $slice,
+            'current_page' => $page,
+            'last_page' => max(1, (int) ceil($sorted->count() / $perPage)),
+            'per_page' => $perPage,
+            'total' => $sorted->count(),
+        ]);
+    }
+
+    /** Calls placed on a SIM, which the app only ever half knows about. */
+    protected function phoneHistory($me): \Illuminate\Support\Collection
+    {
+        return \App\Models\PhoneCall::where('user_id', $me->id)
+            ->latest('placed_at')
+            // Deep enough that the merged page is always full, shallow enough
+            // that this never becomes the reason the screen is slow.
+            ->limit(200)
+            ->get()
+            ->map(fn (\App\Models\PhoneCall $call) => $call->serialize() + [
+                'sort_at' => $call->placed_at,
+                'is_outgoing' => true,
+                'started_at' => $call->placed_at,
+            ]);
+    }
+
+    /** The app's own calls, which it knows the whole of. */
+    protected function netvorkHistory(Request $request, $me): \Illuminate\Support\Collection
+    {
+        return Call::whereHas('participants', fn ($p) => $p->where('users.id', $me->id))
             /*
              * type and name, not the uuid alone.
              *
@@ -561,11 +629,9 @@ class CallController extends Controller
              */
             ->with(['caller:id,uuid,name', 'participants:id,uuid,name', 'conversation:id,uuid,type,name'])
             ->latest('started_at')
-            ->paginate(20);
-
-        $calls->getCollection()->transform(fn ($c) => $this->serialize($c, $request));
-
-        return response()->json($calls);
+            ->limit(200)
+            ->get()
+            ->map(fn (Call $c) => $this->serialize($c, $request) + ['sort_at' => $c->started_at]);
     }
 
     protected function serialize(Call $call, Request $request): array
@@ -579,6 +645,14 @@ class CallController extends Controller
 
         return [
             'uuid' => $call->uuid,
+            /*
+             * Which kind of call this was. The phone rows carry 'phone', and
+             * a list where only one side is labelled is a list where the
+             * unlabelled side means nothing.
+             */
+            'channel' => 'netvork',
+            // Counted by the server, unlike a phone call's.
+            'duration_is_reported' => false,
             'conversation_uuid' => $conversation?->uuid,
             'is_group' => $conversation ? $conversation->type !== 'direct' : false,
             'group_name' => $conversation && $conversation->type !== 'direct' ? $conversation->name : null,

@@ -51,7 +51,13 @@ class CrmRecurringInvoiceTest extends TestCase
         ]);
         $rights = [
             'clients' => ['view', 'create'],
+            // The documents here are proformas, which is its own right since
+            // the split — a quote and a bill are no longer the same grant.
+            'proforma' => ['view', 'create', 'edit'],
             'invoices' => ['view', 'create', 'edit'],
+            // A schedule is its own screen and now its own right; it used to
+            // come free with 'invoices'.
+            'recurring' => ['view', 'create', 'edit'],
             'payments' => ['view', 'create'],
         ];
         $this->alice = Member::create([

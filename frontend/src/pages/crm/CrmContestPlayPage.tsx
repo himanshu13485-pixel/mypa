@@ -3,11 +3,12 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Check, CheckCircle2, Clock, Medal, Send, X } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmContestQuestion } from '../../api/crm'
+import { crm, crmMeQuery, type CrmContestQuestion } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Spinner } from '../../components/ui'
 import { phaseBadge } from './CrmContestsPage'
+import { crmPath } from '../../lib/crmPath'
 
 function useCountdown(target: string | undefined) {
   const [, tick] = useState(0)
@@ -38,7 +39,7 @@ export default function CrmContestPlayPage() {
     refetchInterval: 30_000, // the phase flips itself when the clock runs out
   })
   // The Admin (or a Super Admin in oversight) runs the quiz, never plays it.
-  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQuery(crmMeQuery())
   const spectator = me?.member?.crm_role === 'admin' || !!me?.member?.is_oversight
 
   const ended = contest?.phase === 'ended'
@@ -85,7 +86,7 @@ export default function CrmContestPlayPage() {
     <div className="mx-auto max-w-3xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate('/crm/contests')} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(crmPath('/crm/contests'))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>

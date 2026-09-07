@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  ArrowDown, Check, CheckCheck, ChevronLeft, Clock, Flag, Forward, Megaphone, Mic, Paperclip, Pencil, Phone, Pin, Plus,
+  ArrowDown, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Flag, Forward, Megaphone, Mic, MoreVertical, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
@@ -11,6 +11,8 @@ import type { ConversationMember } from '../api/endpoints'
 import MessageAttachment from '../components/MessageAttachment'
 import PersonModal from '../components/PersonModal'
 import BroadcastModal from '../components/BroadcastModal'
+import { EmojiPicker } from '../components/EmojiPicker'
+import { insertAtCursor } from '../lib/insertAtCursor'
 import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
@@ -29,6 +31,11 @@ import type { ChatMessage, ConversationItem } from '../types'
 import { Avatar } from '../lib/avatars'
 import { PresenceDot, PresenceInline } from '../components/PresenceDot'
 import { lastSeenLabel, resolvePresence, usePresenceMap } from '../lib/presence'
+import { useMediaQuery } from '../lib/useMediaQuery'
+import { useLongPress } from '../lib/useLongPress'
+import {
+  canUnsendAll, copyTextOf, MAX_FORWARD_AT_ONCE, selectedIn, toggleSelected,
+} from '../lib/messageSelection'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
@@ -188,6 +195,56 @@ export default function MessagesPage() {
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [reactFor, setReactFor] = useState<string | null>(null)
+  /*
+   * Which message has its action row open, on a touchscreen.
+   *
+   * The row used to be revealed by `group-hover` alone, which is a rule that
+   * can only ever fire for a mouse. On a phone — and most of all inside the
+   * Android shell, whose WebView does not fake a hover state the way mobile
+   * Chrome sometimes does — reply, forward, edit, pin, star and delete were
+   * all present in the DOM, correct, tested, and completely unreachable.
+   *
+   * One id rather than a boolean per row, like reactFor above it: opening the
+   * actions on a second message closes the first, which is the behaviour
+   * hover gave for free.
+   */
+  const [actionsFor, setActionsFor] = useState<string | null>(null)
+  /*
+   * Hover capability, not screen size.
+   *
+   * The first cut of this asked useIsPhone(), which would have left every
+   * tablet exactly as broken as the phone was — an iPad is wider than any
+   * phone breakpoint and has no more hover than one. `(hover: none)` asks the
+   * question the bug is actually about, and answers it correctly for the
+   * awkward middle too: a touchscreen laptop with a trackpad keeps the hover
+   * behaviour, because it genuinely can hover.
+   */
+  const noHover = useMediaQuery('(hover: none)')
+  /*
+   * Press and hold a bubble to open its actions — the gesture every
+   * messaging app has trained people to reach for. Called once and bound per
+   * row, because a hook cannot be called inside the map below.
+   */
+  const bindLongPress = useLongPress()
+
+  /*
+   * Which messages are ticked, and therefore whether the thread is in
+   * selection mode at all. One set rather than a flag plus a set: "nothing
+   * ticked" and "not selecting" are the same state, and keeping them as two
+   * was how the toolbar was going to end up on screen with nothing in it.
+   */
+  const [selection, setSelection] = useState<Set<string>>(new Set())
+  const selecting = selection.size > 0
+
+  const clearSelection = () => setSelection(new Set())
+
+  /*
+   * Leaving the conversation drops the selection.
+   *
+   * Ticks carried into another thread would be ticks on messages that are no
+   * longer on screen — and the next bulk delete would take them with it.
+   */
+  useEffect(() => { setSelection(new Set()) }, [selected?.uuid])
   const [typing, setTyping] = useState<{ uuid: string; name: string }[]>([])
   const typingSentRef = useRef(0)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -196,7 +253,14 @@ export default function MessagesPage() {
   /** Whose profile is open, if any. */
   const [viewingPerson, setViewingPerson] = useState<string | null>(null)
   /** The message being passed along, and where to. */
-  const [forwarding, setForwarding] = useState<ChatMessage | null>(null)
+  /*
+   * What is being forwarded — a list, because forwarding one thing and
+   * forwarding twenty differ only in length. A single message from the
+   * action row arrives here as a list of one.
+   */
+  const [forwarding, setForwarding] = useState<ChatMessage[] | null>(null)
+  /** The confirm for deleting a whole selection at once. */
+  const [deletingMany, setDeletingMany] = useState(false)
   const [deleting, setDeleting] = useState<ChatMessage | null>(null)
   const [pickedChats, setPickedChats] = useState<Set<string>>(new Set())
   /*
@@ -212,6 +276,30 @@ export default function MessagesPage() {
   /** True once the opened conversation has been pinned to its newest message. */
   const pinnedRef = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
+  const draftInputRef = useRef<HTMLInputElement>(null)
+
+  /**
+   * Put an emoji where the cursor is, not always at the end.
+   *
+   * "Typing 😊 and finishing the sentence" is the ordinary case a chat emoji
+   * button exists for, and appending to the end instead would move every
+   * emoji you pick mid-sentence to the wrong place the moment you kept
+   * typing.
+   */
+  const insertEmoji = (emoji: string) => {
+    const el = draftInputRef.current
+    const start = el?.selectionStart ?? draft.length
+    const end = el?.selectionEnd ?? draft.length
+    const { text, cursor } = insertAtCursor(draft, emoji, start, end)
+    setDraft(text)
+
+    // The DOM has not re-rendered with the new value yet on this tick.
+    requestAnimationFrame(() => {
+      el?.focus()
+      el?.setSelectionRange(cursor, cursor)
+    })
+  }
+
 
   /*
    * Presence, as the sockets have it.
@@ -247,6 +335,10 @@ export default function MessagesPage() {
     enabled: !!selected,
     refetchInterval: query ? false : 15_000,
   })
+
+  /* The ticked messages, in the order the thread holds them — a Set remembers
+     the order things were tapped, which is not the order they were said. */
+  const picked = selectedIn(messages ?? [], selection)
 
   /*
    * The newest message's identity.
@@ -491,10 +583,19 @@ export default function MessagesPage() {
   })
 
   const forwardMutation = useMutation({
-    mutationFn: () => chat.forward(selected!.uuid, forwarding!.uuid, [...pickedChats]),
+    /*
+     * One request whatever the count. The bulk route keeps them in the order
+     * the thread holds them, which a loop of single forwards could not.
+     */
+    mutationFn: () => chat.forwardMany(
+      selected!.uuid,
+      (forwarding ?? []).map((m) => m.uuid),
+      [...pickedChats],
+    ),
     onSuccess: (res) => {
       setForwarding(null)
       setPickedChats(new Set())
+      clearSelection()
       queryClient.invalidateQueries({ queryKey: ['conversations'] })
       // Named, not swallowed: an announcement group refuses quietly on the
       // server, and a silent no here would read as a send that worked.
@@ -507,6 +608,56 @@ export default function MessagesPage() {
     },
     onError: (err) => toastError(errorMessage(err)),
   })
+
+  /**
+   * Star everything ticked.
+   *
+   * The single star is a toggle, which is right for one message and wrong for
+   * twenty: a mixed selection would come out inverted rather than starred.
+   * So only the unstarred ones are touched, and a selection that is already
+   * starred throughout says so instead of quietly unstarring the lot.
+   */
+  const bulkStar = () => {
+    const toStar = picked.filter((m) => !m.is_starred)
+    if (toStar.length === 0) {
+      toast('Those are already starred.', 'success')
+      clearSelection()
+
+      return
+    }
+
+    Promise.allSettled(toStar.map((m) => chat.star(selected!.uuid, m.uuid)))
+      .then((results) => {
+        const failed = results.filter((r) => r.status === 'rejected').length
+        invalidateMessages()
+        clearSelection()
+        if (failed) toastError(`${failed} could not be starred.`)
+        else toast(`Starred ${toStar.length}.`, 'success')
+      })
+  }
+
+  /**
+   * Delete everything ticked, for me or for everyone.
+   *
+   * One request per message rather than a bulk route: each one has to pass
+   * the same authorship and six-hour checks it would alone, and that is
+   * exactly what the single endpoint already does. What is reported is what
+   * actually happened — a partial failure here is somebody's message staying
+   * up, which they need to be told about rather than left to notice.
+   */
+  const bulkDelete = (scope: 'me' | 'everyone') => {
+    const targets = [...picked]
+    setDeletingMany(false)
+
+    Promise.allSettled(targets.map((m) => chat.remove(selected!.uuid, m.uuid, scope)))
+      .then((results) => {
+        const failed = results.filter((r) => r.status === 'rejected').length
+        invalidateMessages()
+        clearSelection()
+        if (failed) toastError(`${targets.length - failed} deleted; ${failed} could not be.`)
+        else toast(`Deleted ${targets.length}.`, 'success')
+      })
+  }
 
   const send = () => {
     if (editing) {
@@ -672,8 +823,76 @@ export default function MessagesPage() {
           </div>
         ) : (
           <>
+            {/*
+              * The selection toolbar, in place of the header.
+              *
+              * In place of, not above: two bars would push the thread down
+              * the moment anything was ticked, and a list that jumps while
+              * you are picking things out of it is a list you lose your place
+              * in. The header has nothing to say while a selection is open
+              * anyway — the question on screen is "these ones, and then
+              * what", not "who am I talking to".
+              */}
+            {selecting && (
+              <div className="flex items-center justify-between gap-2 border-b border-slate-200 bg-brand-50 px-2 py-2 dark:border-slate-800 dark:bg-brand-500/10">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <button
+                    className="tap rounded-lg p-2 text-slate-500 hover:bg-white/60 dark:hover:bg-slate-800"
+                    aria-label="Cancel selection"
+                    onClick={clearSelection}
+                  >
+                    <X className="size-4" />
+                  </button>
+                  <span className="truncate text-sm font-medium">{selection.size} selected</span>
+                </div>
+
+                <div className="flex items-center gap-0.5">
+                  <button
+                    className="tap rounded-lg p-2 text-slate-500 hover:bg-white/60 disabled:opacity-40 dark:hover:bg-slate-800"
+                    title={picked.some((m) => m.body) ? 'Copy text' : 'Nothing here has text to copy'}
+                    aria-label="Copy selected"
+                    disabled={!picked.some((m) => m.body)}
+                    onClick={() => {
+                      navigator.clipboard.writeText(copyTextOf(messages ?? [], selection))
+                        .then(() => { toast('Copied.', 'success'); clearSelection() })
+                        .catch(() => toastError('This browser would not let the app copy.'))
+                    }}
+                  >
+                    <Copy className="size-4" />
+                  </button>
+                  <button
+                    className="tap rounded-lg p-2 text-slate-500 hover:bg-white/60 dark:hover:bg-slate-800"
+                    title="Star"
+                    aria-label="Star selected"
+                    onClick={() => bulkStar()}
+                  >
+                    <Star className="size-4" />
+                  </button>
+                  <button
+                    className="tap rounded-lg p-2 text-slate-500 hover:bg-white/60 disabled:opacity-40 dark:hover:bg-slate-800"
+                    title={selection.size > MAX_FORWARD_AT_ONCE
+                      ? `${MAX_FORWARD_AT_ONCE} messages at a time is the limit`
+                      : 'Forward'}
+                    aria-label="Forward selected"
+                    disabled={selection.size > MAX_FORWARD_AT_ONCE}
+                    onClick={() => { setForwarding(picked); setPickedChats(new Set()) }}
+                  >
+                    <Forward className="size-4" />
+                  </button>
+                  <button
+                    className="tap rounded-lg p-2 text-slate-500 hover:bg-white/60 hover:text-red-600 dark:hover:bg-slate-800"
+                    title="Delete"
+                    aria-label="Delete selected"
+                    onClick={() => setDeletingMany(true)}
+                  >
+                    <Trash2 className="size-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800">
+            <div className={clsx('flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800', selecting && 'hidden')}>
               <div className="flex min-w-0 items-center gap-1.5">
                 <button
                   className="tap -ml-2 flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 md:hidden"
@@ -736,6 +955,43 @@ export default function MessagesPage() {
               </div>
               {viewingPerson && (
         <PersonModal uuid={viewingPerson} onClose={() => setViewingPerson(null)} />
+      )}
+
+      {/*
+        * The same two deletions, for a whole selection.
+        *
+        * "Delete for everyone" is offered only when every message ticked is
+        * still inside its window — a mixed selection would delete half for
+        * everybody and half for nobody, and the half left standing would be
+        * the one somebody most wanted gone. When it cannot be offered the
+        * dialog says why rather than quietly showing one button.
+        */}
+      {deletingMany && (
+        <Modal title={`Delete ${selection.size} messages`} onClose={() => setDeletingMany(false)}>
+          <div className="space-y-3">
+            {!canUnsendAll(messages ?? [], selection) && (
+              <p className="text-xs text-amber-600">
+                Some of these are older than {DELETE_WINDOW_HOURS} hours or are not yours, so they
+                cannot be taken back for everyone. You can still remove all of them from your own
+                screen.
+              </p>
+            )}
+
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="secondary" onClick={() => setDeletingMany(false)}>Cancel</Button>
+              <Button variant="secondary" onClick={() => bulkDelete('me')}>Delete for me</Button>
+              {canUnsendAll(messages ?? [], selection) && (
+                <Button variant="danger" onClick={() => bulkDelete('everyone')}>
+                  Delete for everyone
+                </Button>
+              )}
+            </div>
+
+            <p className="text-right text-[11px] text-slate-400">
+              Everyone still sees that a message was deleted.
+            </p>
+          </div>
+        </Modal>
       )}
 
       {/*
@@ -811,9 +1067,11 @@ export default function MessagesPage() {
         <Modal title="Forward to" onClose={() => setForwarding(null)}>
           <div className="space-y-3">
             <p className="rounded-lg bg-slate-100 p-2 text-xs text-slate-500 dark:bg-slate-800">
-              {forwarding.body
-                ? forwarding.body.slice(0, 140)
-                : `${forwarding.attachments?.length ?? 0} attachment(s)`}
+              {forwarding.length > 1
+                ? `${forwarding.length} messages`
+                : forwarding[0]?.body
+                  ? forwarding[0].body.slice(0, 140)
+                  : `${forwarding[0]?.attachments?.length ?? 0} attachment(s)`}
             </p>
 
             <div className="max-h-64 space-y-1 overflow-y-auto">
@@ -1027,7 +1285,17 @@ export default function MessagesPage() {
                   before, every switch blanked the panel either way. */}
               {loadingThread && !messages && <SkeletonMessages />}
               {messages?.map((m) => (
-                <div key={m.uuid} className={clsx('group flex', m.is_own ? 'justify-end' : 'justify-start')}>
+                <div
+                  key={m.uuid}
+                  className={clsx(
+                    'group flex',
+                    m.is_own ? 'justify-end' : 'justify-start',
+                    // The whole row lights up, not just the bubble: at a
+                    // glance the question is "how many have I got", and a
+                    // tint that stops at the bubble's edge is hard to count.
+                    selection.has(m.uuid) && '-mx-4 bg-brand-500/10 px-4 py-0.5',
+                  )}
+                >
                   <div className={clsx('relative max-w-[75%]')}>
                     <div
                       className={clsx(
@@ -1035,7 +1303,23 @@ export default function MessagesPage() {
                         m.is_own
                           ? 'rounded-br-sm bg-brand-600 text-white'
                           : 'rounded-bl-sm bg-slate-100 dark:bg-slate-800',
+                        // Only where the gesture is the way in. A mouse has
+                        // hover, and suppressing its text selection to catch
+                        // a press it will never make would be a plain loss.
+                        noHover && 'select-none',
+                        // While picking, a tap anywhere on the bubble is the
+                        // tick — so the whole thing has to look pressable,
+                        // and nothing inside may answer the tap first. A link
+                        // would navigate away and an attachment would start
+                        // downloading, both while also ticking the message.
+                        selecting && 'cursor-pointer [&_a]:pointer-events-none [&_button]:pointer-events-none',
                       )}
+                      onClick={selecting
+                        ? (e) => { e.preventDefault(); setSelection(toggleSelected(selection, m.uuid)) }
+                        : undefined}
+                      {...(noHover && !m.is_deleted && !selecting
+                        ? bindLongPress(() => { setActionsFor(m.uuid); setReactFor(null) })
+                        : {})}
                     >
                       {/* A message outlives the account that sent it, so the
                           name can be missing. Saying so is better than a line
@@ -1112,19 +1396,94 @@ export default function MessagesPage() {
                       </div>
                     )}
 
-                    {/* Hover actions */}
-                    {!m.is_deleted && (
-                      <div className={clsx('absolute -top-3 hidden gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm group-hover:flex dark:border-slate-700 dark:bg-slate-800', m.is_own ? 'right-0' : 'left-0')}>
+                    {/*
+                      * Message actions.
+                      *
+                      * On a mouse these appear on hover, as they always have.
+                      * On a touchscreen there is no hover to appear on, so the
+                      * same row gets a visible handle to open it — every one
+                      * of reply, forward, edit, pin, star and delete was
+                      * otherwise unreachable on a phone, which is exactly how
+                      * a feature ships, passes its tests, and still cannot be
+                      * used by the people it was built for.
+                      *
+                      * A visible handle rather than a long-press: long-press
+                      * fights text selection and scrolling for the same
+                      * gesture, and a gesture nobody is told about is not
+                      * much better than no gesture at all.
+                      */}
+                    {!m.is_deleted && noHover && actionsFor !== m.uuid && (
+                      <button
+                        type="button"
+                        aria-label="Message actions"
+                        className={clsx('absolute -top-3 flex size-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm dark:border-slate-700 dark:bg-slate-800', m.is_own ? 'right-0' : 'left-0')}
+                        onClick={() => { setActionsFor(m.uuid); setReactFor(null) }}
+                      >
+                        <MoreVertical className="size-3.5" />
+                      </button>
+                    )}
+                    {!m.is_deleted && (!noHover || actionsFor === m.uuid) && (
+                      <div
+                        className={clsx(
+                          'absolute -top-3 gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm dark:border-slate-700 dark:bg-slate-800',
+                          m.is_own ? 'right-0' : 'left-0',
+                          // Open on tap for touch; on hover, as before, for a mouse.
+                          noHover ? 'flex' : 'hidden group-hover:flex',
+                        )}
+                        // Whatever was tapped in here, the row has done its
+                        // job — collapse it back to the handle. Bubbles after
+                        // the button's own handler, so the action still runs.
+                        onClick={() => { if (noHover) setActionsFor(null) }}
+                      >
                         <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="React" onClick={() => setReactFor(reactFor === m.uuid ? null : m.uuid)}>
                           <Smile className="size-3.5" />
                         </button>
                         <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Reply" onClick={() => { setReplyTo(m); setEditing(null) }}>
                           <Reply className="size-3.5" />
                         </button>
+                        {/*
+                          * Into selection mode, with this one already ticked.
+                          *
+                          * The way in is here rather than a second gesture on
+                          * the bubble: long-press already opens this row, and
+                          * a press-and-hold that sometimes opens a menu and
+                          * sometimes starts selecting depending on how long
+                          * you held it is a coin toss, not an interface.
+                          */}
+                        <button
+                          className="rounded p-1 text-slate-400 hover:text-brand-600"
+                          title="Select messages"
+                          onClick={() => setSelection(new Set([m.uuid]))}
+                        >
+                          <CheckSquare className="size-3.5" />
+                        </button>
+                        {/*
+                          * Copy, which the long-press took away.
+                          *
+                          * Holding a bubble now opens this row, so on a touch
+                          * device the browser's own press-to-select-text no
+                          * longer happens — and "copy what someone sent me"
+                          * is far too ordinary a thing to lose. Text only:
+                          * there is nothing to put on a clipboard for a
+                          * message that is just a file.
+                          */}
+                        {!!m.body && (
+                          <button
+                            className="rounded p-1 text-slate-400 hover:text-brand-600"
+                            title="Copy text"
+                            onClick={() => {
+                              navigator.clipboard.writeText(m.body ?? '')
+                                .then(() => toast('Copied.', 'success'))
+                                .catch(() => toastError('This browser would not let the app copy. Select the text by hand.'))
+                            }}
+                          >
+                            <Copy className="size-3.5" />
+                          </button>
+                        )}
                         <button
                           className="rounded p-1 text-slate-400 hover:text-brand-600"
                           title="Forward"
-                          onClick={() => { setForwarding(m); setPickedChats(new Set()) }}
+                          onClick={() => { setForwarding([m]); setPickedChats(new Set()) }}
                         >
                           <Forward className="size-3.5" />
                         </button>
@@ -1252,7 +1611,9 @@ export default function MessagesPage() {
                 <VoiceRecorder onSend={(blob, seconds) => {
                   sendFiles([new File([blob], `voice-${Date.now()}.webm`, { type: blob.type })], 'voice', seconds)
                 }} />
+                <EmojiPicker onPick={insertEmoji} />
                 <Input
+                  ref={draftInputRef}
                   placeholder={editing ? 'Edit your message…' : 'Type a message…'}
                   value={draft}
                   onChange={(e) => {

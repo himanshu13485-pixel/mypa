@@ -9,7 +9,10 @@ import { crm, crmCan, type CrmComplaintError, type CrmComplaintReply, type CrmMe
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner } from '../../components/ui'
+import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { ErrorPill, StatusPill } from './CrmComplaintsPage'
+import { useMediaQuery } from '../../lib/useMediaQuery'
+import { crmPath } from '../../lib/crmPath'
 
 export default function CrmComplaintDetailPage() {
   const { uuid = '' } = useParams()
@@ -70,7 +73,7 @@ export default function CrmComplaintDetailPage() {
     <div className="mx-auto max-w-6xl space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <button onClick={() => navigate('/crm/complaints')} className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+          <button onClick={() => navigate(crmPath('/crm/complaints'))} className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
             <ArrowLeft className="size-3.5" /> All complaints
           </button>
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-slate-900 dark:text-white">
@@ -233,25 +236,35 @@ export default function CrmComplaintDetailPage() {
               <Building2 className="size-4 text-slate-400" /> Who complained
             </h2>
             <dl className="space-y-1.5 text-sm">
-              {[
-                ['Company', complaint.company_name],
-                ['Contact', complaint.contact_person],
-                ['Mobile', complaint.mobile],
-                ['Phone', complaint.phone],
-                ['Email', complaint.email],
-                ['Alt. contact', complaint.alt_contact_person],
-                ['Alt. mobile', complaint.alt_mobile],
-                ['Alt. phone', complaint.alt_phone],
-                ['Alt. email', complaint.alt_email],
-              ].filter(([, v]) => v).map(([k, v]) => (
-                <div key={k as string} className="flex items-baseline justify-between gap-2">
+              {/*
+                * A complaint is answered by ringing somebody back, so the
+                * numbers here are the point of the panel — third column says
+                * how to render the value rather than as plain text.
+                */}
+              {([
+                ['Company', complaint.company_name, 'text'],
+                ['Contact', complaint.contact_person, 'text'],
+                ['Mobile', complaint.mobile, 'tel'],
+                ['Phone', complaint.phone, 'tel'],
+                ['Email', complaint.email, 'mail'],
+                ['Alt. contact', complaint.alt_contact_person, 'text'],
+                ['Alt. mobile', complaint.alt_mobile, 'tel'],
+                ['Alt. phone', complaint.alt_phone, 'tel'],
+                ['Alt. email', complaint.alt_email, 'mail'],
+              ] as [string, string | null | undefined, 'text' | 'tel' | 'mail'][])
+                .filter(([, v]) => v).map(([k, v, kind]) => (
+                <div key={k} className="flex items-baseline justify-between gap-2">
                   <dt className="shrink-0 text-xs text-slate-400">{k}</dt>
-                  <dd className="min-w-0 break-words text-right text-slate-700 dark:text-slate-200">{v}</dd>
+                  <dd className="min-w-0 break-words text-right text-slate-700 dark:text-slate-200">
+                    {kind === 'tel' ? <PhoneLink value={v} />
+                      : kind === 'mail' ? <EmailLink value={v} />
+                        : v}
+                  </dd>
                 </div>
               ))}
             </dl>
             {complaint.client_uuid && (
-              <Link to={`/crm/clients/${complaint.client_uuid}`} className="mt-2 inline-block text-xs font-medium text-emerald-600 hover:underline">
+              <Link to={crmPath(`/crm/clients/${complaint.client_uuid}`)} className="mt-2 inline-block text-xs font-medium text-emerald-600 hover:underline">
                 Open the client record →
               </Link>
             )}
@@ -320,6 +333,12 @@ function Thread({ title, hint, tone, replies, me, onDelete }: {
   onDelete: (replyUuid: string) => void
 }) {
   const manager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
+  /*
+   * On a touchscreen the remove button cannot fade in on hover, because there
+   * is no hover — and unlike the calendar's add button, nothing else here
+   * deletes a reply, so on a tablet or a phone it simply could not be done.
+   */
+  const noHover = useMediaQuery('(hover: none)')
 
   return (
     <Card>
@@ -353,7 +372,7 @@ function Thread({ title, hint, tone, replies, me, onDelete }: {
                   {(manager || r.author_uuid === me?.member?.uuid) && (
                     <button
                       onClick={() => onDelete(r.uuid)}
-                      className="opacity-0 transition group-hover:opacity-100"
+                      className={clsx('transition', noHover ? 'opacity-100' : 'opacity-0 group-hover:opacity-100')}
                       aria-label="Remove"
                     >
                       <Trash2 className="size-3.5 text-slate-400 hover:text-red-500" />

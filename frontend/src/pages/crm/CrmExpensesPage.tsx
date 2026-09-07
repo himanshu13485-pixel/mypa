@@ -9,6 +9,7 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner } from '../../components/ui'
 import { CHART_COLORS, ColumnChart, DonutChart } from './charts'
 import { StatusChip } from './CrmVendorsPage'
+import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -450,7 +451,7 @@ export default function CrmExpensesPage() {
                 </Select>
                 <p className="mt-1 text-xs text-slate-400">
                   Not listed?{' '}
-                  <Link to="/crm/vendors" className="font-medium text-emerald-600 hover:underline">Register the vendor</Link>{' '}
+                  <Link to={crmPath('/crm/vendors')} className="font-medium text-emerald-600 hover:underline">Register the vendor</Link>{' '}
                   first — their name, GSTIN and bank details come from that record.
                 </p>
               </div>

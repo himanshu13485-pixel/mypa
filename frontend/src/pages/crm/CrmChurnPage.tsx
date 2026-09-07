@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { TrendingDown } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm } from '../../api/crm'
+import { crm, crmMeQuery } from '../../api/crm'
 import { useQuery as useQ } from '@tanstack/react-query'
 import { Card, EmptyState, Select, Spinner } from '../../components/ui'
 
@@ -16,7 +16,7 @@ const inr = (v: number) => '₹' + Number(v || 0).toLocaleString('en-IN', { maxi
 export default function CrmChurnPage() {
   const [months, setMonths] = useState(12)
   const [member, setMember] = useState('')
-  const { data: me } = useQ({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me } = useQ(crmMeQuery())
   const { data: masters } = useQ({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const manager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
   const { data, isLoading } = useQuery({

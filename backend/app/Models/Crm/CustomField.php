@@ -117,6 +117,19 @@ class CustomField extends Model
         'is_required', 'help', 'sort', 'status', 'reason', 'requested_by',
         'decided_by', 'decided_at', 'decision_note', 'is_builtin', 'is_hidden',
         'tax_kind', 'tax_basis', 'default_rate',
+        'pending', 'pending_by', 'pending_at',
+    ];
+
+    /**
+     * The parts of a field a company may ask to change.
+     *
+     * Named once, because an amendment is stored as this shape and applied by
+     * writing it back — a list that drifts from what the form sends is a
+     * change that half lands.
+     */
+    public const AMENDABLE = [
+        'label', 'type', 'options', 'is_required', 'help', 'is_hidden',
+        'tax_kind', 'tax_basis', 'default_rate', 'reason',
     ];
 
     protected function casts(): array
@@ -128,7 +141,41 @@ class CustomField extends Model
             'is_hidden' => 'boolean',
             'default_rate' => 'decimal:3',
             'decided_at' => 'datetime',
+            'pending' => 'array',
+            'pending_at' => 'datetime',
         ];
+    }
+
+    /** Whoever asked for the outstanding change, which may not be the requester. */
+    public function pendingRequester(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(Member::class, 'pending_by');
+    }
+
+    /** Whether a change is waiting on the Super Admin. */
+    public function hasAmendment(): bool
+    {
+        return filled($this->pending);
+    }
+
+    /**
+     * The field as it would be if the outstanding change were allowed.
+     *
+     * Only the keys actually proposed are taken, so a payload that says
+     * nothing about `help` leaves the help text alone rather than clearing
+     * it — an amendment is a change, not a replacement.
+     */
+    public function applyAmendment(): void
+    {
+        $proposal = collect($this->pending ?? [])->only(self::AMENDABLE)->all();
+
+        $this->update($proposal + ['pending' => null, 'pending_by' => null, 'pending_at' => null]);
+    }
+
+    /** Drop the outstanding change; the field carries on as it was. */
+    public function dropAmendment(): void
+    {
+        $this->update(['pending' => null, 'pending_by' => null, 'pending_at' => null]);
     }
 
     public function uniqueIds(): array
@@ -319,6 +366,17 @@ class CustomField extends Model
             'decided_by' => $this->decider?->name,
             'decided_at' => $this->decided_at?->toDateTimeString(),
             'decision_note' => $this->decision_note,
+            /*
+             * A change asked for and not yet allowed.
+             *
+             * Sent beside the live values rather than instead of them, so
+             * both screens can say what the field is AND what it would
+             * become — which is the only way "awaiting the Super Admin" is
+             * readable rather than alarming.
+             */
+            'pending' => $this->pending,
+            'pending_by' => $this->pendingRequester?->user?->name,
+            'pending_at' => $this->pending_at?->toDateTimeString(),
             'organization' => $this->relationLoaded('organization')
                 ? ['uuid' => $this->organization?->uuid, 'name' => $this->organization?->name]
                 : null,

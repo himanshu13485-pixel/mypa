@@ -55,7 +55,8 @@ import {
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
-import { crm, crmCan, setCrmOrg, type CrmMe } from '../../api/crm'
+import { crm, crmMeQuery, crmCan, setCrmOrg, type CrmMe } from '../../api/crm'
+import { crmPath } from '../../lib/crmPath'
 import { Spinner } from '../../components/ui'
 
 interface NavItem {
@@ -109,21 +110,21 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
   ]},
   { label: 'Sales', items: [
     { label: 'Leads', section: 'leads', icon: Filter, to: '/crm/leads', module: 'leads', badge: 'leads' },
-    { label: 'Lead log', icon: ListChecks, to: '/crm/lead-log', module: 'leads' },
+    { label: 'Lead log', icon: ListChecks, to: '/crm/lead-log', module: 'lead_log' },
     { label: 'Clients', section: 'clients', icon: Briefcase, to: '/crm/clients', module: 'clients' },
     { label: 'Targets', section: 'targets', icon: Target, to: '/crm/targets', module: 'targets' },
     { label: 'Contest', section: 'contests', icon: Award, to: '/crm/contests', badge: 'contests' },
   ]},
   { label: 'Money', items: [
-    { label: 'Proforma', section: 'proforma', icon: FileText, to: '/crm/invoices?kind=proforma', module: 'invoices' },
-    { label: 'Proforma log', icon: ListChecks, to: '/crm/invoice-log?kind=proforma', module: 'invoices' },
+    { label: 'Proforma', section: 'proforma', icon: FileText, to: '/crm/invoices?kind=proforma', module: 'proforma' },
+    { label: 'Proforma log', icon: ListChecks, to: '/crm/invoice-log?kind=proforma', module: 'proforma_log' },
     { label: 'Invoices', section: 'invoices', icon: ReceiptText, to: '/crm/invoices?kind=invoice', module: 'invoices' },
-    { label: 'Invoice log', icon: ListChecks, to: '/crm/invoice-log?kind=invoice', module: 'invoices' },
-    { label: 'Recurring', icon: Repeat, to: '/crm/recurring', module: 'invoices' },
+    { label: 'Invoice log', icon: ListChecks, to: '/crm/invoice-log?kind=invoice', module: 'invoice_log' },
+    { label: 'Recurring', icon: Repeat, to: '/crm/recurring', module: 'recurring' },
     { label: 'Payments', section: 'payments', icon: Banknote, to: '/crm/payments', module: 'payments', badge: 'payments' },
-    { label: 'Vendors', section: 'vendors', icon: Store, to: '/crm/vendors', module: 'expenses' },
+    { label: 'Vendors', section: 'vendors', icon: Store, to: '/crm/vendors', module: 'vendors' },
     { label: 'Expenses', section: 'expenses', icon: Wallet, to: '/crm/expenses', module: 'expenses' },
-    { label: 'Commissions', section: 'commissions', icon: HandCoins, to: '/crm/commissions', module: 'expenses' },
+    { label: 'Commissions', section: 'commissions', icon: HandCoins, to: '/crm/commissions', module: 'commissions' },
     { label: 'Incentives', icon: TrendingUp, to: '/crm/incentives' },
     { label: 'Salary', section: 'salary', icon: Wallet, to: '/crm/salary' },
     { label: 'P&L', icon: Scale, to: '/crm/pl', adminOnly: true },
@@ -133,9 +134,9 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Approvals', section: 'approvals', icon: ClipboardCheck, to: '/crm/approvals', badge: 'approvals' },
     { label: 'Newsletters', section: 'newsletters', icon: Mail, to: '/crm/newsletters', module: 'newsletters' },
     { label: 'Complaints (CMS)', section: 'complaints', icon: LifeBuoy, to: '/crm/complaints', module: 'complaints', badge: 'complaints' },
-    { label: 'Complaint log', icon: ListChecks, to: '/crm/complaint-log', module: 'complaints' },
+    { label: 'Complaint log', icon: ListChecks, to: '/crm/complaint-log', module: 'complaint_log' },
     { label: 'Notice board', section: 'cms', icon: LayoutTemplate, to: '/crm/cms', badge: 'notice' },
-    { label: 'User log', icon: History, to: '/crm/user-log', module: 'reports' },
+    { label: 'User log', icon: History, to: '/crm/user-log', module: 'user_log' },
     { label: 'Reports', icon: BarChart3, to: '/crm/reports', capability: 'reports.view' },
     { label: 'Churn', icon: TrendingDown, to: '/crm/churn' },
     { label: 'Office Assets', section: 'assets', icon: Boxes, to: '/crm/assets' },
@@ -167,7 +168,7 @@ export default function CrmLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const queryClient = useQueryClient()
-  const { data: me, isLoading } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  const { data: me, isLoading } = useQuery(crmMeQuery())
   // The phone menu: the same list as the sidebar, behind the three lines.
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -247,8 +248,8 @@ export default function CrmLayout() {
   const currentSection = SECTIONS
     .flatMap((group) => group.items)
     .find((item) => item.to && item.section && (
-      location.pathname === item.to.split('?')[0]
-      || location.pathname.startsWith(item.to.split('?')[0] + '/')
+      location.pathname === crmPath(item.to).split('?')[0]
+      || location.pathname.startsWith(crmPath(item.to).split('?')[0] + '/')
     ))?.section
 
   useEffect(() => {
@@ -289,8 +290,10 @@ export default function CrmLayout() {
    * decides, and a document page with no kind reads as a tax invoice.
    */
   const isNavActive = (to: string) => {
-    const [path, query] = to.split('?')
-    if (path === '/crm') return location.pathname === '/crm'
+    // The sidebar's entries are written without a company; the address bar
+    // has one. Compared as-is, nothing would ever look active.
+    const [path, query] = crmPath(to).split('?')
+    if (path === crmPath('/crm')) return location.pathname === path
     if (location.pathname !== path && !location.pathname.startsWith(path + '/')) return false
     if (!query) return true
     const want = new URLSearchParams(query)
@@ -372,7 +375,7 @@ export default function CrmLayout() {
                   item.to ? (
                     <NavLink
                       key={item.label}
-                      to={item.to}
+                      to={crmPath(item.to)}
                       end={item.to === '/crm'}
                       className={linkClass(isNavActive(item.to!))}
                     >
