@@ -267,6 +267,91 @@ class InvoiceController extends Controller
         return response()->json(['message' => $invoice->number . ' cancelled.']);
     }
 
+    /**
+     * Delete a document outright.
+     *
+     * Cancelling is usually the right answer for a tax invoice that has
+     * been issued — the number stays in the series, wearing the word
+     * Cancelled, which is what an auditor expects to find. Deleting takes
+     * the row and leaves a hole in the numbering, so it is kept behind the
+     * delete right and refused where it would break something:
+     *
+     *   money already recorded against it, which would vanish with it;
+     *   a proforma that has become an invoice, which still points back here.
+     *
+     * Everything the document owns - its lines, taxes and notes - goes with
+     * it, and the trail keeps what it was before it went.
+     */
+    public function destroy(Request $request, string $uuid): JsonResponse
+    {
+        $invoice = $this->find($request, $uuid);
+
+        [$deletable, $why] = $this->deletable($invoice);
+        abort_unless($deletable, 422, $why);
+
+        $label = $invoice->number;
+        ActivityLog::record($request->attributes->get('crm_member'), $invoice->organization_id,
+            $invoice->kind . '.deleted', $invoice, $this->trail($invoice));
+        $invoice->delete();
+
+        return response()->json(['message' => $label . ' deleted.']);
+    }
+
+    /**
+     * The same act on a list of them, in one pass.
+     *
+     * Each is judged on its own: one document that cannot go does not stop
+     * the rest, and the answer says which were skipped and why rather than
+     * reporting a flat count that hides them.
+     */
+    public function bulkDestroy(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'uuids' => ['required', 'array', 'min:1', 'max:100'],
+            'uuids.*' => ['string'],
+        ]);
+
+        $deleted = 0;
+        $skipped = [];
+
+        foreach ($data['uuids'] as $uuid) {
+            $invoice = $this->find($request, $uuid);
+            [$deletable, $why] = $this->deletable($invoice);
+
+            if (! $deletable) {
+                $skipped[] = $invoice->number . ' — ' . lcfirst(rtrim($why, '.'));
+                continue;
+            }
+
+            ActivityLog::record($request->attributes->get('crm_member'), $invoice->organization_id,
+                $invoice->kind . '.deleted', $invoice, $this->trail($invoice));
+            $invoice->delete();
+            $deleted++;
+        }
+
+        return response()->json([
+            'message' => $deleted . ' document' . ($deleted === 1 ? '' : 's') . ' deleted.'
+                . ($skipped === [] ? '' : ' Kept ' . count($skipped) . ': ' . implode('; ', $skipped) . '.'),
+            'data' => ['deleted' => $deleted, 'skipped' => $skipped],
+        ]);
+    }
+
+    /** @return array{0: bool, 1: string} */
+    private function deletable(Invoice $invoice): array
+    {
+        if ($invoice->payments()->exists()) {
+            return [false, 'Payments are recorded against ' . $invoice->number
+                . '; remove them first, or cancel it instead.'];
+        }
+
+        if ($invoice->convertedTo()->exists()) {
+            return [false, $invoice->number . ' has become a tax invoice, which still refers to it. '
+                . 'Delete that invoice first.'];
+        }
+
+        return [true, ''];
+    }
+
     /** Proforma → tax invoice. The work itself lives in InvoiceConverter,
      *  because settling a payment against a proforma converts it too. */
     public function convert(Request $request, string $uuid, InvoiceConverter $converter): JsonResponse

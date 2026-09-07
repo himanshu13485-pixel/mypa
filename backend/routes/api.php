@@ -904,6 +904,12 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member:invoices,edit');
             Route::post('/invoices/{uuid}/cancel', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'cancel'])
                 ->middleware('crm.member:invoices,delete');
+            // Deleting outright, and in bulk from the list. Same right as
+            // cancelling, which is the gentler act of the two.
+            Route::post('/invoices/bulk-delete', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'bulkDestroy'])
+                ->middleware('crm.member:invoices,delete');
+            Route::delete('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'destroy'])
+                ->middleware('crm.member:invoices,delete');
             Route::post('/invoices/{uuid}/convert', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'convert'])
                 ->middleware('crm.member:invoices,create');
             Route::post('/invoices/{uuid}/payments', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'addPayment'])

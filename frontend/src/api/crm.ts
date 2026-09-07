@@ -2354,6 +2354,14 @@ export const crm = {
       api.post<{ message: string; data: CrmInvoiceRow }>('/crm/invoices', payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/invoices/${uuid}`, payload).then((r) => r.data),
     cancel: (uuid: string) => api.post(`/crm/invoices/${uuid}/cancel`).then((r) => r.data),
+    /** Gone for good — needs the delete right, and refuses when money or a
+     *  converted invoice still refers to the document. */
+    remove: (uuid: string) =>
+      api.delete<{ message: string }>(`/crm/invoices/${uuid}`).then((r) => r.data),
+    bulkRemove: (uuids: string[]) =>
+      api.post<{ message: string; data: { deleted: number; skipped: string[] } }>(
+        '/crm/invoices/bulk-delete', { uuids },
+      ).then((r) => r.data),
     convert: (uuid: string) =>
       api.post<{ message: string; data: { uuid: string; number: string } }>(`/crm/invoices/${uuid}/convert`).then((r) => r.data),
     log: (params: Record<string, string | number | undefined>) =>

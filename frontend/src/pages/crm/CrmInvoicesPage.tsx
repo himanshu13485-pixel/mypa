@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRightLeft, Plus, Search, Download } from 'lucide-react'
+import { ArrowRightLeft, Plus, Search, Download, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { ScopeToggle } from './ScopeToggle'
-import { crm, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
+import { crm, crmCan, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
@@ -35,9 +35,24 @@ export default function CrmInvoicesPage() {
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  // Deleting is granted on the profile, like every other delete in the CRM.
+  const canDelete = crmCan(me, 'invoices', 'delete')
+  const [selected, setSelected] = useState<string[]>([])
 
   // One click from the list: the proforma becomes a tax invoice, nothing is
   // retyped, and we land on the new document.
+  const bulkDelete = useMutation({
+    mutationFn: () => crm.invoices.bulkRemove(selected),
+    onSuccess: (res) => {
+      // The message names what was kept and why, so a partial run is
+      // readable rather than a count that hides the refusals.
+      res.data.skipped.length ? toastError(res.message) : toast(res.message, 'success')
+      setSelected([])
+      queryClient.invalidateQueries({ queryKey: ['crm', 'invoices'] })
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
   const convertMutation = useMutation({
     mutationFn: (docUuid: string) => crm.invoices.convert(docUuid),
     onSuccess: (res) => {
@@ -218,9 +233,46 @@ export default function CrmInvoicesPage() {
           <EmptyState title={`No ${kind === 'proforma' ? 'proforma invoices' : 'invoices'} found`} hint="Adjust the filters or create one." />
         ) : (
           <div className="-mx-4 overflow-x-auto px-4">
+            {/* Only once something is ticked: a delete button sitting there
+                permanently is one mis-click from a hole in the ledger. */}
+            {canDelete && selected.length > 0 && (
+              <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl bg-red-50 px-3 py-2 dark:bg-red-500/10">
+                <span className="text-sm text-red-700 dark:text-red-300">
+                  {selected.length} selected
+                </span>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  disabled={bulkDelete.isPending}
+                  onClick={() => {
+                    if (confirm(`Delete ${selected.length} document${selected.length === 1 ? '' : 's'} for good?
+
+Anything with a payment recorded, or a proforma already converted, is kept and reported back.`)) {
+                      bulkDelete.mutate()
+                    }
+                  }}
+                >
+                  <Trash2 className="size-3.5" /> {bulkDelete.isPending ? 'Deleting…' : 'Delete selected'}
+                </Button>
+                <button className="text-xs text-slate-500 hover:underline" onClick={() => setSelected([])}>
+                  Clear
+                </button>
+              </div>
+            )}
             <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                  {canDelete && (
+                    <th className="w-8 py-2 pr-2 font-medium">
+                      <input
+                        type="checkbox"
+                        aria-label="Select every document on this page"
+                        className="size-4 accent-emerald-600"
+                        checked={data.data.length > 0 && selected.length === data.data.length}
+                        onChange={(e) => setSelected(e.target.checked ? data.data.map((i) => i.uuid) : [])}
+                      />
+                    </th>
+                  )}
                   <th className="py-2 pr-3 font-medium">Number</th>
                   <th className="py-2 pr-3 font-medium">Client</th>
                   <th className="py-2 pr-3 font-medium">Issuing company</th>
@@ -238,6 +290,19 @@ export default function CrmInvoicesPage() {
                     'border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/50 dark:hover:bg-slate-800/40',
                     i.status === 'cancelled' && 'opacity-50',
                   )}>
+                    {canDelete && (
+                      <td className="py-2.5 pr-2">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${i.number}`}
+                          className="size-4 accent-emerald-600"
+                          checked={selected.includes(i.uuid)}
+                          onChange={(e) => setSelected((prev) => e.target.checked
+                            ? [...prev, i.uuid]
+                            : prev.filter((u) => u !== i.uuid))}
+                        />
+                      </td>
+                    )}
                     <td className="py-2.5 pr-3">
                       <Link to={`/crm/invoices/${i.uuid}`} className="font-medium text-emerald-600 hover:underline">{i.number}</Link>
                       {i.status === 'cancelled' && <span className="ml-1.5 text-[10px] uppercase text-red-400">cancelled</span>}

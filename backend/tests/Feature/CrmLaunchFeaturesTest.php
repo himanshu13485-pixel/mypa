@@ -1037,4 +1037,61 @@ class CrmLaunchFeaturesTest extends TestCase
             'check' => 'dns', 'company_id' => $co->id,
         ])->assertForbidden();
     }
+
+    public function test_deleting_a_document_needs_the_right_and_refuses_what_it_would_break(): void
+    {
+        $co = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Acme Docs']);
+        $client = \App\Models\Crm\Client::create([
+            'organization_id' => $this->org->id, 'company_name' => 'Buyer Ltd',
+            'created_by' => $this->adminUser->id,
+        ]);
+
+        $raise = fn (string $kind = 'invoice') => $this->actingAs($this->adminUser)
+            ->postJson('/api/v1/crm/invoices', [
+                'kind' => $kind, 'issuing_company_id' => $co->id, 'client_uuid' => $client->uuid,
+                'invoice_date' => now()->toDateString(),
+                'items' => [['plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
+            ])->assertCreated()->json('data.uuid');
+
+        // An employee without the delete right cannot, however they ask.
+        $plain = $raise();
+        $this->actingAs($this->empUser)->deleteJson('/api/v1/crm/invoices/' . $plain)->assertForbidden();
+        $this->actingAs($this->empUser)->postJson('/api/v1/crm/invoices/bulk-delete', [
+            'uuids' => [$plain],
+        ])->assertForbidden();
+
+        // The Admin holds it by the nature of the job.
+        $this->actingAs($this->adminUser)->deleteJson('/api/v1/crm/invoices/' . $plain)->assertOk();
+        $this->assertDatabaseMissing('crm_invoices', ['uuid' => $plain]);
+
+        // Money recorded against a document keeps it: deleting it would take
+        // the payment with it and leave the books wrong.
+        $paid = $raise();
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices/' . $paid . '/payments', [
+            'amount' => 500, 'received_at' => now()->toDateString(), 'payment_mode' => 'NEFT',
+        ])->assertCreated();
+        $refused = $this->actingAs($this->adminUser)->deleteJson('/api/v1/crm/invoices/' . $paid)
+            ->assertStatus(422);
+        $this->assertStringContainsString('Payments are recorded', $refused->json('message'));
+
+        // A proforma that has become an invoice is still referred to by it.
+        $proforma = $raise('proforma');
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices/' . $proforma . '/convert')
+            ->assertCreated();
+        $this->actingAs($this->adminUser)->deleteJson('/api/v1/crm/invoices/' . $proforma)
+            ->assertStatus(422);
+
+        // In bulk, one refusal does not stop the rest - and the answer says
+        // which were kept rather than reporting a count that hides them.
+        $a = $raise();
+        $b = $raise();
+        $bulk = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices/bulk-delete', [
+            'uuids' => [$a, $b, $paid],
+        ])->assertOk()->json('data');
+
+        $this->assertSame(2, $bulk['deleted']);
+        $this->assertCount(1, $bulk['skipped']);
+        $this->assertDatabaseMissing('crm_invoices', ['uuid' => $a]);
+        $this->assertDatabaseHas('crm_invoices', ['uuid' => $paid]);
+    }
 }

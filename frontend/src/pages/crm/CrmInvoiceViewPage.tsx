@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, ArrowLeft, ArrowRightLeft, Ban, Copy, CreditCard, Download, Eye, ExternalLink, FileDiff, Lock, Pencil, Percent, Plus, Printer, Repeat, Send, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS, CRM_RECURRING_FREQUENCY_LABELS, validityMonths } from '../../api/crm'
+import { crm, crmCan, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS, CRM_RECURRING_FREQUENCY_LABELS, validityMonths } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
@@ -29,6 +29,10 @@ export default function CrmInvoiceViewPage() {
     queryFn: () => crm.invoices.get(uuid!),
   })
   const { data: docMasters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
+  const { data: me } = useQuery({ queryKey: ['crm', 'me'], queryFn: crm.me })
+  // Deleting is granted, never assumed: the same right that allows
+  // cancelling, ticked on the person's profile.
+  const canDelete = crmCan(me, 'invoices', 'delete')
   const workOrderFields = docMasters?.work_order_custom_fields ?? []
   // The document prints the company's own Work Order wording.
   const column = (key: string) =>
@@ -151,6 +155,16 @@ export default function CrmInvoiceViewPage() {
     onError: (err) => toastError(errorMessage(err)),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: () => crm.invoices.remove(uuid!),
+    onSuccess: (res) => {
+      toast(res.message, 'success')
+      queryClient.invalidateQueries({ queryKey: ['crm', 'invoices'] })
+      navigate(`/crm/invoices?kind=${inv?.kind ?? 'invoice'}`)
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
   const cancelMutation = useMutation({
     mutationFn: () => crm.invoices.cancel(uuid!),
     onSuccess: (res: { message?: string }) => { toast(res.message ?? 'Cancelled.', 'success'); refresh() },
@@ -236,6 +250,24 @@ export default function CrmInvoiceViewPage() {
           {inv.status !== 'cancelled' && inv.payments.length === 0 && (
             <Button variant="danger" onClick={() => { if (confirm(`Cancel ${inv.number}? This cannot be undone.`)) cancelMutation.mutate() }}>
               <Ban className="size-4" /> Cancel
+            </Button>
+          )}
+          {/* Cancelling keeps the number in the series wearing the word
+              Cancelled, which is what an auditor expects to find; deleting
+              takes the row and leaves a gap. Both need the same right. */}
+          {canDelete && (
+            <Button
+              variant="danger"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (confirm(`Delete ${inv.number} for good?
+
+It disappears from the ledger and the numbering keeps a gap where it was. Cancelling instead keeps the record.`)) {
+                  deleteMutation.mutate()
+                }
+              }}
+            >
+              <Trash2 className="size-4" /> {deleteMutation.isPending ? 'Deleting…' : 'Delete'}
             </Button>
           )}
         </div>
