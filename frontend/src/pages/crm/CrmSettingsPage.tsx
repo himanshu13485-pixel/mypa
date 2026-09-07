@@ -497,8 +497,15 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
     state_code: editing?.state_code ?? '',
     invoice_prefix: editing?.invoice_prefix ?? 'INV-',
     proforma_prefix: editing?.proforma_prefix ?? 'PI-',
-    // Held as text so the box can be emptied mid-edit; a number input whose
-    // state is a number snaps back to 1 the moment it is cleared.
+    /*
+     * The number the NEXT document will carry, not the number the series
+     * began at — the counter has already moved past every invoice raised,
+     * so what is shown is what is about to be used. Calling it a start
+     * would describe it correctly only until the first invoice was issued.
+     *
+     * Held as text so the box can be emptied mid-edit; a number input whose
+     * state is a number snaps back to 1 the moment it is cleared.
+     */
     next_invoice_no: String(editing?.next_invoice_no ?? 1),
     next_proforma_no: String(editing?.next_proforma_no ?? 1),
     is_active: editing?.is_active ?? true,
@@ -523,8 +530,8 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
         address: form.address || null,
         gstin: form.gstin || null,
         state_code: form.state_code || null,
-        next_invoice_no: startFrom(form.next_invoice_no),
-        next_proforma_no: startFrom(form.next_proforma_no),
+        next_invoice_no: nextNumber(form.next_invoice_no),
+        next_proforma_no: nextNumber(form.next_proforma_no),
       }, editing?.id) as { data?: { id?: number } }
       const id = editing?.id ?? res?.data?.id
       if (stamp && id) {
@@ -575,7 +582,7 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
               <Input value={form.invoice_prefix} onChange={(e) => setForm((f) => ({ ...f, invoice_prefix: e.target.value }))} className="w-full" />
             </div>
             <div>
-              <Label>Start invoices from</Label>
+              <Label>Next invoice number</Label>
               <Input
                 type="number"
                 min={1}
@@ -586,7 +593,7 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
             </div>
             <SeriesPreview
               label="invoice"
-              number={form.invoice_prefix + startFrom(form.next_invoice_no)}
+              number={form.invoice_prefix + nextNumber(form.next_invoice_no)}
               issued={editing && editing.next_invoice_no > 1}
             />
 
@@ -595,7 +602,7 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
               <Input value={form.proforma_prefix} onChange={(e) => setForm((f) => ({ ...f, proforma_prefix: e.target.value }))} className="w-full" />
             </div>
             <div>
-              <Label>Start proformas from</Label>
+              <Label>Next proforma number</Label>
               <Input
                 type="number"
                 min={1}
@@ -606,7 +613,7 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
             </div>
             <SeriesPreview
               label="proforma"
-              number={form.proforma_prefix + startFrom(form.next_proforma_no)}
+              number={form.proforma_prefix + nextNumber(form.next_proforma_no)}
               issued={editing && editing.next_proforma_no > 1}
             />
           </div>
@@ -1438,12 +1445,12 @@ function ImageField({
 }
 
 /**
- * The number in a "start from" box, as a number.
+ * The number in a "next number" box, as a number.
  *
  * Empty or nonsense reads as 1 rather than as NaN, which would otherwise
  * reach the server as null and silently leave the counter where it was.
  */
-function startFrom(text: string): number {
+function nextNumber(text: string): number {
   const n = Math.floor(Number(text))
 
   return Number.isFinite(n) && n > 0 ? n : 1
