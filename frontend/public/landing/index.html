@@ -315,6 +315,62 @@ html.dark .cal span.p{color:#6ee7b7}html.dark .cal span.l{color:var(--b300)}html
 .legend{display:flex;flex-wrap:wrap;gap:14px;margin-top:16px;font-size:12.5px;color:var(--ink3)}
 .legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:middle}
 
+/* ================================================================ notebook
+   The money pages, turned by the scroll that reads them.
+
+   A proforma becoming a tax invoice, the tax worked out per line, and the
+   payment settling is the one sequence on this page — everything else is a
+   list, and a list does not want a page-turn. The pad is pinned while the
+   section scrolls past it and each leaf lifts on its top edge, the way a
+   spiral pad is actually turned.
+*/
+.nbwrap{position:relative;margin-top:38px}
+.nbtall{height:340vh}
+.nbstick{position:sticky;top:96px}
+.nb{
+  position:relative;max-width:660px;margin:0 auto;min-height:clamp(410px,54vh,530px);
+  perspective:1800px;
+}
+.nbrings{position:absolute;top:-13px;left:0;right:0;z-index:30;display:flex;justify-content:center;gap:22px;pointer-events:none}
+.nbrings i{width:11px;height:26px;border-radius:6px;background:linear-gradient(180deg,#c3cad8,#8b94a6);box-shadow:0 2px 3px rgb(16 24 40 / .3)}
+html.dark .nbrings i{background:linear-gradient(180deg,#5b6477,#2c3446)}
+
+.nbpage{
+  position:absolute;inset:0;padding:clamp(24px,3.4vw,38px);border-radius:4px 4px 16px 16px;
+  background:var(--surf);box-shadow:inset 0 0 0 1px var(--hair),var(--lift);
+  transform-origin:top center;transform-style:preserve-3d;backface-visibility:hidden;
+  will-change:transform,opacity;
+}
+/* Faint ruling, so it reads as a pad rather than a card. */
+.nbpage::before{
+  content:'';position:absolute;inset:0;pointer-events:none;border-radius:inherit;
+  background-image:repeating-linear-gradient(180deg,transparent 0 33px,rgb(64 108 240 / .07) 33px 34px);
+  -webkit-mask-image:linear-gradient(180deg,transparent,#000 12%,#000 88%,transparent);
+  mask-image:linear-gradient(180deg,transparent,#000 12%,#000 88%,transparent);
+}
+.nbpage > *{position:relative}
+.nbhd{display:flex;align-items:baseline;gap:12px;padding-bottom:14px;border-bottom:1px solid var(--hair)}
+.nbhd h3{font-size:clamp(1.15rem,2vw,1.45rem);letter-spacing:-.022em}
+.nbhd .step{margin-left:auto;font-size:11.5px;font-weight:640;letter-spacing:.1em;text-transform:uppercase;color:var(--ink3)}
+.nbnote{margin-top:14px;font-size:14px;color:var(--ink2)}
+.nbl{display:flex;justify-content:space-between;gap:16px;font-size:14px;color:var(--ink2);padding:7px 0}
+.nbl b{color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
+.nbrule{height:1px;background:var(--hair);margin:8px 0}
+.nbtot{display:flex;justify-content:space-between;font-size:17px;font-weight:700;letter-spacing:-.02em;padding-top:6px}
+.nbtag{display:inline-block;margin-top:16px;padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:600}
+
+/* The paging dots beside the pad. */
+.nbdots{display:flex;justify-content:center;gap:7px;margin-top:20px}
+.nbdots i{width:7px;height:7px;border-radius:999px;background:var(--hair2);transition:.3s}
+.nbdots i.on{width:22px;background:var(--b500)}
+
+@media(prefers-reduced-motion:reduce){
+  .nbtall{height:auto}
+  .nbstick{position:static}
+  .nb{min-height:0;display:grid;gap:14px}
+  .nbpage{position:static;transform:none!important;opacity:1!important}
+}
+
 /* ------------------------------------------------------------ the companies
    Two cards side by side, because the point is that they differ in every
    field that matters and still live in one account. */
@@ -452,10 +508,10 @@ footer{padding:34px 0 44px}
             <table class="rows">
               <thead><tr><th>Number</th><th>Client</th><th>Issuing company</th><th style="text-align:right">Total</th><th>Payment</th><th>Dispatch</th></tr></thead>
               <tbody>
-                <tr><td class="n">INV-41</td><td>Tata Motors</td><td>Bhavya Steel</td><td class="a">₹2,40,000</td><td><span class="tag t-paid">Paid</span></td><td>Dispatched</td></tr>
-                <tr><td class="n">INV-40</td><td>Kirloskar</td><td>Bhavya Steel</td><td class="a">₹86,500</td><td><span class="tag t-part">Partial</span></td><td>In process</td></tr>
-                <tr><td class="n">BE/12</td><td>Emirates Trading</td><td>Bhavya Exports</td><td class="a">$4,200</td><td><span class="tag t-over">Due</span></td><td>Pending</td></tr>
-                <tr><td class="n">PI-208</td><td>Godrej &amp; Boyce</td><td>Bhavya Steel</td><td class="a">₹54,750</td><td><span class="tag t-pro">Proforma</span></td><td>—</td></tr>
+                <tr><td class="n">INV-41</td><td>Meridian Motors</td><td>Sterling Steel</td><td class="a">₹2,40,000</td><td><span class="tag t-paid">Paid</span></td><td>Dispatched</td></tr>
+                <tr><td class="n">INV-40</td><td>Kalyani Engineering</td><td>Sterling Steel</td><td class="a">₹86,500</td><td><span class="tag t-part">Partial</span></td><td>In process</td></tr>
+                <tr><td class="n">BE/12</td><td>Gulf Metals FZE</td><td>Sterling Exports</td><td class="a">$4,200</td><td><span class="tag t-over">Due</span></td><td>Pending</td></tr>
+                <tr><td class="n">PI-208</td><td>Orient Appliances</td><td>Sterling Steel</td><td class="a">₹54,750</td><td><span class="tag t-pro">Proforma</span></td><td>—</td></tr>
               </tbody>
             </table>
           </div>
@@ -516,9 +572,9 @@ footer{padding:34px 0 44px}
         <h3>Leads &amp; clients</h3>
         <p>Every lead is owned by somebody, with the follow-ups logged against it. Transfer it, share it, reopen it — the log says who did, and when.</p>
         <div class="mini">
-          <div class="row"><i>TM</i>Tata Motors<span class="g">₹2,40,000</span></div>
-          <div class="row"><i>KL</i>Kirloskar<span class="g">₹86,500</span></div>
-          <div class="row"><i>GB</i>Godrej &amp; Boyce<span class="g">₹54,750</span></div>
+          <div class="row"><i>TM</i>Meridian Motors<span class="g">₹2,40,000</span></div>
+          <div class="row"><i>KL</i>Kalyani Engineering<span class="g">₹86,500</span></div>
+          <div class="row"><i>GB</i>Orient Appliances<span class="g">₹54,750</span></div>
         </div>
       </div>
 
@@ -551,6 +607,18 @@ footer{padding:34px 0 44px}
         <h3>Reports</h3>
         <p>What was raised, what came in, what it cost and what is still owed — with an export for whoever wants it in a spreadsheet.</p>
       </div>
+
+      <div class="tile rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 10l4.5-2.6a1 1 0 011.5.9v7.4a1 1 0 01-1.5.9L15 14"/><rect x="3" y="6" width="12" height="12" rx="2"/></svg></div>
+        <h3>Meetings, calls &amp; chat</h3>
+        <p>Video meetings and calls that run peer-to-peer, messages with attachments and voice notes, a shared calendar and a booking page — against the same client record, not in a second app.</p>
+      </div>
+
+      <div class="tile rv">
+        <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M12 8v5M12 16.5v.01"/></svg></div>
+        <h3>Complaints</h3>
+        <p>A register of what went wrong, how long it took to settle, and whose error it turned out to be — closed with a satisfaction verdict, and its own log afterwards.</p>
+      </div>
     </div>
 
     <div class="rest rv">
@@ -574,34 +642,90 @@ footer{padding:34px 0 44px}
 <section class="band" id="billing">
   <div class="wrap">
     <div class="head rv">
-      <span class="kick">Billing</span>
-      <h2>Quotation to tax invoice, without retyping it</h2>
+      <span class="kick">Billing &amp; tax</span>
+      <h2>One document, carried through to the money</h2>
+      <p>A proforma becomes a tax invoice without anybody retyping it, the tax is worked out
+         line by line, and the payment settles against the same document. Scroll to turn the page.</p>
     </div>
-    <div class="split">
-      <div class="rv">
-        <p>Raise a proforma, and convert it the moment the order is confirmed. Tax is worked out per line, and each of your registered companies counts through a numbering series of its own — so two companies billing on the same day never collide.</p>
-        <ul class="ticks">
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>CGST, SGST, IGST and TDS worked out per line</li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>A numbering series per company, with no gaps in it</li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Your letterhead, stamp and bank details on the PDF</li>
-          <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Print, preview and download are the same document</li>
-        </ul>
-      </div>
-      <div class="art rv">
-        <div class="doc">
-          <div class="line"><span>Brass fittings · 120 units</span><b>₹1,80,000</b></div>
-          <div class="line"><span>Steel casing · 40 units</span><b>₹36,000</b></div>
-          <div class="rule"></div>
-          <div class="line"><span>CGST 9%</span><b>₹19,440</b></div>
-          <div class="line"><span>SGST 9%</span><b>₹19,440</b></div>
-          <div class="rule"></div>
-          <div class="tot"><span>Total</span><span>₹2,54,880</span></div>
-          <div class="line" style="margin-top:26px"><span>For Bhavya Steel Pvt Ltd</span></div>
-          <div class="line" style="margin-top:34px;color:var(--ink3)"><span>Authorised signatory</span></div>
+
+    <div class="nbwrap">
+      <div class="nbtall">
+        <div class="nbstick">
+          <div class="nb" id="nb">
+
+            <div class="nbrings" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+
+            <!-- 01 -->
+            <article class="nbpage">
+              <div class="nbhd"><h3>Proforma PI-208</h3><span class="step">01 · quotation</span></div>
+              <p class="nbnote">Raised from the lead, on Sterling Steel&rsquo;s letterhead, numbered in the proforma series.</p>
+              <div style="margin-top:16px">
+                <div class="nbl"><span>Brass fittings · 120 units</span><b>₹1,80,000</b></div>
+                <div class="nbl"><span>Steel casing · 40 units</span><b>₹36,000</b></div>
+                <div class="nbrule"></div>
+                <div class="nbtot"><span>Quoted</span><span>₹2,16,000</span></div>
+              </div>
+              <span class="nbtag t-pro">Proforma — not a tax invoice</span>
+            </article>
+
+            <!-- 02 -->
+            <article class="nbpage">
+              <div class="nbhd"><h3>Tax invoice INV-41</h3><span class="step">02 · converted</span></div>
+              <p class="nbnote">The order is confirmed. The same lines and the same figures take the next number in the
+                 sales series — nothing is keyed a second time, and the proforma still points here.</p>
+              <div style="margin-top:16px">
+                <div class="nbl"><span>Brass fittings · 120 units</span><b>₹1,80,000</b></div>
+                <div class="nbl"><span>Steel casing · 40 units</span><b>₹36,000</b></div>
+                <div class="nbrule"></div>
+                <div class="nbl"><span>GSTIN</span><b>27AABCB1234C1ZX</b></div>
+                <div class="nbl"><span>Place of supply</span><b>Maharashtra (27)</b></div>
+              </div>
+              <span class="nbtag t-part">Converted from PI-208</span>
+            </article>
+
+            <!-- 03 -->
+            <article class="nbpage">
+              <div class="nbhd"><h3>Tax, worked out per line</h3><span class="step">03 · GST</span></div>
+              <p class="nbnote">Same state, so it splits. Interstate and the whole thing would be IGST instead —
+                 the document decides, not the person typing it.</p>
+              <div style="margin-top:16px">
+                <div class="nbl"><span>Basic (taxable) value</span><b>₹2,16,000</b></div>
+                <div class="nbl"><span>CGST 9%</span><b>₹19,440</b></div>
+                <div class="nbl"><span>SGST 9%</span><b>₹19,440</b></div>
+                <div class="nbl"><span>IGST</span><b>—</b></div>
+                <div class="nbl"><span>TDS</span><b>—</b></div>
+                <div class="nbrule"></div>
+                <div class="nbtot"><span>Invoice total</span><span>₹2,54,880</span></div>
+              </div>
+              <span class="nbtag t-pro">Stamp, signatory and bank details print on the PDF</span>
+            </article>
+
+            <!-- 04 -->
+            <article class="nbpage">
+              <div class="nbhd"><h3>Payment received</h3><span class="step">04 · settled</span></div>
+              <p class="nbnote">Matched to INV-41 and settled. A company that would rather check first can make an
+                 Admin approve every match instead — it is a setting, not a different product.</p>
+              <div style="margin-top:16px">
+                <div class="nbl"><span>Invoice total</span><b>₹2,54,880</b></div>
+                <div class="nbl"><span>Received · NEFT · 12 Sep</span><b>₹2,54,880</b></div>
+                <div class="nbrule"></div>
+                <div class="nbtot"><span>Due</span><span>₹0</span></div>
+              </div>
+              <span class="nbtag t-paid">Paid in full · posted to the client&rsquo;s account</span>
+            </article>
+
+          </div>
+          <div class="nbdots" id="nbdots" aria-hidden="true"><i class="on"></i><i></i><i></i><i></i></div>
         </div>
-        <span class="stamp">PAID</span>
       </div>
     </div>
+
+    <ul class="ticks" style="max-width:62ch;margin-top:44px">
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>A numbering series per registered company, with no gaps in it</li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Your letterhead, stamp and bank details on the PDF</li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Print, preview and download are the same document</li>
+      <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>Recurring invoices raise themselves on the schedule you set</li>
+    </ul>
   </div>
 </section>
 
@@ -615,7 +739,7 @@ footer{padding:34px 0 44px}
     </div>
     <div class="firms">
       <div class="firm rv">
-        <div class="nm"><i>BS</i>Bhavya Steel Pvt Ltd</div>
+        <div class="nm"><i>BS</i>Sterling Steel Pvt Ltd</div>
         <dl>
           <dt>GSTIN</dt><dd>27AABCB1234C1ZX</dd>
           <dt>Invoice series</dt><dd>INV-41</dd>
@@ -626,7 +750,7 @@ footer{padding:34px 0 44px}
         <p class="pay"><b>✓ Pays the salaries</b> — payslips are issued from here</p>
       </div>
       <div class="firm rv">
-        <div class="nm"><i>BE</i>Bhavya Exports LLP</div>
+        <div class="nm"><i>BE</i>Sterling Exports LLP</div>
         <dl>
           <dt>GSTIN</dt><dd>27AAECB9876D1Z2</dd>
           <dt>Invoice series</dt><dd>BE/12</dd>
@@ -772,6 +896,50 @@ footer{padding:34px 0 44px}
   var onScroll = function () { hdr.classList.toggle('stuck', window.scrollY > 8) }
   addEventListener('scroll', onScroll, { passive: true })
   onScroll()
+
+  /*
+   * Turning the notebook.
+   *
+   * The pad is pinned while its section scrolls past, and how far through
+   * that section the reader has come decides which leaf is up. Each leaf
+   * lifts on its top edge — a spiral pad turns that way, and it keeps the
+   * page underneath readable throughout rather than sliding it sideways.
+   *
+   * Driven by scroll rather than by a timer, so the reader sets the pace and
+   * scrolling back turns the pages down again.
+   */
+  var reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+
+  var nb = document.getElementById('nb')
+  if (nb && !reduced) {
+    var pages = [].slice.call(nb.querySelectorAll('.nbpage'))
+    var dots = [].slice.call(document.querySelectorAll('#nbdots i'))
+    var tall = nb.closest('.nbtall')
+
+    pages.forEach(function (el, i) { el.style.zIndex = String(pages.length - i) })
+
+    var flip = function () {
+      var r = tall.getBoundingClientRect()
+      // 0 as the pad arrives, 1 as its section leaves.
+      var span = Math.max(r.height - innerHeight, 1)
+      var p = Math.min(1, Math.max(0, -r.top / span))
+      var at = p * (pages.length - 1)
+
+      for (var i = 0; i < pages.length; i++) {
+        var local = Math.min(1, Math.max(0, at - i))
+        var e = local * local * (3 - 2 * local)
+        pages[i].style.transform = 'rotateX(' + (-e * 168).toFixed(2) + 'deg)'
+        // Gone by the time it is edge-on, so the leaf under it reads clean.
+        pages[i].style.opacity = (1 - Math.max(0, e - 0.55) / 0.45).toFixed(3)
+      }
+      var live = Math.round(at)
+      dots.forEach(function (d, i) { d.classList.toggle('on', i === live) })
+    }
+
+    addEventListener('scroll', function () { requestAnimationFrame(flip) }, { passive: true })
+    addEventListener('resize', flip, { passive: true })
+    flip()
+  }
 
   /* Reveal on approach, staggered within each group so a row of tiles
      arrives as a row rather than all at once. */
