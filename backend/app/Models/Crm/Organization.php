@@ -403,6 +403,20 @@ class Organization extends Model
         return $own !== [] ? $own : \App\Models\Crm\Asset::CATEGORIES;
     }
 
+    /**
+     * Whether the lead popups go to everybody who can see leads, or only to
+     * the people marked as salespeople.
+     *
+     * Salespeople by default. An Admin can see every lead in the company,
+     * which made them the most nagged person in it about follow-ups that
+     * were never theirs to make — the popup asks somebody to ring a client,
+     * and only one person on each lead is going to.
+     */
+    public function leadAlertsForEveryone(): bool
+    {
+        return (bool) data_get($this->settings, 'leads.alerts_everyone', false);
+    }
+
     public function leadAlertMinutes(): int
     {
         return max(5, min(120, (int) (data_get($this->settings, 'leads.alert_minutes') ?: 15)));

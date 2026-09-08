@@ -993,15 +993,17 @@ function LeadAlertTiming() {
   const { toast, toastError } = useToast()
   const [minutes, setMinutes] = useState<string | null>(null)
   const [newMinutes, setNewMinutes] = useState<string | null>(null)
+  const [everyone, setEveryone] = useState(false)
 
   const { data } = useQuery({ queryKey: ['crm', 'lead-settings'], queryFn: crm.leads.alertSettings })
   if (data && minutes === null) {
     setMinutes(String(data.alert_minutes))
     setNewMinutes(String(data.new_alert_minutes))
+    setEveryone(!!data.alerts_everyone)
   }
 
   const saveMutation = useMutation({
-    mutationFn: () => crm.leads.saveAlertSettings(Number(minutes), Number(newMinutes)),
+    mutationFn: () => crm.leads.saveAlertSettings(Number(minutes), Number(newMinutes), everyone),
     onSuccess: (res) => toast(res.message, 'success'),
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -1047,6 +1049,27 @@ function LeadAlertTiming() {
           className="w-24"
         />
         <span className="text-sm text-slate-500">minutes — new-lead alert</span>
+      </div>
+
+      {/* Who gets interrupted. Seeing leads and being chased about them are
+          different things, and an Admin sees everybody's. */}
+      <label className="tap mt-4 flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+        <input
+          type="checkbox"
+          checked={everyone}
+          onChange={(e) => setEveryone(e.target.checked)}
+          className="mt-0.5 size-4 shrink-0 accent-emerald-600"
+        />
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          Show these popups to everyone who can see leads
+          <span className="mt-0.5 block text-xs text-slate-400">
+            Off, only salespeople are interrupted — the people with a lead of their own to ring.
+            On, admins, subadmins and anyone else who can see leads are chased about them too.
+          </span>
+        </span>
+      </label>
+
+      <div className="mt-4 flex justify-end">
         <Button
           size="sm"
           disabled={badMinutes(minutes) || badMinutes(newMinutes) || saveMutation.isPending}

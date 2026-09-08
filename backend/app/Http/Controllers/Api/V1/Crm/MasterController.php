@@ -74,6 +74,7 @@ class MasterController extends Controller
         return response()->json(['data' => [
             'alert_minutes' => $request->attributes->get('crm_org')->leadAlertMinutes(),
             'new_alert_minutes' => $request->attributes->get('crm_org')->newLeadAlertMinutes(),
+            'alerts_everyone' => $request->attributes->get('crm_org')->leadAlertsForEveryone(),
         ]]);
     }
 
@@ -84,18 +85,21 @@ class MasterController extends Controller
         $data = $request->validate([
             'alert_minutes' => ['required', 'integer', 'min:5', 'max:120'],
             'new_alert_minutes' => ['nullable', 'integer', 'min:5', 'max:120'],
+            'alerts_everyone' => ['nullable', 'boolean'],
         ]);
 
         $settings = $org->settings ?? [];
         $settings['leads'] = [
             'alert_minutes' => (int) $data['alert_minutes'],
             'new_alert_minutes' => (int) ($data['new_alert_minutes'] ?? 15),
+            'alerts_everyone' => (bool) ($data['alerts_everyone'] ?? false),
         ];
         $org->update(['settings' => $settings]);
 
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'settings.leads', $org, [
             'alert_minutes' => (int) $data['alert_minutes'],
             'new_alert_minutes' => (int) ($data['new_alert_minutes'] ?? 15),
+            'alerts_everyone' => (bool) ($data['alerts_everyone'] ?? false),
         ]);
 
         return response()->json([

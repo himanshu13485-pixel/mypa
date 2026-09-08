@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { BellRing, ExternalLink, X } from 'lucide-react'
-import { crm, crmCan, type CrmMe } from '../../api/crm'
+import { crm, type CrmMe } from '../../api/crm'
 import { Button } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
 
@@ -15,7 +15,14 @@ const SNOOZE_KEY = 'crm-new-lead-alert-snooze-until'
  * moving the status; from then on the ordinary follow-up alerts own it.
  */
 export function NewLeadAlerts({ me }: { me: CrmMe | undefined }) {
-  const enabled = !!me?.enabled && crmCan(me, 'leads', 'view')
+  /*
+   * Salespeople, unless the company has said everybody.
+   *
+   * Seeing leads and being chased about them are different things: an Admin
+   * can see every lead in the company, which made them the most interrupted
+   * person in it over follow-ups that were never theirs to make.
+   */
+  const enabled = !!me?.enabled && !!me?.lead_alerts
   const [open, setOpen] = useState(false)
   const [processing, setProcessing] = useState<Set<string>>(new Set())
 

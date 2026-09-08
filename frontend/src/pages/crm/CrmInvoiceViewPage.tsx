@@ -331,6 +331,14 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
             {inv.issuing_company_full?.address && <div className="mt-0.5 max-w-xs text-xs text-slate-500">{inv.issuing_company_full.address}</div>}
             {inv.issuing_company_full?.gstin && <div className="text-xs text-slate-500">GSTIN: {inv.issuing_company_full.gstin}</div>}
             {inv.issuing_company_full?.pan && <div className="text-xs text-slate-500">PAN: {inv.issuing_company_full.pan}</div>}
+            {/* Joined rather than stacked, and only what has been filled in —
+                a company with an e-mail and no phone gets one line, not a
+                bullet with nothing in front of it. */}
+            {[inv.issuing_company_full?.phone, inv.issuing_company_full?.email].some(Boolean) && (
+              <div className="text-xs text-slate-500">
+                {[inv.issuing_company_full?.phone, inv.issuing_company_full?.email].filter(Boolean).join(' · ')}
+              </div>
+            )}
           </div>
           <div className="text-right">
             <div className="text-base font-semibold uppercase tracking-wide text-slate-700 dark:text-slate-200">

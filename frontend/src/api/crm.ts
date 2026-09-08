@@ -44,6 +44,12 @@ export interface CrmMe {
   enabled: boolean
   is_super_admin: boolean
   has_team?: boolean
+  /**
+   * Whether the lead popups interrupt this person. Salespeople only unless
+   * the company has opened them to everybody — decided on the server, since
+   * it depends on a company setting the browser has no other reason to hold.
+   */
+  lead_alerts?: boolean
   member: {
     uuid: string
     name?: string | null
@@ -1994,10 +2000,14 @@ export const crm = {
     saveOptions: (payload: { lead_sources: string[]; lead_subjects: string[] }) =>
       api.put<{ message: string }>('/crm/masters/lead-options', payload).then((r) => r.data),
     alertSettings: () =>
-      api.get<{ data: { alert_minutes: number; new_alert_minutes: number } }>('/crm/masters/lead-settings').then((r) => r.data.data),
-    saveAlertSettings: (alertMinutes: number, newAlertMinutes: number) =>
-      api.put<{ message: string }>('/crm/masters/lead-settings', { alert_minutes: alertMinutes, new_alert_minutes: newAlertMinutes })
-        .then((r) => r.data),
+      api.get<{ data: { alert_minutes: number; new_alert_minutes: number; alerts_everyone: boolean } }>('/crm/masters/lead-settings')
+        .then((r) => r.data.data),
+    saveAlertSettings: (alertMinutes: number, newAlertMinutes: number, alertsEveryone: boolean) =>
+      api.put<{ message: string }>('/crm/masters/lead-settings', {
+        alert_minutes: alertMinutes,
+        new_alert_minutes: newAlertMinutes,
+        alerts_everyone: alertsEveryone,
+      }).then((r) => r.data),
     bulkTransfer: (payload: { lead_uuids: string[]; to_member_uuid: string; note?: string }) =>
       api.post<{ message: string; moved: number }>('/crm/leads/bulk-transfer', payload).then((r) => r.data),
     bulkShare: (payload: { lead_uuids: string[]; member_uuids: string[] }) =>

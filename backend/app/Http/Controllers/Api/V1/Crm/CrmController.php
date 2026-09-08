@@ -61,6 +61,8 @@ class CrmController extends Controller
             'enabled' => $enabled,
             'is_super_admin' => $request->user()->isSuperAdmin(),
             'has_team' => $enabled && $member->leadsATeam(),
+            // Who gets interrupted by the follow-up and new-lead popups.
+            'lead_alerts' => $enabled && $member->wantsLeadAlerts(),
             'member' => $enabled ? $this->serializeMember($member) : null,
             'organization' => $enabled ? [
                 'uuid' => $member->organization->uuid,

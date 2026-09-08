@@ -73,10 +73,10 @@
         @if ($company?->gstin)GSTIN: {{ $company->gstin }}@endif
         @if ($company?->pan) · PAN: {{ $company->pan }}@endif
       </div>
-      <div class="muted">
-        @if ($company?->phone){{ $company->phone }}@endif
-        @if ($company?->email) · {{ $company->email }}@endif
-      </div>
+      {{-- Joined, so a company with an e-mail and no phone does not print a
+           bullet with nothing before it. --}}
+      @php $reach = array_filter([$company?->phone, $company?->email]); @endphp
+      @if ($reach)<div class="muted">{{ implode(' · ', $reach) }}</div>@endif
     </td>
     <td class="right">
       <div style="font-size:15px; font-weight:bold">{{ $isProforma ? 'PROFORMA INVOICE' : 'TAX INVOICE' }}</div>

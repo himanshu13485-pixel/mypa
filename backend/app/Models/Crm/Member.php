@@ -426,6 +426,22 @@ class Member extends Model
                 : $ceiling;
     }
 
+    /**
+     * Whether this member should be shown the lead popups.
+     *
+     * A preference, not a permission: it decides who gets interrupted, and
+     * changes nothing about who may READ a due lead. The Leads screen still
+     * answers to the module right on its own.
+     */
+    public function wantsLeadAlerts(): bool
+    {
+        if (! $this->can('leads', 'view')) {
+            return false;
+        }
+
+        return $this->organization->leadAlertsForEveryone() || (bool) $this->is_salesperson;
+    }
+
     public function can(string $module, string $ability = 'view'): bool
     {
         if ($this->status !== 'active') {
