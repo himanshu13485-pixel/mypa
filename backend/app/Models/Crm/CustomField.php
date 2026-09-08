@@ -39,11 +39,11 @@ class CustomField extends Model
      * Validity is a date pair, so it renames or hides but never re-types.
      */
     public const BUILTIN_WORK_ORDER = [
-        'membership' => ['label' => 'Membership', 'type' => 'text', 'can' => ['rename', 'hide', 'type'], 'types' => ['text', 'select']],
-        'plan_name' => ['label' => 'Plan name', 'type' => 'text', 'can' => ['rename', 'hide', 'type'], 'types' => ['text', 'select']],
+        'membership' => ['label' => 'Membership', 'type' => 'text', 'can' => ['rename', 'hide', 'type'], 'types' => ['text', 'select'], 'required' => true, 'multiple' => true],
+        'plan_name' => ['label' => 'Plan name', 'type' => 'text', 'can' => ['rename', 'hide', 'type'], 'types' => ['text', 'select'], 'required' => true, 'multiple' => true],
         'description' => ['label' => 'Description', 'type' => 'textarea', 'can' => ['rename', 'hide', 'type'], 'types' => ['text', 'textarea', 'select']],
-        'validity' => ['label' => 'Validity', 'type' => 'daterange', 'can' => ['rename', 'hide'], 'types' => ['daterange']],
-        'qty' => ['label' => 'Qty', 'type' => 'number', 'can' => ['rename'], 'types' => ['number']],
+        'validity' => ['label' => 'Validity', 'type' => 'daterange', 'can' => ['rename', 'hide'], 'types' => ['daterange'], 'required' => true],
+        'qty' => ['label' => 'Qty', 'type' => 'number', 'can' => ['rename'], 'types' => ['number'], 'required' => true],
         'unit_price' => ['label' => 'Unit price', 'type' => 'number', 'can' => ['rename'], 'types' => ['number']],
     ];
 
@@ -59,12 +59,12 @@ class CustomField extends Model
      */
     public const BUILTIN_INVOICE = [
         'invoice_date' => ['label' => 'Date', 'type' => 'date', 'can' => ['rename'], 'types' => ['date']],
-        'due_date' => ['label' => 'Due date', 'type' => 'date', 'can' => ['rename', 'hide'], 'types' => ['date']],
-        'client_category' => ['label' => 'Client status', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select']],
-        'pricing_tier' => ['label' => 'Pricing', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select']],
-        'terms_of_payment' => ['label' => 'Terms of payment', 'type' => 'text', 'can' => ['rename', 'hide', 'type'], 'types' => ['text', 'select']],
-        'subscription_type' => ['label' => 'Subscription', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select']],
-        'dispatch_status' => ['label' => 'Dispatch', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select']],
+        'due_date' => ['label' => 'Due date', 'type' => 'date', 'can' => ['rename', 'hide'], 'types' => ['date'], 'required' => true],
+        'client_category' => ['label' => 'Client status', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select'], 'required' => true],
+        'pricing_tier' => ['label' => 'Pricing', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select'], 'required' => true],
+        'terms_of_payment' => ['label' => 'Terms of payment', 'type' => 'text', 'can' => ['rename', 'hide', 'type'], 'types' => ['text', 'select'], 'required' => true],
+        'subscription_type' => ['label' => 'Subscription', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select'], 'required' => true],
+        'dispatch_status' => ['label' => 'Dispatch', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select'], 'required' => true],
         'fx' => ['label' => 'Foreign currency', 'type' => 'text', 'can' => ['rename', 'hide'], 'types' => ['text']],
         'notes' => ['label' => 'Notes', 'type' => 'textarea', 'can' => ['rename', 'hide'], 'types' => ['textarea']],
     ];
@@ -249,8 +249,18 @@ class CustomField extends Model
                 'label' => $override?->label ?: $builtin['label'],
                 'type' => $override && in_array('type', $builtin['can'], true) ? $override->type : $builtin['type'],
                 'options' => $override?->options,
-                'is_required' => (bool) $override?->is_required,
+                /*
+                 * Required by the product, or by this company on top.
+                 *
+                 * A company may ADD requiredness to a column we left open; it
+                 * cannot take it off one the product requires. The way out of
+                 * a field you never fill is to hide it, and a hidden column is
+                 * never required — see the guard where these are enforced.
+                 */
+                'is_required' => (bool) ($override?->is_required ?: ($builtin['required'] ?? false)),
                 'hidden' => (bool) $override?->is_hidden,
+                // Whether this column takes more than one value.
+                'multiple' => (bool) ($builtin['multiple'] ?? false),
                 'help' => $override?->help,
                 'customised' => $override !== null,
             ];

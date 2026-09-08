@@ -251,9 +251,10 @@ class CrmAddonTest extends TestCase
             'invoice_date' => '2026-08-25',
             'cgst' => 900,
             'sgst' => 900,
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending',
             'items' => [
-                ['plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 8000],
-                ['plan_name' => 'B2B PAGES', 'qty' => 1, 'unit_price' => 2000],
+                ['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 8000],
+                ['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'B2B PAGES', 'qty' => 1, 'unit_price' => 2000],
             ],
         ])->assertCreated();
 

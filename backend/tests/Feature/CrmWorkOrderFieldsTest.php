@@ -121,13 +121,21 @@ class CrmWorkOrderFieldsTest extends TestCase
             'issuing_company_id' => $this->companyA,
             'client_uuid' => $this->clientUuid($this->adminA),
             'invoice_date' => '2026-08-20',
+            'due_date' => '2026-12-31',
+            'client_category' => 'new',
+            'pricing_tier' => 'regular',
+            'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online',
+            'dispatch_status' => 'pending',
             'items' => [
                 [
-                    'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 8000,
+                    'membership' => 'Standard', 'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 8000,
+                    'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31',
                     'custom_fields' => ['port_of_loading' => 'Nhava Sheva', 'site_visit_done' => true],
                 ],
                 [
-                    'plan_name' => 'B2B PAGES', 'qty' => 1, 'unit_price' => 2000,
+                    'membership' => 'Standard', 'plan_name' => 'B2B PAGES', 'qty' => 1, 'unit_price' => 2000,
+                    'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31',
                     'custom_fields' => ['port_of_loading' => 'Mundra', 'site_visit_done' => false],
                 ],
             ],
@@ -153,24 +161,30 @@ class CrmWorkOrderFieldsTest extends TestCase
             'issuing_company_id' => $this->companyA,
             'client_uuid' => $this->clientUuid($this->adminA),
             'invoice_date' => '2026-08-20',
+            'due_date' => '2026-12-31',
+            'client_category' => 'new',
+            'pricing_tier' => 'regular',
+            'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online',
+            'dispatch_status' => 'pending',
         ];
 
         // A required field missing on the SECOND line still fails.
         $this->actingAs($this->adminA)->postJson('/api/v1/crm/invoices', $base + ['items' => [
-            ['plan_name' => 'A', 'qty' => 1, 'unit_price' => 100, 'custom_fields' => ['port_of_loading' => 'Mundra']],
-            ['plan_name' => 'B', 'qty' => 1, 'unit_price' => 100],
+            ['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'A', 'qty' => 1, 'unit_price' => 100, 'custom_fields' => ['port_of_loading' => 'Mundra']],
+            ['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'B', 'qty' => 1, 'unit_price' => 100],
         ]])->assertStatus(422)->assertJsonValidationErrors('items.1.custom_fields.port_of_loading');
 
         // A value outside the company's own options is refused.
         $this->actingAs($this->adminA)->postJson('/api/v1/crm/invoices', $base + ['items' => [
-            ['plan_name' => 'A', 'qty' => 1, 'unit_price' => 100, 'custom_fields' => [
+            ['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'A', 'qty' => 1, 'unit_price' => 100, 'custom_fields' => [
                 'port_of_loading' => 'Mundra', 'shipment_mode' => 'Rocket',
             ]],
         ]])->assertStatus(422)->assertJsonValidationErrors('items.0.custom_fields.shipment_mode');
 
         // A key this company never asked for is dropped, not stored.
         $uuid = $this->actingAs($this->adminA)->postJson('/api/v1/crm/invoices', $base + ['items' => [
-            ['plan_name' => 'A', 'qty' => 1, 'unit_price' => 100, 'custom_fields' => [
+            ['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'A', 'qty' => 1, 'unit_price' => 100, 'custom_fields' => [
                 'port_of_loading' => 'Mundra', 'smuggled' => 'nope',
             ]],
         ]])->assertCreated()->json('data.uuid');
@@ -189,8 +203,15 @@ class CrmWorkOrderFieldsTest extends TestCase
             'issuing_company_id' => $this->companyA,
             'client_uuid' => $this->clientUuid($this->adminA),
             'invoice_date' => '2026-08-20',
+            'due_date' => '2026-12-31',
+            'client_category' => 'new',
+            'pricing_tier' => 'regular',
+            'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online',
+            'dispatch_status' => 'pending',
             'items' => [[
-                'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 8000,
+                'membership' => 'Standard', 'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 8000,
+                'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31',
                 'custom_fields' => ['port_of_loading' => 'Nhava Sheva'],
             ]],
         ])->assertCreated()->json('data.uuid');
@@ -214,7 +235,13 @@ class CrmWorkOrderFieldsTest extends TestCase
             'issuing_company_id' => $this->companyB,
             'client_uuid' => $this->clientUuid($this->adminB, 'Globex Client'),
             'invoice_date' => '2026-08-20',
-            'items' => [['plan_name' => 'A', 'qty' => 1, 'unit_price' => 100, 'custom_fields' => [
+            'due_date' => '2026-12-31',
+            'client_category' => 'new',
+            'pricing_tier' => 'regular',
+            'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online',
+            'dispatch_status' => 'pending',
+            'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'A', 'qty' => 1, 'unit_price' => 100, 'custom_fields' => [
                 'port_of_loading' => 'Mundra',
             ]]],
         ])->assertCreated()->json('data.uuid');

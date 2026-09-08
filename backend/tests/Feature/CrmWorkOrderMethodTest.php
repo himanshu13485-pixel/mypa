@@ -93,7 +93,22 @@ class CrmWorkOrderMethodTest extends TestCase
             'issuing_company_id' => $this->companyA,
             'client_uuid' => $this->clientA,
             'invoice_date' => '2026-08-20',
-            'items' => $items,
+            'due_date' => '2026-12-31',
+            'client_category' => 'new',
+            'pricing_tier' => 'regular',
+            'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online',
+            'dispatch_status' => 'pending',
+            // Filled where the test has not said otherwise: these tests are
+            // about which columns a company keeps, not about what a document
+            // needs, and a line missing a required field would fail for the
+            // wrong reason.
+            'items' => array_map(fn (array $line) => $line + [
+                'membership' => 'Standard',
+                'validity_from' => '2026-01-01',
+                'validity_to' => '2026-12-31',
+                'plan_name' => 'Plan',
+            ], $items),
         ]);
     }
 

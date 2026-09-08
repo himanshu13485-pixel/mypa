@@ -96,20 +96,30 @@ class CrmRecurringInvoiceTest extends TestCase
 
     private function document(User $who, string $kind = 'proforma', array $extra = []): string
     {
-        return $this->actingAs($who)->postJson('/api/v1/crm/invoices', [
+        // $extra first: PHP's + keeps the left-hand value, so a caller
+        // passing its own due date has to win over the default one.
+        return $this->actingAs($who)->postJson('/api/v1/crm/invoices', $extra + [
             'kind' => $kind,
             'issuing_company_id' => $this->issuingCompanyId,
             'client_uuid' => $this->clientUuid,
             'invoice_date' => '2026-08-01',
+            'due_date' => '2026-12-31',
+            'client_category' => 'new',
+            'pricing_tier' => 'regular',
+            'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online',
+            'dispatch_status' => 'pending',
             'cgst_rate' => 9,
             'sgst_rate' => 9,
             'items' => [[
                 'membership' => 'GOLD',
                 'plan_name' => 'ARTIS - I',
+                'validity_from' => '2026-08-01',
+                'validity_to' => '2027-07-31',
                 'qty' => 1,
                 'unit_price' => 10000,
             ]],
-        ] + $extra)->assertCreated()->json('data.uuid');
+        ])->assertCreated()->json('data.uuid');
     }
 
     private function repeat(User $who, string $sourceUuid, array $payload = []): string
@@ -144,7 +154,7 @@ class CrmRecurringInvoiceTest extends TestCase
         $source = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices', [
             'kind' => 'proforma', 'issuing_company_id' => $this->issuingCompanyId,
             'client_uuid' => $clientUuid, 'invoice_date' => '2026-08-01',
-            'items' => [['plan_name' => 'A', 'qty' => 1, 'unit_price' => 100]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'A', 'qty' => 1, 'unit_price' => 100]],
         ])->assertCreated()->json('data.uuid');
 
         $this->actingAs($this->adminUser)->postJson("/api/v1/crm/invoices/{$source}/recurring", [

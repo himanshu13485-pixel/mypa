@@ -33,6 +33,80 @@ const inr = (v: number) => '₹' + v.toLocaleString('en-IN', { minimumFractionDi
 
 
 /**
+ * Several values in one column, kept as the comma-separated list the server
+ * stores.
+ *
+ * A dropdown says one thing, and a line covering three memberships is a real
+ * line — it had to become three lines charged separately or a sentence in
+ * the description, and neither could be counted afterwards.
+ *
+ * The chosen ones show as chips, the same shape the description uses for its
+ * keywords, so a list of things looks like a list of things wherever the
+ * form shows one. Values already saved that are no longer on the list stay
+ * pickable-off but not pickable-on: the truth about the line survives, and
+ * putting it back is not offered.
+ */
+function MultiSelect({ value, options, onChange, placeholder }: {
+  value: string
+  options: string[] | null | undefined
+  onChange: (value: string) => void
+  placeholder: string
+}) {
+  const chosen = splitList(value)
+  const list = options ?? []
+  const spare = list.filter((o) => !chosen.includes(o))
+
+  const set = (next: string[]) => onChange(next.join(', '))
+
+  return (
+    <div>
+      {chosen.length > 0 && (
+        <div className="mb-1 flex flex-wrap gap-1">
+          {chosen.map((one) => (
+            <span
+              key={one}
+              className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+            >
+              {one}
+              <button
+                type="button"
+                onClick={() => set(chosen.filter((c) => c !== one))}
+                aria-label={`Remove ${one}`}
+                className="text-emerald-600/70 hover:text-emerald-800 dark:hover:text-emerald-100"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      {/* Returns to "Add…" after each pick, so the next one is one click on
+          from the last rather than a hunt back to the top of the list. */}
+      <Select
+        value=""
+        onChange={(e) => { if (e.target.value) set([...chosen, e.target.value]) }}
+        className="w-full"
+      >
+        <option value="">{chosen.length === 0 ? placeholder : 'Add another…'}</option>
+        {spare.map((o) => <option key={o} value={o}>{o}</option>)}
+      </Select>
+    </div>
+  )
+}
+
+/** The values in a comma-separated column, trimmed and without repeats. */
+function splitList(text: string): string[] {
+  const seen = new Set<string>()
+
+  return text.split(',').map((p) => p.trim()).filter((p) => {
+    if (p === '' || seen.has(p.toLowerCase())) return false
+    seen.add(p.toLowerCase())
+
+    return true
+  })
+}
+
+/**
  * A dropdown that can always show its own value.
  *
  * These columns start as free text and a company may turn one into a
@@ -135,9 +209,18 @@ export default function CrmInvoiceFormPage() {
   const taxSetup = useMemo(() => masters?.tax_setup ?? [], [masters])
   const shows = (key: string) =>
     !docMethod.find((c) => c.source === 'builtin' && c.key === key)?.hidden
-  const heading = (key: string, fallback: string) =>
-    docMethod.find((c) => c.source === 'builtin' && c.key === key)?.label ?? fallback
   const docColumn = (key: string) => docMethod.find((c) => c.source === 'builtin' && c.key === key)
+  /*
+   * The heading, starred where the field is required.
+   *
+   * From the same column method the server validates against, so the form
+   * cannot promise a field is optional and then refuse to save without it.
+   */
+  const heading = (key: string, fallback: string) => {
+    const column = docColumn(key)
+
+    return (column?.label ?? fallback) + (column?.is_required ? ' *' : '')
+  }
   const { data: clients } = useQuery({
     queryKey: ['crm', 'client-options', clientSearch],
     queryFn: () => crm.clients.options(clientSearch || undefined),
@@ -305,6 +388,19 @@ export default function CrmInvoiceFormPage() {
     }
 
     const key = c.key as 'membership' | 'plan_name' | 'description'
+
+    if (c.multiple) {
+      // Free text as well as a dropdown: a company that never turned the
+      // column into one still writes several names, separated the same way.
+      return c.type === 'select'
+        ? <MultiSelect value={row[key]} options={c.options} onChange={(v) => setItem(idx, key, v)} placeholder="Select" />
+        : (
+          <>
+            <Input value={row[key]} onChange={(e) => setItem(idx, key, e.target.value)} placeholder={c.label} className="w-full" />
+            <KeywordChips text={row[key]} onChange={(text) => setItem(idx, key, text)} className="mt-1" />
+          </>
+        )
+    }
 
     if (c.type === 'select') {
       return (

@@ -91,7 +91,7 @@ class CrmPaymentReminderTest extends TestCase
             'client_uuid' => $clientUuid,
             'invoice_date' => $raisedOn,
             'due_date' => $dueDate,
-            'items' => [['plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => $amount]],
+            'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => $amount]],
         ])->assertCreated()->json('data.uuid');
     }
 

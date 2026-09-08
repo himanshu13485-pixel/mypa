@@ -74,7 +74,7 @@ class CrmInvoiceContactTest extends TestCase
             'issuing_company_id' => $companyId,
             'client_uuid' => $clientUuid,
             'invoice_date' => '2026-08-20',
-            'items' => [['description' => 'Annual listing', 'qty' => 1, 'unit_price' => 10000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'plan_name' => 'Plan', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'description' => 'Annual listing', 'qty' => 1, 'unit_price' => 10000]],
         ])->assertCreated()->json('data.uuid');
     }
 

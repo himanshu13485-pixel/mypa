@@ -155,6 +155,8 @@ export const CRM_TAX_KIND_LABELS: Record<string, string> = {
 
 /** One column of a company's Work Order, ours or theirs. */
 export interface CrmWorkOrderColumn {
+  /** Whether the column takes several values, kept as a comma-separated list. */
+  multiple?: boolean
   key: string
   source: 'builtin' | 'custom'
   label: string
@@ -2631,6 +2633,12 @@ export const crm = {
       api.get<{ data: { categories: string[] } }>('/crm/masters/asset-categories').then((r) => r.data.data.categories),
     saveAssetCategories: (categories: string[]) =>
       api.put<{ message: string; data: { categories: string[] } }>('/crm/masters/asset-categories', { categories })
+        .then((r) => r.data),
+    /** Must every document carry at least one tax line? */
+    taxSettings: () =>
+      api.get<{ data: { tax_required: boolean } }>('/crm/masters/tax-settings').then((r) => r.data.data),
+    saveTaxSettings: (taxRequired: boolean) =>
+      api.put<{ message: string }>('/crm/masters/tax-settings', { tax_required: taxRequired })
         .then((r) => r.data),
     saveCompany: (payload: Record<string, unknown>, id?: number) =>
       id ? api.put(`/crm/masters/issuing-companies/${id}`, payload).then((r) => r.data)

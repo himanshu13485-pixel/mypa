@@ -80,7 +80,7 @@ class CrmDocumentMethodTest extends TestCase
             'issuing_company_id' => $this->companyA,
             'client_uuid' => $this->clientA,
             'invoice_date' => '2026-08-20',
-            'items' => [['plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 10000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 10000]],
         ] + $payload)->assertCreated()->json('data.uuid');
 
         return $this->actingAs($this->adminA)->getJson("/api/v1/crm/invoices/{$uuid}")
@@ -166,7 +166,7 @@ class CrmDocumentMethodTest extends TestCase
             'issuing_company_id' => $this->companyA,
             'client_uuid' => $this->clientA,
             'invoice_date' => '2026-08-20',
-            'items' => [['plan_name' => 'A', 'qty' => 1, 'unit_price' => 100]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'A', 'qty' => 1, 'unit_price' => 100]],
         ])->assertStatus(422)->assertJsonValidationErrors('custom_fields.purchase_order_no');
 
         $invoice = $this->raise(['custom_fields' => ['purchase_order_no' => 'PO-4471', 'smuggled' => 'nope']]);
@@ -303,7 +303,7 @@ class CrmDocumentMethodTest extends TestCase
             'issuing_company_id' => $this->companyA,
             'client_uuid' => $this->clientA,
             'invoice_date' => '2026-08-20',
-            'items' => [['plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 10000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 10000]],
         ])->assertCreated()->json('data.uuid');
 
         $invoiceUuid = $this->actingAs($this->adminA)->postJson("/api/v1/crm/invoices/{$proforma}/convert")

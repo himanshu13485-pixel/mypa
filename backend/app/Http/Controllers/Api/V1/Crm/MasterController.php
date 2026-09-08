@@ -595,6 +595,35 @@ class MasterController extends Controller
         return response()->json(['message' => 'Communication setup saved.']);
     }
 
+    /** Whether every document this company raises must carry tax. */
+    public function taxSettings(Request $request): JsonResponse
+    {
+        return response()->json(['data' => [
+            'tax_required' => $request->attributes->get('crm_org')->taxRequired(),
+        ]]);
+    }
+
+    public function saveTaxSettings(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $data = $request->validate(['tax_required' => ['required', 'boolean']]);
+
+        $settings = $org->settings ?? [];
+        $settings['documents'] = ($settings['documents'] ?? []) + [];
+        $settings['documents']['tax_required'] = (bool) $data['tax_required'];
+        $org->update(['settings' => $settings]);
+
+        ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'settings.tax', $org, [
+            'tax_required' => (bool) $data['tax_required'],
+        ]);
+
+        return response()->json([
+            'message' => $data['tax_required']
+                ? 'Documents must now carry at least one tax line.'
+                : 'Tax is no longer required on documents.',
+        ]);
+    }
+
     private function validateCompany(Request $request, ?IssuingCompany $company = null): array
     {
         $data = $request->validate([

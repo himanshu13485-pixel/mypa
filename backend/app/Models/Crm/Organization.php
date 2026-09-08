@@ -417,6 +417,19 @@ class Organization extends Model
         return (bool) data_get($this->settings, 'leads.alerts_everyone', false);
     }
 
+    /**
+     * Must a document carry tax before it can be saved?
+     *
+     * Off by default, because a company that raises exempt or zero-rated
+     * documents would otherwise be unable to raise them at all. On, the form
+     * insists on at least one tax line — not on which one, which depends on
+     * where the client is and what is being sold.
+     */
+    public function taxRequired(): bool
+    {
+        return (bool) data_get($this->settings, 'documents.tax_required', false);
+    }
+
     public function leadAlertMinutes(): int
     {
         return max(5, min(120, (int) (data_get($this->settings, 'leads.alert_minutes') ?: 15)));

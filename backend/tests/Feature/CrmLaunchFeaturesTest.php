@@ -345,7 +345,7 @@ class CrmLaunchFeaturesTest extends TestCase
         $created = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices', [
             'kind' => 'invoice', 'issuing_company_id' => $b->id, 'client_uuid' => $client->uuid,
             'invoice_date' => '2026-08-30',
-            'items' => [['plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
         ])->assertCreated();
 
         $invoice = Invoice::where('number', $created->json('data.number'))->firstOrFail();
@@ -872,7 +872,7 @@ class CrmLaunchFeaturesTest extends TestCase
         $uuid = $this->actingAs($this->empUser)->postJson('/api/v1/crm/invoices', [
             'kind' => 'invoice', 'issuing_company_id' => $company->id, 'client_uuid' => $client->uuid,
             'invoice_date' => now()->toDateString(),
-            'items' => [['plan_name' => 'Plan A', 'qty' => 1, 'unit_price' => 1000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'Plan A', 'qty' => 1, 'unit_price' => 1000]],
         ])->assertCreated()->json('data.uuid');
 
         // The salesperson's address rides on the document, so the dialog can
@@ -1050,7 +1050,7 @@ class CrmLaunchFeaturesTest extends TestCase
             ->postJson('/api/v1/crm/invoices', [
                 'kind' => $kind, 'issuing_company_id' => $co->id, 'client_uuid' => $client->uuid,
                 'invoice_date' => now()->toDateString(),
-                'items' => [['plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
+                'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
             ])->assertCreated()->json('data.uuid');
 
         /*
@@ -1064,7 +1064,7 @@ class CrmLaunchFeaturesTest extends TestCase
         $own = $this->actingAs($this->empUser)->postJson('/api/v1/crm/invoices', [
             'kind' => 'invoice', 'issuing_company_id' => $co->id, 'client_uuid' => $client->uuid,
             'invoice_date' => now()->toDateString(),
-            'items' => [['plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
         ])->assertCreated()->json('data.uuid');
 
         $this->actingAs($this->empUser)->deleteJson('/api/v1/crm/invoices/' . $own)->assertForbidden();
@@ -1136,7 +1136,7 @@ class CrmLaunchFeaturesTest extends TestCase
         $uuid = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices', [
             'kind' => 'proforma', 'issuing_company_id' => $co->id, 'client_uuid' => $client->uuid,
             'invoice_date' => now()->toDateString(),
-            'items' => [['plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
         ])->assertCreated()->json('data.uuid');
 
         $this->actingAs($this->adminUser)

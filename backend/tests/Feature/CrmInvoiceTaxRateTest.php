@@ -55,7 +55,7 @@ class CrmInvoiceTaxRateTest extends TestCase
             'issuing_company_id' => $this->issuingCompanyId,
             'client_uuid' => $this->clientUuid,
             'invoice_date' => '2026-08-20',
-            'items' => [['plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 10000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 10000]],
         ] + $money)->assertCreated()->json('data.uuid');
 
         return $this->full($uuid);
@@ -117,7 +117,7 @@ class CrmInvoiceTaxRateTest extends TestCase
             'client_uuid' => $this->clientUuid,
             'invoice_date' => '2026-08-20',
             'cgst_rate' => 190,
-            'items' => [['plan_name' => 'A', 'qty' => 1, 'unit_price' => 100]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'A', 'qty' => 1, 'unit_price' => 100]],
         ])->assertStatus(422)->assertJsonValidationErrors('cgst_rate');
     }
 
@@ -130,7 +130,7 @@ class CrmInvoiceTaxRateTest extends TestCase
             'invoice_date' => '2026-08-20',
             'cgst_rate' => 9,
             'sgst_rate' => 9,
-            'items' => [['plan_name' => 'ARTIS - I', 'qty' => 2, 'unit_price' => 10000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'ARTIS - I', 'qty' => 2, 'unit_price' => 10000]],
         ])->assertOk();
         $updated = $this->full($invoice['uuid']);
 
@@ -148,7 +148,7 @@ class CrmInvoiceTaxRateTest extends TestCase
             'invoice_date' => '2026-08-20',
             'cgst_rate' => 9,
             'sgst_rate' => 9,
-            'items' => [['plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 10000]],
+            'due_date' => '2026-12-31', 'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance', 'subscription_type' => 'online', 'dispatch_status' => 'pending', 'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31', 'plan_name' => 'ARTIS - I', 'qty' => 1, 'unit_price' => 10000]],
         ])->assertCreated()->json('data.uuid');
 
         $invoice = $this->full(

@@ -20,6 +20,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Proforma and tax invoices share one engine. Numbers come from the issuing
@@ -29,6 +30,17 @@ use Illuminate\Validation\Rule;
 class InvoiceController extends Controller
 {
     /** Which stored columns each switchable header field owns. */
+    /**
+     * What a hidden column's attribute goes back to.
+     *
+     * Most are nullable and clear to null. These two are NOT NULL with a
+     * default, so they go back to the default rather than to nothing.
+     */
+    private const HIDDEN_RESETS_TO = [
+        'pricing_tier' => 'regular',
+        'dispatch_status' => 'pending',
+    ];
+
     private const DOCUMENT_ATTRIBUTES = [
         'due_date' => ['due_date'],
         'client_category' => ['client_category'],
@@ -951,8 +963,9 @@ class InvoiceController extends Controller
             'status' => ['nullable', Rule::in(['draft', 'final'])],
             'notes' => ['nullable', 'string', 'max:5000'],
             'items' => ['required', 'array', 'min:1'],
-            'items.*.membership' => ['nullable', 'string', 'max:128'],
-            'items.*.plan_name' => ['nullable', 'string', 'max:128'],
+            // A list, so wider than the one name each used to hold.
+            'items.*.membership' => ['nullable', 'string', 'max:512'],
+            'items.*.plan_name' => ['nullable', 'string', 'max:512'],
             'items.*.description' => ['nullable', 'string', 'max:512'],
             'items.*.validity_from' => ['nullable', 'date'],
             'items.*.validity_to' => ['nullable', 'date'],
@@ -960,6 +973,8 @@ class InvoiceController extends Controller
             'items.*.unit_price' => ['nullable', 'numeric', 'min:0'],
             'items.*.amount_fx' => ['nullable', 'numeric', 'min:0'],
         ]);
+
+        $this->requireTax($request);
 
         $items = $this->applyWorkOrderFields($request, $orgId, $data['items']);
         unset($data['items'], $data['tax_lines']);
@@ -1045,6 +1060,45 @@ class InvoiceController extends Controller
      * fields, plus any it added. A field switched off carries no data, and an
      * added one is validated against its approved definition.
      */
+    /**
+     * A document carries tax, where the company says its documents must.
+     *
+     * At least one line, not a particular one: CGST and SGST together for a
+     * sale inside the state, IGST for one across a border, or whatever else
+     * this company charges. Which applies is the accountant's answer and it
+     * changes per document, so the rule asks only that somebody answered.
+     *
+     * Read from the rate as well as the figure, because the form sends
+     * whichever was typed and works the other one out from it.
+     */
+    private function requireTax(Request $request): void
+    {
+        $org = $request->attributes->get('crm_org');
+        if (! $org?->taxRequired()) {
+            return;
+        }
+
+        $charged = collect(CustomField::taxSetup($org->id))
+            ->where('kind', 'tax')
+            ->contains(function (array $line) use ($request) {
+                if ($line['source'] === 'builtin') {
+                    return (float) $request->input($line['key'], 0) > 0
+                        || (float) $request->input($line['key'] . '_rate', 0) > 0;
+                }
+
+                // A company's own money line arrives in tax_lines[].
+                return collect($request->input('tax_lines', []))
+                    ->contains(fn ($l) => ($l['key'] ?? null) === $line['key']
+                        && ((float) ($l['amount'] ?? 0) > 0 || (float) ($l['rate'] ?? 0) > 0));
+            });
+
+        if (! $charged) {
+            throw ValidationException::withMessages(['cgst' => [
+                'This company requires tax on every document — enter at least one tax line.',
+            ]]);
+        }
+    }
+
     private function applyDocumentFields(Request $request, int $orgId, array $data): array
     {
         $method = CustomField::invoiceMethod($orgId);
@@ -1071,13 +1125,43 @@ class InvoiceController extends Controller
             $data['custom_fields'] = $values;
         }
 
-        // A header field this company switched off is not quietly kept.
+        /*
+         * Our own header fields, required unless this company switched them
+         * off. Only builtins are handled here — a company's added fields
+         * carry their own rule, applied above.
+         *
+         * Hidden is never required: a column nobody can see is a document
+         * nobody can raise.
+         */
+        $rules = [];
+        $names = [];
+        foreach ($method as $column) {
+            if ($column['source'] !== 'builtin' || $column['hidden'] || ! $column['is_required']) {
+                continue;
+            }
+            foreach (self::DOCUMENT_ATTRIBUTES[$column['key']] ?? [] as $attribute) {
+                $rules[$attribute] = ['required'];
+                $names[$attribute] = $column['label'];
+            }
+        }
+        if ($rules !== []) {
+            $request->validate($rules, [], $names);
+        }
+
+        /*
+         * A header field this company switched off is not quietly kept.
+         *
+         * Cleared to null, except where the column cannot hold one: pricing
+         * and dispatch are NOT NULL with a default, and writing null into
+         * them threw a database error rather than saving a document — so
+         * hiding either of those columns made invoices impossible to raise.
+         */
         foreach ($method as $column) {
             if ($column['source'] !== 'builtin' || ! $column['hidden']) {
                 continue;
             }
             foreach (self::DOCUMENT_ATTRIBUTES[$column['key']] ?? [] as $attribute) {
-                $data[$attribute] = null;
+                $data[$attribute] = self::HIDDEN_RESETS_TO[$attribute] ?? null;
             }
         }
 
@@ -1144,6 +1228,20 @@ class InvoiceController extends Controller
                 $items[$index]['custom_fields'] = $values;
             }
 
+            /*
+             * A list, written back the one way. Typed with stray spaces or
+             * the same name twice, it is stored as one clean list — so the
+             * column reads the same however it was entered, and the invoice
+             * list can split it back apart without guessing.
+             */
+            foreach ($builtins as $key => $column) {
+                if (empty($column['multiple']) || ! array_key_exists($key, $item)) {
+                    continue;
+                }
+                $values = self::splitValues((string) ($item[$key] ?? ''));
+                $items[$index][$key] = $values === [] ? null : implode(', ', $values);
+            }
+
             // A column this company switched off carries no data.
             foreach ($hidden as $key => $column) {
                 foreach ($key === 'validity' ? ['validity_from', 'validity_to'] : [$key] as $attribute) {
@@ -1162,12 +1260,59 @@ class InvoiceController extends Controller
      *
      * @return array<string, array>
      */
+    /**
+     * The names in a multi-value column, in the order they were typed.
+     *
+     * Repeats are dropped comparing case-insensitively but the first
+     * spelling is kept: "Gold, gold" is one membership entered twice, and
+     * charging for it twice is not what anybody meant.
+     */
+    public static function splitValues(string $text): array
+    {
+        $seen = [];
+        $out = [];
+
+        foreach (explode(',', $text) as $part) {
+            $one = trim($part);
+            if ($one === '' || isset($seen[mb_strtolower($one)])) {
+                continue;
+            }
+            $seen[mb_strtolower($one)] = true;
+            $out[] = $one;
+        }
+
+        return $out;
+    }
+
     private function builtinRules(string $key, array $column): array
     {
         if ($key === 'validity') {
             return $column['is_required']
                 ? ['validity_from' => ['required', 'date'], 'validity_to' => ['required', 'date']]
                 : [];
+        }
+
+        /*
+         * A column that takes several values arrives as one comma-separated
+         * string, so each name in it is judged on its own — Rule::in on the
+         * whole thing would refuse "Gold, Silver" for not being an option,
+         * which is true and useless.
+         */
+        if (! empty($column['multiple'])) {
+            $rules = [$column['is_required'] ? 'required' : 'nullable', 'string', 'max:512'];
+
+            if ($column['type'] === 'select') {
+                $allowed = $column['options'] ?? [];
+                $rules[] = function (string $attribute, mixed $value, callable $fail) use ($allowed) {
+                    foreach (self::splitValues((string) $value) as $one) {
+                        if (! in_array($one, $allowed, true)) {
+                            $fail('“' . $one . '” is not one of the options.');
+                        }
+                    }
+                };
+            }
+
+            return [$key => $rules];
         }
 
         if ($column['type'] === 'select') {
@@ -1368,10 +1513,10 @@ class InvoiceController extends Controller
              * empty list when the lines were not loaded, so a caller can tell
              * "this invoice names none" from "nobody asked".
              */
+            // Each line may name several, so the column is the union of them.
             'memberships' => $i->relationLoaded('items')
-                ? $i->items->pluck('membership')
-                    ->map(fn ($m) => is_string($m) ? trim($m) : $m)
-                    ->filter()->unique()->values()->all()
+                ? $i->items->flatMap(fn ($it) => self::splitValues((string) $it->membership))
+                    ->unique()->values()->all()
                 : null,
             // "Recurring · 2 of 12", stamped when the copy was raised.
             'recurring_note' => $i->recurring_note,
