@@ -407,6 +407,14 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
             <div className="text-xs font-medium uppercase tracking-wide text-slate-400">Billed to</div>
             <div className="mt-1 font-semibold text-slate-800 dark:text-slate-100">{inv.client?.company_name}</div>
             {inv.client?.contact_person && <div className="text-sm text-slate-500">{inv.client.contact_person}</div>}
+            {/* Directly under the name, because they belong to the person and
+                not to the company's registrations. Absent when unfilled — a
+                dangling separator reads as a missing number. */}
+            {[inv.client_full?.mobile, inv.client_full?.email].some(Boolean) && (
+              <div className="text-sm text-slate-500">
+                {[inv.client_full?.mobile, inv.client_full?.email].filter(Boolean).join(' · ')}
+              </div>
+            )}
             {inv.client_full?.address && <div className="text-sm text-slate-500">{[inv.client_full.address, inv.client_full.city, inv.client_full.state, inv.client_full.pincode].filter(Boolean).join(', ')}</div>}
             {inv.client_full?.gst_no && <div className="text-sm text-slate-500">GSTIN: {inv.client_full.gst_no}</div>}
           </div>

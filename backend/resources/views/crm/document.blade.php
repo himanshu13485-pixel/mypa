@@ -73,10 +73,15 @@
       @endif
       <h1>{{ $company?->name ?? 'Invoice' }}</h1>
       @if ($company?->address)<div class="muted">{{ $company->address }}</div>@endif
-      <div class="muted">
-        @if ($company?->gstin)GSTIN: {{ $company->gstin }}@endif
-        @if ($company?->pan) · PAN: {{ $company->pan }}@endif
-      </div>
+      {{-- Same rule as the line below: a PAN with no GSTIN beside it used to
+           print a bullet with nothing before it. --}}
+      @php
+        $reg = array_filter([
+          $company?->gstin ? 'GSTIN: ' . $company->gstin : null,
+          $company?->pan ? 'PAN: ' . $company->pan : null,
+        ]);
+      @endphp
+      @if ($reg)<div class="muted">{{ implode(' · ', $reg) }}</div>@endif
       {{-- Joined, so a company with an e-mail and no phone does not print a
            bullet with nothing before it. --}}
       @php $reach = array_filter([$company?->phone, $company?->email]); @endphp
@@ -106,12 +111,14 @@
       @if ($invoice->client?->contact_person)
         <div>{{ trim($invoice->client->title . ' ' . $invoice->client->contact_person) }}</div>
       @endif
+      {{-- Under the name. Joined so a missing half leaves no stray separator. --}}
+      @php $clientReach = array_filter([$invoice->client?->mobile, $invoice->client?->email]); @endphp
+      @if ($clientReach)<div class="muted">{{ implode(' · ', $clientReach) }}</div>@endif
       @if ($invoice->client?->address)<div class="muted">{{ $invoice->client->address }}</div>@endif
       <div class="muted">
         {{ collect([$invoice->client?->city, $invoice->client?->state, $invoice->client?->pincode])->filter()->implode(', ') }}
       </div>
       @if ($invoice->client?->gst_no)<div class="muted">GSTIN: {{ $invoice->client->gst_no }}</div>@endif
-      @if ($invoice->client?->mobile)<div class="muted">{{ $invoice->client->mobile }}</div>@endif
     </td>
     <td class="right">
       @if ($invoice->member?->user && ! ($headings['member']['hidden'] ?? false))

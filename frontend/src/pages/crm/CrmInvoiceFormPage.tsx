@@ -32,6 +32,35 @@ const inr = (v: number) => '₹' + v.toLocaleString('en-IN', { minimumFractionDi
 
 
 
+/**
+ * A dropdown that can always show its own value.
+ *
+ * These columns start as free text and a company may turn one into a
+ * dropdown later, or edit the list afterwards. Either way, documents already
+ * raised carry values that are no longer on the list — and a select with no
+ * matching option silently shows the first one, so a line with a membership
+ * reads as having none.
+ *
+ * The saved value is offered as an option of its own. The truth stays on
+ * screen, and replacing it becomes a decision rather than an accident.
+ */
+function OptionSelect({ value, options, onChange }: {
+  value: string
+  options: string[] | null | undefined
+  onChange: (value: string) => void
+}) {
+  const list = options ?? []
+  const orphan = value !== '' && !list.includes(value)
+
+  return (
+    <Select value={value} onChange={(e) => onChange(e.target.value)} className="w-full">
+      <option value="">Select</option>
+      {orphan && <option value={value}>{value}</option>}
+      {list.map((o) => <option key={o} value={o}>{o}</option>)}
+    </Select>
+  )
+}
+
 export default function CrmInvoiceFormPage() {
   const { uuid } = useParams()
   const editing = !!uuid
@@ -279,10 +308,7 @@ export default function CrmInvoiceFormPage() {
 
     if (c.type === 'select') {
       return (
-        <Select value={row[key]} onChange={(e) => setItem(idx, key, e.target.value)} className="w-full">
-          <option value="">Select</option>
-          {(c.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
-        </Select>
+        <OptionSelect value={row[key]} options={c.options} onChange={(v) => setItem(idx, key, v)} />
       )
     }
     if (c.type === 'textarea') {
@@ -339,10 +365,7 @@ export default function CrmInvoiceFormPage() {
     }
     if (c.type === 'select') {
       return (
-        <Select value={String(value ?? '')} onChange={(e) => setItemField(idx, c.key, e.target.value)} className="w-full">
-          <option value="">Select</option>
-          {(c.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
-        </Select>
+        <OptionSelect value={String(value ?? '')} options={c.options} onChange={(v) => setItemField(idx, c.key, v)} />
       )
     }
     if (c.type === 'textarea') {
@@ -622,14 +645,11 @@ export default function CrmInvoiceFormPage() {
                 <>
                   <Label>{f.label}{f.is_required && ' *'}</Label>
                   {f.type === 'select' ? (
-                    <Select
+                    <OptionSelect
                       value={String(docValues[f.key] ?? '')}
-                      onChange={(e) => setDocValues((v) => ({ ...v, [f.key]: e.target.value }))}
-                      className="w-full"
-                    >
-                      <option value="">Select</option>
-                      {(f.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
-                    </Select>
+                      options={f.options}
+                      onChange={(val) => setDocValues((v) => ({ ...v, [f.key]: val }))}
+                    />
                   ) : f.type === 'textarea' ? (
                     <Textarea
                       rows={2}
@@ -654,10 +674,11 @@ export default function CrmInvoiceFormPage() {
             <div className="sm:col-span-2 lg:col-span-3">
               <Label>{heading('terms_of_payment', 'Terms of payment')}</Label>
               {docColumn('terms_of_payment')?.type === 'select' ? (
-                <Select value={head.terms_of_payment} onChange={(e) => setH('terms_of_payment', e.target.value)} className="w-full">
-                  <option value="">Select</option>
-                  {(docColumn('terms_of_payment')?.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
-                </Select>
+                <OptionSelect
+                  value={head.terms_of_payment}
+                  options={docColumn('terms_of_payment')?.options}
+                  onChange={(v) => setH('terms_of_payment', v)}
+                />
               ) : (
                 <Input value={head.terms_of_payment} onChange={(e) => setH('terms_of_payment', e.target.value)} placeholder="100% advance" className="w-full" />
               )}
