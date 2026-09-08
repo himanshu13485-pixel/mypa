@@ -714,7 +714,10 @@ class InvoiceController extends Controller
             abort(422, 'The mail could not be sent: ' . $e->getMessage());
         }
 
-        ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'invoice.emailed', $invoice, [
+        // Kind-aware like every other entry here: e-mailing a proforma is
+        // proforma activity, and hardcoding 'invoice.' put it under the
+        // wrong sidebar counter.
+        ActivityLog::record($request->attributes->get('crm_member'), $org->id, $invoice->kind . '.emailed', $invoice, [
             'number' => $invoice->number,
             'to' => $to,
             'cc' => implode(', ', $cc),

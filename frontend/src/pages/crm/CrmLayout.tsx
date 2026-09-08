@@ -56,7 +56,7 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, crmCan, setCrmOrg, type CrmMe } from '../../api/crm'
-import { crmPath } from '../../lib/crmPath'
+import { crmPath, navMatches } from '../../lib/crmPath'
 import { Spinner } from '../../components/ui'
 
 interface NavItem {
@@ -246,12 +246,23 @@ export default function CrmLayout() {
    * #310 across the whole screen. A hook cannot be conditional, and an
    * early return is a condition.
    */
+  // The rule itself lives in lib/crmPath, where it can be tested: it decides
+  // both the highlight and which badge is marked seen, and those two must
+  // never answer differently again.
+  const isNavActive = (to: string) => navMatches(to, location.pathname, location.search)
+
+  /*
+   * Which section is on screen, so its badge can be marked seen.
+   *
+   * The same question the highlighting asks, and it must be asked the same
+   * way. Comparing paths with the query stripped matched Proforma for the
+   * Invoices screen — they share a path and differ only by ?kind — so
+   * opening Invoices marked Proforma seen and the Invoices badge counted up
+   * for ever with nothing behind it.
+   */
   const currentSection = SECTIONS
     .flatMap((group) => group.items)
-    .find((item) => item.to && item.section && (
-      location.pathname === crmPath(item.to).split('?')[0]
-      || location.pathname.startsWith(crmPath(item.to).split('?')[0] + '/')
-    ))?.section
+    .find((item) => item.to && item.section && isNavActive(item.to))?.section
 
   useEffect(() => {
     if (!currentSection || !badges?.sections?.[currentSection]) return
@@ -283,25 +294,6 @@ export default function CrmLayout() {
         </button>
       </div>
     )
-  }
-
-  /**
-   * NavLink ignores the query string, so Proforma / Proforma log / Invoices /
-   * Invoice log all point at two paths and would light in pairs. The kind
-   * decides, and a document page with no kind reads as a tax invoice.
-   */
-  const isNavActive = (to: string) => {
-    // The sidebar's entries are written without a company; the address bar
-    // has one. Compared as-is, nothing would ever look active.
-    const [path, query] = crmPath(to).split('?')
-    if (path === crmPath('/crm')) return location.pathname === path
-    if (location.pathname !== path && !location.pathname.startsWith(path + '/')) return false
-    if (!query) return true
-    const want = new URLSearchParams(query)
-    const have = new URLSearchParams(location.search)
-
-    return [...want.entries()].every(([key, value]) =>
-      (have.get(key) ?? (key === 'kind' ? 'invoice' : null)) === value)
   }
 
   const linkClass = (isActive: boolean) =>

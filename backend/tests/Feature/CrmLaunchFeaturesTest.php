@@ -1112,4 +1112,38 @@ class CrmLaunchFeaturesTest extends TestCase
         $this->assertDatabaseMissing('crm_invoices', ['uuid' => $a]);
         $this->assertDatabaseHas('crm_invoices', ['uuid' => $paid]);
     }
+
+    /**
+     * The sidebar counter beside Invoices counts invoice activity, so a
+     * proforma's activity must not land in it.
+     *
+     * Emailing was the one act that hardcoded "invoice." whatever it was
+     * sending, which put every emailed quotation on the Invoices counter and
+     * left somebody looking at a number with no invoices behind it.
+     */
+    public function test_emailing_a_proforma_is_proforma_activity(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+
+        $co = \App\Models\Crm\IssuingCompany::create([
+            'organization_id' => $this->org->id, 'name' => 'Acme Billing Pvt Ltd',
+        ]);
+        $client = \App\Models\Crm\Client::create([
+            'organization_id' => $this->org->id, 'company_name' => 'Meridian Motors',
+            'created_by' => $this->adminUser->id,
+        ]);
+
+        $uuid = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices', [
+            'kind' => 'proforma', 'issuing_company_id' => $co->id, 'client_uuid' => $client->uuid,
+            'invoice_date' => now()->toDateString(),
+            'items' => [['plan_name' => 'Plan', 'qty' => 1, 'unit_price' => 1000]],
+        ])->assertCreated()->json('data.uuid');
+
+        $this->actingAs($this->adminUser)
+            ->postJson("/api/v1/crm/invoices/{$uuid}/email", ['to' => 'buyer@meridian.test'])
+            ->assertOk();
+
+        $this->assertDatabaseHas('crm_activity_logs', ['action' => 'proforma.emailed']);
+        $this->assertDatabaseMissing('crm_activity_logs', ['action' => 'invoice.emailed']);
+    }
 }

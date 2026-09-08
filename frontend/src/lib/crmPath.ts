@@ -92,3 +92,43 @@ function splitQuery(path: string): [string, string] {
 export function crmPath(path: string): string {
   return withCompany(path, companyIn(window.location.pathname))
 }
+
+/**
+ * Does this sidebar entry point at the page currently open?
+ *
+ * Proforma, Proforma log, Invoices and Invoice log share two paths between
+ * the four of them and are told apart only by ?kind, so a comparison that
+ * strips the query matches whichever is listed first. That decides the
+ * highlight — and, more consequentially, which section's badge is marked
+ * seen when somebody opens a screen. Getting it wrong there leaves a badge
+ * that can never be cleared.
+ *
+ * A document page carrying no kind at all reads as a tax invoice, because
+ * that is what the invoices screen defaults to.
+ *
+ * @param to        the entry's target, as written in the sidebar (no company)
+ * @param pathname  the address bar's path (which does carry one)
+ * @param search    the address bar's query string
+ */
+export function navMatches(to: string, pathname: string, search: string): boolean {
+  /*
+   * The company comes from the address being compared, not from the browser.
+   * Sidebar entries are written without one; the address bar carries it. And
+   * reading window here would make this untestable — which is how its only
+   * other copy went wrong unnoticed.
+   */
+  const company = companyIn(pathname)
+  const [path, query] = withCompany(to, company).split('?')
+
+  // The dashboard is the one entry that must not match its own children.
+  if (path === withCompany('/crm', company)) return pathname === path
+
+  if (pathname !== path && !pathname.startsWith(path + '/')) return false
+  if (!query) return true
+
+  const want = new URLSearchParams(query)
+  const have = new URLSearchParams(search)
+
+  return [...want.entries()].every(([key, value]) =>
+    (have.get(key) ?? (key === 'kind' ? 'invoice' : null)) === value)
+}

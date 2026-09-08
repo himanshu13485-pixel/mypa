@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 // The route table as text, so this test reads what ships rather than a copy
 // of it somebody remembered to update.
 import appSource from '../App.tsx?raw'
-import { CRM_SECTIONS, companyIn, withCompany } from './crmPath'
+import { navMatches, CRM_SECTIONS, companyIn, withCompany } from './crmPath'
 
 describe('reading the company out of a CRM path', () => {
   it('takes the first segment when it is not a screen', () => {
@@ -71,5 +71,51 @@ describe('the screen list against the routes themselves', () => {
 
     const missing = segments.filter((seg) => !CRM_SECTIONS.has(seg))
     expect(missing).toEqual([])
+  })
+})
+
+describe('which sidebar entry the open page belongs to', () => {
+  /*
+   * This rule decides the highlight AND which section's badge is marked
+   * seen. Proforma and Invoices share the path /crm/invoices and differ only
+   * by ?kind, so a comparison that ignored the query matched whichever came
+   * first in the sidebar — Proforma. Opening Invoices therefore marked
+   * Proforma seen, and the Invoices badge could never be cleared.
+   */
+  const at = (to: string, url: string) => {
+    const [pathname, search] = url.split('?')
+    return navMatches(to, pathname, search ? '?' + search : '')
+  }
+
+  it('tells Invoices apart from Proforma on their shared path', () => {
+    expect(at('/crm/invoices?kind=invoice', '/crm/acme/invoices?kind=invoice')).toBe(true)
+    expect(at('/crm/invoices?kind=proforma', '/crm/acme/invoices?kind=invoice')).toBe(false)
+
+    expect(at('/crm/invoices?kind=proforma', '/crm/acme/invoices?kind=proforma')).toBe(true)
+    expect(at('/crm/invoices?kind=invoice', '/crm/acme/invoices?kind=proforma')).toBe(false)
+  })
+
+  it('tells the two logs apart the same way', () => {
+    expect(at('/crm/invoice-log?kind=invoice', '/crm/acme/invoice-log?kind=invoice')).toBe(true)
+    expect(at('/crm/invoice-log?kind=proforma', '/crm/acme/invoice-log?kind=invoice')).toBe(false)
+  })
+
+  it('reads a document page with no kind as a tax invoice', () => {
+    // Which is what the screen itself defaults to.
+    expect(at('/crm/invoices?kind=invoice', '/crm/acme/invoices')).toBe(true)
+    expect(at('/crm/invoices?kind=proforma', '/crm/acme/invoices')).toBe(false)
+  })
+
+  it('matches a child page of a section', () => {
+    expect(at('/crm/leads', '/crm/acme/leads/01a07-abc')).toBe(true)
+  })
+
+  it('does not let the dashboard swallow every screen under it', () => {
+    expect(at('/crm', '/crm/acme')).toBe(true)
+    expect(at('/crm', '/crm/acme/invoices')).toBe(false)
+  })
+
+  it('does not match a different section', () => {
+    expect(at('/crm/leads', '/crm/acme/clients')).toBe(false)
   })
 })
