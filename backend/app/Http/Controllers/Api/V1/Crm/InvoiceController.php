@@ -236,7 +236,10 @@ class InvoiceController extends Controller
             'by_salesperson' => $bySalesperson,
         ], fn ($v) => $v !== null);
 
-        $invoices = $query->orderByDesc('invoice_date')->orderByDesc('id')->paginate(25);
+        // Newest first by when it was raised, not by the date typed on it. A
+        // document backdated to last month is still the one just made, and
+        // the person who made it looks for it at the top of the list.
+        $invoices = $query->orderByDesc('id')->paginate(25);
         $invoices->getCollection()->transform(fn ($i) => $this->serialize($i));
 
         return response()->json(['totals' => $totals] + $invoices->toArray());

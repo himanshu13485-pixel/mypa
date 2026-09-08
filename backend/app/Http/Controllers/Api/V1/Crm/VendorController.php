@@ -66,7 +66,8 @@ class VendorController extends Controller
             ->get()
             ->keyBy('vendor_id');
 
-        $vendors = $query->orderBy('company_name')->paginate(25);
+        // Newest first, as the client list reads.
+        $vendors = $query->orderByDesc('id')->paginate(25);
         $vendors->getCollection()->transform(fn (Vendor $v) => $this->serialize($v, $ledger, $overdue));
 
         // Only the outstanding side is summarised — that is the question the
@@ -109,7 +110,9 @@ class VendorController extends Controller
         $vendor = $this->find($request, $uuid);
 
         $bills = $vendor->expenses()
-            ->orderByDesc('expense_date')->orderByDesc('id')
+            // Most recently entered first, so a backdated bill still shows up
+            // in the fifty this panel has room for.
+            ->orderByDesc('id')
             ->limit(50)
             ->get(['uuid', 'expense_date', 'due_date', 'description', 'category', 'total_amount', 'amount_paid', 'payment_status']);
 

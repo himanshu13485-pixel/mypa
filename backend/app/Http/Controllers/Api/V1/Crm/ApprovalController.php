@@ -162,7 +162,9 @@ class ApprovalController extends Controller
                 ->where('status', '!=', 'cancelled')
                 ->when($search, fn ($q) => $q->where(fn ($w) => $w->where('number', 'like', "%{$search}%")
                     ->orWhereHas('client', fn ($c) => $c->where('company_name', 'like', "%{$search}%"))))
-                ->latest('invoice_date')
+                // The document just raised is the one an approval is being
+                // asked for, so it heads the picker.
+                ->latest('id')
                 ->limit(30)
                 ->get(['id', 'uuid', 'number', 'kind', 'total', 'client_id'])
                 ->map(fn (Invoice $i) => [

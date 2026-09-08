@@ -102,7 +102,9 @@ class ExpenseController extends Controller
                 ->sortKeys()->values()->take(-12),
         ];
 
-        $expenses = $query->orderByDesc('expense_date')->orderByDesc('id')->paginate(25);
+        // Most recently entered first, as documents read. A bill entered
+        // today for last month's date is still the one just entered.
+        $expenses = $query->orderByDesc('id')->paginate(25);
         $expenses->getCollection()->transform(fn ($e) => $this->serialize($e));
 
         return response()->json(['summary' => $summary] + $expenses->toArray());

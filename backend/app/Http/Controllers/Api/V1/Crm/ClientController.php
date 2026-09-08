@@ -46,7 +46,10 @@ class ClientController extends Controller
             $query->whereHas('assignedMember', fn ($m) => $m->where('uuid', $assigned));
         }
 
-        $clients = $query->orderBy('company_name')->paginate(25);
+        // The one just added, first. Alphabetical order buried it wherever
+        // its name happened to fall, and looking a particular client up is
+        // what the search box above is for.
+        $clients = $query->orderByDesc('id')->paginate(25);
         $clients->getCollection()->transform(fn ($c) => $this->serialize($c));
 
         return response()->json($clients);
@@ -111,7 +114,9 @@ class ClientController extends Controller
     {
         $client = $this->find($request, $uuid)->load(['assignedMember.user:id,name', 'sharedWith.user:id,name']);
 
-        $invoices = $client->invoices()->latest('invoice_date')->limit(20)
+        // Most recently raised first, so a backdated document still shows up
+        // in the twenty this panel has room for.
+        $invoices = $client->invoices()->latest('id')->limit(20)
             ->get()
             ->map(fn ($i) => [
                 'uuid' => $i->uuid,

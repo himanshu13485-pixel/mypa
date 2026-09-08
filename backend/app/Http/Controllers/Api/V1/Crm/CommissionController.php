@@ -59,7 +59,8 @@ class CommissionController extends Controller
             'this_month' => round($all->filter(fn ($e) => $e->expense_date->isSameMonth(now()))->sum('total_amount'), 2),
         ];
 
-        $rows = $query->orderByDesc('expense_date')->orderByDesc('id')->paginate(25);
+        // Most recently entered first, as the expense list reads.
+        $rows = $query->orderByDesc('id')->paginate(25);
         $rows->getCollection()->transform(fn (Expense $e) => $this->serialize($e));
 
         return response()->json(['summary' => $summary] + $rows->toArray());

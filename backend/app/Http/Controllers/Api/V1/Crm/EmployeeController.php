@@ -70,7 +70,8 @@ class EmployeeController extends Controller
             $query->where('status', $status);
         }
 
-        $members = $query->orderBy('id')->paginate(25);
+        // The newest joiner first — they are the one being set up.
+        $members = $query->orderByDesc('id')->paginate(25);
 
         /*
          * Whose seat this reader may sit in.

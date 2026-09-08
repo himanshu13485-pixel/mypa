@@ -79,7 +79,9 @@ class PaymentInboxController extends Controller
                 ->sortKeys()->values()->take(-12),
         ];
 
-        $entries = $query->orderByDesc('received_on')->orderByDesc('id')->paginate(25);
+        // Most recently recorded first — a receipt entered days after the
+        // money landed is still the entry just made.
+        $entries = $query->orderByDesc('id')->paginate(25);
         $entries->getCollection()->transform(fn ($e) => $this->serialize($e));
 
         return response()->json(['summary' => $summary] + $entries->toArray());
