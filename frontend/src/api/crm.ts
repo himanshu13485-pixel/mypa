@@ -419,6 +419,8 @@ export interface CrmMasters {
     /** What the next document of each kind will be numbered, after the prefix. */
     next_invoice_no: number
     next_proforma_no: number
+    /** Must this company's documents carry at least one tax line? */
+    tax_required: boolean
     is_active: boolean
   }[]
   bank_accounts: { id: number; label: string; bank_name: string | null; account_no: string | null; ifsc: string | null; is_active: boolean; issuing_company_id?: number | null; issuing_company_name?: string | null }[]
@@ -2633,12 +2635,6 @@ export const crm = {
       api.get<{ data: { categories: string[] } }>('/crm/masters/asset-categories').then((r) => r.data.data.categories),
     saveAssetCategories: (categories: string[]) =>
       api.put<{ message: string; data: { categories: string[] } }>('/crm/masters/asset-categories', { categories })
-        .then((r) => r.data),
-    /** Must every document carry at least one tax line? */
-    taxSettings: () =>
-      api.get<{ data: { tax_required: boolean } }>('/crm/masters/tax-settings').then((r) => r.data.data),
-    saveTaxSettings: (taxRequired: boolean) =>
-      api.put<{ message: string }>('/crm/masters/tax-settings', { tax_required: taxRequired })
         .then((r) => r.data),
     saveCompany: (payload: Record<string, unknown>, id?: number) =>
       id ? api.put(`/crm/masters/issuing-companies/${id}`, payload).then((r) => r.data)

@@ -194,7 +194,16 @@ class CrmDocumentRequiredTest extends TestCase
         $this->raise(['due_date' => null])->assertStatus(422)->assertJsonValidationErrors('due_date');
     }
 
-    // ---- tax, which the company decides -------------------------------------
+    // ---- tax, which each issuing company decides ----------------------------
+
+    /** Turn the rule on for the company these documents are raised from. */
+    private function requireTax(): void
+    {
+        $this->as()->putJson("/api/v1/crm/masters/issuing-companies/{$this->companyId}", [
+            'name' => 'Acme Billing Pvt Ltd',
+            'tax_required' => true,
+        ])->assertOk();
+    }
 
     public function test_tax_is_not_required_by_default(): void
     {
@@ -203,16 +212,16 @@ class CrmDocumentRequiredTest extends TestCase
         $this->raise()->assertCreated();
     }
 
-    public function test_when_the_company_requires_tax_a_document_must_carry_some(): void
+    public function test_when_a_company_requires_tax_its_documents_must_carry_some(): void
     {
-        $this->as()->putJson('/api/v1/crm/masters/tax-settings', ['tax_required' => true])->assertOk();
+        $this->requireTax();
 
         $this->raise()->assertStatus(422)->assertJsonValidationErrors('cgst');
     }
 
     public function test_any_one_tax_line_satisfies_it(): void
     {
-        $this->as()->putJson('/api/v1/crm/masters/tax-settings', ['tax_required' => true])->assertOk();
+        $this->requireTax();
 
         // Which line applies depends on where the client is; the rule only
         // asks that somebody answered.
@@ -221,32 +230,38 @@ class CrmDocumentRequiredTest extends TestCase
         $this->raise(['cgst' => 900, 'sgst' => 900])->assertCreated();
     }
 
-    public function test_the_setting_is_readable_and_survives(): void
+    public function test_one_company_requiring_tax_does_not_bind_another(): void
     {
-        $this->as()->getJson('/api/v1/crm/masters/tax-settings')
-            ->assertOk()->assertJsonPath('data.tax_required', false);
+        // The whole point of moving it: a domestic arm charging GST on
+        // everything and an export arm invoicing without payment of tax sit
+        // in the same account.
+        $this->requireTax();
 
-        $this->as()->putJson('/api/v1/crm/masters/tax-settings', ['tax_required' => true])->assertOk();
+        $exports = $this->as()->postJson('/api/v1/crm/masters/issuing-companies', [
+            'name' => 'Acme Exports LLP', 'invoice_prefix' => 'AE-', 'proforma_prefix' => 'AEP-',
+        ])->assertCreated()->json('data.id');
 
-        $this->as()->getJson('/api/v1/crm/masters/tax-settings')
-            ->assertOk()->assertJsonPath('data.tax_required', true);
+        $this->raise(['issuing_company_id' => $exports])->assertCreated();
+        $this->raise()->assertStatus(422)->assertJsonValidationErrors('cgst');
     }
 
-    public function test_only_a_masters_admin_can_change_it(): void
+    public function test_the_refusal_names_the_company_that_asked(): void
     {
-        $staff = User::factory()->create();
-        $staff->settings()->create([]);
-        $staff->profile()->create(['timezone' => 'UTC']);
-        Member::create([
-            'organization_id' => $this->org->id,
-            'user_id' => $staff->id,
-            'crm_role' => 'employee',
-            'status' => 'active',
-        ]);
+        $this->requireTax();
 
-        $this->actingAs($staff)->withHeader('X-Crm-Org', $this->org->uuid)
-            ->putJson('/api/v1/crm/masters/tax-settings', ['tax_required' => true])
-            ->assertForbidden();
+        $this->raise()->assertStatus(422)->assertJsonPath(
+            'errors.cgst.0',
+            'Acme Billing Pvt Ltd requires tax on every document — enter at least one tax line.',
+        );
+    }
+
+    public function test_the_setting_survives_and_is_served_with_the_company(): void
+    {
+        $this->requireTax();
+
+        $this->as()->getJson('/api/v1/crm/masters')
+            ->assertOk()
+            ->assertJsonPath('data.issuing_companies.0.tax_required', true);
     }
 
     // ---- a line can name more than one ---------------------------------------

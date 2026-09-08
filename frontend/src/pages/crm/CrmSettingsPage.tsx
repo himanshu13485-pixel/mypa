@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, Image as ImageIcon, KeyRound, Landmark, LifeBuoy, ListChecks, Pencil, Percent, Plus, Upload, Wallet } from 'lucide-react'
+import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, Image as ImageIcon, KeyRound, Landmark, LifeBuoy, ListChecks, Pencil, Plus, Upload, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -31,7 +31,6 @@ export default function CrmSettingsPage() {
 
       <MasterKey />
       <PaymentRules />
-      <TaxRule />
       <CashfreeAccount />
       <FxMargin />
       <BirthdaySong />
@@ -510,6 +509,7 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
     next_invoice_no: String(editing?.next_invoice_no ?? 1),
     next_proforma_no: String(editing?.next_proforma_no ?? 1),
     is_active: editing?.is_active ?? true,
+    tax_required: editing?.tax_required ?? false,
     currency: editing?.currency ?? 'INR',
     pays_salary: editing?.pays_salary ?? false,
   })
@@ -629,6 +629,28 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
               A non-INR company bills whole invoices in that currency; each carries a universal INR equivalent at the live rate less the FX margin.
             </p>
           </div>
+          <label className="col-span-2 flex cursor-pointer items-start gap-3">
+            <input
+              type="checkbox"
+              checked={form.tax_required}
+              onChange={(e) => setForm((f) => ({ ...f, tax_required: e.target.checked }))}
+              className="mt-0.5 size-4 accent-emerald-600"
+            />
+            <span>
+              <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
+                Documents from this company must carry tax
+              </span>
+              {/* Per company, because a domestic arm charging GST on
+                  everything and an export arm invoicing without payment of
+                  tax sit in the same account. */}
+              <span className="mt-1 block text-xs text-slate-400">
+                At least one tax line on every proforma and invoice — which one applies is per
+                document and stays the accountant&rsquo;s call. Leave this off for a company that
+                raises exempt or zero-rated documents.
+              </span>
+            </span>
+          </label>
+
           <ImageField
             className="col-span-2"
             label="Company logo (prints on invoices & payslips)"
@@ -984,61 +1006,6 @@ function CashfreeAccount() {
   )
 }
 
-
-/**
- * Whether a document can be raised without tax on it.
- *
- * Off by default, because a company raising exempt or zero-rated documents
- * would otherwise be unable to raise them at all — and getting that wrong
- * stops the office working. On, the form insists on at least one tax line,
- * but never on which: that depends on where the client is and what is being
- * sold, and it is the accountant's answer rather than a setting.
- */
-function TaxRule() {
-  const { toast, toastError } = useToast()
-  const { data } = useQuery({ queryKey: ['crm', 'tax-settings'], queryFn: crm.masterData.taxSettings })
-  const queryClient = useQueryClient()
-
-  const save = useMutation({
-    mutationFn: (on: boolean) => crm.masterData.saveTaxSettings(on),
-    onSuccess: (res) => {
-      toast(res.message, 'success')
-      queryClient.invalidateQueries({ queryKey: ['crm', 'tax-settings'] })
-    },
-    onError: (err) => toastError(errorMessage(err)),
-  })
-
-  if (!data) {
-    return <Card><div className="flex justify-center py-6"><Spinner /></div></Card>
-  }
-
-  return (
-    <Card>
-      <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
-        <Percent className="size-4 text-emerald-500" /> Tax on documents
-      </h2>
-      <label className="mt-3 flex cursor-pointer items-start gap-3">
-        <input
-          type="checkbox"
-          checked={data.tax_required}
-          onChange={(e) => save.mutate(e.target.checked)}
-          disabled={save.isPending}
-          className="mt-0.5 size-4 accent-emerald-600"
-        />
-        <span>
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-200">
-            Every proforma and invoice must carry tax
-          </span>
-          <span className="mt-1 block text-xs text-slate-400">
-            At least one tax line — CGST and SGST for a sale inside the state, IGST for one outside
-            it, or whatever else you charge. Which one applies is per document and stays the
-            accountant&rsquo;s call. Leave this off if you raise exempt or zero-rated documents.
-          </span>
-        </span>
-      </label>
-    </Card>
-  )
-}
 
 /**
  * How often the due-lead popup returns when it is dismissed unattended.

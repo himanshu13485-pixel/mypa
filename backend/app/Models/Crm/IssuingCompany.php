@@ -17,12 +17,12 @@ class IssuingCompany extends Model
         'organization_id', 'name', 'address', 'gstin', 'pan', 'state_code',
         'phone', 'email', 'invoice_prefix', 'proforma_prefix',
         'next_invoice_no', 'next_proforma_no', 'is_active',
-        'logo_path', 'stamp_path', 'currency', 'pays_salary',
+        'logo_path', 'stamp_path', 'currency', 'pays_salary', 'tax_required',
     ];
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean', 'pays_salary' => 'boolean'];
+        return ['is_active' => 'boolean', 'pays_salary' => 'boolean', 'tax_required' => 'boolean'];
     }
 
     public function organization(): BelongsTo

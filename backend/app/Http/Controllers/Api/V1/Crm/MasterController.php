@@ -595,35 +595,6 @@ class MasterController extends Controller
         return response()->json(['message' => 'Communication setup saved.']);
     }
 
-    /** Whether every document this company raises must carry tax. */
-    public function taxSettings(Request $request): JsonResponse
-    {
-        return response()->json(['data' => [
-            'tax_required' => $request->attributes->get('crm_org')->taxRequired(),
-        ]]);
-    }
-
-    public function saveTaxSettings(Request $request): JsonResponse
-    {
-        $org = $request->attributes->get('crm_org');
-        $data = $request->validate(['tax_required' => ['required', 'boolean']]);
-
-        $settings = $org->settings ?? [];
-        $settings['documents'] = ($settings['documents'] ?? []) + [];
-        $settings['documents']['tax_required'] = (bool) $data['tax_required'];
-        $org->update(['settings' => $settings]);
-
-        ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'settings.tax', $org, [
-            'tax_required' => (bool) $data['tax_required'],
-        ]);
-
-        return response()->json([
-            'message' => $data['tax_required']
-                ? 'Documents must now carry at least one tax line.'
-                : 'Tax is no longer required on documents.',
-        ]);
-    }
-
     private function validateCompany(Request $request, ?IssuingCompany $company = null): array
     {
         $data = $request->validate([
@@ -644,6 +615,9 @@ class MasterController extends Controller
             // The registered company salaries are paid from — the payslip
             // carries its details and logo. Only one holds the tick.
             'pays_salary' => ['nullable', 'boolean'],
+            // Whether this company's documents must carry tax. Its own answer,
+            // because a domestic arm and an export arm differ on it.
+            'tax_required' => ['nullable', 'boolean'],
         ]);
         if (array_key_exists('currency', $data)) {
             $data['currency'] = strtoupper((string) ($data['currency'] ?: 'INR'));
@@ -670,7 +644,7 @@ class MasterController extends Controller
          * stored value standing, which is what sending nothing at all does
          * and what sending nothing in particular ought to do too.
          */
-        foreach (['invoice_prefix', 'proforma_prefix', 'next_invoice_no', 'next_proforma_no', 'is_active', 'pays_salary'] as $field) {
+        foreach (['invoice_prefix', 'proforma_prefix', 'next_invoice_no', 'next_proforma_no', 'is_active', 'pays_salary', 'tax_required'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === null) {
                 unset($data[$field]);
             }

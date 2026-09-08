@@ -974,7 +974,7 @@ class InvoiceController extends Controller
             'items.*.amount_fx' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        $this->requireTax($request);
+        $this->requireTax($request, $orgId);
 
         $items = $this->applyWorkOrderFields($request, $orgId, $data['items']);
         unset($data['items'], $data['tax_lines']);
@@ -1071,14 +1071,19 @@ class InvoiceController extends Controller
      * Read from the rate as well as the figure, because the form sends
      * whichever was typed and works the other one out from it.
      */
-    private function requireTax(Request $request): void
+    private function requireTax(Request $request, int $orgId): void
     {
-        $org = $request->attributes->get('crm_org');
-        if (! $org?->taxRequired()) {
+        // The company whose name goes on the document is the one that answers
+        // this — an export arm raising invoices without payment of tax and a
+        // domestic arm charging GST on everything sit in the same account.
+        $company = IssuingCompany::where('organization_id', $orgId)
+            ->find($request->input('issuing_company_id'));
+
+        if (! $company?->tax_required) {
             return;
         }
 
-        $charged = collect(CustomField::taxSetup($org->id))
+        $charged = collect(CustomField::taxSetup($orgId))
             ->where('kind', 'tax')
             ->contains(function (array $line) use ($request) {
                 if ($line['source'] === 'builtin') {
@@ -1094,7 +1099,7 @@ class InvoiceController extends Controller
 
         if (! $charged) {
             throw ValidationException::withMessages(['cgst' => [
-                'This company requires tax on every document — enter at least one tax line.',
+                $company->name . ' requires tax on every document — enter at least one tax line.',
             ]]);
         }
     }

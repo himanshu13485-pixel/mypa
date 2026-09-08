@@ -1307,8 +1307,6 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // Billing masters
             Route::middleware('crm.member:masters,edit')->group(function () {
                 Route::put('/masters/payment-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'savePaymentSettings']);
-                Route::get('/masters/tax-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'taxSettings']);
-                Route::put('/masters/tax-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveTaxSettings']);
                 Route::put('/masters/lead-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveLeadSettings']);
                 Route::put('/masters/lead-options', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveLeadOptions']);
                 Route::put('/masters/approval-types', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveApprovalTypes']);
