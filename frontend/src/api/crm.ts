@@ -2536,8 +2536,15 @@ export const crm = {
       api.post<{ message: string; data: CrmRecurringInvoice }>(`/crm/invoices/${uuid}/recurring`, payload)
         .then((r) => r.data),
     /** The document as a file — print dialogs are not available everywhere. */
-    pdf: (uuid: string) =>
-      api.get(`/crm/invoices/${uuid}/pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
+    /**
+     * @param letterhead Printing onto stationery that already carries the
+     *                   logo, so the file leaves ours out and keeps the gap.
+     */
+    pdf: (uuid: string, letterhead = false) =>
+      api.get(`/crm/invoices/${uuid}/pdf`, {
+        responseType: 'blob',
+        params: letterhead ? { letterhead: 1 } : undefined,
+      }).then((r) => r.data as Blob),
     addPayment: (uuid: string, payload: Record<string, unknown>) => api.post(`/crm/invoices/${uuid}/payments`, payload).then((r) => r.data),
     deletePayment: (uuid: string, id: number) => api.delete(`/crm/invoices/${uuid}/payments/${id}`).then((r) => r.data),
     /** Name what collecting cost, after the fact — settlement reports lag. */

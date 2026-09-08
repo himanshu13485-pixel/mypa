@@ -642,7 +642,8 @@ class InvoiceController extends Controller
         ]);
         $this->forKind($request, $invoice->kind, 'view');
 
-        return $this->documentPdf($invoice)
+        // Onto pre-printed stationery, the logo is already on the paper.
+        return $this->documentPdf($invoice, $request->boolean('letterhead'))
             ->download(str_replace(['/', '\\', ' '], '-', $invoice->number) . '.pdf');
     }
 
@@ -725,7 +726,13 @@ class InvoiceController extends Controller
     }
 
     /** One PDF builder for downloads and e-mails alike. */
-    private function documentPdf(Invoice $invoice)
+    /**
+     * @param bool $letterhead Printing onto paper that already carries the
+     *                         company's logo, so ours is left out — but its
+     *                         space is kept, or the header rides up and the
+     *                         document stops lining up with the stationery.
+     */
+    private function documentPdf(Invoice $invoice, bool $letterhead = false)
     {
 
         $columns = collect(CustomField::workOrderMethod($invoice->organization_id))
@@ -749,7 +756,9 @@ class InvoiceController extends Controller
         $pdf = Pdf::loadView('crm.document', [
             'invoice' => $invoice,
             'company' => $invoice->issuingCompany,
-            'logoPath' => $logoPath && is_file($logoPath) ? $logoPath : null,
+            'logoPath' => ! $letterhead && $logoPath && is_file($logoPath) ? $logoPath : null,
+            // Reserve the height the logo would have taken.
+            'letterhead' => $letterhead,
             'stampPath' => $stampPath && is_file($stampPath) ? $stampPath : null,
             'currency' => $invoice->currency ?: 'INR',
             'received' => $received,

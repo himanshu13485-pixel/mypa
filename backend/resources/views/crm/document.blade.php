@@ -66,6 +66,10 @@
     <td>
       @if (!empty($logoPath))
         <img src="{{ $logoPath }}" alt="" style="max-height:52px; max-width:180px; margin-bottom:4px">
+      @elseif (!empty($letterhead))
+        {{-- The paper already has the logo on it. The gap is kept so the rest
+             of the document sits where it does on an ordinary print. --}}
+        <div style="height:52px; margin-bottom:4px"></div>
       @endif
       <h1>{{ $company?->name ?? 'Invoice' }}</h1>
       @if ($company?->address)<div class="muted">{{ $company->address }}</div>@endif

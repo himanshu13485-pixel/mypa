@@ -56,6 +56,9 @@ function paragraphs(type: LetterType, e: CrmEmployeeFull, org: string, fnfAmount
     case 'offer':
       return {
         title: 'Offer Letter',
+        // The joining date, not the day somebody asked for a copy. Whoever
+        // reads this letter reads its date as when the job started.
+        letterDate: e.joined_at ?? null,
         body: [
           `Dear ${name}${parentage},`,
           `With reference to your application and the subsequent discussions, we are pleased to offer you the position of <b>${e.designation ?? 'Executive'}</b>${e.department ? ` in our ${e.department} department` : ''} at ${org}.`,
@@ -67,6 +70,7 @@ function paragraphs(type: LetterType, e: CrmEmployeeFull, org: string, fnfAmount
     case 'appointment':
       return {
         title: 'Appointment Letter',
+        letterDate: e.joined_at ?? null,
         body: [
           `Dear ${name}${parentage},`,
           `We are pleased to confirm your appointment as <b>${e.designation ?? 'Executive'}</b>${e.department ? ` in the ${e.department} department` : ''} of ${org}, effective <b>${longDate(e.joined_at)}</b>.`,
@@ -91,6 +95,7 @@ function paragraphs(type: LetterType, e: CrmEmployeeFull, org: string, fnfAmount
     case 'resignation':
       return {
         title: 'Resignation Acceptance Letter',
+        letterDate: e.resigned_at ?? null,
         body: [
           `Dear ${name},`,
           `This is to acknowledge and accept your resignation from the position of <b>${e.designation ?? 'Executive'}</b> at ${org}. Your last working day is <b>${longDate(e.resigned_at)}</b>.`,
@@ -102,6 +107,7 @@ function paragraphs(type: LetterType, e: CrmEmployeeFull, org: string, fnfAmount
     case 'fnf':
       return {
         title: 'Full & Final Settlement Letter',
+        letterDate: e.resigned_at ?? null,
         body: [
           `Dear ${name},`,
           `This is with reference to your resignation and relieving from the position of <b>${e.designation ?? 'Executive'}</b> at ${org}, with your last working day being <b>${longDate(e.resigned_at)}</b>.`,
@@ -113,11 +119,29 @@ function paragraphs(type: LetterType, e: CrmEmployeeFull, org: string, fnfAmount
   }
 }
 
-export function openLetter(type: LetterType, e: CrmEmployeeFull, org: string, fnfAmount?: number, promoRecordId?: number): void {
+/**
+ * The letter as a page, without opening one.
+ *
+ * Split out from openLetter so the wording and — the part that actually goes
+ * wrong — the date can be checked without a browser. The suite here runs in
+ * plain Node with no DOM, and a document.write is not a thing you can assert
+ * against anyway.
+ */
+export function letterHtml(type: LetterType, e: CrmEmployeeFull, org: string, fnfAmount?: number, promoRecordId?: number): string {
   const { title, body, letterDate } = paragraphs(type, e, org, fnfAmount, promoRecordId)
-  const today = (letterDate ? new Date(letterDate) : new Date())
-    .toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
-  const ref = `${org.replace(/[^A-Za-z]/g, '').slice(0, 4).toUpperCase()}/HR/${(letterDate ? new Date(letterDate) : new Date()).getFullYear()}/${e.employee_code ?? '—'}`
+  /*
+   * The date of the event, falling back to today.
+   *
+   * Every one of these is a reprint of something that happened, so the date
+   * belongs to the event and not to the printing. Today is the fallback for
+   * a letter whose own date was never recorded — undated is worse than
+   * approximate.
+   */
+  const dated = (letterDate ? new Date(letterDate) : new Date())
+  const dateText = dated.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
+  // The reference number takes the same year, so it cannot disagree with
+  // the date printed beside it.
+  const ref = `${org.replace(/[^A-Za-z]/g, '').slice(0, 4).toUpperCase()}/HR/${dated.getFullYear()}/${e.employee_code ?? '—'}`
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title} — ${e.name ?? ''}</title>
 <style>
@@ -134,7 +158,7 @@ export function openLetter(type: LetterType, e: CrmEmployeeFull, org: string, fn
 </style></head><body>
 <div class="head">
   <div class="org">${org}</div>
-  <div class="meta">Ref: ${ref}<br>Date: ${today}</div>
+  <div class="meta">Ref: ${ref}<br>Date: ${dateText}</div>
 </div>
 <h1>${title}</h1>
 ${body.map((p) => `<p>${p}</p>`).join('')}
@@ -145,8 +169,12 @@ ${body.map((p) => `<p>${p}</p>`).join('')}
 <script>window.print()</script>
 </body></html>`
 
+  return html
+}
+
+export function openLetter(type: LetterType, e: CrmEmployeeFull, org: string, fnfAmount?: number, promoRecordId?: number): void {
   const w = window.open('', '_blank')
   if (!w) return
-  w.document.write(html)
+  w.document.write(letterHtml(type, e, org, fnfAmount, promoRecordId))
   w.document.close()
 }

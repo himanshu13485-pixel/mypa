@@ -19,6 +19,9 @@ const trimRate = (v: string) => String(Number(v))
 
 
 
+/** Remembered per browser: the paper in the tray, not a company setting. */
+const LETTERHEAD_KEY = 'crm-print-on-letterhead'
+
 export default function CrmInvoiceViewPage() {
   const { uuid } = useParams()
   const navigate = useNavigate()
@@ -53,6 +56,30 @@ export default function CrmInvoiceViewPage() {
     queryClient.invalidateQueries({ queryKey: ['crm', 'invoices'] })
   }
 
+  /*
+   * Whether this is going onto pre-printed letterhead.
+   *
+   * Asked where the printing is decided rather than in Settings, because it
+   * is a fact about the paper in the tray and not about the company: the
+   * same invoice goes on letterhead for the client's copy and on plain
+   * paper for the file. Remembered per browser so the answer is offered
+   * rather than demanded every time, and it is the printer that stays put.
+   */
+  const [letterhead, setLetterhead] = useState(() => {
+    try {
+      return localStorage.getItem(LETTERHEAD_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+
+  const chooseLetterhead = (on: boolean) => {
+    setLetterhead(on)
+    try {
+      localStorage.setItem(LETTERHEAD_KEY, on ? '1' : '0')
+    } catch { /* a private window simply asks again next time */ }
+  }
+
   /**
    * Download rather than print: an embedded browser refuses the print dialog
    * ("this app doesn't support print preview"), but it will happily save a
@@ -60,7 +87,7 @@ export default function CrmInvoiceViewPage() {
    */
   const downloadPdf = async () => {
     try {
-      const blob = await crm.invoices.pdf(uuid!)
+      const blob = await crm.invoices.pdf(uuid!, letterhead)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -92,7 +119,7 @@ export default function CrmInvoiceViewPage() {
   const viewPdf = async () => {
     setPreviewLoading(true)
     try {
-      setPreview(URL.createObjectURL(await crm.invoices.pdf(uuid!)))
+      setPreview(URL.createObjectURL(await crm.invoices.pdf(uuid!, letterhead)))
     } catch (err) {
       toastError(errorMessage(err))
     } finally {
@@ -211,6 +238,19 @@ export default function CrmInvoiceViewPage() {
           <Button variant="secondary" onClick={() => window.print()} className="hidden sm:inline-flex">
             <Printer className="size-4" /> Print
           </Button>
+          {/* Beside View, Download and Print because it changes all three. */}
+          <label
+            className="tap inline-flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2 text-sm text-slate-600 ring-1 ring-inset ring-slate-900/10 hover:bg-slate-50 dark:text-slate-300 dark:ring-white/10 dark:hover:bg-slate-800"
+            title="Your stationery already has the logo printed on it. The document leaves ours out and keeps the space, so everything below still lines up."
+          >
+            <input
+              type="checkbox"
+              checked={letterhead}
+              onChange={(e) => chooseLetterhead(e.target.checked)}
+              className="size-4 accent-emerald-600"
+            />
+            On letterhead
+          </label>
           {inv.status !== 'cancelled' && !(isProforma && inv.converted_to) && (
             <Button variant="secondary" onClick={() => navigate(crmPath(`/crm/invoices/${inv.uuid}/edit`))}><Pencil className="size-4" /> Edit</Button>
           )}
@@ -320,12 +360,18 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
             {/* The letterhead. On screen and on paper alike — Print captures
                 this card, so a logo the PDF alone knew about was a logo that
                 never printed. */}
+            {/* On letterhead the space is kept and the ink dropped, so the
+                header does not ride up and stop matching the stationery. */}
             {inv.issuing_company_full?.logo_path && (
-              <img
-                src={photoUrl(inv.issuing_company_full.logo_path)}
-                alt=""
-                className="mb-1.5 max-h-[52px] max-w-[180px] object-contain"
-              />
+              letterhead
+                ? <div className="mb-1.5 h-[52px]" aria-hidden="true" />
+                : (
+                  <img
+                    src={photoUrl(inv.issuing_company_full.logo_path)}
+                    alt=""
+                    className="mb-1.5 max-h-[52px] max-w-[180px] object-contain"
+                  />
+                )
             )}
             <div className="text-lg font-bold text-slate-900 dark:text-white">{inv.issuing_company?.name}</div>
             {inv.issuing_company_full?.address && <div className="mt-0.5 max-w-xs text-xs text-slate-500">{inv.issuing_company_full.address}</div>}
