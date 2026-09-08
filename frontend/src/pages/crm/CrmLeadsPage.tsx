@@ -444,7 +444,7 @@ export default function CrmLeadsPage() {
           <EmptyState title="No leads found" hint="Create a lead or loosen the filters." />
         ) : (
           <div className="-mx-4 overflow-x-auto px-4">
-            <table className="w-full min-w-[860px] text-sm">
+            <table className="w-full min-w-[940px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                   {canBulkTransfer && (
@@ -468,6 +468,10 @@ export default function CrmLeadsPage() {
                   <th className="py-2 pr-3 font-medium">Allocated to</th>
                   <th className="py-2 pr-3 font-medium">Source</th>
                   <th className="py-2 pr-3 text-right font-medium">Amount</th>
+                  {/* Beside the follow-up date, because the two are read
+                      together: how long it has been here, and when it is next
+                      owed a call. */}
+                  <th className="py-2 pr-3 font-medium">Received</th>
                   <th className="py-2 pr-3 font-medium">Follow up</th>
                   <th className="py-2 font-medium">Status</th>
                 </tr>
@@ -535,6 +539,13 @@ export default function CrmLeadsPage() {
                     <td className="py-2.5 pr-3">{l.assigned_member?.name ?? '—'}</td>
                     <td className="py-2.5 pr-3">{l.source ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right">{Number(l.amount) ? inr(l.amount) : '—'}</td>
+                    {/* The day it arrived, without the time — the hour a lead
+                        came in is noise beside the date it has been waiting
+                        since, and the follow-up column beside it carries the
+                        time that does matter. */}
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">
+                      {l.created_at ? l.created_at.slice(0, 10) : '—'}
+                    </td>
                     <td className="whitespace-nowrap py-2.5 pr-3">
                       <span className={clsx(l.follow_up_due && 'font-medium text-red-500')}>
                         {l.follow_up_at ? l.follow_up_at.slice(0, 16) : '—'}

@@ -555,7 +555,7 @@ export default function CrmInvoiceFormPage() {
                       >
                         <span className="block truncate font-medium text-slate-800 dark:text-slate-100">{c.company_name}</span>
                         <span className="block truncate text-xs text-slate-400">
-                          {[c.contact_person, c.city, c.gst_no].filter(Boolean).join(' · ') || '—'}
+                          {[c.contact_person, c.mobile, c.email, c.city, c.gst_no].filter(Boolean).join(' · ') || '—'}
                         </span>
                       </button>
                     </li>

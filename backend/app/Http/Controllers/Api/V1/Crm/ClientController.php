@@ -37,14 +37,7 @@ class ClientController extends Controller
         $query = $this->scoped($request)->with(['assignedMember.user:id,name', 'sharedWith.user:id,name']);
 
         if ($search = trim((string) $request->query('search'))) {
-            $query->where(function ($q) use ($search) {
-                $q->where('company_name', 'like', "%{$search}%")
-                    ->orWhere('contact_person', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%")
-                    ->orWhere('mobile', 'like', "%{$search}%")
-                    ->orWhere('gst_no', 'like', "%{$search}%")
-                    ->orWhere('city', 'like', "%{$search}%");
-            });
+            $query->matching($search);
         }
         if ($status = $request->query('status')) {
             $query->where('status', $status);
@@ -64,12 +57,14 @@ class ClientController extends Controller
     {
         $clients = $this->scoped($request)
             ->where('status', 'active')
-            ->when(trim((string) $request->query('search')), fn ($q, $s) => $q
-                ->where(fn ($w) => $w->where('company_name', 'like', "%{$s}%")
-                    ->orWhere('contact_person', 'like', "%{$s}%")))
+            // The same question the Clients screen asks, so a client found
+            // there can be found here.
+            ->when(trim((string) $request->query('search')), fn ($q, $s) => $q->matching($s))
             ->orderBy('company_name')
             ->limit(30)
-            ->get(['uuid', 'company_name', 'contact_person', 'city', 'gst_no', 'category', 'address', 'state', 'email']);
+            // Mobile among them: somebody who found this client by typing a
+            // number needs to see the number to know it is the right one.
+            ->get(['uuid', 'company_name', 'contact_person', 'city', 'gst_no', 'category', 'address', 'state', 'email', 'mobile']);
 
         return response()->json(['data' => $clients]);
     }

@@ -153,4 +153,29 @@ class CrmLeadsTest extends TestCase
         $this->assertSame(2, $log->json('total')); // birth + update, Alpha's entry excluded
         $this->assertTrue(collect($log->json('data'))->every(fn ($l) => $l['lead_no'] === 2));
     }
+
+    /**
+     * When a lead arrived.
+     *
+     * The list already filtered by the day a lead came in, but never showed
+     * it — so "how long has this been sitting here", which is the first thing
+     * anybody asks about an old lead, had no answer on the screen.
+     */
+    public function test_a_lead_says_when_it_arrived(): void
+    {
+        $created = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/leads', [
+            'company_name' => 'Meridian Motors',
+            'contact_person' => 'Nandini',
+            'mobile' => '9876543210',
+            'assigned_member_uuid' => $this->salesMember->uuid,
+        ])->assertCreated();
+
+        $this->assertNotNull($created->json('data.created_at'));
+
+        $row = collect($this->actingAs($this->adminUser)->getJson('/api/v1/crm/leads')->assertOk()->json('data'))
+            ->firstWhere('company_name', 'Meridian Motors');
+
+        $this->assertNotNull($row['created_at'], 'the list must carry the date it can already filter by');
+        $this->assertSame(now()->toDateString(), substr($row['created_at'], 0, 10));
+    }
 }

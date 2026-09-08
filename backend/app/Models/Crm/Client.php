@@ -4,6 +4,7 @@ namespace App\Models\Crm;
 
 use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -26,6 +27,36 @@ class Client extends Model
         'is_repeat', 'repeat_count',
         'assigned_member_id', 'status', 'notes', 'custom_fields', 'created_by',
     ];
+
+    /**
+     * Every way somebody might look for a client.
+     *
+     * Whoever raises an invoice has whatever the enquiry gave them — a
+     * company name, a person, an e-mail, a mobile, a GST number — and any of
+     * them should find the record. The Clients screen and the picker on a new
+     * invoice both ask through here, so a client findable on one is findable
+     * on the other; they used to search different sets of fields.
+     *
+     * Telephone and the alternate e-mail are in because the number on a
+     * letterhead is rarely the mobile, and accounts departments write from
+     * an address nobody put in the main field.
+     */
+    public function scopeMatching(Builder $query, string $term): Builder
+    {
+        $term = trim($term);
+        if ($term === '') {
+            return $query;
+        }
+
+        return $query->where(function (Builder $q) use ($term) {
+            foreach ([
+                'company_name', 'contact_person', 'email', 'alternate_email',
+                'mobile', 'telephone', 'gst_no', 'city',
+            ] as $field) {
+                $q->orWhere($field, 'like', '%' . $term . '%');
+            }
+        });
+    }
 
     protected function casts(): array
     {

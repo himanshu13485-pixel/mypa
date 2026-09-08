@@ -1962,7 +1962,7 @@ export const crm = {
     list: (params: { search?: string; status?: string; page?: number }) =>
       api.get<Paginated<CrmClient>>('/crm/clients', { params }).then((r) => r.data),
     options: (search?: string) =>
-      api.get<{ data: Pick<CrmClient, 'uuid' | 'company_name' | 'contact_person' | 'city' | 'gst_no' | 'category' | 'address' | 'state' | 'email'>[] }>('/crm/clients/options', { params: { search } }).then((r) => r.data.data),
+      api.get<{ data: Pick<CrmClient, 'uuid' | 'company_name' | 'contact_person' | 'city' | 'gst_no' | 'category' | 'address' | 'state' | 'email' | 'mobile'>[] }>('/crm/clients/options', { params: { search } }).then((r) => r.data.data),
     get: (uuid: string) => api.get<{ data: CrmClient }>(`/crm/clients/${uuid}`).then((r) => r.data.data),
     create: (payload: Record<string, unknown>) => api.post('/crm/clients', payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/clients/${uuid}`, payload).then((r) => r.data),

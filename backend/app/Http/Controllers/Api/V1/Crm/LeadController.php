@@ -1220,6 +1220,9 @@ class LeadController extends Controller
                 ? ['uuid' => $l->assignedMember->uuid, 'name' => $l->assignedMember->user?->name]
                 : null,
             'created_by' => $l->creator?->name,
+            // When it arrived. The filters already narrow by this; the list
+            // had no way of showing what it was narrowing.
+            'created_at' => $l->created_at?->toDateTimeString(),
             'reopen_count' => $l->reopen_count,
             'closed_at' => $l->closed_at?->toDateTimeString(),
             'shared_with' => $l->relationLoaded('sharedWith')
