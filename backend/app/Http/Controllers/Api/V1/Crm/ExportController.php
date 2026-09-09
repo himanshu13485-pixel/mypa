@@ -137,13 +137,19 @@ class ExportController extends Controller
 
         $org = $request->attributes->get('crm_org');
 
-        $query = \App\Models\Crm\Lead::with(['assignedMember.user:id,name', 'creator:id,name'])
+        $query = \App\Models\Crm\Lead::with(['assignedMember.user:id,name', 'creator:id,name', 'assigner:id,name'])
             ->where('organization_id', $org->id)
             // The same narrowing the screen offers, so "download what I am
             // looking at" is a thing somebody can actually do.
             ->when($request->query('status'), fn ($q, $v) => $q->where('lead_status', $v))
             ->when($request->query('source'), fn ($q, $v) => $q->where('source', $v))
             ->when($request->query('member'), fn ($q, $v) => $q->whereHas('assignedMember', fn ($m) => $m->where('uuid', $v)))
+            // The two dates the screen asks separately: when it came in, and
+            // when it is next owed a call.
+            ->when($request->query('date_from'), fn ($q, $v) => $q->whereDate('created_at', '>=', $v))
+            ->when($request->query('date_to'), fn ($q, $v) => $q->whereDate('created_at', '<=', $v))
+            ->when($request->query('follow_up_from'), fn ($q, $v) => $q->whereDate('follow_up_at', '>=', $v))
+            ->when($request->query('follow_up_to'), fn ($q, $v) => $q->whereDate('follow_up_at', '<=', $v))
             ->when($request->query('search'), function ($q, $term) {
                 $like = '%' . $term . '%';
                 $q->where(fn ($w) => $w->where('company_name', 'like', $like)
@@ -155,7 +161,10 @@ class ExportController extends Controller
             ->orderBy('lead_no');
 
         ActivityLog::record($me, $org->id, 'export.leads', $org, [
-            'filters' => array_filter($request->only(['status', 'source', 'member', 'search'])),
+            'filters' => array_filter($request->only([
+                'status', 'source', 'member', 'search',
+                'date_from', 'date_to', 'follow_up_from', 'follow_up_to',
+            ])),
         ]);
 
         return response()->streamDownload(function () use ($query) {
@@ -163,14 +172,16 @@ class ExportController extends Controller
             fwrite($out, "\xEF\xBB\xBF");   // BOM so Excel reads UTF-8
             fputcsv($out, ['Lead', 'Company', 'Contact person', 'Mobile', 'Phone', 'E-mail',
                 'Source', 'Type', 'Subject', 'Requirement', 'Amount', 'Status', 'Urgent',
-                'Allocated to', 'Created by', 'Follow up at', 'Reopened', 'Closed at', 'Created at']);
+                'Allocated to', 'Allocated by', 'Created by', 'Follow up at', 'Reopened', 'Closed at', 'Created at']);
             $query->chunk(200, function ($rows) use ($out) {
                 foreach ($rows as $l) {
                     fputcsv($out, [
                         $l->lead_no, $l->company_name, $l->contact_person, $l->mobile, $l->phone, $l->email,
                         $l->source, $l->lead_type, $l->subject, $l->requirement,
                         (float) $l->amount, $l->lead_status, $l->is_urgent ? 'Yes' : '',
-                        $l->assignedMember?->user?->name, $l->creator?->name,
+                        $l->assignedMember?->user?->name,
+                        $l->assigner?->name ?? $l->creator?->name,
+                        $l->creator?->name,
                         $l->follow_up_at?->toDateTimeString(), $l->reopen_count ?: '',
                         $l->closed_at?->toDateTimeString(), $l->created_at?->toDateTimeString(),
                     ]);

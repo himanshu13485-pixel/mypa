@@ -784,6 +784,8 @@ export interface CrmLead {
   source: string | null
   assigned_member: { uuid: string; name: string | null } | null
   created_by: string | null
+  /** Who put it on that desk: its creator, or whoever transferred it since. */
+  allocated_by?: string | null
   shared_with: { uuid: string; name: string | null }[]
   /** How many times this lead came back after being closed. */
   reopen_count?: number

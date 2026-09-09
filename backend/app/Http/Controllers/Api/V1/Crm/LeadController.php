@@ -31,7 +31,8 @@ class LeadController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = $this->scoped($request)
-            ->with(['assignedMember.user:id,name', 'sharedWith.user:id,name', 'creator:id,name', 'client:id,uuid,company_name']);
+            ->with(['assignedMember.user:id,name', 'sharedWith.user:id,name', 'creator:id,name',
+                'assigner:id,name', 'client:id,uuid,company_name']);
 
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {
@@ -152,6 +153,8 @@ class LeadController extends Controller
             'organization_id' => $org->id,
             'lead_no' => Lead::nextNumber($org->id),
             'created_by' => $request->user()->id,
+            // Who put it on that desk. The same person, until it moves.
+            'assigned_by' => $request->user()->id,
         ]));
 
         // The birth entry carries the full opening state, like the old log did.
@@ -1075,7 +1078,11 @@ class LeadController extends Controller
     {
         $from = $lead->assignedMember?->user?->name;
 
-        $lead->update(['assigned_member_id' => $to->id, 'lead_status' => $lead->lead_status]);
+        $lead->update([
+            'assigned_member_id' => $to->id,
+            'assigned_by' => $by->user_id,
+            'lead_status' => $lead->lead_status,
+        ]);
         $lead->sharedWith()->detach(array_filter([$to->id]));
 
         ActivityLog::record($by, $lead->organization_id, 'lead.transferred', $lead, array_filter([
@@ -1220,6 +1227,11 @@ class LeadController extends Controller
                 ? ['uuid' => $l->assignedMember->uuid, 'name' => $l->assignedMember->user?->name]
                 : null,
             'created_by' => $l->creator?->name,
+            // Who put it on that desk — the creator, or whoever transferred
+            // it since. "Who gave me this?" is the first thing asked about a
+            // lead that should not have been handed over, and the answer was
+            // only in the log.
+            'allocated_by' => $l->assigner?->name ?? $l->creator?->name,
             // When it arrived. The filters already narrow by this; the list
             // had no way of showing what it was narrowing.
             'created_at' => $l->created_at?->toDateTimeString(),

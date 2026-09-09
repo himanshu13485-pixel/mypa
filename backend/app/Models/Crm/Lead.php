@@ -18,7 +18,7 @@ class Lead extends Model
     public const TYPES = ['new', 'existing'];
 
     protected $fillable = [
-        'organization_id', 'lead_no', 'assigned_member_id', 'company_name',
+        'organization_id', 'lead_no', 'assigned_member_id', 'assigned_by', 'company_name',
         'contact_person', 'phone', 'mobile', 'email', 'amount', 'lead_status',
         'follow_up_at', 'subject', 'requirement', 'lead_type', 'source',
         'client_id', 'created_by', 'updated_by', 'reopen_count', 'closed_at',
@@ -64,6 +64,15 @@ class Lead extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    /**
+     * Who put this lead on the desk it is on: whoever created it, until
+     * somebody transfers it, and then whoever did that.
+     */
+    public function assigner(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_by');
     }
 
     /** Colleagues let in on this lead besides its owner. */

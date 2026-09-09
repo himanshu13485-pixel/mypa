@@ -42,6 +42,16 @@ export default function CrmLeadsPage() {
   const [source, setSource] = useState('')
   const [assigned, setAssigned] = useState('')
   const [dueOnly, setDueOnly] = useState(false)
+  /*
+   * Two dates, asked separately because they are two questions: when the
+   * lead came in, and when it is next owed a call. Narrowing by one used to
+   * mean narrowing by neither — a month's intake and a week's follow-ups
+   * were both a scroll through everything.
+   */
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [fuFrom, setFuFrom] = useState('')
+  const [fuTo, setFuTo] = useState('')
   const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmLead | null>(null)
@@ -62,7 +72,7 @@ export default function CrmLeadsPage() {
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'leads', applied, status, source, assigned, dueOnly, page],
+    queryKey: ['crm', 'leads', applied, status, source, assigned, dueOnly, from, to, fuFrom, fuTo, page],
     queryFn: () =>
       crm.leads.list({
         search: applied || undefined,
@@ -70,6 +80,10 @@ export default function CrmLeadsPage() {
         source: source || undefined,
         assigned_to: assigned || undefined,
         due: dueOnly ? 1 : undefined,
+        date_from: from || undefined,
+        date_to: to || undefined,
+        follow_up_from: fuFrom || undefined,
+        follow_up_to: fuTo || undefined,
         page,
       }),
   })
@@ -363,6 +377,31 @@ export default function CrmLeadsPage() {
           >
             <AlarmClock className="size-4" /> Due today
           </button>
+          {/* Each pair reads as one filter: the field says which date, the
+              two boxes say between when and when. Either end on its own is
+              a filter too — "since the first" and "up to Friday". */}
+          <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            Received
+            <Input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPage(1) }} aria-label="Received from" className="w-[9.5rem]" />
+            <span className="text-slate-400">–</span>
+            <Input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPage(1) }} aria-label="Received to" className="w-[9.5rem]" />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+            Follow up
+            <Input type="date" value={fuFrom} onChange={(e) => { setFuFrom(e.target.value); setPage(1) }} aria-label="Follow up from" className="w-[9.5rem]" />
+            <span className="text-slate-400">–</span>
+            <Input type="date" value={fuTo} onChange={(e) => { setFuTo(e.target.value); setPage(1) }} aria-label="Follow up to" className="w-[9.5rem]" />
+          </label>
+          {(from || to || fuFrom || fuTo) && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => { setFrom(''); setTo(''); setFuFrom(''); setFuTo(''); setPage(1) }}
+            >
+              Clear dates
+            </Button>
+          )}
           <Button type="submit" variant="secondary" size="sm">Search</Button>
           {/*
             * The whole pipeline as one file — the Company Admin's alone.
@@ -387,6 +426,10 @@ export default function CrmLeadsPage() {
                     status: status || undefined,
                     source: source || undefined,
                     member: assigned || undefined,
+                    date_from: from || undefined,
+                    date_to: to || undefined,
+                    follow_up_from: fuFrom || undefined,
+                    follow_up_to: fuTo || undefined,
                   })
                   const url = URL.createObjectURL(blob)
                   const a = document.createElement('a')
@@ -536,7 +579,17 @@ export default function CrmLeadsPage() {
                         </a>
                       )}
                     </td>
-                    <td className="py-2.5 pr-3">{l.assigned_member?.name ?? '—'}</td>
+                    <td className="py-2.5 pr-3">
+                      {l.assigned_member?.name ?? '—'}
+                      {/* Who put it there. The first question asked about a
+                          lead that should not have been handed over, and the
+                          answer used to be in the log only. */}
+                      {l.allocated_by && (
+                        <div className="truncate text-xs text-slate-400" title={`Allocated by ${l.allocated_by}`}>
+                          by {l.allocated_by}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-2.5 pr-3">{l.source ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right">{Number(l.amount) ? inr(l.amount) : '—'}</td>
                     {/* The day it arrived, without the time — the hour a lead
