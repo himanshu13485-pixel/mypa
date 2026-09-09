@@ -2,7 +2,10 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronUp, Clock, Pencil, Plus, RotateCcw, Sparkles, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, crmMeQuery, CRM_DCW_ENTITY_LABELS, CRM_FIELD_TYPE_LABELS, CRM_TAX_KIND_LABELS, type CrmCustomField } from '../../api/crm'
+import {
+  crm, crmMeQuery, CRM_DCW_ENTITY_LABELS, CRM_FIELD_TYPE_LABELS, CRM_TAX_KIND_LABELS,
+  type CrmCustomField, type CrmWorkOrderColumn,
+} from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
@@ -155,6 +158,32 @@ export default function CrmWorkspaceFieldsPage() {
     reorderMutation.mutate({ entity: f.entity, uuids: next })
   }
 
+  /*
+   * The two forms below arrange all of their columns at once, ours included,
+   * so a field of this company's own can sit between two of ours. Their
+   * fields are moved there rather than by the arrows on the list further
+   * down, which can only shuffle a company's own fields among themselves.
+   */
+  const ARRANGED = ['invoice', 'work_order']
+
+  const arrangeMutation = useMutation({
+    mutationFn: ({ entity, keys }: { entity: string; keys: string[] }) =>
+      crm.workspaceFields.arrange(entity, keys),
+    onSuccess: () => refresh(),
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  /** Moving one column of a form one place, hidden ones counting as places. */
+  const shift = (entity: string, columns: CrmWorkOrderColumn[], at: number, step: -1 | 1) => {
+    const to = at + step
+    if (to < 0 || to >= columns.length) return
+
+    const keys = columns.map((c) => c.key)
+    ;[keys[at], keys[to]] = [keys[to], keys[at]]
+
+    arrangeMutation.mutate({ entity, keys })
+  }
+
   const set = (key: keyof typeof EMPTY, value: string | boolean) => setForm((f) => ({ ...f, [key]: value }))
 
   /** Re-word one of our own columns rather than add a new one. */
@@ -243,13 +272,18 @@ export default function CrmWorkspaceFieldsPage() {
           <div className="mb-3">
             <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">{section.title}</h2>
             <p className="text-xs text-slate-400">
-              {section.hint} Changes go to the Super Admin like any other workspace field.
+              {section.hint} Wording and what a column collects go to the Super Admin like any
+              other workspace field; the order they sit in on the form is yours, with the arrows.
             </p>
           </div>
           <div className="space-y-2">
-            {section.columns.filter((c) => c.source === 'builtin').map((c) => {
+            {/* Ours and theirs in one list, in the order the form draws them
+                — which is what makes a column of this company's own movable
+                to where it belongs rather than stuck behind all of ours. */}
+            {section.columns.map((c, at) => {
               const builtin = data?.builtins?.[section.entity]?.[c.key]
-              const row = data?.data.find((f) => f.is_builtin && f.entity === section.entity && f.key === c.key)
+              const row = data?.data.find((f) => f.entity === section.entity && f.key === c.key
+                && f.is_builtin === (c.source === 'builtin'))
 
               return (
                 <div key={c.key} className="flex flex-wrap items-center gap-3 rounded-xl bg-slate-50 px-4 py-2.5 dark:bg-slate-800/60">
@@ -278,9 +312,42 @@ export default function CrmWorkspaceFieldsPage() {
                   {(row?.status === 'pending' || row?.pending) && (
                     <span className={statusBadge('pending')}>Awaiting Super Admin</span>
                   )}
-                  {c.customised && row?.status === 'approved' && !row?.pending && (
-                    <span className={statusBadge('approved')}>Customised</span>
-                  )}
+                  {c.source === 'custom'
+                    ? <span className={statusBadge('approved')}>Yours</span>
+                    : c.customised && row?.status === 'approved' && !row?.pending && (
+                      <span className={statusBadge('approved')}>Customised</span>
+                    )}
+                  {/*
+                    * Where this column sits on the form. The printed
+                    * document lays its lines out its own way — an A4 table is
+                    * not the form — so this is the order of the columns as
+                    * they are filled in.
+                    *
+                    * Over the whole form rather than over a company's own
+                    * fields alone, which is the point: a Type column belongs
+                    * beside the plan it describes, and every one of ours used
+                    * to come first no matter what.
+                    */}
+                  <div className="flex shrink-0 items-center">
+                    <button
+                      onClick={() => shift(section.entity, section.columns, at, -1)}
+                      disabled={arrangeMutation.isPending || at === 0}
+                      aria-label={`Move ${c.label} earlier`}
+                      title="Move left — earlier on the invoice form"
+                      className="rounded p-1.5 text-slate-400 hover:text-emerald-600 disabled:opacity-30 disabled:hover:text-slate-400"
+                    >
+                      <ChevronUp className="size-4" />
+                    </button>
+                    <button
+                      onClick={() => shift(section.entity, section.columns, at, 1)}
+                      disabled={arrangeMutation.isPending || at === section.columns.length - 1}
+                      aria-label={`Move ${c.label} later`}
+                      title="Move right — later on the invoice form"
+                      className="rounded p-1.5 text-slate-400 hover:text-emerald-600 disabled:opacity-30 disabled:hover:text-slate-400"
+                    >
+                      <ChevronDown className="size-4" />
+                    </button>
+                  </div>
                   {row ? (
                     <>
                       {/* Editable, which it was not: changing an approved
@@ -292,12 +359,15 @@ export default function CrmWorkspaceFieldsPage() {
                       </Button>
                       <button
                         onClick={() => {
-                          if (confirm(`Restore “${builtin?.label ?? c.key}” to its default?`)) removeMutation.mutate(row.uuid)
+                          const msg = c.source === 'builtin'
+                            ? `Restore “${builtin?.label ?? c.key}” to its default?`
+                            : `Remove “${c.label}” from your forms? Values already saved are kept.`
+                          if (confirm(msg)) removeMutation.mutate(row.uuid)
                         }}
-                        aria-label="Restore default"
+                        aria-label={c.source === 'builtin' ? 'Restore default' : `Remove ${c.label}`}
                         className="rounded p-1.5 text-slate-400 hover:text-red-500"
                       >
-                        <RotateCcw className="size-4" />
+                        {c.source === 'builtin' ? <RotateCcw className="size-4" /> : <Trash2 className="size-4" />}
                       </button>
                     </>
                   ) : (
@@ -443,8 +513,12 @@ export default function CrmWorkspaceFieldsPage() {
                   * each other, so the arrows step within an entity and stop
                   * at its ends. Approved fields only — a pending one has no
                   * place on a document to be moved around on yet.
+                  *
+                  * The two forms above arrange all of their columns at once,
+                  * ours included, so their fields are moved there instead of
+                  * here: two sets of arrows over one order would disagree.
                   */}
-                {f.status === 'approved' && (
+                {f.status === 'approved' && !ARRANGED.includes(f.entity) && (
                   <div className="flex shrink-0 items-center">
                     <button
                       onClick={() => move(f, -1)}

@@ -417,6 +417,28 @@ class Organization extends Model
         return (bool) data_get($this->settings, 'leads.alerts_everyone', false);
     }
 
+    /**
+     * The order this company arranged one form's columns in, by column key.
+     *
+     * Held here rather than on the columns themselves. Our own columns exist
+     * as rows only once a company has changed one, and where a column sits is
+     * not a change the Super Admin should have to approve — so a company can
+     * put its own column between two of ours without asking anybody.
+     *
+     * A key missing from the list is not an error: it is a column added since
+     * the arrangement was saved, and it keeps its natural place at the end
+     * until somebody moves it.
+     *
+     * @return array<int, string>
+     */
+    public function columnOrder(string $entity): array
+    {
+        return array_values(array_filter(
+            (array) data_get($this->settings, 'column_order.' . $entity, []),
+            fn ($key) => is_string($key) && $key !== '',
+        ));
+    }
+
     public function leadAlertMinutes(): int
     {
         return max(5, min(120, (int) (data_get($this->settings, 'leads.alert_minutes') ?: 15)));

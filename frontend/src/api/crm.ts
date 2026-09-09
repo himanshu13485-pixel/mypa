@@ -2471,6 +2471,12 @@ export const crm = {
      */
     reorder: (entity: string, uuids: string[]) =>
       api.put<{ message: string }>('/crm/workspace-fields/order', { entity, uuids }).then((r) => r.data),
+    /**
+     * The order of a whole form — our columns and this company's own in one
+     * list, by column key, so one of theirs can sit between two of ours.
+     */
+    arrange: (entity: string, keys: string[]) =>
+      api.put<{ message: string }>('/crm/workspace-fields/arrangement', { entity, keys }).then((r) => r.data),
   },
 
   fieldRequests: {

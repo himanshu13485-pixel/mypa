@@ -316,6 +316,63 @@ class CustomFieldController extends Controller
         return response()->json(['message' => 'Order saved.']);
     }
 
+    /**
+     * The order the columns of one form sit in — ours and theirs together.
+     *
+     * The reorder above moves a company's own fields among themselves, which
+     * could never lift one past ours: every built-in column came first, so a
+     * Type column belonging beside the plan it describes sat out past the
+     * price and stayed there. This arranges the whole form.
+     *
+     * The whole list is sent, for the same reason as above: a position only
+     * means anything next to its neighbours.
+     *
+     * Ours are not edited by this and no approval is involved — where a
+     * column sits is the company's own business, unlike what it is called or
+     * what it collects.
+     */
+    public function arrange(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $data = $request->validate([
+            'entity' => ['required', Rule::in(CustomField::ENTITIES)],
+            'keys' => ['required', 'array'],
+            'keys.*' => ['string', 'max:64'],
+        ]);
+
+        $keys = array_values(array_unique($data['keys']));
+        $known = collect(CustomField::methodFor($org->id, $data['entity']))->pluck('key');
+
+        // A list that is not this form's columns would silently drop whatever
+        // it left out to the end of the form.
+        abort_if(
+            count($keys) !== $known->count() || $known->diff($keys)->isNotEmpty(),
+            422,
+            'That list does not match this form\'s columns.',
+        );
+
+        $settings = $org->settings ?? [];
+        // One form at a time, leaving whatever the others were arranged as.
+        $order = (array) ($settings['column_order'] ?? []);
+        $order[$data['entity']] = $keys;
+        $settings['column_order'] = $order;
+        $org->update(['settings' => $settings]);
+
+        ActivityLog::record($me, $org->id, 'dcw.arranged', $org, [
+            'entity' => $data['entity'],
+            'order' => $keys,
+            'by' => $me->user?->name,
+        ]);
+
+        return response()->json([
+            'message' => 'Column order saved.',
+            'data' => CustomField::methodFor($org->id, $data['entity']),
+        ]);
+    }
+
     // ---- Super Admin side --------------------------------------------------
 
     /** Every company's requests, pending first, filterable by company. */

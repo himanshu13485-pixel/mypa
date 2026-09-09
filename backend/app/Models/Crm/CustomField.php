@@ -280,7 +280,40 @@ class CustomField extends Model
             ];
         }
 
-        return $columns;
+        return static::arranged($organizationId, $entity, $columns);
+    }
+
+    /**
+     * The same columns, in the order this company put them in.
+     *
+     * Ours come first by default and a company's own were stuck behind them,
+     * however plainly one belonged in the middle — a Type that reads next to
+     * the plan it describes sat out past the price. Arranging is a company's
+     * own business, so the order lives on the organization and is applied
+     * here, where the form, the printed document and the validator all read
+     * the same list.
+     *
+     * @param  array<int, array<string, mixed>>  $columns
+     * @return array<int, array<string, mixed>>
+     */
+    protected static function arranged(int $organizationId, string $entity, array $columns): array
+    {
+        $order = array_flip(Organization::find($organizationId)?->columnOrder($entity) ?? []);
+        if ($order === []) {
+            return $columns;
+        }
+
+        $placed = [];
+        $rest = [];
+        foreach ($columns as $column) {
+            // Anything added since the arrangement was saved keeps its
+            // natural place at the end rather than jumping to the front.
+            isset($order[$column['key']]) ? $placed[] = $column : $rest[] = $column;
+        }
+
+        usort($placed, fn ($a, $b) => $order[$a['key']] <=> $order[$b['key']]);
+
+        return array_merge($placed, $rest);
     }
 
     /** This company's Work Order, column by column. */

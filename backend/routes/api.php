@@ -1235,6 +1235,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // Where each of the company's own fields sits in its form and
                 // on the printed document — one order, read by both.
                 Route::put('/workspace-fields/order', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'reorder']);
+                // The order of a whole form — our columns and theirs in one
+                // list, so one of theirs can sit between two of ours.
+                Route::put('/workspace-fields/arrangement', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'arrange']);
                 /*
                  * Changing a field the company already has — a plan added to
                  * a dropdown, most often. An approved field keeps working as
