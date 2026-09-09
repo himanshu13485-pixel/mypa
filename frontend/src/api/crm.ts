@@ -613,8 +613,13 @@ export interface CrmInvoiceRow {
   status: string
   invoice_date: string
   due_date?: string | null
-  client: { uuid: string; company_name: string; contact_person: string | null; email?: string | null } | null
-  issuing_company?: { id: number; name: string } | null
+  // gst_no says which state the client is in, and so which of CGST/SGST or
+  // IGST this document can carry.
+  client: {
+    uuid: string; company_name: string; contact_person: string | null
+    email?: string | null; gst_no?: string | null
+  } | null
+  issuing_company?: { id: number; name: string; state_code?: string | null } | null
   salesperson?: { uuid: string; name: string | null; email?: string | null } | null
   currency: string
   subtotal?: string

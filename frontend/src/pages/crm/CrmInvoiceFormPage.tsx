@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, Trash2, X } from 'lucide-react'
+import { clsx } from 'clsx'
 import { crm, crmMeQuery, CRM_CLIENT_CATEGORY_LABELS, CRM_DISPATCH_STATUS_LABELS, validityMonths, type CrmWorkOrderColumn } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Select, Spinner, Textarea } from '../../components/ui'
 import { codeCase, companyCase } from './textCase'
+import { unavailableTaxes } from './gst'
 import { crmPath } from '../../lib/crmPath'
 import { KeywordChips } from '../../components/KeywordChips'
 
@@ -150,6 +152,13 @@ export default function CrmInvoiceFormPage() {
   // list is ours now.
   const [clientSearch, setClientSearch] = useState('')
   const [clientName, setClientName] = useState('')
+  /*
+   * The chosen client's GST number, which says which state they are in and
+   * so which half of the GST pair this document carries. Held beside the
+   * name rather than looked up, because the picker's list is whatever was
+   * last searched for and a document being edited is not in it at all.
+   */
+  const [clientGst, setClientGst] = useState('')
   const [clientOpen, setClientOpen] = useState(false)
 
   const [head, setHead] = useState({
@@ -232,10 +241,13 @@ export default function CrmInvoiceFormPage() {
   })
 
   /** Picking one is the only way to attach a client — no guessing from text. */
-  const pickClient = (client: { uuid: string; company_name: string; category?: string | null }) => {
+  const pickClient = (client: {
+    uuid: string; company_name: string; category?: string | null; gst_no?: string | null
+  }) => {
     setH('client_uuid', client.uuid)
     if (client.category) setH('client_category', client.category)
     setClientName(client.company_name)
+    setClientGst(client.gst_no ?? '')
     setClientSearch('')
     setClientOpen(false)
   }
@@ -245,13 +257,17 @@ export default function CrmInvoiceFormPage() {
   useEffect(() => {
     if (!clientName && head.client_uuid) {
       const hit = clients?.find((c) => c.uuid === head.client_uuid)
-      if (hit) setClientName(hit.company_name)
+      if (hit) {
+        setClientName(hit.company_name)
+        setClientGst(hit.gst_no ?? '')
+      }
     }
   }, [clients, head.client_uuid, clientName])
 
   useEffect(() => {
     if (!existing) return
     setClientName(existing.client?.company_name ?? '')
+    setClientGst(existing.client?.gst_no ?? '')
     // The money lines as this document has them, keyed as they were saved.
     setTaxes(Object.fromEntries((existing.tax_lines ?? []).map((line) => [
       line.key,
@@ -315,12 +331,35 @@ export default function CrmInvoiceFormPage() {
    * over a typed amount, discount comes off the subtotal, and every tax is
    * charged on what is left.
    */
+  /*
+   * CGST and SGST, or IGST — whichever this document's two sides call for.
+   *
+   * The company's state code against the first two digits of the client's
+   * GST number: the same state is a sale within it, a different one is a
+   * sale across a border, and each has its own line. The other one is greyed
+   * out rather than hidden, because seeing which of the pair applies is half
+   * of reading the document.
+   *
+   * The server holds the same rule, so a rate left in a box that has since
+   * greyed out is dropped from the document rather than charged.
+   */
+  const blockedTaxes = useMemo(
+    () => new Set(unavailableTaxes(
+      masters?.issuing_companies.find((c) => String(c.id) === head.issuing_company_id)?.state_code,
+      clientGst,
+    )),
+    [masters, head.issuing_company_id, clientGst],
+  )
+
   const totals = useMemo(() => {
     const subtotal = items.reduce((sum, r) => sum + (Number(r.qty) || 0) * (Number(r.unit_price) || 0), 0)
     const round2 = (v: number) => Math.round(v * 100) / 100
 
     /** A line's figure: its percentage if it has one, else what was typed. */
     const figure = (key: string, defaultRate: number | null, base: number) => {
+      // A line this pairing cannot carry is worth nothing, whatever standing
+      // rate sits behind it — which is what a greyed box has to mean.
+      if (blockedTaxes.has(key)) return 0
       const entry = taxes[key]
       const rate = entry?.rate !== undefined && entry.rate !== ''
         ? Number(entry.rate)
@@ -350,7 +389,7 @@ export default function CrmInvoiceFormPage() {
     }
 
     return { subtotal, taxable, total: round2(taxable + added - deducted), amounts }
-  }, [items, taxes, taxSetup])
+  }, [items, taxes, taxSetup, blockedTaxes])
 
   /**
    * One of our own columns, drawn the way this company asked for it — a
@@ -503,7 +542,7 @@ export default function CrmInvoiceFormPage() {
         tds: head.tds ? Number(head.tds) : 0,
         // The company's own money lines; the server works the figures out.
         tax_lines: taxSetup.map((line) => {
-          const entry = taxes[line.key] ?? { rate: '', amount: '' }
+          const entry = blockedTaxes.has(line.key) ? { rate: '', amount: '' } : taxes[line.key] ?? { rate: '', amount: '' }
           return {
             key: line.key,
             rate: entry.rate !== '' ? Number(entry.rate) : null,
@@ -624,7 +663,7 @@ export default function CrmInvoiceFormPage() {
             {head.client_uuid && (
               <button
                 type="button"
-                onClick={() => { setClientName(''); setClientSearch(''); setH('client_uuid', '') }}
+                onClick={() => { setClientName(''); setClientGst(''); setClientSearch(''); setH('client_uuid', '') }}
                 aria-label="Clear client"
                 className="absolute right-2 top-[30px] rounded p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
@@ -848,16 +887,27 @@ export default function CrmInvoiceFormPage() {
             Enter a percentage and the amount is worked out for you, or leave % blank and type the amount.
             Taxes are charged on {inr(totals.taxable)} (subtotal less discounts).
           </p>
+          {/* Why one of the pair is grey. Said in terms of the document —
+              where the client is — rather than as a rule about state codes,
+              which is not what the person filling this in is thinking of. */}
+          {blockedTaxes.size > 0 && (
+            <p className="mt-1 text-xs text-slate-400">
+              {blockedTaxes.has('igst')
+                ? 'This client is in the same state as the issuing company, so CGST and SGST apply. IGST is off.'
+                : 'This client is in another state, so IGST applies. CGST and SGST are off.'}
+            </p>
+          )}
           <div className="mt-3 space-y-2">
             {/* This company's own money lines, in its own order. */}
             {taxSetup.map((line) => {
-              const entry = taxes[line.key] ?? { rate: '', amount: '' }
+              const off = blockedTaxes.has(line.key)
+              const entry = off ? { rate: '', amount: '' } : taxes[line.key] ?? { rate: '', amount: '' }
               const rate = entry.rate !== '' ? entry.rate
-                : entry.amount === '' && line.default_rate !== null ? String(line.default_rate) : ''
+                : entry.amount === '' && line.default_rate !== null && ! off ? String(line.default_rate) : ''
               const byRate = rate !== ''
 
               return (
-                <div key={line.key} className="flex items-center gap-2">
+                <div key={line.key} className={clsx('flex items-center gap-2', off && 'opacity-50')}>
                   <Label className="w-28 shrink-0">{line.label}</Label>
                   <div className="relative w-24 shrink-0">
                     <Input
@@ -868,7 +918,8 @@ export default function CrmInvoiceFormPage() {
                       value={rate}
                       onChange={(e) => setTaxes((t) => ({ ...t, [line.key]: { rate: e.target.value, amount: '' } }))}
                       placeholder="—"
-                      className="w-full pr-6"
+                      disabled={off}
+                      className="w-full pr-6 disabled:cursor-not-allowed"
                       aria-label={`${line.label} percentage`}
                     />
                     <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400">%</span>
@@ -887,7 +938,8 @@ export default function CrmInvoiceFormPage() {
                       value={entry.amount}
                       onChange={(e) => setTaxes((t) => ({ ...t, [line.key]: { rate: '', amount: e.target.value } }))}
                       placeholder="Amount"
-                      className="flex-1"
+                      disabled={off}
+                      className="flex-1 disabled:cursor-not-allowed"
                       aria-label={`${line.label} amount`}
                     />
                   )}

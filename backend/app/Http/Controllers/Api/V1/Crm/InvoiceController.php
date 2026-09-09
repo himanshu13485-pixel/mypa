@@ -14,6 +14,7 @@ use App\Models\Crm\Member;
 use App\Models\Crm\PaymentInboxEntry;
 use App\Services\Crm\GatewayCharge;
 use App\Services\Crm\InvoiceConverter;
+use App\Support\Gst;
 use App\Support\TextCase;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
@@ -304,7 +305,7 @@ class InvoiceController extends Controller
             abort(422, 'This proforma was already converted; edit the tax invoice instead.');
         }
 
-        [$data, $items, $taxLines] = $this->validatePayload($request, $org->id, updating: true);
+        [$data, $items, $taxLines] = $this->validatePayload($request, $org->id, updating: true, existing: $invoice);
         unset($data['kind'], $data['issuing_company_id']); // series identity never changes after creation
 
         DB::transaction(function () use ($invoice, $data, $items, $taxLines, $request) {
@@ -926,8 +927,12 @@ class InvoiceController extends Controller
     }
 
     /** @return array{0: array, 1: array, 2: array} [$invoiceData, $items, $taxLines] */
-    private function validatePayload(Request $request, int $orgId, bool $updating = false): array
-    {
+    private function validatePayload(
+        Request $request,
+        int $orgId,
+        bool $updating = false,
+        ?Invoice $existing = null,
+    ): array {
         $data = $request->validate([
             'kind' => [$updating ? 'nullable' : 'required', Rule::in(Invoice::KINDS)],
             'issuing_company_id' => [$updating ? 'nullable' : 'required', Rule::exists('crm_issuing_companies', 'id')->where('organization_id', $orgId)],
@@ -977,7 +982,21 @@ class InvoiceController extends Controller
             'items.*.amount_fx' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        $this->requireTax($request, $orgId);
+        /*
+         * The two sides of the document, resolved once.
+         *
+         * On an edit the form need not send either — the series identity is
+         * fixed at creation, so the company comes off the document itself.
+         * The tax rules used to read the request alone, and so did not run
+         * at all on an edit that left it out.
+         */
+        $company = IssuingCompany::where('organization_id', $orgId)
+            ->find($data['issuing_company_id'] ?? $existing?->issuing_company_id);
+        $client = $request->filled('client_uuid')
+            ? Client::where('organization_id', $orgId)->where('uuid', $data['client_uuid'])->first()
+            : $existing?->client;
+
+        $this->requireTax($request, $orgId, $company, $client);
 
         $items = $this->applyWorkOrderFields($request, $orgId, $data['items']);
         unset($data['items'], $data['tax_lines']);
@@ -1029,7 +1048,7 @@ class InvoiceController extends Controller
 
         // The money lines are this company's own — ours renamed or switched
         // off, plus any they added — so the arithmetic reads the setup.
-        [$taxLines, $sums] = $this->computeTaxes($request, $orgId, $data, $subtotal);
+        [$taxLines, $sums] = $this->computeTaxes($request, $orgId, $data, $subtotal, $company, $client);
         $data['total'] = $sums['total'];
         if ($subtotalFx > 0) {
             $data['subtotal_fx'] = round($subtotalFx, 2);
@@ -1074,20 +1093,23 @@ class InvoiceController extends Controller
      * Read from the rate as well as the figure, because the form sends
      * whichever was typed and works the other one out from it.
      */
-    private function requireTax(Request $request, int $orgId): void
+    private function requireTax(Request $request, int $orgId, ?IssuingCompany $company, ?Client $client): void
     {
         // The company whose name goes on the document is the one that answers
         // this — an export arm raising invoices without payment of tax and a
         // domestic arm charging GST on everything sit in the same account.
-        $company = IssuingCompany::where('organization_id', $orgId)
-            ->find($request->input('issuing_company_id'));
-
         if (! $company?->tax_required) {
             return;
         }
 
+        // A line this pairing cannot carry does not answer the question: a
+        // CGST rate sent for a client in another state is dropped from the
+        // document, so it cannot be the tax the document is made to have.
+        $blocked = Gst::unavailableTaxes($company->state_code, $client?->gst_no);
+
         $charged = collect(CustomField::taxSetup($orgId))
             ->where('kind', 'tax')
+            ->reject(fn (array $line) => in_array($line['key'], $blocked, true))
             ->contains(function (array $line) use ($request) {
                 if ($line['source'] === 'builtin') {
                     return (float) $request->input($line['key'], 0) > 0
@@ -1351,9 +1373,25 @@ class InvoiceController extends Controller
      * @return array{0: array<int, array>, 1: array<string, float>}
      *         [$lines, $totals]
      */
-    private function computeTaxes(Request $request, int $orgId, array $data, float $subtotal): array
-    {
+    private function computeTaxes(
+        Request $request,
+        int $orgId,
+        array $data,
+        float $subtotal,
+        ?IssuingCompany $company = null,
+        ?Client $client = null,
+    ): array {
         $setup = CustomField::taxSetup($orgId);
+
+        /*
+         * CGST and SGST, or IGST — never a mix, and never the wrong one.
+         *
+         * Enforced here rather than left to the form, because a line the
+         * form greys out still has this company's standing rate behind it:
+         * anything that reached the arithmetic would have been charged that
+         * rate on every document, quietly, whichever side the client was on.
+         */
+        $blocked = array_flip(Gst::unavailableTaxes($company?->state_code, $client?->gst_no));
 
         // Two ways in: the company's own lines, or the plain cgst/sgst/… of
         // the standard setup, which is what every older client still sends.
@@ -1384,7 +1422,12 @@ class InvoiceController extends Controller
                 continue;
             }
             $base = $line['basis'] === 'subtotal' ? $subtotal : $taxable;
-            $row = $this->taxRow($line, $given, $data, $subtotal, $base);
+            // Kept on the document at nil rather than dropped, so a reader
+            // can see it was considered and came to nothing.
+            $row = isset($blocked[$line['key']])
+                ? ['key' => $line['key'], 'label' => $line['label'], 'kind' => $line['kind'],
+                    'basis' => $line['basis'], 'rate' => null, 'amount' => 0.0]
+                : $this->taxRow($line, $given, $data, $subtotal, $base);
             $rows[$line['key']] = $row;
 
             if ($line['kind'] === 'deduction') {
@@ -1496,8 +1539,11 @@ class InvoiceController extends Controller
                 'contact_person' => $i->client->contact_person,
                 // The Email button prefills with this.
                 'email' => $i->client->email,
+                // Which state they are in, which decides between CGST/SGST
+                // and IGST when the document is edited.
+                'gst_no' => $i->client->gst_no,
             ] : null,
-            'issuing_company' => $i->issuingCompany?->only(['id', 'name']),
+            'issuing_company' => $i->issuingCompany?->only(['id', 'name', 'state_code']),
             // The e-mail dialog offers the salesperson a copy of what
             // went to their client, so it needs their address too.
             'salesperson' => $i->member ? [
