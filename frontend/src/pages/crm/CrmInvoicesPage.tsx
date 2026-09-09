@@ -347,7 +347,17 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                       </td>
                     )}
                     <td className="max-w-[160px] truncate py-2.5 pr-3">{i.issuing_company?.name ?? '—'}</td>
-                    <td className="py-2.5 pr-3">{i.salesperson?.name ?? '—'}</td>
+                    <td className="py-2.5 pr-3">
+                      {i.salesperson?.name ?? '—'}
+                      {/* Who typed it up, when that is somebody else — an
+                          office raising what the field brings in has one
+                          name on the document and another behind it. */}
+                      {i.created_by && i.created_by !== i.salesperson?.name && (
+                        <div className="truncate text-xs text-slate-400" title={`Raised by ${i.created_by}`}>
+                          by {i.created_by}
+                        </div>
+                      )}
+                    </td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">{i.invoice_date}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">
                       {inr(i.total)}

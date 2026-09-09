@@ -717,12 +717,31 @@ class LeadController extends Controller
 
         $logs = $query->latest()->latest('id')->paginate(50);
 
-        // One lookup so each entry can deep-link to its (still existing) lead.
-        $uuids = Lead::whereIn('id', $logs->getCollection()->pluck('subject_id')->unique())
-            ->pluck('uuid', 'id');
-        $logs->getCollection()->transform(fn ($log) => $this->serializeLog($log) + [
-            'lead_uuid' => $uuids[$log->subject_id] ?? null,
-        ]);
+        /*
+         * One lookup, so each entry can name and deep-link its lead.
+         *
+         * "Lead #41" on its own is a number to go and look up, and a page of
+         * them is forty lookups. The name is read off the lead as it stands
+         * now rather than out of the entry, so a company renamed since reads
+         * the same everywhere; an entry whose lead is gone keeps whatever
+         * name it captured at the time.
+         */
+        $leads = Lead::whereIn('id', $logs->getCollection()->pluck('subject_id')->unique())
+            ->get(['id', 'uuid', 'lead_no', 'company_name'])
+            ->keyBy('id');
+
+        $logs->getCollection()->transform(function ($log) use ($leads) {
+            $lead = $leads[$log->subject_id] ?? null;
+
+            // Left side wins a PHP array union, so what is known now goes
+            // first and the entry's own record fills the gaps. lead_uuid is
+            // not among those: null there is the answer — no lead to link to
+            // — rather than a gap for the entry to fill.
+            return ['lead_uuid' => $lead?->uuid] + array_filter([
+                'lead_no' => $lead?->lead_no,
+                'company_name' => $lead?->company_name,
+            ], fn ($v) => $v !== null) + $this->serializeLog($log);
+        });
 
         return response()->json($logs);
     }

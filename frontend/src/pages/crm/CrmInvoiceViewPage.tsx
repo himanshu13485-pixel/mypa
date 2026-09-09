@@ -422,6 +422,9 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
             {inv.salesperson?.name && (
               <div className="text-sm"><span className="text-slate-400">{columnLabel('member', 'Salesperson')}: </span>{inv.salesperson.name}</div>
             )}
+            {inv.created_by && (
+              <div className="text-sm"><span className="text-slate-400">Raised by: </span>{inv.created_by}</div>
+            )}
             {inv.terms_of_payment && (
               <div className="text-sm"><span className="text-slate-400">{columnLabel('terms_of_payment', 'Terms')}: </span>{inv.terms_of_payment}</div>
             )}

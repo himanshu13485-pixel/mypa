@@ -98,6 +98,8 @@ class InvoiceController extends Controller
 
         $query = Invoice::with([
             'client:id,uuid,company_name,contact_person', 'issuingCompany:id,name', 'member.user:id,name,email',
+            // Who raised it, which is not always whose client it is.
+            'creator:id,name',
             /*
              * Only the memberships, not the lines.
              *
@@ -1546,6 +1548,15 @@ class InvoiceController extends Controller
             'issuing_company' => $i->issuingCompany?->only(['id', 'name', 'state_code']),
             // The e-mail dialog offers the salesperson a copy of what
             // went to their client, so it needs their address too.
+            /*
+             * Who raised it.
+             *
+             * Not the same question as whose client it is: an office that
+             * types up what the field brings in has one person on the
+             * document and another behind it, and "who made this?" was
+             * answerable only out of the log.
+             */
+            'created_by' => $i->creator?->name,
             'salesperson' => $i->member ? [
                 'uuid' => $i->member->uuid,
                 'name' => $i->member->user?->name,

@@ -69,12 +69,16 @@ export default function CrmLeadLogPage() {
           <div className="space-y-4 border-l border-slate-100 pl-1 dark:border-slate-800">
             {data.data.map((log) => (
               <div key={log.id}>
+                {/* The name as well as the number: a page of "Lead #41" is
+                    a page of things to go and look up. */}
                 {log.lead_no !== null && (log.lead_uuid ? (
                   <Link to={crmPath(`/crm/leads/${log.lead_uuid}`)} className="mb-0.5 ml-5 inline-block text-xs font-medium text-emerald-600 hover:underline">
-                    Lead #{log.lead_no}
+                    Lead #{log.lead_no}{log.company_name && <> · {log.company_name}</>}
                   </Link>
                 ) : (
-                  <span className="mb-0.5 ml-5 inline-block text-xs font-medium text-slate-400">Lead #{log.lead_no} (deleted)</span>
+                  <span className="mb-0.5 ml-5 inline-block text-xs font-medium text-slate-400">
+                    Lead #{log.lead_no}{log.company_name && <> · {log.company_name}</>} (deleted)
+                  </span>
                 ))}
                 <LogEntry log={log} />
               </div>

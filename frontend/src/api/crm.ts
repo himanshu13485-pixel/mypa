@@ -280,6 +280,8 @@ export interface CrmOutstandingRow {
   client: { uuid: string; company_name: string; contact_person: string | null; email: string | null; mobile: string | null } | null
   issuing_company: string | null
   salesperson: string | null
+  /** Who raised it, which is not always whose client it is. */
+  created_by?: string | null
   invoice_date: string
   due_date: string | null
   currency: string
@@ -621,6 +623,8 @@ export interface CrmInvoiceRow {
   } | null
   issuing_company?: { id: number; name: string; state_code?: string | null } | null
   salesperson?: { uuid: string; name: string | null; email?: string | null } | null
+  /** Who raised it, which is not always whose client it is. */
+  created_by?: string | null
   currency: string
   subtotal?: string
   total: string
