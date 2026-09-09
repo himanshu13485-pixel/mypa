@@ -230,6 +230,53 @@ class CrmDocumentRequiredTest extends TestCase
         $this->raise(['cgst' => 900, 'sgst' => 900])->assertCreated();
     }
 
+    public function test_the_tax_the_form_actually_sends_satisfies_it(): void
+    {
+        /*
+         * The shape the invoice form posts: every money line in tax_lines[],
+         * ours included, with the plain cgst/sgst/… left at nought.
+         *
+         * The rule used to read those plain fields alone, so a company that
+         * turned this on had every document refused however much tax had
+         * been typed into it — and the refusal told the person filling in
+         * the form to do the thing they had just done.
+         */
+        $this->requireTax();
+
+        $this->raise(['cgst' => 0, 'sgst' => 0, 'igst' => 0, 'tax_lines' => [
+            ['key' => 'discount', 'rate' => null, 'amount' => null],
+            ['key' => 'cgst', 'rate' => 2, 'amount' => null],
+            ['key' => 'sgst', 'rate' => 1, 'amount' => null],
+            ['key' => 'igst', 'rate' => null, 'amount' => null],
+        ]])->assertCreated();
+
+        // A flat figure rather than a rate, which the same boxes also take.
+        $this->raise(['tax_lines' => [['key' => 'igst', 'rate' => null, 'amount' => 1800]]])
+            ->assertCreated();
+
+        // And nothing on any of them is still nothing.
+        $this->raise(['tax_lines' => [
+            ['key' => 'cgst', 'rate' => null, 'amount' => null],
+            ['key' => 'igst', 'rate' => null, 'amount' => null],
+        ]])->assertStatus(422)->assertJsonValidationErrors('cgst');
+    }
+
+    public function test_a_standing_rate_is_tax_the_document_carries(): void
+    {
+        // Nobody types anything: the company's own rate puts CGST on the
+        // document, so the document carries tax and the rule is answered.
+        $this->requireTax();
+
+        CustomField::create([
+            'organization_id' => $this->org->id,
+            'entity' => 'tax', 'key' => 'cgst', 'label' => 'CGST',
+            'type' => 'number', 'is_builtin' => true, 'status' => 'approved',
+            'default_rate' => 9,
+        ]);
+
+        $this->raise()->assertCreated();
+    }
+
     public function test_one_company_requiring_tax_does_not_bind_another(): void
     {
         // The whole point of moving it: a domestic arm charging GST on

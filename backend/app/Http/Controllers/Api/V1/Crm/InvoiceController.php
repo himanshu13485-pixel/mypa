@@ -998,8 +998,6 @@ class InvoiceController extends Controller
             ? Client::where('organization_id', $orgId)->where('uuid', $data['client_uuid'])->first()
             : $existing?->client;
 
-        $this->requireTax($request, $orgId, $company, $client);
-
         $items = $this->applyWorkOrderFields($request, $orgId, $data['items']);
         unset($data['items'], $data['tax_lines']);
         $data = $this->applyDocumentFields($request, $orgId, $data);
@@ -1051,6 +1049,8 @@ class InvoiceController extends Controller
         // The money lines are this company's own — ours renamed or switched
         // off, plus any they added — so the arithmetic reads the setup.
         [$taxLines, $sums] = $this->computeTaxes($request, $orgId, $data, $subtotal, $company, $client);
+        // Asked of the lines themselves, now that they exist.
+        $this->requireTax($company, $client, $taxLines);
         $data['total'] = $sums['total'];
         if ($subtotalFx > 0) {
             $data['subtotal_fx'] = round($subtotalFx, 2);
@@ -1092,10 +1092,16 @@ class InvoiceController extends Controller
      * this company charges. Which applies is the accountant's answer and it
      * changes per document, so the rule asks only that somebody answered.
      *
-     * Read from the rate as well as the figure, because the form sends
-     * whichever was typed and works the other one out from it.
+     * Asked of the document as it will be saved, and not of the request.
+     * There are three ways a line gets its figure — the form's own money
+     * lines, the plain cgst/sgst/… an older client sends, and a standing
+     * rate nobody types at all — and the rule used to read only the second
+     * of them. The form sends the first, so a company that turned this on
+     * had every document refused however much tax was typed into it, which
+     * is the worst way for a rule like this to be wrong: it blamed the
+     * person filling the form in for not doing the thing they had just done.
      */
-    private function requireTax(Request $request, int $orgId, ?IssuingCompany $company, ?Client $client): void
+    private function requireTax(?IssuingCompany $company, ?Client $client, array $taxLines): void
     {
         // The company whose name goes on the document is the one that answers
         // this — an export arm raising invoices without payment of tax and a
@@ -1104,31 +1110,28 @@ class InvoiceController extends Controller
             return;
         }
 
-        // A line this pairing cannot carry does not answer the question: a
-        // CGST rate sent for a client in another state is dropped from the
-        // document, so it cannot be the tax the document is made to have.
-        $blocked = Gst::unavailableTaxes($company->state_code, $client?->gst_no);
-
-        $charged = collect(CustomField::taxSetup($orgId))
-            ->where('kind', 'tax')
-            ->reject(fn (array $line) => in_array($line['key'], $blocked, true))
-            ->contains(function (array $line) use ($request) {
-                if ($line['source'] === 'builtin') {
-                    return (float) $request->input($line['key'], 0) > 0
-                        || (float) $request->input($line['key'] . '_rate', 0) > 0;
-                }
-
-                // A company's own money line arrives in tax_lines[].
-                return collect($request->input('tax_lines', []))
-                    ->contains(fn ($l) => ($l['key'] ?? null) === $line['key']
-                        && ((float) ($l['amount'] ?? 0) > 0 || (float) ($l['rate'] ?? 0) > 0));
-            });
-
-        if (! $charged) {
-            throw ValidationException::withMessages(['cgst' => [
-                $company->name . ' requires tax on every document — enter at least one tax line.',
-            ]]);
+        foreach ($taxLines as $line) {
+            // A line the pairing cannot carry is nil by the time it gets
+            // here, so it cannot be the tax that answers this.
+            if (($line['kind'] ?? null) === 'tax'
+                && ((float) ($line['amount'] ?? 0) > 0 || (float) ($line['rate'] ?? 0) > 0)) {
+                return;
+            }
         }
+
+        // Where both sides are known, which line applies is not a matter of
+        // choice — so the refusal says which one rather than leaving somebody
+        // to work out why a greyed box will not take a rate.
+        $blocked = Gst::unavailableTaxes($company->state_code, $client?->gst_no);
+        $which = match (true) {
+            in_array('cgst', $blocked, true) => ' This client is in another state, so IGST is the line to use.',
+            in_array('igst', $blocked, true) => ' This client is in this company\'s state, so CGST and SGST are the lines to use.',
+            default => '',
+        };
+
+        throw ValidationException::withMessages(['cgst' => [
+            $company->name . ' requires tax on every document — enter at least one tax line.' . $which,
+        ]]);
     }
 
     private function applyDocumentFields(Request $request, int $orgId, array $data): array
