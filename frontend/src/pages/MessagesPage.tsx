@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Archive, ArrowDown, Bell, BellOff, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Flag, Forward, Megaphone, Mic, MoreVertical, Palette, Paperclip, Pencil, Phone, Pin, Plus,
+  Archive, ArrowDown, Bell, BellOff, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Eraser, Flag, Forward, Megaphone, Mic, MoreVertical, Palette, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
@@ -41,18 +41,25 @@ import {
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
 /** One line in a chat's ⋮ menu. */
-function ChatMenuItem({ icon, label, onClick }: {
+function ChatMenuItem({ icon, label, onClick, danger }: {
   icon: React.ReactNode
   label: string
   onClick: () => void
+  /** For the one that empties something. Red before the tap, not after. */
+  danger?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="tap flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+      className={clsx(
+        'tap flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs hover:bg-slate-100 dark:hover:bg-slate-700',
+        danger
+          ? 'text-red-600 dark:text-red-400'
+          : 'text-slate-600 dark:text-slate-200',
+      )}
     >
-      <span className="shrink-0 text-slate-400">{icon}</span>
+      <span className={clsx('shrink-0', danger ? 'text-red-500' : 'text-slate-400')}>{icon}</span>
       {label}
     </button>
   )
@@ -465,6 +472,21 @@ export default function MessagesPage() {
   const readMutation = useMutation({
     mutationFn: (c: ConversationItem) => chat.markRead(c.uuid),
     onSuccess: () => { refreshChats(); queryClient.invalidateQueries({ queryKey: ['notifications-count'] }) },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  /** The chat waiting on "yes, empty it" - nothing is cleared until then. */
+  const [clearingChat, setClearingChat] = useState<ConversationItem | null>(null)
+
+  const clearMutation = useMutation({
+    mutationFn: (c: ConversationItem) => chat.clear(c.uuid),
+    onSuccess: (res, c) => {
+      toast(res.message)
+      setClearingChat(null)
+      queryClient.invalidateQueries({ queryKey: ['messages', c.uuid] })
+      queryClient.invalidateQueries({ queryKey: ['pinned', c.uuid] })
+      refreshChats()
+    },
     onError: (err) => toastError(errorMessage(err)),
   })
 
@@ -1062,6 +1084,12 @@ export default function MessagesPage() {
                       label={c.is_archived ? 'Unarchive' : 'Archive chat'}
                       onClick={() => { setRowMenu(null); archiveMutation.mutate(c) }}
                     />
+                    <ChatMenuItem
+                      danger
+                      icon={<Eraser className="size-3.5" />}
+                      label="Clear chat…"
+                      onClick={() => { setRowMenu(null); setClearingChat(c) }}
+                    />
                   </div>
                 </>
               )}
@@ -1378,6 +1406,38 @@ export default function MessagesPage() {
           onSubmit={beginChatWith}
         />
       )}
+      {/*
+        * Clearing is not deleting, and the dialog has to say so.
+        *
+        * The word people carry into this from every other app is the one
+        * that means "gone" - so the sentence that matters most here is the
+        * one about the other side keeping everything, and it is above the
+        * button rather than under it.
+        */}
+      {clearingChat && (
+        <Modal title={`Clear “${clearingChat.name}”`} onClose={() => setClearingChat(null)}>
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600 dark:text-slate-300">
+              Every message in this chat will be removed from your screen.
+            </p>
+            <p className="rounded-lg bg-slate-100 p-2 text-xs text-slate-500 dark:bg-slate-800">
+              {clearingChat.type === 'group' ? 'Everyone else in the group' : 'The other person'} keeps
+              their copy - this only clears yours, and it cannot be undone. The chat stays in your
+              list, and anything said from now on arrives as normal.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setClearingChat(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                disabled={clearMutation.isPending}
+                onClick={() => clearMutation.mutate(clearingChat)}
+              >
+                {clearMutation.isPending ? 'Clearing…' : 'Clear for me'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {themeFor && (
         <ThemeModal
           conversation={themeFor}
@@ -1509,6 +1569,12 @@ export default function MessagesPage() {
                           icon={<Archive className="size-3.5" />}
                           label={selected.is_archived ? 'Unarchive' : 'Archive chat'}
                           onClick={() => { setHeaderMenu(false); archiveMutation.mutate(selected) }}
+                        />
+                        <ChatMenuItem
+                          danger
+                          icon={<Eraser className="size-3.5" />}
+                          label="Clear chat…"
+                          onClick={() => { setHeaderMenu(false); setClearingChat(selected) }}
                         />
                       </div>
                     </>

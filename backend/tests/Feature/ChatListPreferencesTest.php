@@ -152,7 +152,57 @@ class ChatListPreferencesTest extends TestCase
             ->assertJsonPath('data.0.theme', null);
     }
 
-    public function test_a_stranger_cannot_pin_or_colour_a_chat_they_are_not_in(): void
+    public function test_clearing_a_chat_empties_it_for_me_and_nobody_else(): void
+    {
+        [$me, $mate] = $this->people();
+
+        $conversation = Conversation::directBetween($me, $mate);
+
+        foreach (['Morning', 'Are we still on for four?', 'Yes'] as $line) {
+            \App\Models\Message::create([
+                'conversation_id' => $conversation->id,
+                'user_id' => $mate->id,
+                'type' => 'text',
+                'body' => $line,
+            ]);
+        }
+
+        $this->actingAs($me)->getJson("/api/v1/conversations/{$conversation->uuid}/messages")
+            ->assertJsonCount(3, 'data');
+
+        $this->actingAs($me)->postJson("/api/v1/conversations/{$conversation->uuid}/clear")
+            ->assertOk()
+            ->assertJsonPath('data.cleared', 3);
+
+        $this->actingAs($me)->getJson("/api/v1/conversations/{$conversation->uuid}/messages")
+            ->assertJsonCount(0, 'data');
+
+        // Bala's thread is untouched - nothing was deleted, only hidden.
+        $this->actingAs($mate)->getJson("/api/v1/conversations/{$conversation->uuid}/messages")
+            ->assertJsonCount(3, 'data');
+        $this->assertSame(3, $conversation->messages()->count());
+
+        // Clearing twice is a no-op rather than a second set of rows.
+        $this->actingAs($me)->postJson("/api/v1/conversations/{$conversation->uuid}/clear")
+            ->assertOk()
+            ->assertJsonPath('data.cleared', 0);
+        $this->assertSame(3, \Illuminate\Support\Facades\DB::table('message_deletions')
+            ->where('user_id', $me->id)->count());
+
+        // And the chat is still a chat: what is said next arrives as normal.
+        \App\Models\Message::create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $mate->id,
+            'type' => 'text',
+            'body' => 'Still here',
+        ]);
+
+        $this->actingAs($me)->getJson("/api/v1/conversations/{$conversation->uuid}/messages")
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.body', 'Still here');
+    }
+
+    public function test_a_stranger_cannot_clear_pin_or_colour_a_chat_they_are_not_in(): void
     {
         [$me, $mate, $other] = $this->people();
 
@@ -162,5 +212,6 @@ class ChatListPreferencesTest extends TestCase
         $this->actingAs($other)
             ->postJson("/api/v1/conversations/{$private->uuid}/theme", ['theme' => 'rose'])
             ->assertForbidden();
+        $this->actingAs($other)->postJson("/api/v1/conversations/{$private->uuid}/clear")->assertForbidden();
     }
 }

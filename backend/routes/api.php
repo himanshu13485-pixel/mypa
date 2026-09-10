@@ -530,6 +530,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/conversations/{conversation}/messages/{messageUuid}/star', [MessageController::class, 'star']);
         Route::post('/conversations/{conversation}/messages/{messageUuid}/pin', [MessageController::class, 'pin']);
         Route::get('/conversations/{conversation}/pinned', [MessageController::class, 'pinned']);
+        // Empty a thread off my own screen; the other side keeps theirs.
+        Route::post('/conversations/{conversation}/clear', [MessageController::class, 'clear']);
         Route::post('/conversations/{conversation}/messages/{message}/react', [MessageController::class, 'react']);
         Route::get('/conversations/{conversation}/attachments/{attachmentId}', [MessageController::class, 'downloadAttachment']);
 

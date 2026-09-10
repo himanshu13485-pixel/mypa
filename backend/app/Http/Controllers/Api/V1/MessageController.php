@@ -611,6 +611,54 @@ class MessageController extends Controller
         return response()->json(['message' => 'Message deleted for you.']);
     }
 
+    /**
+     * Empty this thread off my own screen.
+     *
+     * The same "delete for me" that one message has, applied to all of them
+     * at once - so it hides nothing from anybody else, and the person on the
+     * other side still has every word. Clearing is not leaving: the chat
+     * stays in the list and the next message arrives as normal, because the
+     * only thing hidden is the ids that existed when the button was pressed.
+     *
+     * Attachments stay on disk for the same reason the messages do: they are
+     * still the other side's.
+     *
+     * Chunked and insert-ignored rather than one row at a time: a year-old
+     * group thread is tens of thousands of messages, and the unique index on
+     * (message_id, user_id) makes clearing a thread twice a no-op instead of
+     * a second set of rows.
+     */
+    public function clear(Request $request, Conversation $conversation): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $cleared = 0;
+
+        $conversation->messages()
+            ->withTrashed()
+            ->select('messages.id')
+            ->orderBy('messages.id')
+            ->chunk(500, function ($rows) use ($me, &$cleared) {
+                $now = now();
+                $cleared += \Illuminate\Support\Facades\DB::table('message_deletions')->insertOrIgnore(
+                    $rows->map(fn ($m) => [
+                        'message_id' => $m->id,
+                        'user_id' => $me->id,
+                        'created_at' => $now,
+                        'updated_at' => $now,
+                    ])->all(),
+                );
+            });
+
+        return response()->json([
+            'message' => $cleared === 0
+                ? 'This chat was already empty for you.'
+                : 'Chat cleared. Only your copy was removed.',
+            'data' => ['cleared' => $cleared],
+        ]);
+    }
+
     public function react(Request $request, Conversation $conversation, Message $message): JsonResponse
     {
         $me = $request->user();

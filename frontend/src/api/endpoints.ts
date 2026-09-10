@@ -638,6 +638,10 @@ export const chat = {
   react: (uuid: string, messageUuid: string, emoji: string) =>
     api.post<{ data: ChatMessage }>(`/conversations/${uuid}/messages/${messageUuid}/react`, { emoji }).then((r) => r.data.data),
   markRead: (uuid: string) => api.post(`/conversations/${uuid}/read`),
+  /** Empty a thread off my own screen. The other side keeps every word. */
+  clear: (uuid: string) =>
+    api.post<{ message: string; data: { cleared: number } }>(`/conversations/${uuid}/clear`)
+      .then((r) => r.data),
   typing: (uuid: string) => api.post(`/conversations/${uuid}/typing`),
   toggleMute: (uuid: string) => api.post<{ message: string }>(`/conversations/${uuid}/mute`).then((r) => r.data),
   toggleArchive: (uuid: string) => api.post<{ message: string }>(`/conversations/${uuid}/archive`).then((r) => r.data),
