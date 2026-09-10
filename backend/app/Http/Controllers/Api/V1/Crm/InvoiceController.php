@@ -998,9 +998,10 @@ class InvoiceController extends Controller
             ? Client::where('organization_id', $orgId)->where('uuid', $data['client_uuid'])->first()
             : $existing?->client;
 
-        $items = $this->applyWorkOrderFields($request, $orgId, $data['items']);
+        $kept = $this->wordsAlreadyOn($existing);
+        $items = $this->applyWorkOrderFields($request, $orgId, $data['items'], $kept['lines']);
         unset($data['items'], $data['tax_lines']);
-        $data = $this->applyDocumentFields($request, $orgId, $data);
+        $data = $this->applyDocumentFields($request, $orgId, $data, $kept['document']);
 
         if (! $updating || $request->filled('client_uuid')) {
             $data['client_id'] = Client::where('organization_id', $orgId)
@@ -1017,11 +1018,26 @@ class InvoiceController extends Controller
         }
         unset($data['member_uuid']);
 
-        // House style on the name-like line fields (App\Support\TextCase):
-        // plan and membership names, never the free-text description.
+        /*
+         * House style on the name-like line fields (App\Support\TextCase):
+         * plan and membership names, never the free-text description.
+         *
+         * And never a column the company turned into a dropdown. Those
+         * options are the wording they chose, and restyling a picked value
+         * un-picked it: "GrapOut Consulting" was stored as "Grapout
+         * Consulting", which is no longer one of the options — so the
+         * document saved once and was refused every time it was opened
+         * again, on a value the person editing it had not touched.
+         */
+        $picked = collect(CustomField::workOrderMethod($orgId))
+            ->where('source', 'builtin')
+            ->where('type', 'select')
+            ->pluck('key')
+            ->all();
+
         foreach ($items as &$named) {
             foreach (['membership', 'plan_name'] as $field) {
-                if (! empty($named[$field])) {
+                if (! empty($named[$field]) && ! in_array($field, $picked, true)) {
                     $named[$field] = TextCase::company($named[$field]);
                 }
             }
@@ -1134,7 +1150,7 @@ class InvoiceController extends Controller
         ]]);
     }
 
-    private function applyDocumentFields(Request $request, int $orgId, array $data): array
+    private function applyDocumentFields(Request $request, int $orgId, array $data, array $kept = []): array
     {
         $method = CustomField::invoiceMethod($orgId);
         $fields = CustomField::approvedFor($orgId, 'invoice');
@@ -1143,7 +1159,8 @@ class InvoiceController extends Controller
             $rules = [];
             $names = [];
             foreach ($fields as $field) {
-                $rules['custom_fields.' . $field->key] = $field->validationRule();
+                $rules['custom_fields.' . $field->key]
+                    = $field->validationRule($kept['custom_fields.' . $field->key] ?? []);
                 $names['custom_fields.' . $field->key] = $field->label;
             }
             $validated = $request->validate($rules, [], $names);
@@ -1213,7 +1230,59 @@ class InvoiceController extends Controller
      * required must be filled, and a column they hid is cleared rather than
      * quietly kept.
      */
-    private function applyWorkOrderFields(Request $request, int $orgId, array $items): array
+    /**
+     * The words a document already carries, by the column they sit in.
+     *
+     * A dropdown's options are a living list: a plan is retired, a company
+     * re-spells its own name, and every document raised under the old list
+     * becomes unopenable — refused on a value nobody was trying to change,
+     * on a screen that offers no way to change it. What is already on the
+     * paper stays valid. Only a value somebody adds today is held to today's
+     * list, and this reads the stored document rather than the request, so
+     * nothing new can be smuggled in beside it.
+     *
+     * @return array{lines: array<string, array<int, string>>, document: array<string, array<int, string>>}
+     */
+    private function wordsAlreadyOn(?Invoice $existing): array
+    {
+        $lines = [];
+        $document = [];
+
+        if ($existing === null) {
+            return ['lines' => $lines, 'document' => $document];
+        }
+
+        $keep = function (array &$into, string $key, mixed $value): void {
+            if (! is_scalar($value) || (string) $value === '') {
+                return;
+            }
+            // The whole value, and — for a column that takes a list — each
+            // name in it, since that is how the rule reads them.
+            $into[$key][] = (string) $value;
+            foreach (self::splitValues((string) $value) as $one) {
+                $into[$key][] = $one;
+            }
+        };
+
+        foreach ($existing->items as $item) {
+            foreach (['membership', 'plan_name', 'description'] as $key) {
+                $keep($lines, $key, $item->$key ?? '');
+            }
+            foreach ((array) ($item->custom_fields ?? []) as $key => $value) {
+                $keep($lines, 'custom_fields.' . $key, $value);
+            }
+        }
+        foreach ((array) ($existing->custom_fields ?? []) as $key => $value) {
+            $keep($document, 'custom_fields.' . $key, $value);
+        }
+
+        return [
+            'lines' => array_map(fn ($v) => array_values(array_unique($v)), $lines),
+            'document' => array_map(fn ($v) => array_values(array_unique($v)), $document),
+        ];
+    }
+
+    private function applyWorkOrderFields(Request $request, int $orgId, array $items, array $kept = []): array
     {
         $method = CustomField::workOrderMethod($orgId);
         $fields = CustomField::approvedFor($orgId, 'work_order');
@@ -1225,7 +1294,8 @@ class InvoiceController extends Controller
             $line = ' (line ' . ((int) $index + 1) . ')';
 
             foreach ($fields as $field) {
-                $rules['items.' . $index . '.custom_fields.' . $field->key] = $field->validationRule();
+                $rules['items.' . $index . '.custom_fields.' . $field->key]
+                    = $field->validationRule($kept['custom_fields.' . $field->key] ?? []);
                 $names['items.' . $index . '.custom_fields.' . $field->key] = $field->label . $line;
             }
 
@@ -1233,7 +1303,7 @@ class InvoiceController extends Controller
                 if ($column['hidden']) {
                     continue;
                 }
-                foreach ($this->builtinRules($key, $column) as $attribute => $rule) {
+                foreach ($this->builtinRules($key, $column, $kept[$key] ?? []) as $attribute => $rule) {
                     $rules['items.' . $index . '.' . $attribute] = $rule;
                     $names['items.' . $index . '.' . $attribute] = $column['label'] . $line;
                 }
@@ -1319,7 +1389,7 @@ class InvoiceController extends Controller
         return $out;
     }
 
-    private function builtinRules(string $key, array $column): array
+    private function builtinRules(string $key, array $column, array $kept = []): array
     {
         if ($key === 'validity') {
             return $column['is_required']
@@ -1337,7 +1407,7 @@ class InvoiceController extends Controller
             $rules = [$column['is_required'] ? 'required' : 'nullable', 'string', 'max:512'];
 
             if ($column['type'] === 'select') {
-                $allowed = $column['options'] ?? [];
+                $allowed = array_values(array_unique([...($column['options'] ?? []), ...$kept]));
                 $rules[] = function (string $attribute, mixed $value, callable $fail) use ($allowed) {
                     foreach (self::splitValues((string) $value) as $one) {
                         if (! in_array($one, $allowed, true)) {
@@ -1353,7 +1423,7 @@ class InvoiceController extends Controller
         if ($column['type'] === 'select') {
             return [$key => [
                 $column['is_required'] ? 'required' : 'nullable',
-                Rule::in($column['options'] ?? []),
+                Rule::in(array_values(array_unique([...($column['options'] ?? []), ...$kept]))),
             ]];
         }
 

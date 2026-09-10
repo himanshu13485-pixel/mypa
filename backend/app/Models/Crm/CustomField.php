@@ -372,7 +372,13 @@ class CustomField extends Model
     }
 
     /** The Laravel validation rule for this field's own value. */
-    public function validationRule(): array
+    /**
+     * @param  array<int, string>  $alsoAllowed  Values a record being edited
+     *         already carries. A dropdown's options are a living list — a
+     *         plan is retired, a name is re-spelt — and a record raised under
+     *         the old list must stay editable on a value nobody is changing.
+     */
+    public function validationRule(array $alsoAllowed = []): array
     {
         $rules = [$this->is_required && $this->type !== 'checkbox' ? 'required' : 'nullable'];
 
@@ -381,7 +387,9 @@ class CustomField extends Model
             'checkbox' => ['nullable', 'boolean'],
             'date' => [...$rules, 'date'],
             'alphanumeric' => [...$rules, 'alpha_num', 'max:255'],
-            'select' => [...$rules, \Illuminate\Validation\Rule::in($this->options ?? [])],
+            'select' => [...$rules, \Illuminate\Validation\Rule::in(
+                array_values(array_unique([...($this->options ?? []), ...$alsoAllowed])),
+            )],
             'textarea' => [...$rules, 'string', 'max:5000'],
             default => [...$rules, 'string', 'max:255'],
         };
