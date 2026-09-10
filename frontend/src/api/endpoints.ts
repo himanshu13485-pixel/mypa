@@ -576,7 +576,15 @@ export const groups = {
 // --- Chat -------------------------------------------------------------------
 
 export const chat = {
-  conversations: () => api.get<Paginated<ConversationItem>>('/conversations').then((r) => r.data),
+  /**
+   * My chats. Archived ones are kept out of the way until asked for by
+   * name; the count of them comes back either way so the list can offer
+   * the archive without opening it.
+   */
+  conversations: (archived = false) =>
+    api.get<Paginated<ConversationItem> & { archived_count: number }>('/conversations', {
+      params: archived ? { archived: 1 } : {},
+    }).then((r) => r.data),
   start: (app_id: string) =>
     api.post<{ data: ConversationItem }>('/conversations', { app_id }).then((r) => r.data.data),
   groupConversation: (groupUuid: string) =>
@@ -631,7 +639,16 @@ export const chat = {
     api.post<{ data: ChatMessage }>(`/conversations/${uuid}/messages/${messageUuid}/react`, { emoji }).then((r) => r.data.data),
   markRead: (uuid: string) => api.post(`/conversations/${uuid}/read`),
   typing: (uuid: string) => api.post(`/conversations/${uuid}/typing`),
-  toggleMute: (uuid: string) => api.post(`/conversations/${uuid}/mute`),
+  toggleMute: (uuid: string) => api.post<{ message: string }>(`/conversations/${uuid}/mute`).then((r) => r.data),
+  toggleArchive: (uuid: string) => api.post<{ message: string }>(`/conversations/${uuid}/archive`).then((r) => r.data),
+  /** Keep a chat at the top of my list - or let it fall back into order. */
+  togglePin: (uuid: string) =>
+    api.post<{ message: string; data: { is_pinned: boolean } }>(`/conversations/${uuid}/pin`).then((r) => r.data),
+  /** The colours I read one chat in, or - with applyToAll - all of them. */
+  setTheme: (uuid: string, theme: string | null, applyToAll = false) =>
+    api.post<{ message: string; data: { theme: string | null; applied_to_all: boolean } }>(
+      `/conversations/${uuid}/theme`, { theme, apply_to_all: applyToAll },
+    ).then((r) => r.data),
   /** Disappearing messages: null keeps everything, or 24 / 168 / 720 hours. */
   setRetention: (uuid: string, hours: number | null) =>
     api.post<{ message: string; data: { auto_delete_hours: number | null } }>(

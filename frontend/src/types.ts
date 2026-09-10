@@ -569,6 +569,10 @@ export interface ConversationItem {
   unread_count: number
   is_muted: boolean
   is_archived: boolean
+  /** Kept at the top of my list. Mine alone - the other side has their own. */
+  is_pinned?: boolean
+  /** The colours I read this chat in; null means the app's own. */
+  theme?: string | null
   /** Disappearing messages: null keeps everything, else a span in hours. */
   auto_delete_hours?: number | null
   last_message_at?: string | null

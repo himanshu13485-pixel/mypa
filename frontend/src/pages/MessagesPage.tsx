@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  ArrowDown, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Flag, Forward, Megaphone, Mic, MoreVertical, Paperclip, Pencil, Phone, Pin, Plus,
+  Archive, ArrowDown, Bell, BellOff, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Flag, Forward, Megaphone, Mic, MoreVertical, Palette, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
@@ -32,12 +32,98 @@ import { Avatar } from '../lib/avatars'
 import { PresenceDot, PresenceInline } from '../components/PresenceDot'
 import { lastSeenLabel, resolvePresence, usePresenceMap } from '../lib/presence'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { CHAT_THEMES, chatTheme } from '../lib/chatThemes'
 import { useLongPress } from '../lib/useLongPress'
 import {
   canUnsendAll, copyTextOf, MAX_FORWARD_AT_ONCE, selectedIn, toggleSelected,
 } from '../lib/messageSelection'
 
 const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
+
+/** One line in a chat's ⋮ menu. */
+function ChatMenuItem({ icon, label, onClick }: {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="tap flex w-full items-center gap-2.5 px-3 py-2 text-left text-xs text-slate-600 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
+    >
+      <span className="shrink-0 text-slate-400">{icon}</span>
+      {label}
+    </button>
+  )
+}
+
+/**
+ * Pick the colours one chat is read in.
+ *
+ * Applied the moment a swatch is tapped rather than behind a Save, because
+ * the thread is right there behind the dialog and the only way to judge a
+ * colour is to see it. "Use for all my chats" is here because the usual
+ * reason to change one is that you want them all this way - and it is a
+ * checkbox rather than a second button so that it is plainly the same
+ * decision, made wider.
+ */
+function ThemeModal({ conversation, busy, onPick, onClose }: {
+  conversation: ConversationItem
+  busy: boolean
+  onPick: (theme: string | null, applyToAll: boolean) => void
+  onClose: () => void
+}) {
+  const [applyToAll, setApplyToAll] = useState(false)
+  const current = conversation.theme ?? 'default'
+
+  return (
+    <Modal title={`Colours for “${conversation.name}”`} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-xs text-slate-400">
+          Yours only. The person on the other side keeps whatever colours they chose.
+        </p>
+
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {CHAT_THEMES.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              disabled={busy}
+              onClick={() => onPick(t.key === 'default' ? null : t.key, applyToAll)}
+              className={clsx(
+                'tap flex flex-col items-center gap-2 rounded-xl border p-3 transition-colors disabled:opacity-60',
+                current === t.key
+                  ? 'border-brand-500 ring-1 ring-brand-500'
+                  : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600',
+              )}
+            >
+              {/* Two bubbles, the way they will actually sit. */}
+              <span className="flex w-full flex-col gap-1">
+                <span className={clsx('h-3 w-2/3 self-start rounded-full', t.swatch[1])} />
+                <span className={clsx('h-3 w-2/3 self-end rounded-full', t.swatch[0])} />
+              </span>
+              <span className="text-[11px] font-medium">{t.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={applyToAll}
+            onChange={(e) => setApplyToAll(e.target.checked)}
+          />
+          Use for all my chats
+        </label>
+
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={onClose}>Done</Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
 
 /**
  * How long a conversation keeps what is said in it. Off is the default and
@@ -190,7 +276,7 @@ export default function MessagesPage() {
   const { toast, toastError } = useToast()
   const [showMembers, setShowMembers] = useState(false)
   const [params, setParams] = useSearchParams()
-  const [selected, setSelected] = useState<ConversationItem | null>(null)
+  const [pickedChat, setSelected] = useState<ConversationItem | null>(null)
   const [draft, setDraft] = useState('')
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
@@ -244,7 +330,9 @@ export default function MessagesPage() {
    * Ticks carried into another thread would be ticks on messages that are no
    * longer on screen — and the next bulk delete would take them with it.
    */
-  useEffect(() => { setSelection(new Set()) }, [selected?.uuid])
+  // pickedChat, not the derived `selected` below it: same uuid, and this
+  // runs before that line does.
+  useEffect(() => { setSelection(new Set()) }, [pickedChat?.uuid])
   const [typing, setTyping] = useState<{ uuid: string; name: string }[]>([])
   const typingSentRef = useRef(0)
   const bottomRef = useRef<HTMLDivElement>(null)
@@ -311,10 +399,80 @@ export default function MessagesPage() {
    */
   const livePresence = usePresenceMap()
 
+  /*
+   * The archive is a second list, not a filter over this one.
+   *
+   * A chat you archived should leave the list - that is the whole of what
+   * archiving means - so the server keeps them apart and this asks for one
+   * side or the other.
+   */
+  const [showArchived, setShowArchived] = useState(false)
+
   const { data: conversations, isLoading } = useQuery({
-    queryKey: ['conversations'],
-    queryFn: chat.conversations,
+    queryKey: ['conversations', showArchived],
+    queryFn: () => chat.conversations(showArchived),
     refetchInterval: 20_000,
+  })
+
+  /*
+   * The open chat, read back off the list every render.
+   *
+   * `pickedChat` is the row somebody tapped, and it is a snapshot: pin it,
+   * mute it or change its colour and that snapshot still says what it said
+   * when it was taken. Looking it up again means the header and the thread
+   * follow the list instead of arguing with it, and the fallback keeps a
+   * chat open when it drops out of the current list - which is exactly what
+   * archiving it from inside does.
+   */
+  const selected = pickedChat
+    ? conversations?.data.find((c) => c.uuid === pickedChat.uuid) ?? pickedChat
+    : null
+
+  /** Which row's ⋮ menu is open, and which chat is choosing its colours. */
+  const [rowMenu, setRowMenu] = useState<string | null>(null)
+  const [headerMenu, setHeaderMenu] = useState(false)
+  const [themeFor, setThemeFor] = useState<ConversationItem | null>(null)
+
+  /*
+   * The four things you can do to a chat without opening it.
+   *
+   * All of them are settings on your own membership - pinning, muting and
+   * archiving change nothing for the person on the other side - so they all
+   * refresh the list and say what happened, and nothing else.
+   */
+  const refreshChats = () => queryClient.invalidateQueries({ queryKey: ['conversations'] })
+
+  // pinChatMutation, not pinMutation: further down, a message can be pinned
+  // inside a chat, which is a different pin entirely.
+  const pinChatMutation = useMutation({
+    mutationFn: (c: ConversationItem) => chat.togglePin(c.uuid),
+    onSuccess: (res) => { toast(res.message); refreshChats() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const muteMutation = useMutation({
+    mutationFn: (c: ConversationItem) => chat.toggleMute(c.uuid),
+    onSuccess: (res) => { toast(res.message); refreshChats() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const archiveMutation = useMutation({
+    mutationFn: (c: ConversationItem) => chat.toggleArchive(c.uuid),
+    onSuccess: (res) => { toast(res.message); refreshChats() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const readMutation = useMutation({
+    mutationFn: (c: ConversationItem) => chat.markRead(c.uuid),
+    onSuccess: () => { refreshChats(); queryClient.invalidateQueries({ queryKey: ['notifications-count'] }) },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const themeMutation = useMutation({
+    mutationFn: ({ c, theme, all }: { c: ConversationItem; theme: string | null; all: boolean }) =>
+      chat.setTheme(c.uuid, theme, all),
+    onSuccess: (res) => { toast(res.message); refreshChats() },
+    onError: (err) => toastError(errorMessage(err)),
   })
 
   /*
@@ -723,6 +881,9 @@ export default function MessagesPage() {
   const headerPresence = resolvePresence(livePresence, selected?.other_user?.uuid, selected?.other_user?.presence)
   const headerLastSeen = lastSeenLabel(selected?.other_user?.last_seen_at)
 
+  /** The colours this chat is wearing for me. Falls back to the app's own. */
+  const theme = chatTheme(selected?.theme)
+
   const timeLabel = (iso: string) => {
     const date = new Date(iso)
     return isToday(date) ? format(date, 'HH:mm') : format(date, 'd MMM, HH:mm')
@@ -759,21 +920,46 @@ export default function MessagesPage() {
             </Button>
           </div>
         </div>
+        {/*
+          * The way into the archive, and the way back out.
+          *
+          * Only shown once there is something in it: an empty archive is a
+          * row that explains a feature nobody has used.
+          */}
+        {(showArchived || (conversations?.archived_count ?? 0) > 0) && (
+          <button
+            type="button"
+            onClick={() => setShowArchived((v) => !v)}
+            className="mb-2 flex shrink-0 items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-slate-500 transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
+          >
+            {showArchived ? <ChevronLeft className="size-3.5" /> : <Archive className="size-3.5" />}
+            {showArchived
+              ? 'Back to chats'
+              : `Archived (${conversations?.archived_count ?? 0})`}
+          </button>
+        )}
         {isLoading ? (
           <SkeletonList rows={8} />
         ) : !conversations?.data.length ? (
-          <EmptyState title="No conversations" hint="Start a chat with a connection's App ID." />
+          <EmptyState
+            title={showArchived ? 'Nothing archived' : 'No conversations'}
+            hint={showArchived
+              ? 'Archived chats are kept here, out of the main list.'
+              : "Start a chat with a connection's App ID."}
+          />
         ) : (
           <div className="scroll-pane min-h-0 flex-1 space-y-1 overflow-y-auto">
             {conversations.data.map((c) => (
+              <div key={c.uuid} className="group relative">
               <button
-                key={c.uuid}
                 onClick={() => setSelected(c)}
                 onPointerEnter={() => prefetchThread(c.uuid)}
                 onPointerDown={() => prefetchThread(c.uuid)}
                 onFocus={() => prefetchThread(c.uuid)}
                 className={clsx(
-                  'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors',
+                  // pr-9 keeps the row's own contents clear of the ⋮ that
+                  // sits over its right edge.
+                  'flex w-full items-center gap-3 rounded-lg py-2.5 pl-3 pr-9 text-left transition-colors',
                   selected?.uuid === c.uuid
                     ? 'bg-brand-50 dark:bg-brand-950'
                     : 'hover:bg-slate-100 dark:hover:bg-slate-800',
@@ -796,7 +982,13 @@ export default function MessagesPage() {
                   )}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{c.name}</p>
+                  <p className="flex items-center gap-1 truncate text-sm font-medium">
+                    <span className="truncate">{c.name}</span>
+                    {/* Two facts the row has to carry on its own: this one
+                        is held at the top, and this one will not ring. */}
+                    {c.is_pinned && <Pin className="size-3 shrink-0 text-brand-500" />}
+                    {c.is_muted && <BellOff className="size-3 shrink-0 text-slate-400" />}
+                  </p>
                   <p className="truncate text-xs text-slate-400">
                     {/* The App ID, always — the dot on the avatar says where
                         they are, and this line used to lose the one identifier
@@ -805,11 +997,75 @@ export default function MessagesPage() {
                   </p>
                 </div>
                 {c.unread_count > 0 && (
-                  <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-600 text-[10px] font-semibold text-white">
+                  <span className={clsx(
+                    'flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white',
+                    // A muted chat still counts, quietly. A brand-blue badge
+                    // on a chat you silenced is the notification you turned
+                    // off wearing a different hat.
+                    c.is_muted ? 'bg-slate-400' : 'bg-brand-600',
+                  )}>
                     {c.unread_count > 9 ? '9+' : c.unread_count}
                   </span>
                 )}
               </button>
+
+              {/*
+                * The row's own menu.
+                *
+                * Outside the row button rather than inside it, because a
+                * button inside a button is not a thing HTML has: the browser
+                * drops one of them, and which one is not up to us. Always
+                * present on a touchscreen - `noHover` - and on hover or
+                * keyboard focus otherwise.
+                */}
+              <button
+                type="button"
+                aria-label={`Options for ${c.name}`}
+                onClick={(e) => { e.stopPropagation(); setRowMenu(rowMenu === c.uuid ? null : c.uuid) }}
+                className={clsx(
+                  'tap absolute right-0.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-200 hover:text-slate-600 focus:opacity-100 dark:hover:bg-slate-700',
+                  noHover || rowMenu === c.uuid ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                )}
+              >
+                <MoreVertical className="size-4" />
+              </button>
+
+              {rowMenu === c.uuid && (
+                <>
+                  {/* Anywhere else closes it. */}
+                  <div className="fixed inset-0 z-20" onClick={() => setRowMenu(null)} />
+                  <div className="absolute right-1 top-11 z-30 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lift dark:border-slate-700 dark:bg-slate-800">
+                    <ChatMenuItem
+                      icon={<Pin className="size-3.5" />}
+                      label={c.is_pinned ? 'Unpin chat' : 'Pin to top'}
+                      onClick={() => { setRowMenu(null); pinChatMutation.mutate(c) }}
+                    />
+                    <ChatMenuItem
+                      icon={c.is_muted ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
+                      label={c.is_muted ? 'Unmute' : 'Mute notifications'}
+                      onClick={() => { setRowMenu(null); muteMutation.mutate(c) }}
+                    />
+                    {c.unread_count > 0 && (
+                      <ChatMenuItem
+                        icon={<CheckCheck className="size-3.5" />}
+                        label="Mark as read"
+                        onClick={() => { setRowMenu(null); readMutation.mutate(c) }}
+                      />
+                    )}
+                    <ChatMenuItem
+                      icon={<Palette className="size-3.5" />}
+                      label="Chat colour…"
+                      onClick={() => { setRowMenu(null); setThemeFor(c) }}
+                    />
+                    <ChatMenuItem
+                      icon={<Archive className="size-3.5" />}
+                      label={c.is_archived ? 'Unarchive' : 'Archive chat'}
+                      onClick={() => { setRowMenu(null); archiveMutation.mutate(c) }}
+                    />
+                  </div>
+                </>
+              )}
+              </div>
             ))}
           </div>
         )}
@@ -1122,6 +1378,14 @@ export default function MessagesPage() {
           onSubmit={beginChatWith}
         />
       )}
+      {themeFor && (
+        <ThemeModal
+          conversation={themeFor}
+          busy={themeMutation.isPending}
+          onPick={(key, all) => themeMutation.mutate({ c: themeFor, theme: key, all })}
+          onClose={() => setThemeFor(null)}
+        />
+      )}
       {showMembers && selected && (
                 <MembersModal
                   conversationUuid={selected.uuid}
@@ -1196,6 +1460,60 @@ export default function MessagesPage() {
                 >
                   <Video className="size-4" />
                 </Button>
+
+                {/*
+                  * Everything about the chat itself, in one place.
+                  *
+                  * The header had four buttons and no room for four more, and
+                  * pinning, muting, colouring and archiving are all things you
+                  * do to a conversation once and then forget - which is what a
+                  * menu is for.
+                  */}
+                <div className="relative">
+                  <Button
+                    size="sm"
+                    variant={headerMenu ? 'primary' : 'ghost'}
+                    title="Chat options"
+                    aria-label="Chat options"
+                    onClick={() => setHeaderMenu((v) => !v)}
+                  >
+                    <MoreVertical className="size-4" />
+                  </Button>
+                  {headerMenu && (
+                    <>
+                      <div className="fixed inset-0 z-20" onClick={() => setHeaderMenu(false)} />
+                      <div className="absolute right-0 top-10 z-30 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lift dark:border-slate-700 dark:bg-slate-800">
+                        <ChatMenuItem
+                          icon={<Pin className="size-3.5" />}
+                          label={selected.is_pinned ? 'Unpin chat' : 'Pin to top'}
+                          onClick={() => { setHeaderMenu(false); pinChatMutation.mutate(selected) }}
+                        />
+                        <ChatMenuItem
+                          icon={selected.is_muted ? <Bell className="size-3.5" /> : <BellOff className="size-3.5" />}
+                          label={selected.is_muted ? 'Unmute' : 'Mute notifications'}
+                          onClick={() => { setHeaderMenu(false); muteMutation.mutate(selected) }}
+                        />
+                        <ChatMenuItem
+                          icon={<Palette className="size-3.5" />}
+                          label="Chat colour…"
+                          onClick={() => { setHeaderMenu(false); setThemeFor(selected) }}
+                        />
+                        {selected.type === 'group' && (
+                          <ChatMenuItem
+                            icon={<CheckSquare className="size-3.5" />}
+                            label="View members"
+                            onClick={() => { setHeaderMenu(false); setShowMembers(true) }}
+                          />
+                        )}
+                        <ChatMenuItem
+                          icon={<Archive className="size-3.5" />}
+                          label={selected.is_archived ? 'Unarchive' : 'Archive chat'}
+                          onClick={() => { setHeaderMenu(false); archiveMutation.mutate(selected) }}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1279,7 +1597,7 @@ export default function MessagesPage() {
               </div>
             )}
 
-            <div ref={listRef} className="flex-1 space-y-2 overflow-y-auto p-4">
+            <div ref={listRef} className={clsx('flex-1 space-y-2 overflow-y-auto p-4', theme.pane)}>
               {/* A thread being opened for the first time. Once it has been
                   read once the cache answers instantly and this never shows;
                   before, every switch blanked the panel either way. */}
@@ -1301,8 +1619,8 @@ export default function MessagesPage() {
                       className={clsx(
                         'rounded-2xl px-3 py-2 text-sm',
                         m.is_own
-                          ? 'rounded-br-sm bg-brand-600 text-white'
-                          : 'rounded-bl-sm bg-slate-100 dark:bg-slate-800',
+                          ? clsx('rounded-br-sm', theme.own)
+                          : clsx('rounded-bl-sm', theme.theirs),
                         // Only where the gesture is the way in. A mouse has
                         // hover, and suppressing its text selection to catch
                         // a press it will never make would be a plain loss.

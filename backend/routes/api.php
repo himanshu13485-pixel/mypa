@@ -509,6 +509,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/conversations/{conversation}/retention', [ConversationController::class, 'setRetention']);
         Route::post('/conversations/{conversation}/mute', [ConversationController::class, 'toggleMute']);
         Route::post('/conversations/{conversation}/archive', [ConversationController::class, 'toggleArchive']);
+        // A chat kept on top, and the colours it wears - both mine alone.
+        Route::post('/conversations/{conversation}/pin', [ConversationController::class, 'togglePin']);
+        Route::post('/conversations/{conversation}/theme', [ConversationController::class, 'setTheme']);
         Route::get('/conversations/{conversation}/members', [ConversationController::class, 'members']);
         // Removing somebody from a group chat is removing them from the
         // group — the chat is the group's, not a guest list of its own.

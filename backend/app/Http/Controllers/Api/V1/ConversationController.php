@@ -13,20 +13,56 @@ use Illuminate\Validation\Rule;
 
 class ConversationController extends Controller
 {
+    /** The chat colours on offer. Mirrored in the client's chatThemes.ts. */
+    public const THEMES = ['default', 'ocean', 'forest', 'violet', 'rose', 'sunset', 'graphite', 'midnight'];
+
+    /**
+     * The chats this person has, in the order they want them.
+     *
+     * Pinned first - the point of a pin is that the chat stops moving down
+     * the list as other people talk - then the rest by when they last did.
+     * Archived ones are not here at all unless asked for by name: archiving
+     * a chat that still sat in the list would be a no-op with extra steps.
+     */
     public function index(Request $request): JsonResponse
     {
         $me = $request->user();
 
+        $wantArchived = $request->boolean('archived');
+
         $conversations = Conversation::visibleTo($me)
+            // Joined rather than queried per row: the ordering is by MY
+            // membership, so it has to be in the same query that sorts.
+            ->join('conversation_members as mine', function ($join) use ($me) {
+                $join->on('mine.conversation_id', '=', 'conversations.id')
+                    ->where('mine.user_id', '=', $me->id);
+            })
+            ->select('conversations.*')
+            ->when(
+                $wantArchived,
+                fn ($q) => $q->whereNotNull('mine.archived_at'),
+                fn ($q) => $q->whereNull('mine.archived_at'),
+            )
             ->with(['members.profile', 'members.settings', 'group:id,uuid,name'])
             ->withCount('members')
-            ->orderByDesc('last_message_at')
-            ->orderByDesc('updated_at')
+            // 0 sorts before 1, so "is null = false" - the pinned ones - lead.
+            ->orderByRaw('mine.pinned_at is null')
+            ->orderByDesc('mine.pinned_at')
+            ->orderByDesc('conversations.last_message_at')
+            ->orderByDesc('conversations.updated_at')
             ->paginate(30);
 
         $conversations->getCollection()->transform(fn ($c) => $this->serialize($c, $request));
 
-        return response()->json($conversations);
+        // So the list can offer the archive without opening it first.
+        $archivedCount = \Illuminate\Support\Facades\DB::table('conversation_members')
+            ->where('user_id', $me->id)
+            ->whereNotNull('archived_at')
+            ->count();
+
+        return response()->json(array_merge($conversations->toArray(), [
+            'archived_count' => $archivedCount,
+        ]));
     }
 
     /** Start (or reopen) a direct conversation with a user by App ID. */
@@ -179,6 +215,70 @@ class ConversationController extends Controller
         ]);
 
         return response()->json(['message' => $pivot->muted_at ? 'Conversation unmuted.' : 'Conversation muted.']);
+    }
+
+    /**
+     * Keep this chat at the top of my list.
+     *
+     * Mine alone - the other side's list is not reordered because I decided
+     * this conversation matters. Uncapped on purpose: a limit of three is a
+     * rule somebody has to discover by being refused, and a person who pins
+     * everything has only made their list what it was.
+     */
+    public function togglePin(Request $request, Conversation $conversation): JsonResponse
+    {
+        abort_unless($conversation->hasMember($request->user()), 403);
+
+        $pivot = $conversation->members()->where('users.id', $request->user()->id)->first()->pivot;
+        $pinned = $pivot->pinned_at === null;
+
+        $conversation->members()->updateExistingPivot($request->user()->id, [
+            'pinned_at' => $pinned ? now() : null,
+        ]);
+
+        return response()->json([
+            'message' => $pinned ? 'Chat pinned to the top.' : 'Chat unpinned.',
+            'data' => ['is_pinned' => $pinned],
+        ]);
+    }
+
+    /**
+     * What colour this chat is, for me.
+     *
+     * A theme is a reading preference, so it is stored per member and never
+     * imposed on the other side. `apply_to_all` is here because the usual
+     * reason to change one is that you want them all that way.
+     */
+    public function setTheme(Request $request, Conversation $conversation): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $data = $request->validate([
+            // Null means the app's own colours - always an available answer.
+            'theme' => ['nullable', 'string', Rule::in(self::THEMES)],
+            'apply_to_all' => ['sometimes', 'boolean'],
+        ]);
+
+        $theme = $data['theme'] ?? null;
+
+        if ($data['apply_to_all'] ?? false) {
+            \Illuminate\Support\Facades\DB::table('conversation_members')
+                ->where('user_id', $me->id)
+                ->update(['theme' => $theme]);
+
+            return response()->json([
+                'message' => 'Every chat now uses this colour.',
+                'data' => ['theme' => $theme, 'applied_to_all' => true],
+            ]);
+        }
+
+        $conversation->members()->updateExistingPivot($me->id, ['theme' => $theme]);
+
+        return response()->json([
+            'message' => 'Chat colour saved.',
+            'data' => ['theme' => $theme, 'applied_to_all' => false],
+        ]);
     }
 
     public function toggleArchive(Request $request, Conversation $conversation): JsonResponse
@@ -376,6 +476,9 @@ class ConversationController extends Controller
             'unread_count' => $unread,
             'is_muted' => $myPivot?->muted_at !== null,
             'is_archived' => $myPivot?->archived_at !== null,
+            'is_pinned' => $myPivot?->pinned_at !== null,
+            // Mine, not the room's - the other side reads their own colour.
+            'theme' => $myPivot?->theme,
             // Null unless somebody in the room set a span; the chat
             // header reads it to say what is happening to these words.
             'auto_delete_hours' => $conversation->auto_delete_hours,
