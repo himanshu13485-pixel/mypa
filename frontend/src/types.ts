@@ -325,6 +325,13 @@ export interface CalendarFeedTask {
 
 export const EVENT_TYPES = ['event', 'meeting', 'appointment', 'birthday', 'anniversary', 'holiday'] as const
 
+export interface NoteShare {
+  uuid: string
+  name: string
+  username?: string | null
+  permission: 'view' | 'edit'
+}
+
 export interface Note {
   uuid: string
   title: string
@@ -334,6 +341,8 @@ export interface Note {
   is_locked: boolean
   is_own: boolean
   group?: { uuid: string; name: string } | null
+  owner?: { uuid: string; name: string; username?: string | null } | null
+  shared_with?: NoteShare[]
   body?: string | null
   checklist?: { text: string; done?: boolean }[] | null
   preview?: string | null

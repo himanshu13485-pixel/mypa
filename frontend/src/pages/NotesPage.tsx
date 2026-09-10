@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Lock, Pin, Plus, Share2, Trash2 } from 'lucide-react'
+import { Lock, Pin, Plus, Share2, Trash2, Users, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import { clsx } from 'clsx'
 import { badges as badgesApi, notes as notesApi } from '../api/endpoints'
@@ -102,9 +102,21 @@ export default function NotesPage() {
 
   const shareMutation = useMutation({
     mutationFn: () => notesApi.share(shareTarget!.uuid, shareAppId, sharePermission),
-    onSuccess: () => {
-      setShareTarget(null)
+    onSuccess: (note) => {
+      // Stay open showing the updated list - people usually share with
+      // several at once, and now they can see who is already on it.
+      setShareTarget(note)
       setShareAppId('')
+      invalidate()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  const unshareMutation = useMutation({
+    mutationFn: (userUuid: string) => notesApi.unshare(shareTarget!.uuid, userUuid),
+    onSuccess: (note) => {
+      setShareTarget(note)
+      invalidate()
     },
     onError: (err) => setError(errorMessage(err)),
   })
@@ -200,20 +212,20 @@ export default function NotesPage() {
                   <p className="mt-2 text-[11px] text-slate-400">
                     {formatDistanceToNow(new Date(note.updated_at), { addSuffix: true })}
                     {note.group ? ` · ${note.group.name}` : ''}
-                    {!note.is_own ? ' · shared with you' : ''}
                   </p>
+                  <SharingLine note={note} />
                 </div>
                 {note.is_own && (
                   <div className="mt-2 flex justify-end gap-1 border-t border-slate-100 pt-2 dark:border-slate-800">
-                    {!note.is_locked && (
-                      <button
-                        className="rounded p-1 text-slate-400 hover:text-brand-600"
-                        title="Share"
-                        onClick={() => { setError(null); setShareTarget(note) }}
-                      >
-                        <Share2 className="size-3.5" />
-                      </button>
-                    )}
+                    {/* A password does not stop sharing - the reader simply
+                        needs the password too. */}
+                    <button
+                      className="rounded p-1 text-slate-400 hover:text-brand-600"
+                      title={note.shared_with?.length ? 'Manage sharing' : 'Share'}
+                      onClick={() => { setError(null); setShareTarget(note) }}
+                    >
+                      <Share2 className="size-3.5" />
+                    </button>
                     <button
                       className="rounded p-1 text-slate-400 hover:text-red-600"
                       title="Delete"
@@ -353,36 +365,117 @@ export default function NotesPage() {
       {/* Share dialog */}
       {shareTarget && (
         <Modal title={`Share "${shareTarget.title}"`} onClose={() => setShareTarget(null)}>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              shareMutation.mutate()
-            }}
-            className="space-y-4"
-          >
+          <div className="space-y-4">
             <ErrorNote message={error} />
+
+            {shareTarget.is_locked && (
+              <p className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                <Lock className="mt-0.5 size-3.5 shrink-0" />
+                This note is password protected. Whoever you share it with will
+                need the password from you before they can open it.
+              </p>
+            )}
+
+            {/* Who is on this note right now. */}
             <div>
-              <Label>Share with (username or email)</Label>
-              <UserSuggest placeholder="username or email" value={shareAppId} onChange={setShareAppId} required autoFocus />
+              <Label>Shared with</Label>
+              {shareTarget.shared_with?.length ? (
+                <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-700">
+                  {shareTarget.shared_with.map((person) => (
+                    <li key={person.uuid} className="flex items-center justify-between gap-2 px-3 py-2">
+                      <span className="min-w-0 truncate text-sm">
+                        {person.name}
+                        {person.username && (
+                          <span className="text-slate-400"> @{person.username}</span>
+                        )}
+                      </span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                          {person.permission === 'edit' ? 'Can edit' : 'Can view'}
+                        </span>
+                        <button
+                          type="button"
+                          title={`Stop sharing with ${person.name}`}
+                          className="rounded p-1 text-slate-400 hover:text-red-600 disabled:opacity-50"
+                          disabled={unshareMutation.isPending}
+                          onClick={() => { setError(null); unshareMutation.mutate(person.uuid) }}
+                        >
+                          <X className="size-3.5" />
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-slate-400">Not shared with anyone yet.</p>
+              )}
             </div>
-            <div>
-              <Label>Permission</Label>
-              <Select value={sharePermission} onChange={(e) => setSharePermission(e.target.value as 'view' | 'edit')}>
-                <option value="view">Can view</option>
-                <option value="edit">Can edit</option>
-              </Select>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="secondary" onClick={() => setShareTarget(null)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={shareMutation.isPending}>
-                Share
-              </Button>
-            </div>
-          </form>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                setError(null)
+                shareMutation.mutate()
+              }}
+              className="space-y-4 border-t border-slate-100 pt-4 dark:border-slate-800"
+            >
+              <div>
+                <Label>Add someone (username or email)</Label>
+                <UserSuggest placeholder="username or email" value={shareAppId} onChange={setShareAppId} required autoFocus />
+              </div>
+              <div>
+                <Label>Permission</Label>
+                <Select value={sharePermission} onChange={(e) => setSharePermission(e.target.value as 'view' | 'edit')}>
+                  <option value="view">Can view</option>
+                  <option value="edit">Can edit</option>
+                </Select>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  Sharing again with the same person just changes their permission.
+                </p>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="secondary" onClick={() => setShareTarget(null)}>
+                  Done
+                </Button>
+                <Button type="submit" disabled={shareMutation.isPending}>
+                  {shareMutation.isPending ? 'Sharing…' : 'Share'}
+                </Button>
+              </div>
+            </form>
+          </div>
         </Modal>
       )}
     </div>
+  )
+}
+
+/**
+ * The one line on a card that answers "where has this note gone?" - who sent
+ * it to me, or who I sent it to. Silent on notes that are nobody else's
+ * business.
+ */
+function SharingLine({ note }: { note: Note }) {
+  if (!note.is_own) {
+    return (
+      <p className="mt-1 flex items-center gap-1 text-[11px] text-brand-600 dark:text-brand-400">
+        <Users className="size-3" />
+        Shared with you{note.owner ? ` by ${note.owner.name}` : ''}
+      </p>
+    )
+  }
+
+  const people = note.shared_with ?? []
+  if (people.length === 0) return null
+
+  const shown = people.slice(0, 3).map((p) => p.name).join(', ')
+
+  return (
+    <p className="mt-1 flex items-start gap-1 text-[11px] text-brand-600 dark:text-brand-400">
+      <Users className="mt-0.5 size-3 shrink-0" />
+      <span className="min-w-0">
+        Shared with {shown}
+        {people.length > 3 ? ` +${people.length - 3} more` : ''}
+      </span>
+    </p>
   )
 }

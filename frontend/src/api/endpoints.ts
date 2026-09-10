@@ -363,7 +363,9 @@ export const notes = {
     }).then((r) => r.data.data),
   remove: (uuid: string) => api.delete(`/notes/${uuid}`),
   share: (uuid: string, app_id: string, permission: 'view' | 'edit') =>
-    api.post(`/notes/${uuid}/share`, { app_id, permission }),
+    api.post<{ message: string; data: Note }>(`/notes/${uuid}/share`, { app_id, permission }).then((r) => r.data.data),
+  unshare: (uuid: string, userUuid: string) =>
+    api.delete<{ message: string; data: Note }>(`/notes/${uuid}/share/${userUuid}`).then((r) => r.data.data),
 }
 
 // --- Service accounts -------------------------------------------------------

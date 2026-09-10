@@ -14,7 +14,8 @@ class NoteController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Note::visibleTo($request->user())->with('group:id,uuid,name');
+        $query = Note::visibleTo($request->user())
+            ->with(['group:id,uuid,name', 'user:id,uuid,name,username', 'sharedWith:id,uuid,name,username']);
 
         if ($q = $request->query('q')) {
             $query->where(fn ($w) => $w->where('title', 'like', "%{$q}%")
@@ -44,7 +45,7 @@ class NoteController extends Controller
 
         return response()->json([
             'message' => 'Note created.',
-            'data' => $this->serialize($note->fresh(), $request),
+            'data' => $this->serialize($this->withPeople($note->fresh()), $request),
         ], 201);
     }
 
@@ -55,11 +56,11 @@ class NoteController extends Controller
         if ($note->isLocked() && ! $this->passwordOk($request, $note)) {
             return response()->json([
                 'message' => 'This note is password protected.',
-                'data' => $this->serialize($note, $request, withContent: false),
+                'data' => $this->serialize($this->withPeople($note), $request, withContent: false),
             ], 423);
         }
 
-        return response()->json(['data' => $this->serialize($note, $request)]);
+        return response()->json(['data' => $this->serialize($this->withPeople($note), $request)]);
     }
 
     public function update(Request $request, Note $note): JsonResponse
@@ -96,7 +97,7 @@ class NoteController extends Controller
 
         return response()->json([
             'message' => 'Note updated.',
-            'data' => $this->serialize($note->fresh(), $request),
+            'data' => $this->serialize($this->withPeople($note->fresh()), $request),
         ]);
     }
 
@@ -112,7 +113,6 @@ class NoteController extends Controller
     public function share(Request $request, Note $note): JsonResponse
     {
         abort_unless($note->user_id === $request->user()->id, 403);
-        abort_if($note->isLocked(), 422, 'Remove the password before sharing this note.');
 
         $data = $request->validate([
             'app_id' => ['required', 'string', 'max:32'],
@@ -131,12 +131,38 @@ class NoteController extends Controller
 
         $target->notify(new \App\Notifications\SocialNotification(
             'note_shared',
-            "{$request->user()->name} shared a note with you: “{$note->title}”.",
+            "{$request->user()->name} shared a note with you: “{$note->title}”."
+                . ($note->isLocked() ? ' Ask them for the password to open it.' : ''),
             ['note_uuid' => $note->uuid],
             '/notes',
         ));
 
-        return response()->json(['message' => 'Note shared with ' . $target->name . '.']);
+        return response()->json([
+            'message' => 'Note shared with ' . $target->name . '.',
+            'data' => $this->serialize($this->withPeople($note), $request, withContent: false),
+        ]);
+    }
+
+    /**
+     * Take a note back off somebody's desk. Only the owner may do this, and
+     * the note itself is untouched - just that one row in the pivot.
+     */
+    public function unshare(Request $request, Note $note, string $user): JsonResponse
+    {
+        abort_unless($note->user_id === $request->user()->id, 403);
+
+        $target = $note->sharedWith()->where('users.uuid', $user)->first();
+
+        if (! $target) {
+            return response()->json(['message' => 'This note is not shared with that person.'], 404);
+        }
+
+        $note->sharedWith()->detach($target->id);
+
+        return response()->json([
+            'message' => 'Sharing stopped for ' . $target->name . '.',
+            'data' => $this->serialize($this->withPeople($note), $request, withContent: false),
+        ]);
     }
 
     public function versions(Request $request, Note $note): JsonResponse
@@ -200,6 +226,19 @@ class NoteController extends Controller
             'is_locked' => $locked,
             'is_own' => $note->user_id === $request->user()->id,
             'group' => $note->group ? ['uuid' => $note->group->uuid, 'name' => $note->group->name] : null,
+            // Who else is on this note. Everybody who can see the note can see
+            // the list - otherwise there is no way to tell where it has gone.
+            'owner' => $note->user ? [
+                'uuid' => $note->user->uuid,
+                'name' => $note->user->name,
+                'username' => $note->user->username,
+            ] : null,
+            'shared_with' => $note->sharedWith->map(fn ($u) => [
+                'uuid' => $u->uuid,
+                'name' => $u->name,
+                'username' => $u->username,
+                'permission' => $u->pivot->permission,
+            ])->values()->all(),
             // Locked notes never leak content in list/blocked responses.
             'body' => $withContent && ! ($locked && ! $this->passwordOk($request, $note)) ? $note->body : null,
             'checklist' => $withContent && ! ($locked && ! $this->passwordOk($request, $note)) ? $note->checklist : null,
@@ -207,6 +246,12 @@ class NoteController extends Controller
             'updated_at' => $note->updated_at,
             'created_at' => $note->created_at,
         ];
+    }
+
+    /** Reload the people on a note so serialize() never guesses. */
+    protected function withPeople(Note $note): Note
+    {
+        return $note->load(['user:id,uuid,name,username', 'sharedWith:id,uuid,name,username']);
     }
 
     protected function authorizeView(Request $request, Note $note): void

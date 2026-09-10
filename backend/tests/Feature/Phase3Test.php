@@ -10,6 +10,7 @@ use App\Services\AppIdService;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -111,6 +112,61 @@ class Phase3Test extends TestCase
         $this->actingAs($this->other)
             ->putJson("/api/v1/notes/{$note->uuid}", ['body' => 'Edited by friend'])
             ->assertOk();
+    }
+
+    public function test_the_note_payload_names_the_people_it_is_shared_with(): void
+    {
+        $note = Note::create(['user_id' => $this->user->id, 'title' => 'Roadmap', 'body' => 'Hello']);
+
+        $shared = $this->actingAs($this->user)->postJson("/api/v1/notes/{$note->uuid}/share", [
+            'app_id' => $this->other->appId->app_id,
+            'permission' => 'edit',
+        ])->assertOk();
+
+        $shared->assertJsonPath('data.shared_with.0.uuid', $this->other->uuid);
+        $shared->assertJsonPath('data.shared_with.0.permission', 'edit');
+
+        // The owner sees the recipient on the list; the recipient sees the owner.
+        $this->actingAs($this->user)->getJson('/api/v1/notes')
+            ->assertJsonPath('data.0.shared_with.0.name', $this->other->name);
+        $this->actingAs($this->other)->getJson('/api/v1/notes')
+            ->assertJsonPath('data.0.owner.uuid', $this->user->uuid);
+
+        // Taking it back is the owner's call alone.
+        $this->actingAs($this->other)
+            ->deleteJson("/api/v1/notes/{$note->uuid}/share/{$this->user->uuid}")
+            ->assertForbidden();
+
+        $this->actingAs($this->user)
+            ->deleteJson("/api/v1/notes/{$note->uuid}/share/{$this->other->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.shared_with', []);
+
+        $this->actingAs($this->other)->getJson("/api/v1/notes/{$note->uuid}")->assertForbidden();
+    }
+
+    public function test_a_password_protected_note_can_be_shared_and_still_needs_its_password(): void
+    {
+        $note = Note::create([
+            'user_id' => $this->user->id,
+            'title' => 'Bank details',
+            'body' => 'Account 123',
+            'password_hash' => Hash::make('opensesame'),
+        ]);
+
+        $this->actingAs($this->user)->postJson("/api/v1/notes/{$note->uuid}/share", [
+            'app_id' => $this->other->appId->app_id,
+            'permission' => 'view',
+        ])->assertOk();
+
+        // Shared, but the lock still holds.
+        $this->actingAs($this->other)->getJson("/api/v1/notes/{$note->uuid}")->assertStatus(423);
+
+        $this->actingAs($this->other)
+            ->withHeader('X-Note-Password', 'opensesame')
+            ->getJson("/api/v1/notes/{$note->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.body', 'Account 123');
     }
 
     // --- Files --------------------------------------------------------------

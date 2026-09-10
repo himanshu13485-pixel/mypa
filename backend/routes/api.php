@@ -317,6 +317,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         // Notes
         Route::apiResource('notes', NoteController::class);
         Route::post('/notes/{note}/share', [NoteController::class, 'share']);
+        Route::delete('/notes/{note}/share/{user}', [NoteController::class, 'unshare']);
         Route::get('/notes/{note}/versions', [NoteController::class, 'versions']);
 
         Route::get('/connections/suggest', [\App\Http\Controllers\Api\V1\ConnectionController::class, 'suggest']);
