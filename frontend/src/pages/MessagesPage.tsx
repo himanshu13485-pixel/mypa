@@ -907,6 +907,26 @@ export default function MessagesPage() {
   const theme = chatTheme(selected?.theme)
 
   /*
+   * Which message must have its actions below the bubble rather than above.
+   *
+   * The thread scrolls, so anything drawn above the topmost bubble is drawn
+   * outside the scroller and simply cut off - which is what happened to the
+   * first message in every conversation. Worked out as the pointer arrives
+   * rather than from the index, because the message at the top of the pane
+   * is whichever one you have scrolled to, not always the first one.
+   */
+  const [flipActionsFor, setFlipActionsFor] = useState<string | null>(null)
+
+  const decideActionSide = (row: HTMLElement, uuid: string) => {
+    const pane = listRef.current
+    if (!pane) return
+
+    const gap = row.getBoundingClientRect().top - pane.getBoundingClientRect().top
+    // The strip is ~30px tall and sits 4px clear of the bubble.
+    setFlipActionsFor(gap < 40 ? uuid : null)
+  }
+
+  /*
    * The emoji offered first, led by 👍 and then by what this person
    * actually uses. Held in state rather than read on every render, and
    * refreshed the moment a reaction is sent, so the row reorders itself
@@ -1818,6 +1838,7 @@ export default function MessagesPage() {
               {messages?.map((m) => (
                 <div
                   key={m.uuid}
+                  onPointerEnter={(e) => decideActionSide(e.currentTarget, m.uuid)}
                   className={clsx(
                     'group flex',
                     m.is_own ? 'justify-end' : 'justify-start',
@@ -1964,15 +1985,26 @@ export default function MessagesPage() {
                       </button>
                     )}
 
-                    {/* The mouse's strip. */}
+                    {/*
+                      * The mouse's strip.
+                      *
+                      * Two boxes, not one: the outer is padded rather than
+                      * margined, so its hit area touches the bubble and the
+                      * pointer can travel from one to the other without
+                      * crossing a gap. With a margin there was a 4px dead
+                      * band where neither was hovered, the strip vanished
+                      * mid-reach, and the actions were uncatchable.
+                      */}
                     {!m.is_deleted && !noHover && (
                       <div
                         data-msg-actions
                         className={clsx(
-                          'absolute bottom-full z-10 mb-1 hidden gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm group-hover:flex dark:border-slate-700 dark:bg-slate-800',
+                          'absolute z-10 hidden group-hover:flex',
+                          flipActionsFor === m.uuid ? 'top-full pt-1' : 'bottom-full pb-1',
                           m.is_own ? 'right-0' : 'left-0',
                         )}
                       >
+                      <div className="flex gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm dark:border-slate-700 dark:bg-slate-800">
                         {/* One tap, the reaction nine out of ten people
                             want. The smile beside it opens the rest. */}
                         <button
@@ -2005,6 +2037,7 @@ export default function MessagesPage() {
                             {a.icon}
                           </button>
                         ))}
+                      </div>
                       </div>
                     )}
 
@@ -2055,11 +2088,15 @@ export default function MessagesPage() {
                       </Modal>
                     )}
 
-                    {/* The rest of the emoji, for a mouse. */}
+                    {/* The rest of the emoji, on the same side as the strip. */}
                     {reactFor === m.uuid && !noHover && (
                       <div
                         data-msg-actions
-                        className={clsx('absolute bottom-full z-20 mb-9 flex gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800', m.is_own ? 'right-0' : 'left-0')}
+                        className={clsx(
+                          'absolute z-20 flex gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800',
+                          flipActionsFor === m.uuid ? 'top-full mt-9' : 'bottom-full mb-9',
+                          m.is_own ? 'right-0' : 'left-0',
+                        )}
                       >
                         {quickEmoji.map((emoji) => (
                           <button
