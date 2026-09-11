@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, FileCheck2, History, Mail, Search, Send, Undo2 } from 'lucide-react'
+import { Check, FileCheck2, History, Mail, Search, Send, Undo2, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, type CrmMe, type CrmTdsRow } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -36,6 +36,12 @@ export default function CrmTdsCertificatesPage() {
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [nextFollowUp, setNextFollowUp] = useState('')
+  /* Who the letter goes to, who is copied, and where the answer lands. */
+  const [to, setTo] = useState<string[]>([])
+  const [cc, setCc] = useState<string[]>([])
+  const [replyTo, setReplyTo] = useState('')
+  const [addressee, setAddressee] = useState('')
+  const [addCopy, setAddCopy] = useState('')
   const [historyFor, setHistoryFor] = useState<CrmTdsRow | null>(null)
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
@@ -65,6 +71,11 @@ export default function CrmTdsCertificatesPage() {
       subject: subject || undefined,
       body: body || undefined,
       next_follow_up: nextFollowUp || undefined,
+      // Only when this is one client's letter: several at once each go to
+      // their own client, and one typed address cannot stand for all of them.
+      to: clientCount === 1 && to.length ? to : undefined,
+      cc: channel === 'email' ? cc : undefined,
+      reply_to: replyTo || undefined,
     }),
     onSuccess: (res) => {
       toast(res.message, res.data.refused.length ? 'info' : 'success')
@@ -89,15 +100,23 @@ export default function CrmTdsCertificatesPage() {
     setComposing(true)
     setSubject('')
     setBody('')
+    setTo([])
+    setCc([])
+    setAddressee('')
+    setAddCopy('')
     try {
-      const drafts = await crm.tds.draft(chosen.map((r) => r.uuid))
-      // One client: show their letter. Several: leave it blank so the
-      // server writes each client their own rather than one letter naming
-      // somebody else's invoices to all of them.
-      if (drafts.length === 1) {
-        setSubject(drafts[0].subject)
-        setBody(drafts[0].body)
+      const res = await crm.tds.draft(chosen.map((r) => r.uuid))
+      setReplyTo(res.accounts_email)
+      // One client: show their letter and exactly who it reaches. Several:
+      // leave the wording blank so the server writes each client their own
+      // rather than one letter naming somebody else's invoices to all of
+      // them - and copy the union of the salespeople involved.
+      if (res.data.length === 1) {
+        setSubject(res.data[0].subject)
+        setBody(res.data[0].body)
+        setTo(res.data[0].to_email ? [res.data[0].to_email] : [])
       }
+      setCc([...new Set(res.data.flatMap((d) => d.cc))])
     } catch (err) {
       toastError(errorMessage(err))
     }
@@ -287,6 +306,109 @@ export default function CrmTdsCertificatesPage() {
             </div>
 
             {channel === 'email' && (
+              <div className="space-y-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700">
+                {/*
+                  * Who it reaches.
+                  *
+                  * Shown rather than assumed: the address on the client is
+                  * often the salesperson's contact and not the accounts desk
+                  * that actually issues certificates, and finding that out
+                  * after three weeks of silence is the usual way.
+                  */}
+                <div>
+                  <Label>To</Label>
+                  {clientCount === 1 ? (
+                    <>
+                      <div className="flex flex-wrap gap-1.5">
+                        {to.length === 0 && (
+                          <span className="text-xs text-amber-600">
+                            This client has no e-mail on file — add one below.
+                          </span>
+                        )}
+                        {to.map((address) => (
+                          <Chip key={address} label={address} onRemove={() => setTo((a) => a.filter((x) => x !== address))} />
+                        ))}
+                      </div>
+                      <div className="mt-1.5 flex gap-2">
+                        <Input
+                          type="email"
+                          value={addressee}
+                          onChange={(e) => setAddressee(e.target.value)}
+                          placeholder="Add another address…"
+                          className="min-w-0 flex-1"
+                          onKeyDown={(e) => {
+                            if (e.key !== 'Enter') return
+                            e.preventDefault()
+                            if (addressee.includes('@')) { setTo((a) => [...new Set([...a, addressee.trim()])]); setAddressee('') }
+                          }}
+                        />
+                        <Button
+                          variant="secondary"
+                          disabled={!addressee.includes('@')}
+                          onClick={() => { setTo((a) => [...new Set([...a, addressee.trim()])]); setAddressee('') }}
+                        >
+                          Add
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-500">
+                      Each client's own address, on their own letter.
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <Label>Copy to</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {cc.length === 0 && <span className="text-xs text-slate-400">Nobody.</span>}
+                    {cc.map((address) => (
+                      <Chip key={address} label={address} onRemove={() => setCc((a) => a.filter((x) => x !== address))} />
+                    ))}
+                  </div>
+                  <div className="mt-1.5 flex gap-2">
+                    <Input
+                      type="email"
+                      value={addCopy}
+                      onChange={(e) => setAddCopy(e.target.value)}
+                      placeholder="Copy somebody else…"
+                      className="min-w-0 flex-1"
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return
+                        e.preventDefault()
+                        if (addCopy.includes('@')) { setCc((a) => [...new Set([...a, addCopy.trim()])]); setAddCopy('') }
+                      }}
+                    />
+                    <Button
+                      variant="secondary"
+                      disabled={!addCopy.includes('@')}
+                      onClick={() => { setCc((a) => [...new Set([...a, addCopy.trim()])]); setAddCopy('') }}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    The salesperson and the accounts desk are copied by default. Remove either.
+                  </p>
+                </div>
+
+                <div>
+                  <Label>Certificate should come back to</Label>
+                  <Input
+                    type="email"
+                    value={replyTo}
+                    onChange={(e) => setReplyTo(e.target.value)}
+                    placeholder="accounts@grapmail.com"
+                    className="w-full"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    The letter still leaves from the issuing company's mailbox; this is where a reply lands.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {channel === 'email' && (
               <div>
                 <Label>Subject</Label>
                 <Input
@@ -324,6 +446,18 @@ export default function CrmTdsCertificatesPage() {
         <ChaseHistory row={historyFor} onClose={() => setHistoryFor(null)} canSee={!!me} />
       )}
     </div>
+  )
+}
+
+/** One address, with a way to take it off the letter. */
+function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+      <span className="max-w-[16rem] truncate">{label}</span>
+      <button onClick={onRemove} aria-label={`Remove ${label}`} className="text-slate-400 hover:text-red-500">
+        <X className="size-3" />
+      </button>
+    </span>
   )
 }
 

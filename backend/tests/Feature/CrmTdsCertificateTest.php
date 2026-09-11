@@ -194,6 +194,79 @@ class CrmTdsCertificateTest extends TestCase
         $this->assertSame(1, ActivityLog::where('action', 'tds.certificate_cleared')->count());
     }
 
+    public function test_the_letter_says_who_it_reaches_and_who_is_copied(): void
+    {
+        $client = $this->client($this->salesUser, 'Bhavya Steel');
+        $invoice = $this->invoice($this->salesUser, $client);
+
+        $draft = $this->actingAs($this->salesUser)->postJson('/api/v1/crm/tds-certificates/draft', [
+            'invoice_uuids' => [$invoice['uuid']],
+        ])->assertOk();
+
+        // The client's own address, the salesperson, and the accounts desk.
+        $draft->assertJsonPath('data.0.to_email', 'accounts@bhavya.test');
+        $draft->assertJsonPath('accounts_email', 'accounts@grapmail.com');
+        $this->assertEqualsCanonicalizing(
+            [$this->salesUser->email, 'accounts@grapmail.com'],
+            $draft->json('data.0.cc'),
+        );
+        $this->assertSame('accounts@grapmail.com', $draft->json('data.0.reply_to'));
+    }
+
+    public function test_the_addresses_can_be_changed_before_it_goes(): void
+    {
+        $client = $this->client($this->salesUser, 'Bhavya Steel');
+        $invoice = $this->invoice($this->salesUser, $client);
+
+        Mail::assertNothingSent();
+
+        $this->actingAs($this->salesUser)->postJson('/api/v1/crm/tds-certificates/remind', [
+            'invoice_uuids' => [$invoice['uuid']],
+            // A second desk added, the salesperson taken off, and the answer
+            // pointed somewhere other than the company default.
+            'to' => ['accounts@bhavya.test', 'tax.desk@bhavya.test'],
+            'cc' => ['accounts@grapmail.com'],
+            'reply_to' => 'tds@grapout.test',
+        ])->assertCreated();
+
+        $reminder = \App\Models\Crm\PaymentReminder::where('kind', 'tds')->firstOrFail();
+        $this->assertSame('accounts@bhavya.test', $reminder->to_email);
+
+        $logged = \App\Models\Crm\ActivityLog::where('action', 'tds.reminder')->firstOrFail();
+        $this->assertSame('accounts@grapmail.com', $logged->changes['cc']);
+        $this->assertSame('tds@grapout.test', $logged->changes['reply_to']);
+    }
+
+    public function test_where_certificates_come_back_to_is_the_companys_to_set(): void
+    {
+        // An employee cannot move the company's accounts desk.
+        $this->actingAs($this->salesUser)
+            ->postJson('/api/v1/crm/tds-certificates/accounts-email', ['email' => 'me@example.test'])
+            ->assertForbidden();
+
+        $this->actingAs($this->adminUser)
+            ->postJson('/api/v1/crm/tds-certificates/accounts-email', ['email' => 'Accounts@GrapOut.Test'])
+            ->assertOk()
+            ->assertJsonPath('data.accounts_email', 'accounts@grapout.test');
+
+        // And every letter drafted after it says so.
+        $invoice = $this->invoice($this->salesUser, $this->client($this->salesUser, 'Bhavya Steel'));
+        $this->actingAs($this->salesUser)->postJson('/api/v1/crm/tds-certificates/draft', [
+            'invoice_uuids' => [$invoice['uuid']],
+        ])->assertOk()->assertJsonPath('data.0.reply_to', 'accounts@grapout.test');
+    }
+
+    public function test_one_letter_cannot_be_addressed_to_several_clients_desks(): void
+    {
+        $first = $this->invoice($this->salesUser, $this->client($this->salesUser, 'Bhavya Steel'));
+        $second = $this->invoice($this->salesUser, $this->client($this->salesUser, 'Other Traders'));
+
+        $this->actingAs($this->salesUser)->postJson('/api/v1/crm/tds-certificates/remind', [
+            'invoice_uuids' => [$first['uuid'], $second['uuid']],
+            'to' => ['somebody@one-of-them.test'],
+        ])->assertStatus(422);
+    }
+
     public function test_the_chase_stays_inside_the_ledger_window(): void
     {
         $mine = $this->invoice($this->adminUser, $this->client($this->adminUser, 'Admin Only Ltd'));

@@ -125,9 +125,10 @@ class TdsCertificateController extends Controller
         ]);
     }
 
-    /** What the letter would say, before anybody sends it. */
+    /** What the letter would say, and who it would go to, before it goes. */
     public function draft(Request $request): JsonResponse
     {
+        $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
         $groups = $this->chosen($request);
@@ -136,9 +137,16 @@ class TdsCertificateController extends Controller
             'client' => $invoices->first()->client?->company_name,
             'to_email' => $invoices->first()->client?->email,
             'invoices' => $invoices->map(fn (Invoice $i) => $i->number)->values(),
+            // Offered, not imposed: the screen shows these ticked and the
+            // person sending decides who actually gets a copy.
+            'cc' => $this->defaultCc($invoices, $org),
+            'reply_to' => $org->tdsAccountsEmail(),
         ] + app(TdsCertificateComposer::class)->draft($invoices, $me))->values();
 
-        return response()->json(['data' => $drafts]);
+        return response()->json([
+            'data' => $drafts,
+            'accounts_email' => $org->tdsAccountsEmail(),
+        ]);
     }
 
     /**
@@ -162,11 +170,33 @@ class TdsCertificateController extends Controller
             'subject' => ['nullable', 'string', 'max:255'],
             'body' => ['nullable', 'string', 'max:20000'],
             'next_follow_up' => ['nullable', 'date'],
+            /*
+             * Who it goes to, beyond the address on the client.
+             *
+             * Sent to one client at a time these are exact; sent to several
+             * at once, `to` is refused - one letter naming one client's
+             * invoices should not be addressed to another's accounts desk.
+             */
+            'to' => ['nullable', 'array', 'max:10'],
+            'to.*' => ['email'],
+            'cc' => ['nullable', 'array', 'max:10'],
+            'cc.*' => ['email'],
+            // Where the certificate should come back to. The letter still
+            // leaves from the issuing company's mailbox.
+            'reply_to' => ['nullable', 'email'],
         ]);
 
         $channel = $data['channel'] ?? 'email';
         $groups = $this->chosen($request);
         $composer = app(TdsCertificateComposer::class);
+
+        abort_if(
+            $groups->count() > 1 && ! empty($data['to']),
+            422,
+            'Those invoices belong to more than one client, so each letter has to go to its own client.',
+        );
+
+        $replyTo = $data['reply_to'] ?? $org->tdsAccountsEmail();
 
         $sent = [];
         $refused = [];
@@ -182,7 +212,24 @@ class TdsCertificateController extends Controller
             $to = null;
 
             if ($channel === 'email') {
-                $to = TextCase::email($first->client?->email);
+                // Whoever was named, or the address on the client.
+                $recipients = collect($data['to'] ?? [])
+                    ->push(empty($data['to']) ? $first->client?->email : null)
+                    ->map(fn ($a) => TextCase::email($a))
+                    ->filter()
+                    ->unique(fn ($a) => mb_strtolower($a))
+                    ->values();
+
+                $to = $recipients->first();
+
+                // Nobody twice, and no copy to an address already being written to.
+                $cc = collect($data['cc'] ?? $this->defaultCc($invoices, $org))
+                    ->map(fn ($a) => TextCase::email($a))
+                    ->filter()
+                    ->unique(fn ($a) => mb_strtolower($a))
+                    ->reject(fn ($a) => $recipients->contains(fn ($r) => strcasecmp($a, $r) === 0))
+                    ->values()
+                    ->all();
 
                 if (blank($to)) {
                     $refused[] = ($first->client?->company_name ?? 'A client') . ' has no e-mail address on file.';
@@ -192,11 +239,16 @@ class TdsCertificateController extends Controller
                     // The invoice's own company mailbox first, as everywhere.
                     $resolved = (new CompanyMailer($org))->resolve($first->issuing_company_id, 'dues');
                     try {
-                        $resolved['mailer']->html(nl2br(e($body)), function ($message) use ($to, $subject, $resolved) {
-                            $message->to($to)->from($resolved['address'], $resolved['name'])->subject($subject);
+                        $resolved['mailer']->html(nl2br(e($body)), function ($message) use ($recipients, $cc, $replyTo, $subject, $resolved) {
+                            $message->to($recipients->all())
+                                ->cc($cc)
+                                // Out of the company's mailbox, back to accounts.
+                                ->replyTo($replyTo)
+                                ->from($resolved['address'], $resolved['name'])
+                                ->subject($subject);
                         });
                         $status = 'sent';
-                        $sent[] = $to;
+                        $sent[] = $recipients->implode(', ');
                     } catch (\Throwable $e) {
                         // An honest failure beats a log that claims it went out.
                         $status = 'failed';
@@ -230,6 +282,8 @@ class TdsCertificateController extends Controller
                     'client' => $invoice->client?->company_name,
                     'channel' => $channel,
                     'to' => $to,
+                    'cc' => $channel === 'email' ? implode(', ', $cc ?? []) : null,
+                    'reply_to' => $channel === 'email' ? $replyTo : null,
                     'status' => $status,
                     'tds' => (float) $invoice->tds,
                     'next_follow_up' => $data['next_follow_up'] ?? null,
@@ -279,6 +333,41 @@ class TdsCertificateController extends Controller
         ]);
     }
 
+    /**
+     * The address certificates should come back to.
+     *
+     * Set once for the company rather than typed into every letter, and
+     * still changeable on any one of them. Kept here rather than in the
+     * Communication screen because it is not a sender - it is where the
+     * answer should land.
+     */
+    public function accountsEmail(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        abort_unless(in_array($me->crm_role, ['admin', 'subadmin'], true), 403,
+            'Only an Admin can change where certificates come back to.');
+
+        $data = $request->validate(['email' => ['required', 'email', 'max:255']]);
+
+        $settings = $org->settings ?? [];
+        $settings['tds'] = array_merge($settings['tds'] ?? [], [
+            'accounts_email' => TextCase::email($data['email']),
+        ]);
+        $org->update(['settings' => $settings]);
+
+        ActivityLog::record($me, $org->id, 'settings.tds', $org, [
+            'accounts_email' => $settings['tds']['accounts_email'],
+        ]);
+
+        return response()->json([
+            'message' => 'Certificates will be asked to come back to ' . $settings['tds']['accounts_email'] . '.',
+            'data' => ['accounts_email' => $settings['tds']['accounts_email']],
+        ]);
+    }
+
     /** The certificate came in - or it did not, after all. */
     public function received(Request $request, string $invoiceUuid): JsonResponse
     {
@@ -313,6 +402,27 @@ class TdsCertificateController extends Controller
     // ---- Helpers -----------------------------------------------------------
 
     /**
+     * Who is copied unless somebody says otherwise.
+     *
+     * The salesperson, because it is their client and their figure; and
+     * accounts, because they are the ones who will file the certificate
+     * when it arrives. Both are offered ticked and both can be unticked.
+     *
+     * @param  Collection<int, Invoice>  $invoices
+     */
+    private function defaultCc(Collection $invoices, $org): array
+    {
+        return $invoices
+            ->map(fn (Invoice $i) => $i->member?->user?->email)
+            ->push($org->tdsAccountsEmail())
+            ->map(fn ($a) => TextCase::email($a))
+            ->filter()
+            ->unique(fn ($a) => mb_strtolower($a))
+            ->values()
+            ->all();
+    }
+
+    /**
      * The chosen invoices, grouped by the client they will be asked of.
      *
      * Refuses anything with no tax deducted rather than quietly dropping it:
@@ -330,7 +440,7 @@ class TdsCertificateController extends Controller
         $uuids = (array) $request->input('invoice_uuids', []);
         abort_if($uuids === [], 422, 'Choose at least one invoice.');
 
-        $invoices = Invoice::with(['client', 'issuingCompany'])
+        $invoices = Invoice::with(['client', 'issuingCompany', 'member.user:id,name,email'])
             ->where('organization_id', $org->id)
             ->visibleTo($me)
             ->where('kind', 'invoice')

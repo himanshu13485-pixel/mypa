@@ -448,6 +448,20 @@ class Organization extends Model
      * How often an UNATTENDED new lead nags its assignee again. The first
      * popup fires the moment it arrives; this is the repeat interval.
      */
+    /**
+     * Where a TDS certificate should be sent back to.
+     *
+     * The letter goes out of whichever mailbox the issuing company uses, but
+     * the certificate wants to land with accounts - so the reply-to and the
+     * standing copy are the accounts address, not the sender's. Held on the
+     * company so it is set once rather than typed into every letter, and
+     * still changeable on any one of them.
+     */
+    public function tdsAccountsEmail(): string
+    {
+        return (string) (data_get($this->settings, 'tds.accounts_email') ?: 'accounts@grapmail.com');
+    }
+
     public function newLeadAlertMinutes(): int
     {
         return max(5, min(120, (int) (data_get($this->settings, 'leads.new_alert_minutes') ?: 15)));

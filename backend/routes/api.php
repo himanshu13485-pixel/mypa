@@ -1032,6 +1032,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::get('/tds-certificates', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'index']);
                 Route::post('/tds-certificates/draft', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'draft']);
                 Route::post('/tds-certificates/remind', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'remind']);
+                Route::post('/tds-certificates/accounts-email', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'accountsEmail']);
                 Route::get('/invoices/{invoiceUuid}/tds-reminders', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'history']);
                 Route::post('/invoices/{invoiceUuid}/tds-certificate', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'received']);
             });
