@@ -13,10 +13,10 @@ class PaymentReminder extends Model
 
     protected $table = 'crm_payment_reminders';
 
-    protected $attributes = ['channel' => 'email', 'status' => 'sent'];
+    protected $attributes = ['channel' => 'email', 'status' => 'sent', 'kind' => 'payment'];
 
     protected $fillable = [
-        'organization_id', 'invoice_id', 'member_id', 'channel', 'is_auto', 'to_email',
+        'organization_id', 'invoice_id', 'member_id', 'kind', 'channel', 'is_auto', 'to_email',
         'subject', 'body', 'status', 'error', 'balance', 'next_follow_up', 'sent_at',
     ];
 

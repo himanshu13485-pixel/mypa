@@ -29,7 +29,7 @@ class Invoice extends Model
         'organization_id', 'kind', 'number', 'issuing_company_id', 'client_id',
         'member_id', 'invoice_date', 'due_date', 'client_category', 'pricing_tier',
         'currency', 'terms_of_payment', 'subscription_type', 'subtotal', 'discount',
-        'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'total', 'fx_currency',
+        'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'tds_certificate_at', 'tds_certificate_by', 'total', 'fx_currency',
         'discount_rate', 'cgst_rate', 'sgst_rate', 'igst_rate', 'other_tax_rate', 'tds_rate',
         'fx_rate', 'subtotal_fx', 'total_fx', 'payment_status', 'dispatch_status',
         'status', 'notes', 'custom_fields', 'converted_from_id', 'created_by', 'updated_by',
@@ -48,6 +48,7 @@ class Invoice extends Model
             'igst' => 'decimal:2',
             'other_tax' => 'decimal:2',
             'tds' => 'decimal:2',
+            'tds_certificate_at' => 'datetime',
             'total' => 'decimal:2',
             'discount_rate' => 'decimal:3',
             'cgst_rate' => 'decimal:3',
@@ -111,6 +112,12 @@ class Invoice extends Model
     public function member(): BelongsTo
     {
         return $this->belongsTo(Member::class, 'member_id');
+    }
+
+    /** Who recorded that the TDS certificate came in. */
+    public function certifier(): BelongsTo
+    {
+        return $this->belongsTo(Member::class, 'tds_certificate_by');
     }
 
     /** Office talk about this document — never printed on it. */
