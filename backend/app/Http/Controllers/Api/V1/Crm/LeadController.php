@@ -81,6 +81,9 @@ class LeadController extends Controller
         $totals = [
             'count' => (clone $query)->count(),
             'amount' => (clone $query)->sum('amount'),
+            // What the closed ones came to - the hoped-for figures above
+            // include every lead still being chased.
+            'closed_amount' => (clone $query)->sum('closing_amount'),
         ];
 
         // Which leads are Lead Duplication: sharing a mobile, phone or
@@ -308,6 +311,18 @@ class LeadController extends Controller
                         . ' needs your Company Admin or Subadmin — ask them to update it.');
                 }
             }
+        }
+
+        /*
+         * The same rule as a follow-up, on the other way in.
+         *
+         * The edit form does not offer a status at all, so this is not for
+         * the screen - it is so that "closed" cannot arrive with no figure
+         * behind it through an endpoint that happens to accept the field.
+         */
+        if (($data['lead_status'] ?? null) === 'closed'
+            && ($data['closing_amount'] ?? $lead->closing_amount) === null) {
+            abort(422, 'Enter the closing amount before marking this lead Closed.');
         }
 
         // Log only what actually changed, old value → new value.
@@ -603,6 +618,20 @@ class LeadController extends Controller
             'note' => ['required', 'string', 'max:2000'],
             'lead_status' => ['nullable', Rule::in(Lead::STATUSES)],
             'follow_up_at' => ['nullable', 'date'],
+            /*
+             * A lead does not close without a number.
+             *
+             * Closed is the won status, and a won deal whose value nobody
+             * wrote down is a hole in every report that counts them. Asked
+             * for at the moment of closing rather than chased afterwards,
+             * because afterwards is when people stop remembering.
+             *
+             * Zero passes 'required' - somebody who types 0 has answered the
+             * question, which is not the same as never being asked.
+             */
+            'closing_amount' => ['required_if:lead_status,closed', 'nullable', 'numeric', 'min:0'],
+        ], [
+            'closing_amount.required_if' => 'Enter the closing amount before marking this lead Closed.',
         ]);
 
         $updates = array_filter([
@@ -618,16 +647,27 @@ class LeadController extends Controller
         if (in_array($data['lead_status'] ?? '', ['closed', 'not_interested'], true)) {
             $updates['closed_at'] = now();
         }
+        // What it closed at, kept beside what it was hoped to be worth.
+        if (($data['lead_status'] ?? null) === 'closed') {
+            $updates['closing_amount'] = $data['closing_amount'];
+        }
         if ($updates !== []) {
             $lead->update($updates + ['updated_by' => $request->user()->id]);
         }
 
-        ActivityLog::record($request->attributes->get('crm_member'), $lead->organization_id, 'lead.followup', $lead, array_filter([
+        $entry = array_filter([
             'lead_no' => $lead->lead_no,
             'note' => $data['note'],
             'status' => $data['lead_status'] ?? null,
             'next_follow_up' => $data['follow_up_at'] ?? null,
-        ]));
+        ]);
+        // Added after the filter, because a lead closed at zero is a fact
+        // about the deal and array_filter would throw it away as empty.
+        if (($data['lead_status'] ?? null) === 'closed') {
+            $entry['closing_amount'] = $data['closing_amount'];
+        }
+
+        ActivityLog::record($request->attributes->get('crm_member'), $lead->organization_id, 'lead.followup', $lead, $entry);
 
         return response()->json([
             'message' => 'Follow-up recorded.',
@@ -1191,6 +1231,7 @@ class LeadController extends Controller
             'mobile' => ['nullable', 'string', 'max:32'],
             'email' => ['nullable', 'email', 'max:255'],
             'amount' => ['nullable', 'numeric', 'min:0'],
+            'closing_amount' => ['nullable', 'numeric', 'min:0'],
             'lead_status' => ['nullable', Rule::in(Lead::STATUSES)],
             'follow_up_at' => ['nullable', 'date'],
             'subject' => ['nullable', 'string', 'max:128'],
@@ -1233,6 +1274,8 @@ class LeadController extends Controller
             'mobile' => $l->mobile,
             'email' => $l->email,
             'amount' => $l->amount,
+            // Null until it closes; the figure it actually closed at.
+            'closing_amount' => $l->closing_amount,
             'lead_status' => $l->lead_status,
             'is_urgent' => (bool) $l->is_urgent,
             'duplicate_settled' => $l->duplicate_settled_at !== null,
@@ -1283,6 +1326,7 @@ class LeadController extends Controller
             'lead_no' => $log->changes['lead_no'] ?? null,
             'note' => $log->changes['note'] ?? null,
             'status' => $log->changes['status'] ?? null,
+            'closing_amount' => $log->changes['closing_amount'] ?? null,
             'next_follow_up' => $log->changes['next_follow_up'] ?? null,
             'fields' => $log->changes['fields'] ?? null,
             'client' => $log->changes['client'] ?? null,

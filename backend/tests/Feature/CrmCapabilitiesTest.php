@@ -201,6 +201,8 @@ class CrmCapabilitiesTest extends TestCase
 
         $this->actingAs($this->headUser)->postJson("/api/v1/crm/leads/{$uuid}/followup", [
             'note' => 'Budget cut this year; revisit after Diwali.', 'lead_status' => 'closed',
+            // Closing says what it closed at; the lead cannot move without it.
+            'closing_amount' => 125000,
         ])->assertCreated();
 
         $this->assertNotNull(Lead::firstOrFail()->closed_at);
@@ -254,7 +256,7 @@ class CrmCapabilitiesTest extends TestCase
     {
         $uuid = $this->lead($this->juniorUser, 'Junior Lead', '9000000051');
         $this->actingAs($this->juniorUser)->postJson("/api/v1/crm/leads/{$uuid}/followup", [
-            'note' => 'Not now.', 'lead_status' => 'closed',
+            'note' => 'Not now.', 'lead_status' => 'closed', 'closing_amount' => 4000,
         ])->assertCreated();
 
         // The head can see it (their team) but it is not their lead.

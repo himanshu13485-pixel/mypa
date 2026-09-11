@@ -93,6 +93,52 @@ class CrmLeadsTest extends TestCase
         $this->assertTrue($logs->contains(fn ($l) => $l['action'] === 'lead.followup' && $l['note'] === 'Call not picked, retry tomorrow'));
     }
 
+    public function test_a_lead_cannot_close_without_a_closing_amount(): void
+    {
+        $uuid = $this->actingAs($this->salesUser)->postJson('/api/v1/crm/leads', [
+            'company_name' => 'Spsys Group',
+            'assigned_member_uuid' => $this->salesMember->uuid,
+            'amount' => 50000,
+        ])->json('data.uuid');
+
+        // Closed with nothing in the amount field: refused, and told why.
+        $this->actingAs($this->salesUser)->postJson("/api/v1/crm/leads/{$uuid}/followup", [
+            'note' => 'They said yes',
+            'lead_status' => 'closed',
+        ])->assertStatus(422)
+            ->assertJsonValidationErrors('closing_amount');
+
+        // The lead did not move.
+        $this->actingAs($this->salesUser)->getJson("/api/v1/crm/leads/{$uuid}")
+            ->assertJsonPath('data.lead_status', 'unattended');
+
+        // Every other status is unaffected - the figure is only asked for
+        // by the one that means the deal is done.
+        $this->actingAs($this->salesUser)->postJson("/api/v1/crm/leads/{$uuid}/followup", [
+            'note' => 'Not for them',
+            'lead_status' => 'not_interested',
+        ])->assertCreated();
+
+        $this->actingAs($this->salesUser)->postJson("/api/v1/crm/leads/{$uuid}/followup", [
+            'note' => 'They said yes',
+            'lead_status' => 'closed',
+            'closing_amount' => 42500.50,
+        ])->assertCreated()
+            ->assertJsonPath('data.lead_status', 'closed')
+            ->assertJsonPath('data.closing_amount', '42500.50');
+
+        // Both figures survive: what was hoped for, and what it came to.
+        $show = $this->actingAs($this->salesUser)->getJson("/api/v1/crm/leads/{$uuid}")->assertOk();
+        $show->assertJsonPath('data.amount', '50000.00');
+        $show->assertJsonPath('data.closing_amount', '42500.50');
+
+        // And the trail says what it closed at.
+        $closing = collect($show->json('data.logs'))
+            ->firstWhere('status', 'closed');
+        $this->assertNotNull($closing);
+        $this->assertSame(42500.5, (float) $closing['closing_amount']);
+    }
+
     public function test_an_employee_sees_only_their_own_leads(): void
     {
         // One lead for the salesperson, one for nobody (admin's own).

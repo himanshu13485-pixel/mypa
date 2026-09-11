@@ -240,7 +240,16 @@ export default function CrmLeadsPage() {
         <div>
           <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Lead generation</h1>
           <p className="text-sm text-slate-500">
-            {data ? <>{data.totals.count} leads · {inr(data.totals.amount)} pipeline</> : 'Your sales pipeline.'}
+            {data ? (
+              <>
+                {data.totals.count} leads · {inr(data.totals.amount)} pipeline
+                {/* What the closed ones came to. The pipeline figure beside
+                    it is hoped-for money; this is money that happened. */}
+                {Number(data.totals.closed_amount) > 0 && (
+                  <> · {inr(data.totals.closed_amount)} closed</>
+                )}
+              </>
+            ) : 'Your sales pipeline.'}
           </p>
         </div>
         <Button onClick={openCreate}><Plus className="size-4" /> New lead</Button>

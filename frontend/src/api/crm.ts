@@ -763,6 +763,8 @@ export interface CrmLeadLogEntry {
   lead_uuid?: string | null
   note: string | null
   status: string | null
+  /** Set only on the follow-up that closed the lead. */
+  closing_amount?: string | number | null
   next_follow_up: string | null
   fields: Record<string, unknown> | null
   client: string | null
@@ -778,6 +780,8 @@ export interface CrmLead {
   mobile: string | null
   email: string | null
   amount: string
+  /** What it actually closed at. Null until it does. */
+  closing_amount?: string | null
   lead_status: string
   is_urgent?: boolean
   duplicate_settled?: boolean
@@ -1992,7 +1996,7 @@ export const crm = {
 
   leads: {
     list: (params: Record<string, string | number | undefined>) =>
-      api.get<Paginated<CrmLead> & { totals: { count: number; amount: string } }>('/crm/leads', { params }).then((r) => r.data),
+      api.get<Paginated<CrmLead> & { totals: { count: number; amount: string; closed_amount: string } }>('/crm/leads', { params }).then((r) => r.data),
     get: (uuid: string) => api.get<{ data: CrmLead }>(`/crm/leads/${uuid}`).then((r) => r.data.data),
     create: (payload: Record<string, unknown>) =>
       api.post<{ message: string; data: CrmLead }>('/crm/leads', payload).then((r) => r.data),

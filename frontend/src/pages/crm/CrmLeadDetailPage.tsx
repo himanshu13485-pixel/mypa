@@ -42,6 +42,10 @@ export function LogEntry({ log }: { log: CrmLeadLogEntry }) {
       {(log.status || log.next_follow_up) && (
         <p className="mt-0.5 text-xs text-slate-500">
           {log.status && <>Status → {CRM_LEAD_STATUS_LABELS[log.status] ?? log.status}. </>}
+          {/* The figure it closed at, on the entry that closed it. */}
+          {log.closing_amount !== null && log.closing_amount !== undefined && (
+            <>Closed at ₹{Number(log.closing_amount).toLocaleString('en-IN')}. </>
+          )}
           {log.next_follow_up && <>Next follow-up {log.next_follow_up}.</>}
         </p>
       )}
@@ -74,6 +78,8 @@ export default function CrmLeadDetailPage() {
   const [note, setNote] = useState('')
   const [status, setStatus] = useState('')
   const [nextAt, setNextAt] = useState('')
+  /** Only asked for - and only sent - when the new status is Closed. */
+  const [closingAmount, setClosingAmount] = useState('')
 
   const { data: lead, isLoading } = useQuery({
     queryKey: ['crm', 'lead', uuid],
@@ -97,12 +103,14 @@ export default function CrmLeadDetailPage() {
         note,
         lead_status: status || null,
         follow_up_at: nextAt ? nextAt.replace('T', ' ') : null,
+        ...(status === 'closed' ? { closing_amount: Number(closingAmount) } : {}),
       }),
     onSuccess: () => {
       refresh()
       setNote('')
       setStatus('')
       setNextAt('')
+      setClosingAmount('')
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -363,12 +371,24 @@ export default function CrmLeadDetailPage() {
           <Row label="Subject" value={lead.subject} />
           <Row label="Type" value={lead.lead_type === 'new' ? 'New' : 'Existing'} />
           <Row label="Expected amount" value={Number(lead.amount) ? '₹' + Number(lead.amount).toLocaleString('en-IN') : undefined} />
+          {/*
+            * What it actually closed at, beside what it was hoped to be
+            * worth. The row above it used to be printed twice under two
+            * names - "Expected amount" and "Amount", the same number - which
+            * beside a third money row would read as three figures where
+            * there are two.
+            */}
+          <Row
+            label="Closed at"
+            value={lead.closing_amount !== null && lead.closing_amount !== undefined
+              ? '₹' + Number(lead.closing_amount).toLocaleString('en-IN')
+              : null}
+          />
           {canEditPipeline && (
             <button onClick={openEdit} className="mt-2 text-xs font-medium text-emerald-600 hover:underline">
               Edit lead details
             </button>
           )}
-          <Row label="Amount" value={Number(lead.amount) ? '₹' + Number(lead.amount).toLocaleString('en-IN') : null} />
           <Row
             label="Follow up"
             value={lead.follow_up_at && (
@@ -413,14 +433,45 @@ export default function CrmLeadDetailPage() {
                 .map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
           </div>
+          {/*
+            * Only when the answer is Closed, and then it is not optional.
+            *
+            * Closed is the won status, and a won deal nobody put a figure
+            * against is a hole in every report that counts them. The field
+            * appears the moment the status is chosen rather than sitting
+            * there greyed out for the other four.
+            */}
+          {status === 'closed' && (
+            <div>
+              <Label>Closing amount (₹) *</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                required
+                autoFocus
+                value={closingAmount}
+                onChange={(e) => setClosingAmount(e.target.value)}
+                placeholder={Number(lead.amount) ? `Expected ₹${Number(lead.amount).toLocaleString('en-IN')}` : 'What it closed at'}
+              />
+            </div>
+          )}
           <div>
             <Label>Next follow-up</Label>
             <Input type="datetime-local" value={nextAt} onChange={(e) => setNextAt(e.target.value)} />
           </div>
-          <Button disabled={!note.trim() || followUpMutation.isPending} onClick={() => followUpMutation.mutate()}>
+          <Button
+            disabled={!note.trim() || (status === 'closed' && closingAmount.trim() === '') || followUpMutation.isPending}
+            onClick={() => followUpMutation.mutate()}
+          >
             <Send className="size-4" /> Save
           </Button>
         </div>
+        {status === 'closed' && closingAmount.trim() === '' && (
+          <p className="mt-2 text-xs text-amber-600">
+            Enter the closing amount before marking this lead Closed.
+          </p>
+        )}
       </Card>
 
       <Card>

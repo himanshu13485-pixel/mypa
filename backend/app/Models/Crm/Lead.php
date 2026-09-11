@@ -19,7 +19,7 @@ class Lead extends Model
 
     protected $fillable = [
         'organization_id', 'lead_no', 'assigned_member_id', 'assigned_by', 'company_name',
-        'contact_person', 'phone', 'mobile', 'email', 'amount', 'lead_status',
+        'contact_person', 'phone', 'mobile', 'email', 'amount', 'closing_amount', 'lead_status',
         'follow_up_at', 'subject', 'requirement', 'lead_type', 'source',
         'client_id', 'created_by', 'updated_by', 'reopen_count', 'closed_at',
         'is_urgent', 'duplicate_settled_at',
@@ -29,6 +29,7 @@ class Lead extends Model
     {
         return [
             'amount' => 'decimal:2',
+            'closing_amount' => 'decimal:2',
             'follow_up_at' => 'datetime',
             'closed_at' => 'datetime',
             'is_urgent' => 'boolean',
