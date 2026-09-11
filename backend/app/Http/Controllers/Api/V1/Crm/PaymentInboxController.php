@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Crm;
 use App\Http\Controllers\Controller;
 use App\Models\Crm\ActivityLog;
 use App\Models\Crm\Invoice;
+use App\Models\Crm\IssuingCompany;
 use App\Models\Crm\Member;
 use App\Models\Crm\PaymentInboxEntry;
 use App\Notifications\CrmNotification;
@@ -61,7 +62,7 @@ class PaymentInboxController extends Controller
             });
         }
 
-        $all = (clone $query)->get(['id', 'status', 'amount', 'payment_mode', 'received_on']);
+        $all = (clone $query)->get(['id', 'status', 'amount', 'currency', 'payment_mode', 'received_on']);
         $summary = [
             'unclaimed_count' => $all->where('status', 'unclaimed')->count(),
             'pending_count' => $all->where('status', 'pending')->count(),
@@ -77,6 +78,19 @@ class PaymentInboxController extends Controller
             'by_month' => $all->groupBy(fn ($e) => $e->received_on->format('Y-m'))
                 ->map(fn ($g, $m) => ['month' => $m, 'amount' => round($g->sum('amount'), 2)])
                 ->sortKeys()->values()->take(-12),
+            /*
+             * The totals above add every receipt together, which is only
+             * true while they are all in one currency. An office with a
+             * dollar company and a rupee one has two ledgers, so this says
+             * so - and the screen shows it whenever there is more than one.
+             */
+            'by_currency' => $all->groupBy(fn ($e) => strtoupper($e->currency ?: 'INR'))
+                ->map(fn ($g, $code) => [
+                    'currency' => $code,
+                    'amount' => round($g->sum('amount'), 2),
+                    'count' => $g->count(),
+                ])
+                ->sortByDesc('amount')->values(),
         ];
 
         // Most recently recorded first — a receipt entered days after the
@@ -149,6 +163,25 @@ class PaymentInboxController extends Controller
         ]);
 
         $document = $this->document($org->id, $data['invoice_uuid']);
+
+        /*
+         * The same money on both sides.
+         *
+         * Settling a dollar receipt against a rupee invoice would write the
+         * figure straight into the ledger as though the two were the same
+         * number, and nothing downstream would ever question it. Refused by
+         * name rather than converted: what rate, on what date, is not this
+         * screen's decision to make quietly.
+         */
+        $received = strtoupper($entry->currency ?: 'INR');
+        $billed = strtoupper($document->currency ?: 'INR');
+        abort_if(
+            $received !== $billed,
+            422,
+            'This payment is in ' . $received . ' and ' . $document->number . ' is raised in ' . $billed
+                . '. Log the receipt against a document in the same currency.',
+        );
+
         $member = ! empty($data['member_uuid'])
             ? Member::where('organization_id', $org->id)->where('uuid', $data['member_uuid'])->firstOrFail()
             : null;
@@ -424,7 +457,7 @@ class PaymentInboxController extends Controller
 
     private function validateEntry(Request $request, int $orgId): array
     {
-        return $request->validate([
+        $data = $request->validate([
             'received_on' => ['required', 'date'],
             'issuing_company_id' => ['nullable', Rule::exists('crm_issuing_companies', 'id')->where('organization_id', $orgId)],
             'bank_account_id' => ['nullable', Rule::exists('crm_bank_accounts', 'id')->where('organization_id', $orgId)],
@@ -435,6 +468,27 @@ class PaymentInboxController extends Controller
             'reference_no' => ['nullable', 'string', 'max:128'],
             'note' => ['nullable', 'string', 'max:512'],
         ]);
+
+        /*
+         * Which money this is.
+         *
+         * A company that bills in dollars receives dollars, and a receipt
+         * logged against it in rupees is not a rounding error - it is the
+         * wrong number entirely. So the currency follows the company that
+         * was chosen unless the request names one, and only falls back to
+         * rupees when there is no company to ask.
+         */
+        if (blank($data['currency'] ?? null)) {
+            $company = ! empty($data['issuing_company_id'])
+                ? IssuingCompany::where('organization_id', $orgId)->find($data['issuing_company_id'])
+                : null;
+
+            $data['currency'] = $company?->currency ?: 'INR';
+        }
+
+        $data['currency'] = strtoupper($data['currency']);
+
+        return $data;
     }
 
     private function serialize(PaymentInboxEntry $e): array

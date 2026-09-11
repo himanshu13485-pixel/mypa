@@ -1183,6 +1183,8 @@ export interface CrmPaymentSummary {
   total_amount: number
   by_mode: { mode: string; amount: number; count: number }[]
   by_month: { month: string; amount: number }[]
+  /** The totals above only add up while everything is in one currency. */
+  by_currency: { currency: string; amount: number; count: number }[]
 }
 
 export type CrmComplaintStatus = 'unattended' | 'in_progress' | 'closed_satisfied' | 'closed_dissatisfied'

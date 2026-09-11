@@ -12,10 +12,24 @@ import { crmPath } from '../../lib/crmPath'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
+/**
+ * A figure in the money it was actually received in.
+ *
+ * `inr` above is for the office's own totals; this is for one receipt,
+ * which belongs to whichever company took it - and a company that bills in
+ * dollars receives dollars.
+ */
+const money = (v: number | string, currency?: string | null) =>
+  !currency || currency.toUpperCase() === 'INR'
+    ? inr(v)
+    : currency.toUpperCase() + ' ' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+
 const EMPTY = {
   received_on: new Date().toISOString().slice(0, 10),
   issuing_company_id: '', bank_account_id: '', payment_mode: '',
   amount: '', details: '', reference_no: '', note: '',
+  /* Whose money this is. Follows the company chosen, not the office's. */
+  currency: '',
 }
 
 export default function CrmPaymentsPage() {
@@ -87,6 +101,22 @@ export default function CrmPaymentsPage() {
     setShowForm(true)
   }
 
+  /*
+   * The currency this receipt is in.
+   *
+   * A company that bills in dollars receives dollars; a rupee sign over the
+   * amount field is not a cosmetic problem, it is the wrong number being
+   * typed in. Follows the company chosen - and says so on the label, so
+   * nobody has to remember which company bills in what.
+   */
+  const currencyOf = (companyId: string) =>
+    masters?.issuing_companies.find((c) => String(c.id) === companyId)?.currency || 'INR'
+
+  const chooseCompany = (companyId: string) =>
+    setForm((f) => ({ ...f, issuing_company_id: companyId, currency: currencyOf(companyId) }))
+
+  const formCurrency = form.currency || currencyOf(form.issuing_company_id)
+
   const openEdit = (e: CrmPaymentEntry) => {
     setEditing(e)
     setForm({
@@ -98,6 +128,7 @@ export default function CrmPaymentsPage() {
       details: e.details ?? '',
       reference_no: e.reference_no ?? '',
       note: e.note ?? '',
+      currency: e.currency ?? '',
     })
     setError(null)
     setShowForm(true)
@@ -114,6 +145,7 @@ export default function CrmPaymentsPage() {
         details: form.details || null,
         reference_no: form.reference_no || null,
         note: form.note || null,
+        currency: form.currency || null,
       }
       return editing ? crm.payments.update(editing.uuid, payload) : crm.payments.create(payload)
     },
@@ -205,6 +237,23 @@ export default function CrmPaymentsPage() {
         </div>
       )}
 
+      {/* The tiles above add every receipt together, which is only true
+          while they are all one currency. When they are not, the honest
+          figures are these. */}
+      {data && data.summary.by_currency.length > 1 && (
+        <Card className="py-2">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
+            <span className="font-medium text-amber-600">More than one currency in this range:</span>
+            {data.summary.by_currency.map((c) => (
+              <span key={c.currency}>
+                <span className="font-semibold text-slate-700 dark:text-slate-200">{money(c.amount, c.currency)}</span>
+                {" "}across {c.count} {c.count === 1 ? "entry" : "entries"}
+              </span>
+            ))}
+          </div>
+        </Card>
+      )}
+
       {data && data.summary.by_mode.length > 0 && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>
@@ -276,7 +325,7 @@ export default function CrmPaymentsPage() {
                       <div className="text-xs text-slate-400">{[e.bank_account, e.issuing_company].filter(Boolean).join(' · ')}</div>
                     </td>
                     <td className="py-2.5 pr-3">{e.payment_mode ?? '—'}</td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{inr(e.amount)}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{money(e.amount, e.currency)}</td>
                     <td className="py-2.5 pr-3">
                       {e.claimed_invoice ? (
                         <span className="text-xs">
@@ -371,7 +420,7 @@ export default function CrmPaymentsPage() {
                 <Input type="date" value={form.received_on} onChange={(e) => set('received_on', e.target.value)} className="w-full" />
               </div>
               <div>
-                <Label>Amount (₹)</Label>
+                <Label>Amount ({formCurrency})</Label>
                 <Input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => set('amount', e.target.value)} className="w-full" />
               </div>
               <div>
@@ -383,9 +432,13 @@ export default function CrmPaymentsPage() {
               </div>
               <div>
                 <Label>For company</Label>
-                <Select value={form.issuing_company_id} onChange={(e) => set('issuing_company_id', e.target.value)} className="w-full">
+                <Select value={form.issuing_company_id} onChange={(e) => chooseCompany(e.target.value)} className="w-full">
                   <option value="">Select</option>
-                  {masters?.issuing_companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {masters?.issuing_companies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}{c.currency && c.currency !== 'INR' ? ` (${c.currency})` : ''}
+                    </option>
+                  ))}
                 </Select>
               </div>
               <div>
