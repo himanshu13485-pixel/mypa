@@ -33,12 +33,12 @@ import { PresenceDot, PresenceInline } from '../components/PresenceDot'
 import { lastSeenLabel, resolvePresence, usePresenceMap } from '../lib/presence'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { CHAT_THEMES, chatTheme } from '../lib/chatThemes'
+import { quickReactions, recordReaction, THUMBS_UP } from '../lib/quickReactions'
 import { useLongPress } from '../lib/useLongPress'
 import {
   canUnsendAll, copyTextOf, MAX_FORWARD_AT_ONCE, selectedIn, toggleSelected,
 } from '../lib/messageSelection'
 
-const QUICK_EMOJI = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
 /** One line in a chat's ⋮ menu. */
 function ChatMenuItem({ icon, label, onClick, danger }: {
@@ -905,6 +905,153 @@ export default function MessagesPage() {
 
   /** The colours this chat is wearing for me. Falls back to the app's own. */
   const theme = chatTheme(selected?.theme)
+
+  /*
+   * The emoji offered first, led by 👍 and then by what this person
+   * actually uses. Held in state rather than read on every render, and
+   * refreshed the moment a reaction is sent, so the row reorders itself
+   * without a trip to storage forty times a second.
+   */
+  const [quickEmoji, setQuickEmoji] = useState(() => quickReactions())
+
+  const react = (m: ChatMessage, emoji: string) => {
+    if (!selected) return
+    recordReaction(emoji)
+    setQuickEmoji(quickReactions())
+    chat.react(selected.uuid, m.uuid, emoji).then(invalidateMessages).catch(() => undefined)
+    setReactFor(null)
+    setActionsFor(null)
+  }
+
+  /*
+   * Tapping anywhere else puts the actions away.
+   *
+   * They used to stay open until something in them was tapped or another
+   * message's handle was - so one stray tap left a row of icons sitting over
+   * the conversation, and the only way out was to use it. This listens on
+   * pointerdown rather than covering the screen with a backdrop, so the tap
+   * that dismisses also does whatever it was aimed at; anything marked
+   * data-msg-actions is inside the menu and left alone, which is what stops
+   * a button from being unmounted between its own pointerdown and click.
+   *
+   * The touch sheet is not what this watches: it is a dialog, and a dialog
+   * already knows how to be dismissed by the space around it.
+   */
+  useEffect(() => {
+    if (!reactFor) return
+
+    const away = (e: Event) => {
+      const target = e.target
+      if (target instanceof Element && target.closest('[data-msg-actions]')) return
+      setActionsFor(null)
+      setReactFor(null)
+    }
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      setActionsFor(null)
+      setReactFor(null)
+    }
+
+    document.addEventListener('pointerdown', away)
+    document.addEventListener('keydown', escape)
+    return () => {
+      document.removeEventListener('pointerdown', away)
+      document.removeEventListener('keydown', escape)
+    }
+  }, [reactFor])
+
+  /*
+   * What can be done to one message, named once.
+   *
+   * The same list is drawn two ways: as a strip of icons a mouse reveals by
+   * hovering, and as a sheet of labelled rows a finger opens - where 14px
+   * icons in a row floating over the text were never going to be the answer.
+   */
+  const messageActions = (m: ChatMessage) => [
+    {
+      key: 'reply',
+      icon: <Reply className="size-3.5" />,
+      label: 'Reply',
+      run: () => { setReplyTo(m); setEditing(null) },
+    },
+    /*
+     * Into selection mode, with this one already ticked.
+     *
+     * The way in is here rather than a second gesture on the bubble: a
+     * press-and-hold that sometimes opens a menu and sometimes starts
+     * selecting depending on how long you held it is a coin toss, not an
+     * interface.
+     */
+    {
+      key: 'select',
+      icon: <CheckSquare className="size-3.5" />,
+      label: 'Select messages',
+      run: () => setSelection(new Set([m.uuid])),
+    },
+    /*
+     * Copy, which the long-press took away. Text only: there is nothing to
+     * put on a clipboard for a message that is just a file.
+     */
+    ...(m.body ? [{
+      key: 'copy',
+      icon: <Copy className="size-3.5" />,
+      label: 'Copy text',
+      run: () => {
+        navigator.clipboard.writeText(m.body ?? '')
+          .then(() => toast('Copied.', 'success'))
+          .catch(() => toastError('This browser would not let the app copy. Select the text by hand.'))
+      },
+    }] : []),
+    {
+      key: 'forward',
+      icon: <Forward className="size-3.5" />,
+      label: 'Forward',
+      run: () => { setForwarding([m]); setPickedChats(new Set()) },
+    },
+    // Kept privately - nobody else in the thread is told.
+    {
+      key: 'star',
+      icon: <Star className={clsx('size-3.5', m.is_starred && 'fill-current')} />,
+      label: m.is_starred ? 'Remove from starred' : 'Star',
+      tone: m.is_starred ? 'on' as const : undefined,
+      run: () => starMutation.mutate(m),
+    },
+    // Held up for everyone.
+    {
+      key: 'pin',
+      icon: <Pin className={clsx('size-3.5', m.pinned_at && 'fill-current')} />,
+      label: m.pinned_at ? 'Unpin' : 'Pin for everyone',
+      tone: m.pinned_at ? 'active' as const : undefined,
+      run: () => pinMutation.mutate(m),
+    },
+    ...(m.is_own && m.type === 'text' && withinEditWindow(m.created_at) ? [{
+      key: 'edit',
+      icon: <Pencil className="size-3.5" />,
+      label: 'Edit',
+      run: () => { setEditing(m); setDraft(m.body ?? ''); setReplyTo(null) },
+    }] : []),
+    ...(!m.is_own ? [{
+      key: 'report',
+      icon: <Flag className="size-3.5" />,
+      label: 'Report this message',
+      tone: 'danger' as const,
+      run: () => {
+        const reason = prompt(`Report this message — reason (${REPORT_REASONS.join(', ')}):`, 'spam')
+          ?.trim().toLowerCase()
+        if (!reason) return
+        reportsApi.fileMessage(m.uuid, reason)
+          .then((res) => alert((res as { message?: string }).message ?? 'Reported.'))
+          .catch((err) => toastError(errorMessage(err)))
+      },
+    }] : []),
+    {
+      key: 'delete',
+      icon: <Trash2 className="size-3.5" />,
+      label: 'Delete',
+      tone: 'danger' as const,
+      run: () => setDeleting(m),
+    },
+  ]
 
   const timeLabel = (iso: string) => {
     const date = new Date(iso)
@@ -1783,152 +1930,142 @@ export default function MessagesPage() {
                     {/*
                       * Message actions.
                       *
-                      * On a mouse these appear on hover, as they always have.
-                      * On a touchscreen there is no hover to appear on, so the
-                      * same row gets a visible handle to open it — every one
-                      * of reply, forward, edit, pin, star and delete was
-                      * otherwise unreachable on a phone, which is exactly how
-                      * a feature ships, passes its tests, and still cannot be
-                      * used by the people it was built for.
+                      * A mouse reveals a strip of icons by hovering, as it
+                      * always has - but it now sits clear above the bubble
+                      * rather than over its top edge, where in a group chat
+                      * it covered the name of whoever sent the message it
+                      * was acting on.
+                      *
+                      * A finger has no hover, so it gets a handle. That
+                      * handle used to sit above the bubble too, in the same
+                      * place, with the same problem; it is now out in the
+                      * empty gutter beside the bubble - on the right of an
+                      * incoming message, where a right thumb already is -
+                      * and it opens a sheet of labelled rows instead of a
+                      * strip of 14px icons floating over the conversation.
                       *
                       * A visible handle rather than a long-press: long-press
                       * fights text selection and scrolling for the same
                       * gesture, and a gesture nobody is told about is not
                       * much better than no gesture at all.
                       */}
-                    {!m.is_deleted && noHover && actionsFor !== m.uuid && (
+                    {!m.is_deleted && noHover && (
                       <button
                         type="button"
+                        data-msg-actions
                         aria-label="Message actions"
-                        className={clsx('absolute -top-3 flex size-6 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm dark:border-slate-700 dark:bg-slate-800', m.is_own ? 'right-0' : 'left-0')}
+                        className={clsx(
+                          'absolute top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-sm dark:border-slate-700 dark:bg-slate-800',
+                          m.is_own ? '-left-8' : '-right-8',
+                        )}
                         onClick={() => { setActionsFor(m.uuid); setReactFor(null) }}
                       >
                         <MoreVertical className="size-3.5" />
                       </button>
                     )}
-                    {!m.is_deleted && (!noHover || actionsFor === m.uuid) && (
+
+                    {/* The mouse's strip. */}
+                    {!m.is_deleted && !noHover && (
                       <div
+                        data-msg-actions
                         className={clsx(
-                          'absolute -top-3 gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm dark:border-slate-700 dark:bg-slate-800',
+                          'absolute bottom-full z-10 mb-1 hidden gap-0.5 rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm group-hover:flex dark:border-slate-700 dark:bg-slate-800',
                           m.is_own ? 'right-0' : 'left-0',
-                          // Open on tap for touch; on hover, as before, for a mouse.
-                          noHover ? 'flex' : 'hidden group-hover:flex',
                         )}
-                        // Whatever was tapped in here, the row has done its
-                        // job — collapse it back to the handle. Bubbles after
-                        // the button's own handler, so the action still runs.
-                        onClick={() => { if (noHover) setActionsFor(null) }}
                       >
-                        <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="React" onClick={() => setReactFor(reactFor === m.uuid ? null : m.uuid)}>
+                        {/* One tap, the reaction nine out of ten people
+                            want. The smile beside it opens the rest. */}
+                        <button
+                          className="rounded px-1 text-sm leading-none hover:scale-125"
+                          title="React with a thumbs up"
+                          onClick={() => react(m, THUMBS_UP)}
+                        >
+                          {THUMBS_UP}
+                        </button>
+                        <button
+                          className="rounded p-1 text-slate-400 hover:text-brand-600"
+                          title="React"
+                          onClick={() => setReactFor(reactFor === m.uuid ? null : m.uuid)}
+                        >
                           <Smile className="size-3.5" />
                         </button>
-                        <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Reply" onClick={() => { setReplyTo(m); setEditing(null) }}>
-                          <Reply className="size-3.5" />
-                        </button>
-                        {/*
-                          * Into selection mode, with this one already ticked.
-                          *
-                          * The way in is here rather than a second gesture on
-                          * the bubble: long-press already opens this row, and
-                          * a press-and-hold that sometimes opens a menu and
-                          * sometimes starts selecting depending on how long
-                          * you held it is a coin toss, not an interface.
-                          */}
-                        <button
-                          className="rounded p-1 text-slate-400 hover:text-brand-600"
-                          title="Select messages"
-                          onClick={() => setSelection(new Set([m.uuid]))}
-                        >
-                          <CheckSquare className="size-3.5" />
-                        </button>
-                        {/*
-                          * Copy, which the long-press took away.
-                          *
-                          * Holding a bubble now opens this row, so on a touch
-                          * device the browser's own press-to-select-text no
-                          * longer happens — and "copy what someone sent me"
-                          * is far too ordinary a thing to lose. Text only:
-                          * there is nothing to put on a clipboard for a
-                          * message that is just a file.
-                          */}
-                        {!!m.body && (
+                        {messageActions(m).map((a) => (
                           <button
-                            className="rounded p-1 text-slate-400 hover:text-brand-600"
-                            title="Copy text"
-                            onClick={() => {
-                              navigator.clipboard.writeText(m.body ?? '')
-                                .then(() => toast('Copied.', 'success'))
-                                .catch(() => toastError('This browser would not let the app copy. Select the text by hand.'))
-                            }}
+                            key={a.key}
+                            className={clsx(
+                              'rounded p-1',
+                              a.tone === 'on' ? 'text-amber-500 hover:text-amber-500'
+                                : a.tone === 'active' ? 'text-brand-600'
+                                  : a.tone === 'danger' ? 'text-slate-400 hover:text-red-600'
+                                    : 'text-slate-400 hover:text-brand-600',
+                            )}
+                            title={a.label}
+                            onClick={a.run}
                           >
-                            <Copy className="size-3.5" />
+                            {a.icon}
                           </button>
-                        )}
-                        <button
-                          className="rounded p-1 text-slate-400 hover:text-brand-600"
-                          title="Forward"
-                          onClick={() => { setForwarding([m]); setPickedChats(new Set()) }}
-                        >
-                          <Forward className="size-3.5" />
-                        </button>
-                        {/* Kept privately — nobody else in the thread is told. */}
-                        <button
-                          className={clsx('rounded p-1 hover:text-amber-500',
-                            m.is_starred ? 'text-amber-500' : 'text-slate-400')}
-                          title={m.is_starred ? 'Remove from starred' : 'Star'}
-                          onClick={() => starMutation.mutate(m)}
-                        >
-                          <Star className={clsx('size-3.5', m.is_starred && 'fill-current')} />
-                        </button>
-                        {/* Held up for everyone. */}
-                        <button
-                          className={clsx('rounded p-1 hover:text-brand-600',
-                            m.pinned_at ? 'text-brand-600' : 'text-slate-400')}
-                          title={m.pinned_at ? 'Unpin' : 'Pin for everyone'}
-                          onClick={() => pinMutation.mutate(m)}
-                        >
-                          <Pin className={clsx('size-3.5', m.pinned_at && 'fill-current')} />
-                        </button>
-                        {m.is_own && m.type === 'text' && withinEditWindow(m.created_at) && (
-                          <button className="rounded p-1 text-slate-400 hover:text-brand-600" title="Edit" onClick={() => { setEditing(m); setDraft(m.body ?? ''); setReplyTo(null) }}>
-                            <Pencil className="size-3.5" />
-                          </button>
-                        )}
-                        {!m.is_own && (
-                          <button
-                            className="rounded p-1 text-slate-400 hover:text-red-600"
-                            title="Report this message"
-                            onClick={() => {
-                              const reason = prompt(`Report this message — reason (${REPORT_REASONS.join(', ')}):`, 'spam')
-                                ?.trim().toLowerCase()
-                              if (!reason) return
-                              reportsApi.fileMessage(m.uuid, reason)
-                                .then((res) => alert((res as { message?: string }).message ?? 'Reported.'))
-                                .catch((err) => toastError(errorMessage(err)))
-                            }}
-                          >
-                            <Flag className="size-3.5" />
-                          </button>
-                        )}
-                        <button
-                          className="rounded p-1 text-slate-400 hover:text-red-600"
-                          title="Delete"
-                          onClick={() => setDeleting(m)}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </button>
+                        ))}
                       </div>
                     )}
-                    {reactFor === m.uuid && (
-                      <div className={clsx('absolute z-10 flex gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800', m.is_own ? 'right-0' : 'left-0')}>
-                        {QUICK_EMOJI.map((emoji) => (
+
+                    {/* The finger's sheet - a bottom sheet on a phone. */}
+                    {!m.is_deleted && noHover && actionsFor === m.uuid && (
+                      <Modal
+                        title={m.is_own ? 'Your message' : (m.sender?.name ?? 'Message')}
+                        onClose={() => setActionsFor(null)}
+                      >
+                        <div data-msg-actions className="space-y-1">
+                          <div className="flex items-center justify-between gap-1 rounded-xl bg-slate-50 p-2 dark:bg-slate-800/60">
+                            {quickEmoji.map((emoji) => (
+                              <button
+                                key={emoji}
+                                className="tap rounded-lg px-2 py-1 text-2xl leading-none active:scale-125"
+                                onClick={() => react(m, emoji)}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                            {/* Anything rarer than the row. */}
+                            <EmojiPicker onPick={(emoji) => react(m, emoji)} />
+                          </div>
+
+                          <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {messageActions(m).map((a) => (
+                              <button
+                                key={a.key}
+                                className={clsx(
+                                  'tap flex w-full items-center gap-3 px-1 py-3 text-left text-sm',
+                                  a.tone === 'danger' ? 'text-red-600 dark:text-red-400' : 'text-slate-700 dark:text-slate-200',
+                                )}
+                                onClick={() => { a.run(); setActionsFor(null) }}
+                              >
+                                <span className={clsx(
+                                  'shrink-0',
+                                  a.tone === 'on' ? 'text-amber-500'
+                                    : a.tone === 'active' ? 'text-brand-600'
+                                      : a.tone === 'danger' ? 'text-red-500' : 'text-slate-400',
+                                )}>
+                                  {a.icon}
+                                </span>
+                                {a.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </Modal>
+                    )}
+
+                    {/* The rest of the emoji, for a mouse. */}
+                    {reactFor === m.uuid && !noHover && (
+                      <div
+                        data-msg-actions
+                        className={clsx('absolute bottom-full z-20 mb-9 flex gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 shadow-lg dark:border-slate-700 dark:bg-slate-800', m.is_own ? 'right-0' : 'left-0')}
+                      >
+                        {quickEmoji.map((emoji) => (
                           <button
                             key={emoji}
                             className="text-base hover:scale-125"
-                            onClick={() => {
-                              chat.react(selected.uuid, m.uuid, emoji).then(invalidateMessages)
-                              setReactFor(null)
-                            }}
+                            onClick={() => react(m, emoji)}
                           >
                             {emoji}
                           </button>
