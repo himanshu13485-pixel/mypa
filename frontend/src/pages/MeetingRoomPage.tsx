@@ -37,7 +37,10 @@ import { useToast } from '../components/Toast'
 import { Button, Card } from '../components/ui'
 import { NEW_MEETING, meetingLink } from './MeetingsPage'
 import { useMeetingSession } from '../components/MeetingHost'
-import { holdMicrophoneInBackground, releaseAudioRoute, releaseMicrophoneHold, routeAudioToSpeaker } from '../lib/nativeShell'
+import {
+  holdMicrophoneInBackground, inNativeShell, nativeAudioDevices, releaseAudioRoute, releaseMicrophoneHold,
+  routeAudioToSpeaker,
+} from '../lib/nativeShell'
 import type { MeetingHostAction, MeetingParticipant, MeetingSignalPayload } from '../types'
 import { normalizeSdp } from '../lib/sdp'
 import { Avatar } from '../lib/avatars'
@@ -378,6 +381,25 @@ export default function MeetingRoomPage() {
   /** Sideways on a phone: the picture gets the room's own chrome as well. */
   const landscape = useLandscapePhone()
   const { cameras, speakers } = useDevices(phase === 'in')
+  /*
+   * The phone's own outputs, and whether we are on the loud one.
+   *
+   * Only ever populated inside the Android app. A browser has setSinkId and a
+   * device list to go with it; Chrome for Android has neither, so the picker
+   * below had nothing to offer and a meeting was stuck on the loudspeaker it
+   * joins on — no way to take it off speaker in a room with other people in
+   * it, which is the moment somebody actually wants the switch.
+   */
+  const [phoneOutputs, setPhoneOutputs] = useState<{ kind: string; label: string }[]>([])
+  const [onLoudspeaker, setOnLoudspeaker] = useState(true)
+  /* The route the effect below re-applies, so it cannot undo a choice. */
+  const loudRef = useRef(true)
+
+  const usePhoneOutput = (loud: boolean) => {
+    loudRef.current = loud
+    setOnLoudspeaker(loud)
+    routeAudioToSpeaker(loud)
+  }
   const quality = usePeerQuality(useCallback(() => pcsRef.current, []), phase === 'in')
   const activeSpeaker = useActiveSpeaker([
     { uuid: 'me', stream: localStreamRef.current },
@@ -1512,9 +1534,18 @@ export default function MeetingRoomPage() {
   useEffect(() => {
     if (phase !== 'in') return
     holdMicrophoneInBackground(meeting?.title || 'Netvork meeting')
-    // A meeting is watched at arm's length, so the loudspeaker — the opposite
-    // of a call, and the same split preferredSpeaker makes on a desktop.
-    routeAudioToSpeaker(true)
+    /*
+     * A meeting is watched at arm's length, so the loudspeaker — the opposite
+     * of a call, and the same split preferredSpeaker makes on a desktop.
+     *
+     * The remembered route rather than a flat `true`: this effect re-runs
+     * when the meeting is renamed, and putting somebody back on speaker
+     * because a host retitled the room is not a thing anybody asked for.
+     */
+    routeAudioToSpeaker(loudRef.current)
+    // Asked once we are in, when a headset paired while joining is already in
+    // the list and the answer cannot change again without a device change.
+    void nativeAudioDevices().then(setPhoneOutputs)
 
     return () => {
       releaseMicrophoneHold()
@@ -2470,6 +2501,9 @@ export default function MeetingRoomPage() {
               setDeviceChoice(saveDeviceChoice({ mirror: v }))
             }}
             onChange={changeDevice}
+            phoneOutputs={phoneOutputs}
+            onLoudspeaker={onLoudspeaker}
+            onPhoneOutput={usePhoneOutput}
             onClose={() => setShowSettings(false)}
             micStream={getLocalStream}
             micRev={micRev}
@@ -3163,10 +3197,14 @@ export default function MeetingRoomPage() {
  */
 function DeviceMenu({
   choice, audioOnly, hideSelf, onHideSelf, mirror, mirrorSuppressed, onMirror, onChange, onClose,
-  micStream, micRev,
+  micStream, micRev, phoneOutputs, onLoudspeaker, onPhoneOutput,
 }: {
   choice: DeviceChoice
   audioOnly: boolean
+  /** The phone's own outputs; empty anywhere setSinkId works. */
+  phoneOutputs: { kind: string; label: string }[]
+  onLoudspeaker: boolean
+  onPhoneOutput: (loud: boolean) => void
   hideSelf: boolean
   onHideSelf: (v: boolean) => void
   mirror: boolean
@@ -3268,6 +3306,40 @@ function DeviceMenu({
               <Volume2 className="size-3" /> {testing ? 'Playing…' : 'Play a test sound'}
             </button>
           </label>
+        ) : phoneOutputs.length > 1 || inNativeShell() ? (
+          /*
+           * The phone's own switch, which is the only one that works there.
+           *
+           * Two buttons rather than a list of outputs: what the native side
+           * actually exposes is speakerphone on or off, and a headset — when
+           * one is paired — is what "off" gives you, chosen by the system.
+           * Naming the outputs would be a list whose entries do not all map
+           * to something this can do.
+           */
+          <div>
+            <span className="mb-1 block font-medium text-slate-500">Sound out of</span>
+            <div className="flex gap-1">
+              {([[true, 'Speaker'], [false, 'Earpiece']] as const).map(([loud, label]) => (
+                <button
+                  key={label}
+                  onClick={(e) => { e.preventDefault(); onPhoneOutput(loud) }}
+                  className={clsx(
+                    'flex-1 rounded-lg border px-2 py-1.5 font-medium',
+                    onLoudspeaker === loud
+                      ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-300'
+                      : 'border-slate-200 text-slate-500 dark:border-slate-700',
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-slate-400">
+              {phoneOutputs.length > 2
+                ? 'Earpiece hands it to your headset while one is connected.'
+                : 'Earpiece is the quiet one, for a meeting you would rather the room did not hear.'}
+            </p>
+          </div>
         ) : (
           // Safari and Firefox have no setSinkId: the browser follows the
           // system output and there is nothing to offer here but the truth.

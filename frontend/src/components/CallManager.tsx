@@ -1403,6 +1403,40 @@ export function CallProvider({ children }: { children: ReactNode }) {
             <Volume2 className="size-3" /> Play a test sound
           </button>
         </label>
+      ) : phoneOutputs.length > 1 || inNativeShell() ? (
+        /*
+         * The phone's own switch. The button on the bar is the quick way when
+         * there are exactly two outputs; this is the same choice written out,
+         * for when a paired headset made three and sent the button here — to
+         * a picker with nothing in it, because Chrome for Android lists no
+         * outputs at all.
+         */
+        <div>
+          <span className="mb-1 block font-medium opacity-60">Sound out of</span>
+          <div className="flex gap-1">
+            {([[true, 'Speaker'], [false, 'Earpiece']] as const).map(([loud, label]) => (
+              <button
+                key={label}
+                onClick={(e) => {
+                  e.preventDefault()
+                  setOnLoudspeaker(loud)
+                  routeAudioToSpeaker(loud)
+                }}
+                className={clsx(
+                  'flex-1 rounded-lg border px-2 py-1.5 font-medium',
+                  onLoudspeaker === loud ? 'border-current bg-white/20' : 'border-current/20 opacity-70',
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {phoneOutputs.length > 2 && (
+            <p className="mt-1 text-[11px] leading-snug opacity-60">
+              Earpiece hands it to your headset while one is connected.
+            </p>
+          )}
+        </div>
       ) : (
         // Safari and Firefox have no setSinkId: the browser follows the system
         // output and there is nothing here to offer but the truth.
