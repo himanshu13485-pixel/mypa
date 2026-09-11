@@ -5,6 +5,7 @@ namespace App\Models\Crm;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 /** One internal remark on one document — office-only, never printed. */
 class InvoiceNote extends Model
@@ -33,5 +34,11 @@ class InvoiceNote extends Model
     public function member(): BelongsTo
     {
         return $this->belongsTo(Member::class, 'member_id');
+    }
+
+    /** What was attached to the remark - the PO, the mail, the screenshot. */
+    public function documents(): MorphMany
+    {
+        return $this->morphMany(Document::class, 'documentable');
     }
 }

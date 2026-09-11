@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Api\V1\Crm;
 
 use App\Http\Controllers\Controller;
+use App\Models\Crm\Document;
 use App\Models\Crm\Invoice;
 use App\Models\Crm\InvoiceNote;
 use App\Models\Crm\Member;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Internal notes on a document — office talk, never on the paper.
@@ -23,7 +26,7 @@ class InvoiceNoteController extends Controller
         $invoice = $this->invoice($request, $invoiceUuid);
 
         return response()->json(['data' => $invoice->internalNotes()
-            ->with('member.user:id,name')
+            ->with(['member.user:id,name', 'documents'])
             ->orderBy('id')
             ->get()
             ->map(fn (InvoiceNote $note) => $this->serialize($note, $request)),
@@ -37,17 +40,44 @@ class InvoiceNoteController extends Controller
         $me = $request->attributes->get('crm_member');
         $invoice = $this->invoice($request, $invoiceUuid);
 
-        $data = $request->validate(['body' => ['required', 'string', 'max:5000']]);
+        /*
+         * A note with nothing but a file on it is still a note.
+         *
+         * Half of what people want to say about an invoice is "here is the
+         * mail where they agreed it" - so the body is only required when
+         * nothing is attached, and either alone is enough.
+         */
+        $data = $request->validate([
+            'body' => ['required_without:files', 'nullable', 'string', 'max:5000'],
+            'files' => ['nullable', 'array', 'max:5'],
+            'files.*' => ['file', 'max:10240'],
+        ]);
 
         $note = $invoice->internalNotes()->create([
             'organization_id' => $org->id,
             'member_id' => $me->id,
-            'body' => trim($data['body']),
+            'body' => trim((string) ($data['body'] ?? '')),
         ]);
+
+        foreach ((array) $request->file('files', []) as $file) {
+            $path = $file->store(
+                'crm-documents/' . $invoice->organization_id . '/invoice-notes/' . $note->id,
+                'local',
+            );
+
+            $note->documents()->create([
+                'organization_id' => $invoice->organization_id,
+                'name' => $file->getClientOriginalName(),
+                'path' => $path,
+                'mime' => $file->getClientMimeType(),
+                'size' => $file->getSize(),
+                'uploaded_by' => $request->user()->id,
+            ]);
+        }
 
         return response()->json([
             'message' => 'Noted.',
-            'data' => $this->serialize($note->load('member.user:id,name'), $request),
+            'data' => $this->serialize($note->load(['member.user:id,name', 'documents']), $request),
         ], 201);
     }
 
@@ -64,9 +94,26 @@ class InvoiceNoteController extends Controller
             abort(403, 'Only whoever wrote a note, or an Admin, can remove it.');
         }
 
+        // The files went with the note; leaving them on disk would leave
+        // rows pointing at nothing and bytes nobody can reach.
+        foreach ($note->documents as $document) {
+            Storage::disk('local')->delete($document->path);
+            $document->delete();
+        }
+
         $note->delete();
 
         return response()->json(['message' => 'Note removed.']);
+    }
+
+    /** One attachment, to whoever can already read the note it hangs on. */
+    public function download(Request $request, string $invoiceUuid, string $noteUuid, string $documentUuid): StreamedResponse
+    {
+        $invoice = $this->invoice($request, $invoiceUuid);
+        $note = $invoice->internalNotes()->where('uuid', $noteUuid)->firstOrFail();
+        $document = $note->documents()->where('uuid', $documentUuid)->firstOrFail();
+
+        return Storage::disk('local')->download($document->path, $document->name);
     }
 
     // ---- Helpers -----------------------------------------------------------
@@ -93,6 +140,14 @@ class InvoiceNoteController extends Controller
             'at' => $note->created_at?->toDateTimeString(),
             'is_mine' => $note->member_id === $me->id,
             'can_delete' => $note->member_id === $me->id || $isManager,
+            'files' => $note->relationLoaded('documents')
+                ? $note->documents->map(fn (Document $d) => [
+                    'uuid' => $d->uuid,
+                    'name' => $d->name,
+                    'size' => $d->size,
+                    'mime' => $d->mime,
+                ])->values()
+                : [],
         ];
     }
 }

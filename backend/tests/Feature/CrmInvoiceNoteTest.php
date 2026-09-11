@@ -8,6 +8,8 @@ use App\Models\Crm\Organization;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
 /**
@@ -144,6 +146,61 @@ class CrmInvoiceNoteTest extends TestCase
             ->assertOk();
 
         $this->assertSame(1, InvoiceNote::count());   // only the admin's "Noted."
+    }
+
+    public function test_a_note_can_carry_the_mail_it_is_about(): void
+    {
+        Storage::fake('local');
+        $doc = $this->document($this->aliceUser);
+
+        // Half of what people want to say about an invoice is "here is the
+        // proof" - so a file alone, with nothing typed, is still a note.
+        $note = $this->actingAs($this->aliceUser)->postJson("/api/v1/crm/invoices/{$doc}/notes", [
+            'files' => [
+                UploadedFile::fake()->create('client-po.pdf', 12, 'application/pdf'),
+                UploadedFile::fake()->image('whatsapp-screenshot.png'),
+            ],
+        ])->assertCreated();
+
+        $note->assertJsonPath('data.files.0.name', 'client-po.pdf');
+        $note->assertJsonPath('data.files.1.name', 'whatsapp-screenshot.png');
+        $noteUuid = $note->json('data.uuid');
+        $fileUuid = $note->json('data.files.0.uuid');
+
+        // The admin, who can see the invoice, can open what is on it.
+        $this->actingAs($this->adminUser)
+            ->get("/api/v1/crm/invoices/{$doc}/notes/{$noteUuid}/files/{$fileUuid}")
+            ->assertOk();
+
+        // Bob cannot see the invoice, so the file is not his to read either.
+        $this->actingAs($this->bobUser)
+            ->get("/api/v1/crm/invoices/{$doc}/notes/{$noteUuid}/files/{$fileUuid}")
+            ->assertNotFound();
+
+        // The list carries them too, so the thread renders complete.
+        $this->actingAs($this->aliceUser)->getJson("/api/v1/crm/invoices/{$doc}/notes")
+            ->assertOk()->assertJsonCount(2, 'data.0.files');
+
+        // Removing the note takes its files with it rather than leaving
+        // bytes on disk that nothing points at.
+        $path = \App\Models\Crm\Document::firstOrFail()->path;
+        Storage::disk('local')->assertExists($path);
+
+        $this->actingAs($this->aliceUser)
+            ->deleteJson("/api/v1/crm/invoices/{$doc}/notes/{$noteUuid}")
+            ->assertOk();
+
+        Storage::disk('local')->assertMissing($path);
+        $this->assertSame(0, \App\Models\Crm\Document::count());
+    }
+
+    public function test_a_note_with_neither_words_nor_a_file_is_refused(): void
+    {
+        $doc = $this->document($this->aliceUser);
+
+        $this->actingAs($this->aliceUser)->postJson("/api/v1/crm/invoices/{$doc}/notes", [])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('body');
     }
 
     public function test_the_paper_never_carries_the_office_talk(): void
