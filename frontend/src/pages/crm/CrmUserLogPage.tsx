@@ -8,6 +8,7 @@ import { CHART_COLORS, ColumnChart } from './charts'
 const ACTION_GROUPS = [
   ['employee', 'Employees'], ['client', 'Clients'], ['lead', 'Leads'],
   ['proforma', 'Proforma'], ['invoice', 'Invoices'], ['payment', 'Payments'],
+  ['tds', 'TDS certificates'], ['task', 'Tasks and pendencies'],
   ['dcw', 'Workspace fields'],
 ] as const
 
@@ -37,7 +38,7 @@ export default function CrmUserLogPage() {
   const describe = (entry: { action: string; changes: Record<string, unknown> | null }) => {
     const c = entry.changes ?? {}
     const bits: string[] = []
-    for (const key of ['label', 'entity', 'type', 'number', 'lead_no', 'company_name', 'client', 'amount', 'requested_by', 'reason', 'note']) {
+    for (const key of ['label', 'entity', 'type', 'title', 'kind', 'number', 'lead_no', 'company_name', 'client', 'to', 'amount', 'tds', 'status', 'channel', 'requested_by', 'reason', 'note']) {
       if (c[key] !== undefined && c[key] !== null && c[key] !== '') {
         bits.push(`${key.replace(/_/g, ' ')}: ${String(c[key])}`)
       }

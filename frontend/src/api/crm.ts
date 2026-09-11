@@ -191,6 +191,8 @@ export interface CrmInvoiceNote {
   at: string | null
   is_mine: boolean
   can_delete: boolean
+  /** What was attached to the remark - the PO, the mail, the screenshot. */
+  files?: { uuid: string; name: string; size: number; mime: string | null }[]
 }
 
 /** A document told to happen again. */
@@ -1694,9 +1696,15 @@ export interface CrmTask {
   uuid: string
   title: string
   description: string | null
+  /** A pendency is work somebody is holding up, not work they were given. */
+  kind: 'task' | 'pendency'
   assignee: { uuid: string; name: string | null } | null
   assigned_by: string | null
+  assigned_by_uuid?: string | null
   due_at: string | null
+  /** The window it is expected to run in, beside the deadline. */
+  start_at: string | null
+  end_at: string | null
   overdue: boolean
   priority: 'low' | 'normal' | 'high' | 'urgent'
   status: 'open' | 'in_progress' | 'submitted' | 'done' | 'reopened'
@@ -1704,13 +1712,107 @@ export interface CrmTask {
   submitted_at: string | null
   reviewed_by: string | null
   review_note: string | null
+  /** Changed after it was handed over, and by whom. */
+  edited_at: string | null
+  edited_by: string | null
+  remind_at: string | null
+  remind_every_days: number | null
+  /** Who owes the next word. */
+  awaiting: 'assignee' | 'assigner' | null
+  last_reply_at: string | null
+  comments_count: number
+  invoice: { uuid: string; number: string; kind: string; client: string | null } | null
+  is_mine: boolean
+  is_my_pendency: boolean
   created_at: string | null
+  /** Only on one task fetched by itself. */
+  comments?: CrmTaskComment[]
+}
+
+export interface CrmTaskComment {
+  uuid: string
+  body: string
+  by: string
+  by_uuid: string | null
+  at: string | null
+}
+
+/** What the popup reads: the tasks asking to be seen right now. */
+export interface CrmTaskReminder {
+  uuid: string
+  title: string
+  kind: 'task' | 'pendency'
+  priority: 'low' | 'normal' | 'high' | 'urgent'
+  status: string
+  due_at: string | null
+  overdue: boolean
+  /** 'do' = waiting on you; 'review' = they have answered. */
+  my_turn: 'do' | 'review'
+  other_party: string | null
+  invoice: { uuid: string; number: string; kind: string } | null
+}
+
+/** An invoice or proforma a task can be about. */
+export interface CrmTaskDocument {
+  uuid: string
+  number: string
+  kind: string
+  date: string | null
+  total: string
+  client: string | null
+  contact_person: string | null
+  email: string | null
+  mobile: string | null
+  issuing_company: string | null
+  salesperson: string | null
 }
 
 export interface CrmTaskSummary {
   by_status: { status: string; count: number }[]
   overdue: number
   awaiting_review: number
+  pendencies: number
+}
+
+/** One invoice with tax deducted on it, and whether the certificate came. */
+export interface CrmTdsRow {
+  uuid: string
+  number: string
+  invoice_date: string | null
+  total: string
+  tds: string
+  currency: string
+  client: { uuid: string; company_name: string; contact_person: string | null; email: string | null; mobile: string | null } | null
+  issuing_company: string | null
+  salesperson: string | null
+  certificate_at: string | null
+  certificate_by: string | null
+  chased: number
+  last_chased_at: string | null
+  last_chased_by: string | null
+  last_status: string | null
+}
+
+export interface CrmTdsDraft {
+  client: string | null
+  to_email: string | null
+  invoices: string[]
+  subject: string
+  body: string
+  tds_total: number
+}
+
+export interface CrmTdsReminderRow {
+  uuid: string
+  channel: string
+  to_email: string | null
+  subject: string | null
+  body: string | null
+  status: string
+  error: string | null
+  by: string | null
+  at: string | null
+  next_follow_up: string | null
 }
 
 export interface CrmApproval {
@@ -2406,8 +2508,9 @@ export const crm = {
   },
 
   tasks: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: Record<string, string | number | boolean | undefined>) =>
       api.get<Paginated<CrmTask> & { summary: CrmTaskSummary }>('/crm/tasks', { params }).then((r) => r.data),
+    get: (uuid: string) => api.get<{ data: CrmTask }>(`/crm/tasks/${uuid}`).then((r) => r.data.data),
     create: (payload: Record<string, unknown>) => api.post('/crm/tasks', payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/tasks/${uuid}`, payload).then((r) => r.data),
     progress: (uuid: string, status: 'in_progress' | 'submitted', note?: string) =>
@@ -2415,6 +2518,43 @@ export const crm = {
     review: (uuid: string, verdict: 'approve' | 'reject', note?: string) =>
       api.post<{ message: string }>(`/crm/tasks/${uuid}/review`, { verdict, note: note || null }).then((r) => r.data),
     remove: (uuid: string) => api.delete(`/crm/tasks/${uuid}`).then((r) => r.data),
+    /** A word on the task. Whoever writes has answered - the ball passes. */
+    comment: (uuid: string, body: string) =>
+      api.post<{ message: string; data: CrmTaskComment }>(`/crm/tasks/${uuid}/comments`, { body })
+        .then((r) => r.data),
+    /** "Not today." A day by default, or the task's own rhythm. */
+    snooze: (uuid: string, hours?: number) =>
+      api.post<{ message: string }>(`/crm/tasks/${uuid}/snooze`, hours ? { hours } : {}).then((r) => r.data),
+    /** What is asking to be seen right now, for the person asking. */
+    reminders: () =>
+      api.get<{ data: CrmTaskReminder[] }>('/crm/task-reminders').then((r) => r.data.data),
+    /** The invoice or proforma a task is about, by anything you have. */
+    documents: (search: string, kind?: string) =>
+      api.get<{ data: CrmTaskDocument[] }>('/crm/task-documents', { params: { search, kind } })
+        .then((r) => r.data.data),
+  },
+
+  /** The other thing a client owes: the certificate for tax they deducted. */
+  tds: {
+    list: (params: Record<string, string | undefined> = {}) =>
+      api.get<{ data: CrmTdsRow[]; totals: { count: number; tds: number; pending: number } }>(
+        '/crm/tds-certificates', { params },
+      ).then((r) => r.data),
+    draft: (invoiceUuids: string[]) =>
+      api.post<{ data: CrmTdsDraft[] }>('/crm/tds-certificates/draft', { invoice_uuids: invoiceUuids })
+        .then((r) => r.data.data),
+    remind: (invoiceUuids: string[], payload: Record<string, unknown> = {}) =>
+      api.post<{ message: string; data: { sent: string[]; refused: string[] } }>(
+        '/crm/tds-certificates/remind', { invoice_uuids: invoiceUuids, ...payload },
+      ).then((r) => r.data),
+    history: (invoiceUuid: string) =>
+      api.get<{ data: CrmTdsReminderRow[]; draft: CrmTdsDraft; certificate_at: string | null }>(
+        `/crm/invoices/${invoiceUuid}/tds-reminders`,
+      ).then((r) => r.data),
+    received: (invoiceUuid: string) =>
+      api.post<{ message: string; data: { certificate_at: string | null } }>(
+        `/crm/invoices/${invoiceUuid}/tds-certificate`,
+      ).then((r) => r.data),
   },
 
   approvals: {
@@ -2553,8 +2693,20 @@ export const crm = {
       ).then((r) => r.data),
     notes: (uuid: string) =>
       api.get<{ data: CrmInvoiceNote[] }>(`/crm/invoices/${uuid}/notes`).then((r) => r.data.data),
-    addNote: (uuid: string, body: string) =>
-      api.post<{ message: string; data: CrmInvoiceNote }>(`/crm/invoices/${uuid}/notes`, { body }).then((r) => r.data),
+    /**
+     * A remark, the files that prove it, or both - the server wants one of
+     * the two, not necessarily the words.
+     */
+    addNote: (uuid: string, body: string, files: File[] = []) => {
+      const form = new FormData()
+      if (body) form.append('body', body)
+      files.forEach((file) => form.append('files[]', file))
+
+      return api.post<{ message: string; data: CrmInvoiceNote }>(`/crm/invoices/${uuid}/notes`, form)
+        .then((r) => r.data)
+    },
+    noteFileUrl: (uuid: string, noteUuid: string, fileUuid: string) =>
+      `/api/v1/crm/invoices/${uuid}/notes/${noteUuid}/files/${fileUuid}`,
     deleteNote: (uuid: string, noteUuid: string) =>
       api.delete<{ message: string }>(`/crm/invoices/${uuid}/notes/${noteUuid}`).then((r) => r.data),
     makeRecurring: (uuid: string, payload: Record<string, unknown>) =>

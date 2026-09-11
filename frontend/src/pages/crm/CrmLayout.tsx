@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { LeadFollowUpAlerts } from './LeadFollowUpAlerts'
 import { NewLeadAlerts } from './NewLeadAlerts'
 import { ComplaintAlerts } from './ComplaintAlerts'
+import { TaskReminderAlerts } from './TaskReminderAlerts'
 import { BirthdayVibes } from './BirthdayVibes'
 import { FestivalVibes } from './FestivalVibes'
 import { CallProvider } from '../../components/CallManager'
@@ -23,6 +24,7 @@ import {
   CalendarOff,
   CheckSquare,
   ClipboardCheck,
+  FileCheck2,
   FileText,
   Filter,
   Fingerprint,
@@ -121,6 +123,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Proforma log', icon: ListChecks, to: '/crm/invoice-log?kind=proforma', module: 'proforma_log' },
     { label: 'Invoices', section: 'invoices', icon: ReceiptText, to: '/crm/invoices?kind=invoice', module: 'invoices' },
     { label: 'Invoice log', icon: ListChecks, to: '/crm/invoice-log?kind=invoice', module: 'invoice_log' },
+    { label: 'TDS certificates', icon: FileCheck2, to: '/crm/tds-certificates', module: 'invoices' },
     { label: 'Recurring', icon: Repeat, to: '/crm/recurring', module: 'recurring' },
     { label: 'Payments', section: 'payments', icon: Banknote, to: '/crm/payments', module: 'payments', badge: 'payments' },
     { label: 'Vendors', section: 'vendors', icon: Store, to: '/crm/vendors', module: 'vendors' },
@@ -518,6 +521,7 @@ export default function CrmLayout() {
           <LeadFollowUpAlerts me={me} />
           <NewLeadAlerts me={me} />
           <ComplaintAlerts me={me} />
+          <TaskReminderAlerts me={me} />
           <BirthdayVibes me={me} />
           <FestivalVibes me={me} />
         </main>

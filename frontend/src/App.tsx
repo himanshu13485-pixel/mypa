@@ -95,6 +95,7 @@ const CrmWorkspaceFieldsPage = lazyRoute('CrmWorkspaceFieldsPage', () => import(
 const CrmFieldRequestsPage = lazyRoute('CrmFieldRequestsPage', () => import('./pages/crm/CrmFieldRequestsPage'))
 const CrmInvoicesPage = lazyRoute('CrmInvoicesPage', () => import('./pages/crm/CrmInvoicesPage'))
 const CrmInvoiceLogPage = lazyRoute('CrmInvoiceLogPage', () => import('./pages/crm/CrmInvoiceLogPage'))
+const CrmTdsCertificatesPage = lazyRoute('CrmTdsCertificatesPage', () => import('./pages/crm/CrmTdsCertificatesPage'))
 const CrmRecurringPage = lazyRoute('CrmRecurringPage', () => import('./pages/crm/CrmRecurringPage'))
 const CrmCommissionsPage = lazyRoute('CrmCommissionsPage', () => import('./pages/crm/CrmCommissionsPage'))
 const CrmInvoiceFormPage = lazyRoute('CrmInvoiceFormPage', () => import('./pages/crm/CrmInvoiceFormPage'))
@@ -152,6 +153,7 @@ const crmScreens = (
     <Route path="contests/:uuid" element={<CrmContestPlayPage />} />
     <Route path="invoices" element={<CrmInvoicesPage />} />
     <Route path="invoice-log" element={<CrmInvoiceLogPage />} />
+    <Route path="tds-certificates" element={<CrmTdsCertificatesPage />} />
     <Route path="recurring" element={<CrmRecurringPage />} />
     <Route path="commissions" element={<CrmCommissionsPage />} />
     <Route path="invoices/new" element={<CrmInvoiceFormPage />} />

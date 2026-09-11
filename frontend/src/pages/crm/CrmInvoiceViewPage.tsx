@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, ArrowLeft, ArrowRightLeft, Ban, Copy, CreditCard, Download, Eye, ExternalLink, FileDiff, Lock, Pencil, Percent, Plus, Printer, Repeat, Send, Trash2 } from 'lucide-react'
+import { AlarmClock, ArrowLeft, ArrowRightLeft, Ban, Copy, CreditCard, Download, Eye, ExternalLink, FileDiff, Lock, Paperclip, Pencil, Percent, Plus, Printer, Repeat, Send, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmCan, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS, CRM_RECURRING_FREQUENCY_LABELS, validityMonths } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -719,6 +719,12 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
         </div>
       </Card>
 
+      {/* The other thing the client owes: the certificate for the tax
+          they deducted. Only on documents where they deducted any. */}
+      {Number(inv.tds ?? 0) > 0 && inv.kind === 'invoice' && (
+        <TdsCertificateBox invoiceUuid={inv.uuid} number={inv.number} tds={Number(inv.tds ?? 0)} />
+      )}
+
       <InternalNotes invoiceUuid={inv.uuid} />
 
       {showRepeat && (
@@ -1228,10 +1234,119 @@ function RepeatModal({ invoiceUuid, number, onClose, onDone }: {
  * the PDF and everything the client can ever hold — which is why it lives at
  * the end of the page in its own card, never inside the document.
  */
+/**
+ * Chasing the TDS certificate from the document itself.
+ *
+ * The whole list lives on its own screen; this is the one-invoice case,
+ * where somebody has the bill open in front of them and can see that the
+ * certificate never came.
+ */
+function TdsCertificateBox({ invoiceUuid, number, tds }: {
+  invoiceUuid: string
+  number: string
+  tds: number
+}) {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const [composing, setComposing] = useState(false)
+  const [body, setBody] = useState('')
+  const [subject, setSubject] = useState('')
+
+  const { data } = useQuery({
+    queryKey: ['crm', 'tds-history', invoiceUuid],
+    queryFn: () => crm.tds.history(invoiceUuid),
+  })
+
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['crm', 'tds-history', invoiceUuid] })
+    queryClient.invalidateQueries({ queryKey: ['crm', 'tds'] })
+  }
+
+  const remindMutation = useMutation({
+    mutationFn: () => crm.tds.remind([invoiceUuid], { subject, body }),
+    onSuccess: (res) => {
+      toast(res.message, res.data.refused.length ? 'info' : 'success')
+      res.data.refused.forEach((line) => toastError(line))
+      setComposing(false)
+      refresh()
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const receivedMutation = useMutation({
+    mutationFn: () => crm.tds.received(invoiceUuid),
+    onSuccess: (res) => { toast(res.message, 'success'); refresh() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const open = () => {
+    setSubject(data?.draft.subject ?? '')
+    setBody(data?.draft.body ?? '')
+    setComposing(true)
+  }
+
+  return (
+    <Card className="print:hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+          <Percent className="size-4 text-amber-500" /> TDS certificate
+        </h2>
+        {data?.certificate_at ? (
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400">
+            received {data.certificate_at.slice(0, 10)}
+          </span>
+        ) : (
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-400">
+            awaited
+          </span>
+        )}
+      </div>
+
+      <p className="mt-1 text-xs text-slate-500">
+        {inr(tds)} was deducted on {number}.{' '}
+        {(data?.data.length ?? 0) === 0
+          ? 'The client has not been asked for the certificate yet.'
+          : `Asked ${data!.data.length} time(s), last on ${data!.data[0].at?.slice(0, 10)} by ${data!.data[0].by}.`}
+      </p>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Button size="sm" onClick={open}><Send className="size-3.5" /> Ask for the certificate</Button>
+        <Button size="sm" variant="secondary" onClick={() => receivedMutation.mutate()}>
+          {data?.certificate_at ? 'Mark as still awaited' : 'Certificate received'}
+        </Button>
+      </div>
+
+      {composing && (
+        <Modal title={`Ask for the TDS certificate — ${number}`} onClose={() => setComposing(false)} wide>
+          <div className="space-y-3">
+            <div>
+              <Label>Subject</Label>
+              <Input value={subject} onChange={(e) => setSubject(e.target.value)} className="w-full" />
+            </div>
+            <div>
+              <Label>Letter</Label>
+              <Textarea rows={12} value={body} onChange={(e) => setBody(e.target.value)} className="w-full font-mono text-xs" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setComposing(false)}>Cancel</Button>
+              <Button disabled={remindMutation.isPending} onClick={() => remindMutation.mutate()}>
+                {remindMutation.isPending ? 'Sending…' : 'Send'}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </Card>
+  )
+}
+
 function InternalNotes({ invoiceUuid }: { invoiceUuid: string }) {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
   const [body, setBody] = useState('')
+  /* Chosen but not yet sent - they go up with the remark, in one request. */
+  const [files, setFiles] = useState<File[]>([])
+  const fileInput = useRef<HTMLInputElement>(null)
 
   const { data: notes } = useQuery({
     queryKey: ['crm', 'invoice-notes', invoiceUuid],
@@ -1241,8 +1356,13 @@ function InternalNotes({ invoiceUuid }: { invoiceUuid: string }) {
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['crm', 'invoice-notes', invoiceUuid] })
 
   const addMutation = useMutation({
-    mutationFn: () => crm.invoices.addNote(invoiceUuid, body.trim()),
-    onSuccess: () => { setBody(''); refresh() },
+    mutationFn: () => crm.invoices.addNote(invoiceUuid, body.trim(), files),
+    onSuccess: () => {
+      setBody('')
+      setFiles([])
+      if (fileInput.current) fileInput.current.value = ''
+      refresh()
+    },
     onError: (err) => toastError(errorMessage(err)),
   })
 
@@ -1274,7 +1394,29 @@ function InternalNotes({ invoiceUuid }: { invoiceUuid: string }) {
                   </span>
                   <span className="text-[11px] text-slate-400">{note.at}</span>
                 </div>
-                <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{note.body}</p>
+                {note.body && (
+                  <p className="mt-0.5 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{note.body}</p>
+                )}
+                {/* What was attached to the remark. Opened, not previewed:
+                    these are POs and mail exports, not pictures to admire. */}
+                {(note.files?.length ?? 0) > 0 && (
+                  <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                    {note.files!.map((file) => (
+                      <li key={file.uuid}>
+                        <a
+                          href={crm.invoices.noteFileUrl(invoiceUuid, note.uuid, file.uuid)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:border-brand-300 hover:text-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+                        >
+                          <Paperclip className="size-3" />
+                          <span className="max-w-[12rem] truncate">{file.name}</span>
+                          <span className="text-slate-400">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
               {note.can_delete && (
                 <button
@@ -1290,20 +1432,56 @@ function InternalNotes({ invoiceUuid }: { invoiceUuid: string }) {
         </ul>
       )}
 
-      <div className="flex items-end gap-2">
-        <Textarea
-          rows={2}
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Client asked to hold dispatch till the 5th…"
-          className="min-w-0 flex-1"
-        />
-        <Button
-          disabled={!body.trim() || addMutation.isPending}
-          onClick={() => addMutation.mutate()}
-        >
-          <Send className="size-4" /> {addMutation.isPending ? 'Adding…' : 'Add note'}
-        </Button>
+      <div className="space-y-2">
+        <div className="flex items-end gap-2">
+          <Textarea
+            rows={2}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="Client asked to hold dispatch till the 5th…"
+            className="min-w-0 flex-1"
+          />
+          {/* Five at a time, 10 MB each - the server says the same. */}
+          <input
+            ref={fileInput}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => setFiles(Array.from(e.target.files ?? []).slice(0, 5))}
+          />
+          <Button variant="secondary" onClick={() => fileInput.current?.click()} title="Attach files">
+            <Paperclip className="size-4" />
+          </Button>
+          <Button
+            /* A file on its own is a note. Half of what anybody wants to say
+               about an invoice is "here is the mail where they agreed it". */
+            disabled={(!body.trim() && files.length === 0) || addMutation.isPending}
+            onClick={() => addMutation.mutate()}
+          >
+            <Send className="size-4" /> {addMutation.isPending ? 'Adding…' : 'Add note'}
+          </Button>
+        </div>
+
+        {files.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5">
+            {files.map((file, i) => (
+              <li
+                key={file.name + i}
+                className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+              >
+                <Paperclip className="size-3" />
+                <span className="max-w-[12rem] truncate">{file.name}</span>
+                <button
+                  onClick={() => setFiles((f) => f.filter((_, j) => j !== i))}
+                  aria-label={`Remove ${file.name}`}
+                  className="text-slate-400 hover:text-red-500"
+                >
+                  <X className="size-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </Card>
   )

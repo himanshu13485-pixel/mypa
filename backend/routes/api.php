@@ -1021,6 +1021,21 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::post('/invoices/{invoiceUuid}/reminders', [\App\Http\Controllers\Api\V1\Crm\PaymentReminderController::class, 'store'])
                 ->middleware('crm.member:payments,create');
 
+            /*
+             * TDS certificates: the other thing a client owes us.
+             *
+             * Open to anybody who can see the invoice rather than to the
+             * payments right, because the person who notices a missing
+             * certificate is usually whoever raised the bill.
+             */
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/tds-certificates', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'index']);
+                Route::post('/tds-certificates/draft', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'draft']);
+                Route::post('/tds-certificates/remind', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'remind']);
+                Route::get('/invoices/{invoiceUuid}/tds-reminders', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'history']);
+                Route::post('/invoices/{invoiceUuid}/tds-certificate', [\App\Http\Controllers\Api\V1\Crm\TdsCertificateController::class, 'received']);
+            });
+
             Route::middleware('crm.member:payments,view')->group(function () {
                 Route::get('/payments', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'index']);
             });
@@ -1152,7 +1167,16 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // Tasks with the approval flow
             Route::middleware('crm.member')->group(function () {
                 Route::get('/tasks', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'index']);
+                // The popup's feed: what is asking to be seen right now.
+                Route::get('/task-reminders', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'reminders']);
+                // Finding the invoice or proforma a task is about.
+                Route::get('/task-documents', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'documents']);
+                Route::get('/tasks/{uuid}', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'show']);
                 Route::post('/tasks/{uuid}/progress', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'progress']);
+                // Both sides of a task may talk on it, and either may put
+                // their own reminder off - neither is a manager's right.
+                Route::post('/tasks/{uuid}/comments', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'comment']);
+                Route::post('/tasks/{uuid}/snooze', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'snooze']);
             });
             Route::post('/tasks', [\App\Http\Controllers\Api\V1\Crm\TaskController::class, 'store'])
                 ->middleware('crm.member:tasks,create');
@@ -1279,6 +1303,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::get('/invoices/{invoiceUuid}/notes', [\App\Http\Controllers\Api\V1\Crm\InvoiceNoteController::class, 'index']);
                 Route::post('/invoices/{invoiceUuid}/notes', [\App\Http\Controllers\Api\V1\Crm\InvoiceNoteController::class, 'store']);
                 Route::delete('/invoices/{invoiceUuid}/notes/{noteUuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceNoteController::class, 'destroy']);
+                Route::get('/invoices/{invoiceUuid}/notes/{noteUuid}/files/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceNoteController::class, 'download']);
             });
 
             // Subscriptions: a document told to happen again.
