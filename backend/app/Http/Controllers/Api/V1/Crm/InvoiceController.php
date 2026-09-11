@@ -164,10 +164,24 @@ class InvoiceController extends Controller
         if ($client = $request->query('client')) {
             $query->whereHas('client', fn ($c) => $c->where('uuid', $client));
         }
-        if ($from = $request->query('date_from')) {
+        /*
+         * The stretch of time being looked at.
+         *
+         * Named periods rather than two dates, because "last quarter" and
+         * "the previous financial year" are what people actually ask for and
+         * working out the dates for them by hand is where the wrong figure
+         * comes from. Explicit dates still win: somebody who typed a range
+         * meant that range.
+         */
+        [$periodFrom, $periodTo] = $this->periodRange((string) $request->query('period', ''));
+
+        $from = $request->query('date_from') ?: $periodFrom;
+        $to = $request->query('date_to') ?: $periodTo;
+
+        if ($from) {
             $query->whereDate('invoice_date', '>=', $from);
         }
-        if ($to = $request->query('date_to')) {
+        if ($to) {
             $query->whereDate('invoice_date', '<=', $to);
         }
 
@@ -215,7 +229,7 @@ class InvoiceController extends Controller
         $live = (clone $query)->where('status', '!=', 'cancelled')
             ->withSum('payments as received', 'amount')
             ->withSum('payments as charges', 'charge_amount')
-            ->get(['id', 'subtotal', 'discount', 'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'total']);
+            ->get(['id', 'invoice_date', 'subtotal', 'discount', 'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'total']);
         $consolidated = [
             'basic' => round((float) $live->sum(fn ($i) => (float) $i->subtotal - (float) ($i->discount ?? 0)), 2),
             'cgst' => round((float) $live->sum('cgst'), 2),
@@ -237,6 +251,15 @@ class InvoiceController extends Controller
             'consolidated' => $consolidated,
             'scope' => $scope,
             'by_salesperson' => $bySalesperson,
+            // What the period looks like over time, for the charts. Daily
+            // for a short stretch, monthly once a chart of days would be a
+            // picket fence nobody can read.
+            'series' => $this->series($live, $from, $to),
+            'period' => [
+                'key' => (string) $request->query('period', ''),
+                'from' => $from,
+                'to' => $to,
+            ],
         ], fn ($v) => $v !== null);
 
         // Newest first by when it was raised, not by the date typed on it. A
@@ -744,6 +767,83 @@ class InvoiceController extends Controller
 
         return response()->json(['message' => $label . ' ' . $invoice->number . ' sent to ' . $to
             . ($cc !== [] ? ', copied to ' . implode(', ', $cc) : '') . '.']);
+    }
+
+    /**
+     * The dates a named period covers, or two nulls for "everything".
+     *
+     * The financial year is the Indian one - April to March - because that
+     * is the year every figure in this CRM is eventually filed under.
+     */
+    private function periodRange(string $period): array
+    {
+        $today = now();
+        $fyStartYear = (int) $today->format('n') >= 4 ? (int) $today->format('Y') : (int) $today->format('Y') - 1;
+
+        return match ($period) {
+            'this_month' => [$today->copy()->startOfMonth()->toDateString(), $today->copy()->endOfMonth()->toDateString()],
+            'last_month' => [
+                $today->copy()->subMonthNoOverflow()->startOfMonth()->toDateString(),
+                $today->copy()->subMonthNoOverflow()->endOfMonth()->toDateString(),
+            ],
+            // Rolling windows, counted back from today rather than from the
+            // first of the month: "the last three months" said in March
+            // means since December, not since the 1st of January.
+            'last_3_months' => [$today->copy()->subMonthsNoOverflow(3)->toDateString(), $today->toDateString()],
+            'last_6_months' => [$today->copy()->subMonthsNoOverflow(6)->toDateString(), $today->toDateString()],
+            'last_12_months' => [$today->copy()->subMonthsNoOverflow(12)->toDateString(), $today->toDateString()],
+            'this_fy' => [($fyStartYear) . '-04-01', ($fyStartYear + 1) . '-03-31'],
+            'prev_fy' => [($fyStartYear - 1) . '-04-01', ($fyStartYear) . '-03-31'],
+            'this_cy' => [$today->copy()->startOfYear()->toDateString(), $today->copy()->endOfYear()->toDateString()],
+            'prev_cy' => [
+                $today->copy()->subYear()->startOfYear()->toDateString(),
+                $today->copy()->subYear()->endOfYear()->toDateString(),
+            ],
+            default => [null, null],
+        };
+    }
+
+    /**
+     * The period broken into buckets, for the charts.
+     *
+     * Built from the rows already in hand rather than a second trip: the
+     * consolidated figures needed every live document anyway, so the shape
+     * of the period is arithmetic on what is already loaded.
+     */
+    private function series($live, ?string $from, ?string $to): array
+    {
+        if ($live->isEmpty()) {
+            return [];
+        }
+
+        $dates = $live->map(fn ($i) => $i->invoice_date)->filter();
+        $start = $from ? \Illuminate\Support\Carbon::parse($from) : $dates->min();
+        $end = $to ? \Illuminate\Support\Carbon::parse($to) : $dates->max();
+
+        if (! $start || ! $end) {
+            return [];
+        }
+
+        // Two months of days is about as many bars as a chart can carry.
+        $daily = $start->diffInDays($end) <= 62;
+        $format = $daily ? 'Y-m-d' : 'Y-m';
+
+        return $live
+            ->filter(fn ($i) => $i->invoice_date !== null)
+            ->groupBy(fn ($i) => $i->invoice_date->format($format))
+            ->map(fn ($group, $key) => [
+                'key' => $key,
+                'label' => $daily
+                    ? \Illuminate\Support\Carbon::parse($key)->format('d M')
+                    : \Illuminate\Support\Carbon::parse($key . '-01')->format('M Y'),
+                'count' => $group->count(),
+                'total' => round((float) $group->sum('total'), 2),
+                'received' => round((float) $group->sum(fn ($i) => (float) ($i->received ?? 0)), 2),
+                'due' => round((float) $group->sum(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))), 2),
+            ])
+            ->sortKeys()
+            ->values()
+            ->all();
     }
 
     /** One PDF builder for downloads and e-mails alike. */

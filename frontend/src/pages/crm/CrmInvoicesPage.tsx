@@ -9,8 +9,30 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
+import { CHART_COLORS, ColumnChart, LineChart } from './charts'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+
+/**
+ * The stretches of time a ledger is read in.
+ *
+ * Rolling windows for the middle ones - "the last three months" said in
+ * March means since December - and whole years for the two that are filed:
+ * the financial year runs April to March, the calendar year is the calendar
+ * year, and confusing the two is how the wrong figure reaches an accountant.
+ */
+const PERIODS: [string, string][] = [
+  ['this_month', 'This month'],
+  ['last_month', 'Last month'],
+  ['last_3_months', 'Last 3 months'],
+  ['last_6_months', 'Last 6 months'],
+  ['last_12_months', 'Last 12 months'],
+  ['this_fy', 'This FY (Apr–Mar)'],
+  ['prev_fy', 'Previous FY'],
+  ['this_cy', 'This calendar year'],
+  ['prev_cy', 'Previous calendar year'],
+  ['all', 'All time'],
+]
 
 export default function CrmInvoicesPage() {
   const navigate = useNavigate()
@@ -29,6 +51,16 @@ export default function CrmInvoicesPage() {
   const [dueOnly, setDueOnly] = useState(false)
   const [dueMin, setDueMin] = useState('')
   const [dueMax, setDueMax] = useState('')
+  /*
+   * How far back the screen is looking.
+   *
+   * This month by default: a ledger that opens on everything ever raised
+   * answers a question nobody asked, and the figure at the top of the page
+   * is then a number no one can act on. Typed dates still win - the two
+   * boxes below are an escape hatch from the list, not a second answer to
+   * the same question.
+   */
+  const [period, setPeriod] = useState('this_month')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [company, setCompany] = useState('')
@@ -87,7 +119,7 @@ export default function CrmInvoicesPage() {
   const [salesperson, setSalesperson] = useState('')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, dueOnly, dueMin, dueMax, dateFrom, dateTo, company, page, effectiveScope, salesperson],
+    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salesperson],
     queryFn: () =>
       crm.invoices.list({
         kind,
@@ -101,6 +133,7 @@ export default function CrmInvoicesPage() {
         due_only: dueOnly ? 1 : undefined,
         due_min: dueMin || undefined,
         due_max: dueMax || undefined,
+        period: period || undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         issuing_company_id: company || undefined,
@@ -159,6 +192,46 @@ export default function CrmInvoicesPage() {
       {/* The two ledgers, kept apart on purpose. */}
       <ScopeToggle scope={scope} onChange={(next) => { setScope(next); setSalesperson(''); setPage(1) }} show={teamHead} />
 
+      {/*
+        * The period, drawn.
+        *
+        * Bars for how big each stretch was, a line for which way it is
+        * going - the two questions a period filter exists to ask. Only once
+        * there is more than one bucket to compare: a single bar is a number
+        * with decoration.
+        */}
+      {(data?.totals.series?.length ?? 0) > 1 && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Raised{data?.totals.period?.from && (
+                <span className="ml-1 font-normal text-slate-400">
+                  {data.totals.period.from} to {data.totals.period.to}
+                </span>
+              )}
+            </h2>
+            <ColumnChart
+              data={data!.totals.series!.map((b) => ({ label: b.label, value: b.total }))}
+              unit="₹"
+              height={150}
+            />
+          </Card>
+          <Card>
+            <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Raised against received
+            </h2>
+            <LineChart
+              data={data!.totals.series!.map((b) => ({ label: b.label, values: [b.total, b.received] }))}
+              series={[
+                { label: 'Raised', color: CHART_COLORS[1] },
+                { label: 'Received', color: CHART_COLORS[0] },
+              ]}
+              format={(v) => inr(v)}
+            />
+          </Card>
+        </div>
+      )}
+
       {/* The combined view says whose money is whose, before the rows. */}
       {effectiveScope === 'team' && (data?.totals.by_salesperson?.length ?? 0) > 1 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -213,6 +286,21 @@ export default function CrmInvoicesPage() {
               ))}
             </Select>
           )}
+          <Select
+            value={dateFrom || dateTo ? '' : period}
+            onChange={(e) => {
+              setPeriod(e.target.value)
+              // A named period and a typed range are two answers to one
+              // question; choosing the first clears the second.
+              setDateFrom('')
+              setDateTo('')
+              setPage(1)
+            }}
+            title="Which stretch of time"
+          >
+            {PERIODS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            {(dateFrom || dateTo) && <option value="">Custom dates</option>}
+          </Select>
           <Select value={gst} onChange={(e) => { setGst(e.target.value); setPage(1) }} title="GST-wise">
             <option value="">GST: any</option>
             <option value="with">With GST</option>

@@ -1802,6 +1802,10 @@ export interface CrmTdsDraft {
   subject: string
   body: string
   tds_total: number
+  /** Offered ticked: the salesperson, and the accounts desk. */
+  cc: string[]
+  /** Where the certificate should come back to. */
+  reply_to: string
 }
 
 export interface CrmTdsReminderRow {
@@ -2543,8 +2547,14 @@ export const crm = {
         '/crm/tds-certificates', { params },
       ).then((r) => r.data),
     draft: (invoiceUuids: string[]) =>
-      api.post<{ data: CrmTdsDraft[] }>('/crm/tds-certificates/draft', { invoice_uuids: invoiceUuids })
-        .then((r) => r.data.data),
+      api.post<{ data: CrmTdsDraft[]; accounts_email: string }>(
+        '/crm/tds-certificates/draft', { invoice_uuids: invoiceUuids },
+      ).then((r) => r.data),
+    /** Where certificates are asked to come back to, for the whole company. */
+    setAccountsEmail: (email: string) =>
+      api.post<{ message: string; data: { accounts_email: string } }>(
+        '/crm/tds-certificates/accounts-email', { email },
+      ).then((r) => r.data),
     remind: (invoiceUuids: string[], payload: Record<string, unknown> = {}) =>
       api.post<{ message: string; data: { sent: string[]; refused: string[] } }>(
         '/crm/tds-certificates/remind', { invoice_uuids: invoiceUuids, ...payload },
@@ -2672,6 +2682,9 @@ export const crm = {
           /** The consolidated figures for exactly what the filters selected. */
           consolidated?: { basic: number; cgst: number; sgst: number; igst: number; gst_total: number
             other_tax: number; tds: number; total: number; received: number; charges: number; due: number }
+          /** The period broken into buckets - daily up to two months, then monthly. */
+          series?: { key: string; label: string; count: number; total: number; received: number; due: number }[]
+          period?: { key: string; from: string | null; to: string | null }
         }
       }>('/crm/invoices', { params }).then((r) => r.data),
     get: (uuid: string) => api.get<{ data: CrmInvoiceFull }>(`/crm/invoices/${uuid}`).then((r) => r.data.data),
