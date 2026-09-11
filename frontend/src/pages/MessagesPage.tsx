@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -151,27 +151,51 @@ const RETENTION_CHOICES: { hours: number | null; label: string; hint: string }[]
  * so this cannot inject markup.
  */
 function linkify(text: string, own: boolean) {
-  const parts = text.split(/(https?:\/\/[^\s<>"]+)/g)
+  const parts = text.split(/(https?:\/\/[^\s<>"]+|@[A-Za-z0-9._-]{2,32})/g)
   if (parts.length === 1) return text
 
-  return parts.map((part, i) =>
-    /^https?:\/\//.test(part) ? (
-      <a
-        key={i}
-        href={part}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={clsx(
-          'underline underline-offset-2 break-all',
-          own ? 'text-white hover:opacity-80' : 'text-brand-600 hover:text-brand-700 dark:text-brand-400',
-        )}
-      >
-        {part}
-      </a>
-    ) : (
-      part
-    ),
-  )
+  return parts.map((part, i) => {
+    if (/^https?:\/\//.test(part)) {
+      return (
+        <a
+          key={i}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={clsx(
+            'underline underline-offset-2 break-all',
+            own ? 'text-white hover:opacity-80' : 'text-brand-600 hover:text-brand-700 dark:text-brand-400',
+          )}
+        >
+          {part}
+        </a>
+      )
+    }
+
+    /*
+     * Somebody named in the message.
+     *
+     * Not when the @ is stuck to the end of a word: that is an e-mail
+     * address, and highlighting half of one as a mention is worse than
+     * leaving it plain. Checked against what came before rather than with a
+     * lookbehind, which older Safari does not have.
+     */
+    if (part.startsWith('@') && !/\w$/.test(parts[i - 1] ?? '')) {
+      return (
+        <span
+          key={i}
+          className={clsx(
+            'font-semibold',
+            own ? 'underline decoration-white/40 underline-offset-2' : 'text-brand-600 dark:text-brand-400',
+          )}
+        >
+          {part}
+        </span>
+      )
+    }
+
+    return part
+  })
 }
 
 function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => void }) {
@@ -381,6 +405,53 @@ export default function MessagesPage() {
    * emoji you pick mid-sentence to the wrong place the moment you kept
    * typing.
    */
+  /*
+   * Files chosen but not yet sent.
+   *
+   * They used to go the instant they were picked, which is why a typed
+   * message and an attachment could not travel together: the attachment left
+   * on its own and took none of the words with it. Staged here, both go in
+   * the one message, which is what every other chat does and what the server
+   * has always accepted.
+   */
+  const [pending, setPending] = useState<File[]>([])
+  const [dragging, setDragging] = useState(false)
+
+  /** The @handle being typed, and where it starts in the draft. */
+  const [mention, setMention] = useState<{ query: string; at: number } | null>(null)
+  const [mentionPick, setMentionPick] = useState(0)
+
+  /**
+   * Is the caret sitting in an @handle?
+   *
+   * Only after a space or at the very start, so an e-mail address typed into
+   * a chat does not open a picker on its domain.
+   */
+  const readMention = (text: string, caret: number) => {
+    const before = text.slice(0, caret)
+    const match = /(?:^|\s)@([A-Za-z0-9._-]{0,32})$/.exec(before)
+
+    setMentionPick(0)
+    setMention(match ? { query: match[1], at: caret - match[1].length - 1 } : null)
+  }
+
+  /** Put the chosen handle in, in place of what was typed of it. */
+  const pickMention = (member: { name: string; username: string | null }) => {
+    if (!mention) return
+
+    const handle = '@' + (member.username ?? member.name.replace(/\s+/g, '')) + ' '
+    const text = draft.slice(0, mention.at) + handle + draft.slice(mention.at + 1 + mention.query.length)
+    const cursor = mention.at + handle.length
+
+    setDraft(text)
+    setMention(null)
+
+    requestAnimationFrame(() => {
+      draftInputRef.current?.focus()
+      draftInputRef.current?.setSelectionRange(cursor, cursor)
+    })
+  }
+
   const insertEmoji = (emoji: string) => {
     const el = draftInputRef.current
     const start = el?.selectionStart ?? draft.length
@@ -571,6 +642,8 @@ export default function MessagesPage() {
     mutationFn: (payload: FormData | Record<string, unknown>) => chat.send(selected!.uuid, payload),
     onSuccess: () => {
       setDraft('')
+      setPending([])
+      setMention(null)
       setReplyTo(null)
       invalidateMessages()
     },
@@ -850,11 +923,51 @@ export default function MessagesPage() {
       }
       return
     }
+    // Files on the tray take the typed words with them as their caption.
+    if (pending.length) {
+      const type = pending.every((f) => f.type.startsWith('image/')) ? 'image' : 'file'
+      sendFiles(pending, type, { caption: draft.trim() })
+      return
+    }
     if (!draft.trim()) return
     sendMutation.mutate({ body: draft.trim(), reply_to: replyTo?.uuid ?? null })
   }
 
-  const sendFiles = (fileList: File[], type: string, duration?: number) => {
+  /**
+   * Put files on the tray. Nothing is sent until the send button is.
+   *
+   * Five is the server's limit, so it is the limit here too - and a person
+   * who dropped eight should be told which three were left rather than
+   * discovering it from a validation error.
+   */
+  const stageFiles = (list: File[]) => {
+    if (!list.length) return
+
+    const tooBig = list.filter((f) => f.size > MAX_UPLOAD_MB * 1024 * 1024)
+    if (tooBig.length) {
+      toastError(
+        tooBig.length === 1
+          ? `${tooBig[0].name} is larger than ${MAX_UPLOAD_MB} MB.`
+          : `${tooBig.length} files are larger than ${MAX_UPLOAD_MB} MB.`,
+      )
+    }
+
+    const ok = list.filter((f) => f.size <= MAX_UPLOAD_MB * 1024 * 1024)
+    if (!ok.length) return
+
+    setPending((prev) => {
+      const room = 5 - prev.length
+      if (room <= 0) {
+        toastError('Five files at a time is the limit.')
+        return prev
+      }
+      if (ok.length > room) toastError(`Only ${room} more file(s) fit on this message.`)
+
+      return [...prev, ...ok.slice(0, room)]
+    })
+  }
+
+  const sendFiles = (fileList: File[], type: string, options: { caption?: string; duration?: number } = {}) => {
     /*
      * Checked here as well as on the server.
      *
@@ -878,8 +991,10 @@ export default function MessagesPage() {
     const form = new FormData()
     fileList.forEach((f) => form.append('attachments[]', f))
     form.append('type', type)
+    // The words typed beside the file travel with it, in one message.
+    if (options.caption) form.append('body', options.caption)
     if (replyTo) form.append('reply_to', replyTo.uuid)
-    if (duration !== undefined) form.append('duration_seconds', String(duration))
+    if (options.duration !== undefined) form.append('duration_seconds', String(options.duration))
     sendMutation.mutate(form)
   }
 
@@ -905,6 +1020,32 @@ export default function MessagesPage() {
 
   /** The colours this chat is wearing for me. Falls back to the app's own. */
   const theme = chatTheme(selected?.theme)
+
+  /*
+   * Who is in this room, for the @ picker.
+   *
+   * Fetched only once somebody actually types an @, and cached after that:
+   * most messages never mention anybody, and a request per conversation
+   * opened would be a request nobody asked for.
+   */
+  const { data: roomMembers } = useQuery({
+    queryKey: ['conversation-members', selected?.uuid],
+    queryFn: () => conversationMembers(selected!.uuid),
+    enabled: !!selected && mention !== null,
+    staleTime: 5 * 60_000,
+  })
+
+  const mentionMatches = useMemo(() => {
+    if (!mention) return []
+    const q = mention.query.toLowerCase()
+
+    return (roomMembers ?? [])
+      .filter((m) => !m.is_me)
+      .filter((m) => !q
+        || m.username?.toLowerCase().includes(q)
+        || m.name.toLowerCase().includes(q))
+      .slice(0, 6)
+  }, [mention, roomMembers])
 
   /*
    * Which message must have its actions below the bubble rather than above.
@@ -1267,7 +1408,40 @@ export default function MessagesPage() {
       </div>
 
       {/* Chat window */}
-      <div className={clsx('min-w-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900', selected ? 'flex' : 'hidden md:flex')}>
+      <div
+        className={clsx(
+          'relative min-w-0 flex-1 flex-col rounded-xl border bg-white dark:bg-slate-900',
+          dragging ? 'border-brand-400 border-dashed' : 'border-slate-200 dark:border-slate-800',
+          selected ? 'flex' : 'hidden md:flex',
+        )}
+        /*
+         * Dropped anywhere on the conversation, not only on the paperclip.
+         *
+         * dragenter/dragover both have to be cancelled or the browser takes
+         * the file over and navigates away from the app to display it, which
+         * is the default nobody wants and everybody has seen.
+         */
+        onDragEnter={(e) => { if (selected && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true) } }}
+        onDragOver={(e) => { if (selected && e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true) } }}
+        onDragLeave={(e) => {
+          // Only when the pointer has actually left the panel - moving over a
+          // child fires dragleave for the parent as well.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false)
+        }}
+        onDrop={(e) => {
+          if (!selected) return
+          e.preventDefault()
+          setDragging(false)
+          stageFiles(Array.from(e.dataTransfer.files ?? []))
+        }}
+      >
+        {dragging && selected && (
+          <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center rounded-xl bg-brand-500/10">
+            <span className="flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-medium text-brand-600 shadow-lift dark:bg-slate-800">
+              <Paperclip className="size-4" /> Drop to attach
+            </span>
+          </div>
+        )}
         {!selected ? (
           <div className="flex flex-1 items-center justify-center">
             <EmptyState title="Select a conversation" hint="Or start a new one with an App ID." />
@@ -2133,6 +2307,65 @@ export default function MessagesPage() {
                     : `${typing.map((t) => t.name.split(' ')[0]).join(', ')} are typing…`}
                 </p>
               )}
+              {/*
+                * Files waiting to go, with whatever is typed beside them.
+                *
+                * Sending is one action from here: the words and the files
+                * leave together as one message, the way they were written.
+                */}
+              {pending.length > 0 && (
+                <div className="mb-2 flex flex-wrap gap-1.5">
+                  {pending.map((file, i) => (
+                    <span
+                      key={file.name + i}
+                      className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                    >
+                      <Paperclip className="size-3 shrink-0" />
+                      <span className="max-w-[12rem] truncate">{file.name}</span>
+                      <span className="text-slate-400">{Math.max(1, Math.round(file.size / 1024))} KB</span>
+                      <button
+                        onClick={() => setPending((prev) => prev.filter((_, j) => j !== i))}
+                        aria-label={`Remove ${file.name}`}
+                        className="text-slate-400 hover:text-red-500"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/*
+                * Naming somebody in a room.
+                *
+                * Matched on the handle or the name, inserted as the handle -
+                * the server reads handles, because two people can share a
+                * first name and only one can hold a username.
+                */}
+              {mention && mentionMatches.length > 0 && (
+                <div className="mb-2 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lift dark:border-slate-700 dark:bg-slate-800">
+                  {mentionMatches.map((m, i) => (
+                    <button
+                      key={m.uuid}
+                      onMouseEnter={() => setMentionPick(i)}
+                      /* The input must not lose focus on the way to the
+                         click, or the blur below closes the picker first
+                         and the click lands on nothing. */
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => pickMention(m)}
+                      className={clsx(
+                        'flex w-full items-center gap-2 px-3 py-2 text-left text-sm',
+                        i === mentionPick ? 'bg-slate-100 dark:bg-slate-700' : 'hover:bg-slate-50 dark:hover:bg-slate-700/60',
+                      )}
+                    >
+                      <Avatar name={m.name} photoPath={m.photo_path} avatar={m.avatar} size={24} />
+                      <span className="truncate font-medium text-slate-700 dark:text-slate-100">{m.name}</span>
+                      {m.username && <span className="truncate text-xs text-slate-400">@{m.username}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {(replyTo || editing) && (
                 <div className="mb-2 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-1.5 text-xs dark:bg-slate-800">
                   <span className="truncate">
@@ -2158,16 +2391,14 @@ export default function MessagesPage() {
                   multiple
                   className="hidden"
                   onChange={(e) => {
-                    const list = Array.from(e.target.files ?? [])
-                    if (list.length) {
-                      const type = list.every((f) => f.type.startsWith('image/')) ? 'image' : 'file'
-                      sendFiles(list, type)
-                    }
+                    stageFiles(Array.from(e.target.files ?? []))
                     e.target.value = ''
                   }}
                 />
+                {/* A voice note is the message; there is nothing to
+                    stage and nothing to caption. */}
                 <VoiceRecorder onSend={(blob, seconds) => {
-                  sendFiles([new File([blob], `voice-${Date.now()}.webm`, { type: blob.type })], 'voice', seconds)
+                  sendFiles([new File([blob], `voice-${Date.now()}.webm`, { type: blob.type })], 'voice', { duration: seconds })
                 }} />
                 <EmojiPicker onPick={insertEmoji} />
                 <Input
@@ -2176,6 +2407,7 @@ export default function MessagesPage() {
                   value={draft}
                   onChange={(e) => {
                     setDraft(e.target.value)
+                    readMention(e.target.value, e.target.selectionStart ?? e.target.value.length)
                     // One signal every couple of seconds, not one per keystroke.
                     const now = Date.now()
                     if (selected && e.target.value && now - typingSentRef.current > 2000) {
@@ -2183,14 +2415,48 @@ export default function MessagesPage() {
                       chat.typing(selected.uuid).catch(() => undefined)
                     }
                   }}
+                  /* Moving the caret can land inside an @handle, or out of one. */
+                  onKeyUp={(e) => {
+                    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+                      readMention(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)
+                    }
+                  }}
+                  onBlur={() => requestAnimationFrame(() => setMention(null))}
                   onKeyDown={(e) => {
+                    // While the picker is open the keys belong to it: Enter
+                    // chooses a person rather than sending half a handle.
+                    if (mention && mentionMatches.length > 0) {
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault()
+                        setMentionPick((i) => (i + 1) % mentionMatches.length)
+                        return
+                      }
+                      if (e.key === 'ArrowUp') {
+                        e.preventDefault()
+                        setMentionPick((i) => (i - 1 + mentionMatches.length) % mentionMatches.length)
+                        return
+                      }
+                      if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault()
+                        pickMention(mentionMatches[mentionPick])
+                        return
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setMention(null)
+                        return
+                      }
+                    }
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
                       send()
                     }
                   }}
                 />
-                <Button onClick={send} disabled={sendMutation.isPending || (!draft.trim() && !editing)}>
+                <Button
+                  onClick={send}
+                  disabled={sendMutation.isPending || (!draft.trim() && !pending.length && !editing)}
+                >
                   {editing ? <Check className="size-4" /> : <Send className="size-4" />}
                 </Button>
               </div>

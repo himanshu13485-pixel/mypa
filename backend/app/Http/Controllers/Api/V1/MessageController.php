@@ -179,10 +179,27 @@ class MessageController extends Controller
      */
     protected function notifyMembers(Conversation $conversation, Message $message, User $me): void
     {
-        $recipients = $conversation->members()
+        $everyone = $conversation->members()
             ->where('users.id', '!=', $me->id)
-            ->whereNull('conversation_members.muted_at')
             ->get();
+
+        if ($everyone->isEmpty()) {
+            return;
+        }
+
+        /*
+         * Being named cuts through a mute.
+         *
+         * Muting a room says "do not tell me what is said in here"; it does
+         * not say "do not tell me when somebody asks me something directly".
+         * In a group of twenty that distinction is the only thing that makes
+         * muting usable at all.
+         */
+        $named = $this->mentionedIn($message, $everyone);
+
+        $recipients = $everyone->filter(
+            fn (User $u) => $named->has($u->id) || $u->pivot->muted_at === null,
+        );
 
         if ($recipients->isEmpty()) {
             return;
@@ -193,16 +210,48 @@ class MessageController extends Controller
         $room = $conversation->name ?? $conversation->group?->name;
         $where = $conversation->type === 'direct' || ! $room ? '' : " in {$room}";
         $preview = "{$me->name}{$where}: " . $this->previewOf($message);
+        $calledOut = "{$me->name} mentioned you{$where}: " . $this->previewOf($message);
 
         foreach ($recipients as $member) {
             $member->notify(new \App\Notifications\SocialNotification(
                 'message',
-                $preview,
+                $named->has($member->id) ? $calledOut : $preview,
                 ['conversation_uuid' => $conversation->uuid, 'message_uuid' => $message->uuid],
                 '/messages?conversation=' . $conversation->uuid,
                 'message-' . $message->uuid,
             ));
         }
+    }
+
+    /**
+     * The people written into the message by name.
+     *
+     * Only members of this conversation, and only by username: @ana is a
+     * mention of whoever holds that handle here, and of nobody at all if
+     * the handle belongs to somebody who is not in the room. Matching on
+     * display names instead would make "@the boss" a mention, or worse, make
+     * one of two people called Anand receive it.
+     *
+     * @param  \Illuminate\Support\Collection<int, User>  $members
+     * @return \Illuminate\Support\Collection<int, User>  keyed by user id
+     */
+    protected function mentionedIn(Message $message, $members)
+    {
+        if (blank($message->body)) {
+            return collect();
+        }
+
+        preg_match_all('/(?<![\w@])@([A-Za-z0-9._-]{2,32})/u', $message->body, $matches);
+
+        $handles = collect($matches[1])->map(fn ($h) => mb_strtolower(rtrim($h, '.')))->unique();
+
+        if ($handles->isEmpty()) {
+            return collect();
+        }
+
+        return $members
+            ->filter(fn (User $u) => $u->username !== null && $handles->contains(mb_strtolower($u->username)))
+            ->keyBy('id');
     }
 
     /** What the message looks like in one line, when there is no room for it. */
