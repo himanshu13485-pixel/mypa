@@ -13,6 +13,7 @@ import { ensurePushRegistered } from '../lib/alerts'
 import { disconnectEcho } from '../lib/echo'
 import { isStaff, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
+import { MenuAlertToggle } from './MenuAlertToggle'
 import NetvorkMark from './Logo'
 import { CallProvider } from './CallManager'
 import ImpersonationBanner from './ImpersonationBanner'
@@ -362,6 +363,9 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
           </span>
           <div className="hidden lg:block" />
           <div className="flex items-center gap-0.5 sm:gap-2">
+            {/* The switch for whichever tab is open, beside the bell that
+                reads them all. */}
+            <MenuAlertToggle />
             <NotificationBell />
             <button
               onClick={() => setDark(!dark)}

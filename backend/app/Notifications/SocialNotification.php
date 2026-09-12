@@ -101,10 +101,24 @@ class SocialNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        $mail = self::wantsMail($notifiable) && ! in_array($this->kind, self::NEVER_MAIL, true);
+        /*
+         * The menu this came from, and what that menu is set to.
+         *
+         * The bell row is always written: it is the record of what happened,
+         * and a person who silenced the payment e-mails has not asked for
+         * the payments screen to forget that money arrived. What the topic
+         * switches is whether it is pushed at them.
+         */
+        $topic = \App\Support\NotificationTopics::of($this->kind);
+        $settings = $notifiable->settings ?? null;
+
+        $mail = self::wantsMail($notifiable)
+            && ! in_array($this->kind, self::NEVER_MAIL, true)
+            && ($settings?->topicAllows($topic, 'email') ?? true);
+
         $via = $mail ? [...self::BELL, 'mail'] : self::BELL;
 
-        if (self::wantsPush($notifiable)) {
+        if (self::wantsPush($notifiable) && ($settings?->topicAllows($topic, 'app') ?? true)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;
             $via[] = \App\Notifications\Channels\FcmChannel::class;
         }

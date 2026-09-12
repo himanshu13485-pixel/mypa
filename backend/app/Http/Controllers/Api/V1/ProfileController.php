@@ -90,6 +90,68 @@ class ProfileController extends Controller
         return new UserResource($user->fresh()->load(['profile', 'settings', 'appId', 'roles']));
     }
 
+    /**
+     * Every menu, and what each is set to.
+     *
+     * The list comes from the server rather than the screen so a menu added
+     * later appears in Settings without a release of the app, and so the
+     * two can never disagree about what a topic is called.
+     */
+    public function notificationTopics(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $settings = $request->user()->settings()->firstOrCreate([]);
+
+        return response()->json([
+            'data' => [
+                'topics' => \App\Support\NotificationTopics::all(),
+                'values' => $settings->topicPreferences(),
+                // The two app-wide switches still sit above all of them.
+                'email' => $settings->notificationValue('email'),
+                'push' => $settings->notificationValue('push'),
+            ],
+        ]);
+    }
+
+    /**
+     * Switch one menu, or several, on or off.
+     *
+     * A patch rather than a whole document: two tabs open on the settings
+     * screen should not be able to undo each other's answer to a different
+     * question.
+     */
+    public function updateNotificationTopics(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $data = $request->validate([
+            'topics' => ['required', 'array'],
+            'topics.*.email' => ['sometimes', 'boolean'],
+            'topics.*.app' => ['sometimes', 'boolean'],
+        ]);
+
+        $settings = $request->user()->settings()->firstOrCreate([]);
+        $preferences = $settings->notification_preferences ?? [];
+        $saved = (array) ($preferences['topics'] ?? []);
+
+        foreach ($data['topics'] as $key => $wanted) {
+            if (! \App\Support\NotificationTopics::exists((string) $key)) {
+                continue;
+            }
+
+            $saved[$key] = array_merge(
+                ['email' => true, 'app' => true],
+                (array) ($saved[$key] ?? []),
+                array_intersect_key($wanted, array_flip(['email', 'app'])),
+            );
+        }
+
+        $preferences['topics'] = $saved;
+        $settings->update(['notification_preferences' => $preferences]);
+
+        return response()->json([
+            'message' => 'Saved.',
+            'data' => ['values' => $settings->fresh()->topicPreferences()],
+        ]);
+    }
+
     public function uploadPhoto(Request $request): UserResource
     {
         $request->validate([

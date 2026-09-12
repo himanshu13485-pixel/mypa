@@ -88,6 +88,41 @@ class UserSetting extends Model
             ?? true);
     }
 
+    /**
+     * Whether one menu's notifications may use one channel.
+     *
+     * Two answers, not one: somebody who stops the payment e-mails usually
+     * still wants the bell to say a payment landed. Absent means on, like
+     * every other preference here - a menu nobody has touched is a menu
+     * nobody has switched off.
+     *
+     * The app-wide switch still wins. Turning e-mail off entirely and then
+     * finding one menu still writing to you would be a setting that lied.
+     */
+    public function topicAllows(string $topic, string $channel): bool
+    {
+        if (! $this->notificationValue($channel === 'email' ? 'email' : 'push')) {
+            return false;
+        }
+
+        $topics = $this->notification_preferences['topics'] ?? [];
+
+        return (bool) ($topics[$topic][$channel] ?? true);
+    }
+
+    /** What every menu is set to, for the screen that shows them. */
+    public function topicPreferences(): array
+    {
+        $saved = (array) ($this->notification_preferences['topics'] ?? []);
+
+        return collect(\App\Support\NotificationTopics::TOPICS)
+            ->map(fn ($_, string $key) => [
+                'email' => (bool) ($saved[$key]['email'] ?? true),
+                'app' => (bool) ($saved[$key]['app'] ?? true),
+            ])
+            ->all();
+    }
+
     public function privacyValue(string $key): string
     {
         return $this->privacy[$key] ?? self::DEFAULT_PRIVACY[$key] ?? 'everyone';

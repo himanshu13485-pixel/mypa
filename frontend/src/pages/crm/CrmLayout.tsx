@@ -9,6 +9,7 @@ import { FestivalVibes } from './FestivalVibes'
 import { CallProvider } from '../../components/CallManager'
 import ImpersonationBanner from '../../components/ImpersonationBanner'
 import NotificationBell from '../../components/NotificationBell'
+import { MenuAlertToggle } from '../../components/MenuAlertToggle'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowLeft,
@@ -508,11 +509,15 @@ export default function CrmLayout() {
           >
             <ArrowLeftRight className="size-4" />
           </button>
+          <MenuAlertToggle />
           <NotificationBell />
         </header>
         {/* The CRM has its own shell, so it needs its own bell — the same
             one the rest of Netvork uses, reading the same notifications. */}
         <div data-print-chrome className="sticky top-0 z-20 hidden items-center justify-end gap-1 border-b border-slate-200 bg-white/90 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 md:flex">
+          {/* The switch for whichever menu is open, beside the bell that
+              reads them all. */}
+          <MenuAlertToggle />
           <NotificationBell />
         </div>
         <main className="scroll-pane min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">

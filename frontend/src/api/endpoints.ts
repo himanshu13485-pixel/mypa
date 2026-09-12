@@ -45,11 +45,45 @@ export const auth = {
 
 // --- Profile ----------------------------------------------------------------
 
+/** One menu's two switches. */
+export interface NotificationTopicValue {
+  email: boolean
+  app: boolean
+}
+
+export interface NotificationTopic {
+  key: string
+  label: string
+  hint: string
+  group: string
+}
+
+export interface NotificationTopicSettings {
+  topics: NotificationTopic[]
+  values: Record<string, NotificationTopicValue>
+  /** The two app-wide switches, which sit above all of them. */
+  email: boolean
+  push: boolean
+}
+
 export const profile = {
   update: (payload: Record<string, unknown>) =>
     api.put<{ data: User }>('/me/profile', payload).then((r) => r.data.data),
   updateSettings: (payload: Record<string, unknown>) =>
     api.put<{ data: User }>('/me/settings', payload).then((r) => r.data.data),
+  /**
+   * Which menus may write to you, and how.
+   *
+   * The list of menus comes from the server rather than being written out
+   * here, so one added later appears in Settings without a release of the
+   * app and the two can never disagree about what a topic is called.
+   */
+  notificationTopics: () =>
+    api.get<{ data: NotificationTopicSettings }>('/me/notification-topics').then((r) => r.data.data),
+  setNotificationTopics: (topics: Record<string, { email?: boolean; app?: boolean }>) =>
+    api.put<{ message: string; data: { values: Record<string, NotificationTopicValue> } }>(
+      '/me/notification-topics', { topics },
+    ).then((r) => r.data),
   myQr: () => api.get<{ data: { app_id: string; payload: string } }>('/me/app-id/qr').then((r) => r.data.data),
   /** Irreversible: the account and everything it owns. */
   deleteAccount: (password: string) =>

@@ -219,6 +219,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             ->withoutMiddleware('verified.email');
         Route::put('/me/profile', [ProfileController::class, 'updateProfile']);
         Route::put('/me/settings', [ProfileController::class, 'updateSettings']);
+        // Which menus may write to you, and how.
+        Route::get('/me/notification-topics', [ProfileController::class, 'notificationTopics']);
+        Route::put('/me/notification-topics', [ProfileController::class, 'updateNotificationTopics']);
         Route::post('/me/photo', [ProfileController::class, 'uploadPhoto']);
         // Closing an account for good. Throttled because it is irreversible
         // and there is no reason to attempt it more than once a minute.

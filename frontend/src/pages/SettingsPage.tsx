@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { clsx } from 'clsx'
 import { Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -11,6 +11,7 @@ import {
 } from '../lib/onlineAlerts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { auth, identity as identityApi, profile as profileApi, subscription as subscriptionApi } from '../api/endpoints'
+import type { NotificationTopic } from '../api/endpoints'
 import { MobileField } from '../components/MobileField'
 import { errorMessage } from '../api/client'
 import { useAuthStore } from '../stores/auth'
@@ -673,6 +674,8 @@ export default function SettingsPage() {
         </label>
       </Card>
 
+      <NotificationMenusCard />
+
       <AlertsCard />
 
       <Card>
@@ -919,6 +922,111 @@ function AlertsCard() {
               )}
             </div>
           )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+/**
+ * Which menus may write to you.
+ *
+ * Two switches for the whole app is not a choice anybody wants to make:
+ * what people want is to stop the payment e-mails and keep the leave
+ * approvals. So every notification is filed under the screen it comes from
+ * and each screen gets its own pair - e-mail, and the bell on the phone.
+ *
+ * Saved as it is switched rather than behind a button: one checkbox is not
+ * a form, and a page of them with a Save at the bottom is a page where
+ * half the answers are lost to a closed tab.
+ */
+function NotificationMenusCard() {
+  const queryClient = useQueryClient()
+  const [saving, setSaving] = useState<string | null>(null)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['notification-topics'],
+    queryFn: profileApi.notificationTopics,
+  })
+
+  const mutation = useMutation({
+    mutationFn: (topics: Record<string, { email?: boolean; app?: boolean }>) =>
+      profileApi.setNotificationTopics(topics),
+    onSuccess: (res) => {
+      queryClient.setQueryData(['notification-topics'], (prev: typeof data) =>
+        prev ? { ...prev, values: res.data.values } : prev)
+      setSaving(null)
+    },
+    onSettled: () => setSaving(null),
+  })
+
+  /* Grouped as the server ordered them - Personal, then CRM, then the rest. */
+  const groups = useMemo(() => {
+    const out = new Map<string, NotificationTopic[]>()
+    for (const topic of data?.topics ?? []) {
+      out.set(topic.group, [...(out.get(topic.group) ?? []), topic])
+    }
+
+    return [...out.entries()]
+  }, [data])
+
+  const set = (key: string, channel: 'email' | 'app', on: boolean) => {
+    setSaving(key + channel)
+    mutation.mutate({ [key]: { [channel]: on } })
+  }
+
+  return (
+    <Card>
+      <h2 className="mb-1 text-sm font-semibold">Which menus may write to you</h2>
+      <p className="mb-3 text-xs text-slate-400">
+        Switch off the e-mail for a menu and its alerts still reach the bell — the record of what
+        happened is kept either way.
+        {data && !data.email && (
+          <span className="block text-amber-600 dark:text-amber-400">
+            E-mail is switched off for the whole account above, so nothing here can write to you.
+          </span>
+        )}
+      </p>
+
+      {isLoading || !data ? (
+        <p className="text-xs text-slate-400">Loading…</p>
+      ) : (
+        <div className="space-y-4">
+          {groups.map(([group, topics]) => (
+            <div key={group}>
+              <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">{group}</h3>
+              <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+                <div className="flex items-center gap-3 bg-slate-50 px-3 py-1.5 text-[11px] font-medium text-slate-400 dark:bg-slate-800/60">
+                  <span className="flex-1">Menu</span>
+                  <span className="w-14 text-center">E-mail</span>
+                  <span className="w-14 text-center">Alerts</span>
+                </div>
+                {topics.map((topic) => (
+                  <div
+                    key={topic.key}
+                    className="flex items-center gap-3 border-t border-slate-100 px-3 py-2 dark:border-slate-800"
+                  >
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm text-slate-700 dark:text-slate-200">{topic.label}</span>
+                      <span className="block text-[11px] text-slate-400">{topic.hint}</span>
+                    </span>
+                    {(['email', 'app'] as const).map((channel) => (
+                      <span key={channel} className="flex w-14 justify-center">
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-emerald-600"
+                          aria-label={`${topic.label}: ${channel === 'email' ? 'e-mail' : 'alerts'}`}
+                          disabled={saving === topic.key + channel}
+                          checked={data.values[topic.key]?.[channel] !== false}
+                          onChange={(e) => set(topic.key, channel, e.target.checked)}
+                        />
+                      </span>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </Card>

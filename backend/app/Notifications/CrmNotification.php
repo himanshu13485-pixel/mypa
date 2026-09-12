@@ -26,9 +26,16 @@ class CrmNotification extends Notification implements ShouldQueue
 
     public function via(object $notifiable): array
     {
-        $via = SocialNotification::wantsMail($notifiable) ? ['database', 'mail'] : ['database'];
+        // The menu this came from decides whether it is written or pushed;
+        // the bell row is kept either way, as the record of what happened.
+        $topic = \App\Support\NotificationTopics::of($this->kind);
+        $settings = $notifiable->settings ?? null;
 
-        if (SocialNotification::wantsPush($notifiable)) {
+        $via = SocialNotification::wantsMail($notifiable) && ($settings?->topicAllows($topic, 'email') ?? true)
+            ? ['database', 'mail']
+            : ['database'];
+
+        if (SocialNotification::wantsPush($notifiable) && ($settings?->topicAllows($topic, 'app') ?? true)) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;
         }
 
