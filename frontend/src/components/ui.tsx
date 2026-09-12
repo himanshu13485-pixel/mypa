@@ -94,19 +94,30 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
   },
 )
 
-export function Textarea({ className, ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      className={clsx(
-        FIELD,
-        widthClass(className),
-        'placeholder:text-slate-400',
-        className,
-      )}
-      {...props}
-    />
-  )
-}
+/*
+ * Forwarding its ref, like Input above.
+ *
+ * A caller that needs the element - to focus it, or to read where the caret
+ * is - could reach an <input> and not a <textarea>, which is the sort of
+ * asymmetry that quietly decides an interface: the chat composer stayed a
+ * single line partly because the multi-line one could not be focused.
+ */
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea({ className, ...props }, ref) {
+    return (
+      <textarea
+        ref={ref}
+        className={clsx(
+          FIELD,
+          widthClass(className),
+          'placeholder:text-slate-400',
+          className,
+        )}
+        {...props}
+      />
+    )
+  },
+)
 
 export function Select({ className, ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
   return (

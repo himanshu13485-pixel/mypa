@@ -26,7 +26,7 @@ import { useAuthStore } from '../stores/auth'
 import { useCalls } from '../components/CallManager'
 import { useToast } from '../components/Toast'
 import { usePrompt } from '../components/Prompt'
-import { Badge, Button, EmptyState, Input, Modal, SkeletonList, SkeletonMessages } from '../components/ui'
+import { Badge, Button, EmptyState, Input, Modal, SkeletonList, SkeletonMessages, Textarea } from '../components/ui'
 import type { ChatMessage, ConversationItem } from '../types'
 import { Avatar } from '../lib/avatars'
 import { PresenceDot, PresenceInline } from '../components/PresenceDot'
@@ -395,7 +395,7 @@ export default function MessagesPage() {
   /** True once the opened conversation has been pinned to its newest message. */
   const pinnedRef = useRef(false)
   const fileRef = useRef<HTMLInputElement>(null)
-  const draftInputRef = useRef<HTMLInputElement>(null)
+  const draftInputRef = useRef<HTMLTextAreaElement>(null)
 
   /**
    * Put an emoji where the cursor is, not always at the end.
@@ -451,6 +451,25 @@ export default function MessagesPage() {
       draftInputRef.current?.setSelectionRange(cursor, cursor)
     })
   }
+
+  /*
+   * The box grows with what is typed, up to a point.
+   *
+   * A textarea keeps whatever height it was given, so a five-line message
+   * would be read through a one-line window. Reset to auto first or it can
+   * only ever grow: scrollHeight of an already-tall box is its own height.
+   * Six lines is where it stops and starts scrolling instead - past that it
+   * is eating the conversation it is about.
+   */
+  const fitDraftBox = () => {
+    const el = draftInputRef.current
+    if (!el) return
+
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 132) + 'px'
+  }
+
+  useEffect(fitDraftBox, [draft])
 
   const insertEmoji = (emoji: string) => {
     const el = draftInputRef.current
@@ -2376,7 +2395,10 @@ export default function MessagesPage() {
                   </button>
                 </div>
               )}
-              <div className="flex items-center gap-1.5">
+              {/* items-end, not items-center: the box grows upward as lines
+                  are added, and the buttons beside it should stay on the
+                  line being typed rather than drift up the middle of it. */}
+              <div className="flex items-end gap-1.5">
                 <button
                   type="button"
                   className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800"
@@ -2401,9 +2423,21 @@ export default function MessagesPage() {
                   sendFiles([new File([blob], `voice-${Date.now()}.webm`, { type: blob.type })], 'voice', { duration: seconds })
                 }} />
                 <EmojiPicker onPick={insertEmoji} />
-                <Input
+                {/*
+                  * A textarea, not an input.
+                  *
+                  * Shift+Enter was already left alone by the handler below -
+                  * but an <input> cannot hold a newline, so the key did
+                  * nothing at all and a message with two paragraphs had to be
+                  * sent as two messages.
+                  */}
+                <Textarea
                   ref={draftInputRef}
+                  rows={1}
                   placeholder={editing ? 'Edit your message…' : 'Type a message…'}
+                  // Grows to six lines, then scrolls. min-w-0 so a long word
+                  // cannot push the send button off a narrow screen.
+                  className="min-w-0 flex-1 resize-none py-2 leading-5"
                   value={draft}
                   onChange={(e) => {
                     setDraft(e.target.value)
@@ -2447,6 +2481,14 @@ export default function MessagesPage() {
                         return
                       }
                     }
+                    /*
+                     * Enter sends, Shift+Enter breaks the line.
+                     *
+                     * Nothing is done for the second case on purpose: left
+                     * alone, the browser inserts the newline and moves the
+                     * caret itself, which is what every other multi-line box
+                     * on every other site does.
+                     */
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault()
                       send()
