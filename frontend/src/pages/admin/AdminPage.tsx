@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Activity, Ban, BarChart3, Bot, Bug, CheckCircle2, ClipboardCheck, CreditCard, Flag,
-  KeyRound, LogIn, MailCheck, MessagesSquare, Pencil, Plus, Radio, RefreshCw, Search, Send,
+  KeyRound, LogIn, MailCheck, MessagesSquare, Palette, Pencil, Plus, Radio, RefreshCw, Search, Send,
   Shield, SlidersHorizontal, UserCheck, Users, Wifi,
 } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
@@ -16,6 +16,7 @@ import type { AdminPlan } from '../../types'
 import { api, errorMessage } from '../../api/client'
 import { useAuthStore } from '../../stores/auth'
 import UserSuggest from '../../components/UserSuggest'
+import { BirthdayWords, ThemePicker } from '../../components/ThemePicker'
 import { useToast } from '../../components/Toast'
 import { usePrompt } from '../../components/Prompt'
 import {
@@ -2115,6 +2116,77 @@ function BotStat({ label, value }: { label: string; value: number }) {
   )
 }
 
+/**
+ * Netvork's default theme and birthday words.
+ *
+ * What everybody on their own sees, and what a company member sees when
+ * neither they nor their company chose. Anybody can still pick their own;
+ * only a super admin saves here.
+ */
+function ThemeTab() {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const { data: settings } = useQuery({
+    queryKey: ['admin-settings'],
+    queryFn: () => api.get<{ data: Record<string, string | boolean> }>('/admin/settings').then((r) => r.data.data),
+  })
+
+  const save = useMutation({
+    mutationFn: (payload: Record<string, string | null>) => api.put('/admin/settings', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin-settings'] })
+      queryClient.invalidateQueries({ queryKey: ['theme'] })
+      queryClient.invalidateQueries({ queryKey: ['crm', 'appearance'] })
+      toast('Netvork default saved.', 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const value = (key: string) => (typeof settings?.[key] === 'string' && settings[key] ? String(settings[key]) : null)
+
+  if (!settings) return <SkeletonList />
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <h2 className="text-sm font-semibold">Netvork default theme</h2>
+        <p className="mt-0.5 text-xs text-slate-500">
+          Individual users see this, and so does a company member when neither they nor their company picked a
+          look. Everybody can still choose their own from Settings or CRM Theme. (Super admin only.)
+        </p>
+        <ThemePicker
+          background={value('theme_background')}
+          sidebar={value('theme_sidebar')}
+          busy={save.isPending}
+          onPick={(change) => save.mutate({
+            ...(change.background !== undefined ? { theme_background: change.background } : {}),
+            ...(change.sidebar !== undefined ? { theme_sidebar: change.sidebar } : {}),
+          })}
+        />
+      </Card>
+
+      <Card>
+        <h2 className="text-sm font-semibold">Default birthday words</h2>
+        <p className="mt-0.5 text-xs text-slate-500">
+          What a birthday wish and a thank-you start with, for everybody whose company and who themselves have
+          not written their own.
+        </p>
+        <BirthdayWords
+          wish={value('birthday_default_wish')}
+          reply={value('birthday_default_reply')}
+          belated={value('birthday_default_belated')}
+          busy={save.isPending}
+          onSave={(w) => save.mutate({
+            birthday_default_wish: w.wish,
+            birthday_default_reply: w.reply,
+            birthday_default_belated: w.belated,
+          })}
+        />
+      </Card>
+    </div>
+  )
+}
+
 const TABS = [
   { key: 'overview', label: 'Overview', icon: Shield },
   { key: 'users', label: 'Users', icon: Users },
@@ -2126,6 +2198,7 @@ const TABS = [
   { key: 'logins', label: 'Logins', icon: LogIn },
   { key: 'errors', label: 'Errors', icon: Bug },
   { key: 'moderation', label: 'Moderation', icon: Flag },
+  { key: 'theme', label: 'Theme', icon: Palette },
   { key: 'bots', label: 'Service Accounts', icon: Bot },
   { key: 'internal', label: 'Internal Work', icon: MessagesSquare },
   { key: 'sales', label: 'My Users', icon: UserCheck },
@@ -2138,7 +2211,7 @@ function visibleTabs(roles: string[]) {
     // 'bots' is admin-only for the same reason the API is: a token issued
     // here sends as an account everyone trusts, and revoking one cuts an
     // integration off mid-flight. Neither is a moderation call.
-    return TABS.filter((t) => !['overview', 'active', 'plans', 'live', 'errors', 'bots'].includes(t.key))
+    return TABS.filter((t) => !['overview', 'active', 'plans', 'live', 'errors', 'bots', 'theme'].includes(t.key))
   }
   return TABS.filter((t) => ['sales', 'internal'].includes(t.key))
 }
@@ -2192,6 +2265,7 @@ export default function AdminPage() {
       {tab === 'logins' && <LoginsTab />}
       {tab === 'errors' && <ClientErrorsTab />}
       {tab === 'moderation' && <ModerationTab />}
+      {tab === 'theme' && <ThemeTab />}
       {tab === 'internal' && <InternalTab />}
       {tab === 'sales' && <SalesTab />}
     </div>

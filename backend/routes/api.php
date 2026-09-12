@@ -221,6 +221,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             ->withoutMiddleware('verified.email');
         Route::put('/me/profile', [ProfileController::class, 'updateProfile']);
         Route::put('/me/settings', [ProfileController::class, 'updateSettings']);
+        // Your own background and sidebar, across Netvork.
+        Route::get('/me/theme', [\App\Http\Controllers\Api\V1\ThemeController::class, 'show']);
+        Route::put('/me/theme', [\App\Http\Controllers\Api\V1\ThemeController::class, 'update']);
         // Which menus may write to you, and how.
         Route::get('/me/notification-topics', [ProfileController::class, 'notificationTopics']);
         // Keep the people you actually talk to at the top.
@@ -1301,6 +1304,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::middleware('crm.member')->group(function () {
                 // Birthdays: who is celebrating, the wish, the thank-you, the history.
                 Route::get('/birthdays/today', [\App\Http\Controllers\Api\V1\Crm\BirthdayWishController::class, 'today']);
+                // Birthdays of the last week that you have not wished yet.
+                Route::get('/birthdays/recent', [\App\Http\Controllers\Api\V1\Crm\BirthdayWishController::class, 'recent']);
                 Route::post('/birthdays/{memberUuid}/wish', [\App\Http\Controllers\Api\V1\Crm\BirthdayWishController::class, 'wish']);
                 Route::post('/birthday-wishes/{uuid}/reply', [\App\Http\Controllers\Api\V1\Crm\BirthdayWishController::class, 'reply']);
                 Route::get('/birthday-wishes', [\App\Http\Controllers\Api\V1\Crm\BirthdayWishController::class, 'history']);

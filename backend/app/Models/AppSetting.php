@@ -31,6 +31,15 @@ class AppSetting extends Model
         // its clients, and a login code is Netvork writing to its own user.
         'platform_mail_from' => '',
         'platform_mail_name' => '',
+        // The theme everybody starts from, unless their company or they
+        // themselves chose one. Blank is the plain Netvork look.
+        'theme_background' => '',
+        'theme_sidebar' => '',
+        // What a birthday wish and a thank-you say, for the same people.
+        // Blank falls back to the built-in wording.
+        'birthday_default_wish' => '',
+        'birthday_default_reply' => '',
+        'birthday_default_belated' => '',
     ];
 
     /** Keys whose stored values must never be sent back to the browser. */

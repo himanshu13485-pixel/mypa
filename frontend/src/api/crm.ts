@@ -1789,13 +1789,38 @@ export interface CrmBirthdayWish {
   sent_at: string | null
   updated_at: string | null
   replied_at: string | null
+  /** Sent after the day, from the Birthdays menu. */
+  belated: boolean
 }
 
-/** What the company's CRM looks like. */
+/** Words a birthday wish and a thank-you start from, at one level. */
+export interface CrmBirthdayWords {
+  wish: string | null
+  reply: string | null
+  belated: string | null
+}
+
+/**
+ * How this person's CRM looks, and each level it came from: their own
+ * choice, the company's default, Netvork's default.
+ */
 export interface CrmAppearance {
+  /** What is actually shown. */
   background: string | null
   sidebar: string | null
-  can_edit: boolean
+  mine: { background: string | null; sidebar: string | null }
+  company: { name: string; background: string | null; sidebar: string | null } | null
+  netvork: { background: string | null; sidebar: string | null }
+  birthday: {
+    wish: string
+    reply: string
+    belated: string
+    mine: CrmBirthdayWords
+    company: CrmBirthdayWords | null
+    netvork: CrmBirthdayWords
+    built_in: { wish: string; reply: string; belated: string }
+  }
+  can_edit_company: boolean
 }
 
 /** A report one employee filed about another. */
@@ -2607,6 +2632,22 @@ export const crm = {
         default_wish: string
         default_reply: string
       } }>('/crm/birthdays/today').then((r) => r.data.data),
+    /** Birthdays of the last week, for a belated wish. */
+    recent: () =>
+      api.get<{ data: {
+        missed: {
+          uuid: string
+          name: string | null
+          photo_path?: string | null
+          avatar?: string | null
+          gender?: string | null
+          birthday_on: string
+          days_ago: number
+          my_wish: CrmBirthdayWish | null
+        }[]
+        default_belated: string
+        window_days: number
+      } }>('/crm/birthdays/recent').then((r) => r.data.data),
     wish: (memberUuid: string, message: string) =>
       api.post<{ message: string; data: CrmBirthdayWish }>(`/crm/birthdays/${memberUuid}/wish`, { message })
         .then((r) => r.data),
@@ -2618,11 +2659,18 @@ export const crm = {
         .then((r) => r.data),
   },
 
-  /** The company's look - background and sidebar - set by its Admin. */
+  /** CRM Theme: your own look and birthday words, and the company's defaults. */
   appearance: {
     get: () =>
       api.get<{ data: CrmAppearance }>('/crm/appearance').then((r) => r.data.data),
-    set: (payload: { background?: string | null; sidebar?: string | null }) =>
+    set: (payload: {
+      scope: 'me' | 'company'
+      background?: string | null
+      sidebar?: string | null
+      default_wish?: string | null
+      default_reply?: string | null
+      default_belated?: string | null
+    }) =>
       api.put<{ message: string; data: CrmAppearance }>('/crm/appearance', payload).then((r) => r.data),
   },
 

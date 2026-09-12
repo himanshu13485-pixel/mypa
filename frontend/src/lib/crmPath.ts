@@ -30,7 +30,7 @@ export const CRM_SECTIONS = new Set([
   'vendors', 'expenses', 'salary', 'leaves', 'leave-log', 'tasks', 'approvals', 'newsletters',
   'cms', 'user-log', 'reports', 'workspace-fields', 'field-requests', 'contests',
   'invoices', 'invoice-log', 'tds-certificates', 'spam-reports', 'birthdays', 'recurring', 'commissions', 'overview', 'settings',
-  'connect', 'pl', 'assets', 'churn', 'communication',
+  'connect', 'pl', 'assets', 'churn', 'communication', 'theme',
 ])
 
 /**

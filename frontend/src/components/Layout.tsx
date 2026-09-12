@@ -7,7 +7,8 @@ import {
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { useQuery } from '@tanstack/react-query'
-import { auth, badges as badgesApi } from '../api/endpoints'
+import { auth, badges as badgesApi, theme as themeApi } from '../api/endpoints'
+import { SIDEBARS, backgroundRule, sidebarStyle } from '../lib/backgrounds'
 import { crmMeQuery } from '../api/crm'
 import { ensurePushRegistered } from '../lib/alerts'
 import { disconnectEcho } from '../lib/echo'
@@ -168,6 +169,13 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
   })
   const showCrm = !!crmMe && (crmMe.enabled || crmMe.is_super_admin)
 
+  // The person's theme - their own, else their company's, else Netvork's.
+  // The same answer the CRM shell gets, so one choice dresses both.
+  const { data: look } = useQuery({ queryKey: ['theme'], queryFn: themeApi.get, staleTime: 5 * 60_000 })
+  // A deep sidebar puts its contents in dark mode: the dark variant here is
+  // `.dark *`, so every link inside already knows its light-on-dark colours.
+  const deepSidebar = SIDEBARS.some((sb) => sb.key === look?.sidebar)
+
   const logout = async () => {
     try {
       await auth.logout()
@@ -286,11 +294,16 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
     {/* The side insets belong here, on the one element with no padding of its
         own to be overwritten. They are 0 on a phone held upright and only
         appear in landscape, where the notch eats into the side of the screen. */}
-    <div data-print-root className="px-safe flex h-dvh overflow-hidden">
+    {look?.background && <style>{backgroundRule('data-nv-bg', look.background)}</style>}
+    <div data-print-root data-nv-bg={look?.background ? '' : undefined} className="px-safe flex h-dvh overflow-hidden">
       {/* Desktop sidebar */}
       {/* The sidebar shares the page's tone rather than being a white slab
           with a rule down its edge. What should look raised is the content. */}
-      <aside data-print-chrome className="hidden w-64 shrink-0 flex-col bg-slate-100 dark:bg-slate-950 lg:flex">
+      <aside
+        data-print-chrome
+        style={sidebarStyle(look?.sidebar)}
+        className={clsx('hidden w-64 shrink-0 flex-col bg-slate-100 dark:bg-slate-950 lg:flex', deepSidebar && 'dark text-slate-200')}
+      >
         <div className="flex items-center gap-2.5 px-5 pb-1 pt-5">
           <NetvorkMark className="size-8" />
           <span className="text-[15px] font-semibold tracking-tight">Netvork</span>
@@ -320,7 +333,11 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 lg:hidden">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-          <aside data-print-chrome className="pt-safe absolute inset-y-0 left-0 flex h-full w-72 max-w-[85vw] flex-col overflow-hidden bg-white shadow-lift dark:bg-slate-900">
+          <aside
+            data-print-chrome
+            style={sidebarStyle(look?.sidebar)}
+            className={clsx('pt-safe absolute inset-y-0 left-0 flex h-full w-72 max-w-[85vw] flex-col overflow-hidden bg-white shadow-lift dark:bg-slate-900', deepSidebar && 'dark text-slate-200')}
+          >
             <div className="flex items-center justify-between px-5 py-4">
               <span className="flex items-center gap-2 text-base font-semibold">
                 <NetvorkMark className="size-7" /> Netvork

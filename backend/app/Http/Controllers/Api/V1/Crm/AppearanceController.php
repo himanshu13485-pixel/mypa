@@ -11,27 +11,19 @@ use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
 /**
- * What the company's CRM looks like: the background behind every page, and
- * the sidebar's colour.
+ * CRM Theme: a person's own look and birthday words, and the company's
+ * defaults for them.
  *
- * One look for the whole company, set by its Admin - it is the company's
- * workspace, the way its logo is - and every change is written to the
- * activity log with what it was and what it became, because "who turned the
- * CRM purple" is exactly the kind of question somebody asks on a Monday.
+ * Anybody may dress their own screens - it is where they spend the day, and
+ * picking a background needs no billing rights. The company Admin sets what
+ * everybody starts with. Both kinds of change go to the activity log with
+ * what it was and what it became.
  */
 class AppearanceController extends Controller
 {
     public function show(Request $request): JsonResponse
     {
-        $org = $request->attributes->get('crm_org');
-        /** @var Member $me */
-        $me = $request->attributes->get('crm_member');
-
-        return response()->json(['data' => [
-            'background' => data_get($org->settings, 'appearance.background'),
-            'sidebar' => data_get($org->settings, 'appearance.sidebar'),
-            'can_edit' => $me->crm_role === 'admin',
-        ]]);
+        return response()->json(['data' => $this->payload($request)]);
     }
 
     public function update(Request $request): JsonResponse
@@ -40,42 +32,55 @@ class AppearanceController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
 
-        abort_unless($me->crm_role === 'admin', 403, "Only the company Admin changes the CRM's look.");
-
         $data = $request->validate([
-            'background' => ['sometimes', 'nullable', Rule::in(Appearance::backgroundKeys())],
-            'sidebar' => ['sometimes', 'nullable', Rule::in(Appearance::sidebarKeys())],
+            'scope' => ['required', Rule::in(['me', 'company'])],
+            'background' => ['sometimes', 'nullable', Rule::in(Appearance::backgroundChoices())],
+            'sidebar' => ['sometimes', 'nullable', Rule::in(Appearance::sidebarChoices())],
+            'default_wish' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'default_reply' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'default_belated' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
 
-        $settings = $org->settings ?? [];
-        $before = (array) ($settings['appearance'] ?? []);
-        $after = array_merge($before, array_intersect_key($data, array_flip(['background', 'sidebar'])));
+        $scope = $data['scope'];
+        unset($data['scope']);
 
-        $settings['appearance'] = $after;
-        $org->update(['settings' => $settings]);
-
-        // Only what changed, old to new, in words a person reads.
-        $changed = [];
-        foreach (['background' => Appearance::BACKGROUNDS, 'sidebar' => Appearance::SIDEBARS] as $key => $labels) {
-            if (array_key_exists($key, $data) && ($before[$key] ?? null) !== ($after[$key] ?? null)) {
-                $changed[$key] = [
-                    'from' => $labels[$before[$key] ?? ''] ?? 'Default',
-                    'to' => $labels[$after[$key] ?? ''] ?? 'Default',
-                ];
-            }
+        if ($scope === 'company') {
+            abort_unless(
+                $me->crm_role === 'admin',
+                403,
+                "Only the company Admin sets the company's default theme. Your own theme is yours to change.",
+            );
+            $changed = Appearance::saveCompany($org, $data);
+        } else {
+            $changed = Appearance::saveMine($request->user(), $data);
         }
 
         if ($changed !== []) {
-            ActivityLog::record($me, $org->id, 'settings.appearance', $org, ['fields' => $changed]);
+            ActivityLog::record($me, $org->id, 'settings.appearance', $org, [
+                'scope' => $scope,
+                'fields' => $changed,
+            ]);
         }
 
         return response()->json([
-            'message' => 'The CRM looks different for everyone now.',
-            'data' => [
-                'background' => $after['background'] ?? null,
-                'sidebar' => $after['sidebar'] ?? null,
-                'can_edit' => true,
-            ],
+            'message' => $scope === 'company'
+                ? 'Company default saved. Everybody who has not picked their own sees it now.'
+                : 'Saved. Your theme follows you across Netvork.',
+            'data' => $this->payload($request),
         ]);
+    }
+
+    private function payload(Request $request): array
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+        $user = $request->user()->loadMissing('settings');
+        $org->refresh();
+
+        return Appearance::layers($user, $org) + [
+            'birthday' => Appearance::birthday($user, $org),
+            'can_edit_company' => $me->crm_role === 'admin',
+        ];
     }
 }

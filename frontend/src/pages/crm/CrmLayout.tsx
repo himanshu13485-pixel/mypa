@@ -47,6 +47,7 @@ import {
   ReceiptText,
   Repeat,
   Settings2,
+  Palette,
   Scale,
   ScrollText,
   ShieldAlert,
@@ -150,6 +151,8 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Spam reports', icon: ShieldAlert, to: '/crm/spam-reports', adminOnly: true },
     // Every wish and every thank-you, kept.
     { label: 'Birthdays', icon: Cake, to: '/crm/birthdays' },
+    // Your own look and birthday words - everybody's, no rights needed.
+    { label: 'CRM Theme', icon: Palette, to: '/crm/theme' },
     { label: 'Reports', icon: BarChart3, to: '/crm/reports', capability: 'reports.view' },
     { label: 'Churn', icon: TrendingDown, to: '/crm/churn' },
     { label: 'Office Assets', section: 'assets', icon: Boxes, to: '/crm/assets' },
@@ -182,7 +185,7 @@ export default function CrmLayout() {
   const location = useLocation()
   const queryClient = useQueryClient()
   const { data: me, isLoading } = useQuery(crmMeQuery())
-  // The company's look. Read by everybody, set only by the Admin.
+  // This person's look: their own choice, else the company's, else Netvork's.
   const { data: appearance } = useQuery({
     queryKey: ['crm', 'appearance'],
     queryFn: crm.appearance.get,

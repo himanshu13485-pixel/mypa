@@ -10,7 +10,9 @@ import {
   desktopAlertsPossible, getOnlineAlertPrefs, setOnlineAlertPrefs, type OnlineAlertPrefs,
 } from '../lib/onlineAlerts'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { auth, identity as identityApi, profile as profileApi, subscription as subscriptionApi } from '../api/endpoints'
+import { auth, identity as identityApi, profile as profileApi, subscription as subscriptionApi, theme as themeApi } from '../api/endpoints'
+import { ThemePicker } from '../components/ThemePicker'
+import { useToast } from '../components/Toast'
 import type { NotificationTopic } from '../api/endpoints'
 import { MobileField } from '../components/MobileField'
 import { errorMessage } from '../api/client'
@@ -617,6 +619,8 @@ export default function SettingsPage() {
         </div>
       </Card>
 
+      <ThemeCard />
+
       <Card>
         <h2 className="mb-3 text-sm font-semibold">Privacy</h2>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -1029,6 +1033,56 @@ function NotificationMenusCard() {
           ))}
         </div>
       )}
+    </Card>
+  )
+}
+
+/**
+ * Your background and sidebar.
+ *
+ * The same choice as CRM Theme: somebody in a company sets it once and wears
+ * it on both sides of Netvork. Default is the company's pick, or Netvork's
+ * for somebody on their own.
+ */
+function ThemeCard() {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const { data } = useQuery({ queryKey: ['theme'], queryFn: themeApi.get })
+
+  const save = useMutation({
+    mutationFn: themeApi.set,
+    onSuccess: (res) => {
+      queryClient.setQueryData(['theme'], res.data)
+      queryClient.invalidateQueries({ queryKey: ['crm', 'appearance'] })
+      toast(res.message, 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  if (!data) return null
+
+  const company = data.company
+  const from = company && (company.background || company.sidebar) ? company.name : 'Netvork'
+
+  return (
+    <Card>
+      <h2 className="text-sm font-semibold">Theme</h2>
+      <p className="mt-0.5 text-xs text-slate-400">
+        {company
+          ? `Your own look, here and in the ${company.name} CRM. Default follows the company's choice.`
+          : 'Your own background and sidebar. Default is the Netvork look.'}
+      </p>
+      <ThemePicker
+        background={data.mine.background}
+        sidebar={data.mine.sidebar}
+        busy={save.isPending}
+        inherited={{
+          background: company?.background || data.netvork.background,
+          sidebar: company?.sidebar || data.netvork.sidebar,
+          from,
+        }}
+        onPick={(change) => save.mutate(change)}
+      />
     </Card>
   )
 }

@@ -18,7 +18,7 @@ class BirthdayWish extends Model
 
     protected $fillable = [
         'organization_id', 'from_member_id', 'to_member_id', 'birthday_year',
-        'message', 'reply', 'replied_at', 'seen_at',
+        'message', 'reply', 'replied_at', 'seen_at', 'belated',
     ];
 
     protected function casts(): array
@@ -26,6 +26,7 @@ class BirthdayWish extends Model
         return [
             'replied_at' => 'datetime',
             'seen_at' => 'datetime',
+            'belated' => 'boolean',
         ];
     }
 

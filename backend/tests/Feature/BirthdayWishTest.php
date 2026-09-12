@@ -170,4 +170,66 @@ class BirthdayWishTest extends TestCase
         $this->actingAs($this->priyanshuUser)->getJson('/api/v1/crm/birthday-wishes?direction=received')
             ->assertOk()->assertJsonCount(1, 'data');
     }
+
+    public function test_a_missed_birthday_can_be_wished_late_from_the_birthdays_menu(): void
+    {
+        Notification::fake();
+        Carbon::setTestNow('2026-09-15 10:00:00'); // two days after Priyanshu's
+
+        $recent = $this->actingAs($this->bobUser)->getJson('/api/v1/crm/birthdays/recent')->assertOk();
+        $recent->assertJsonPath('data.missed.0.name', 'Priyanshu');
+        $recent->assertJsonPath('data.missed.0.days_ago', 2);
+        $recent->assertJsonPath('data.missed.0.my_wish', null);
+        $this->assertStringStartsWith('Belated Happy Birthday', $recent->json('data.default_belated'));
+
+        $this->actingAs($this->bobUser)->postJson("/api/v1/crm/birthdays/{$this->priyanshu->uuid}/wish", ['message' => ''])
+            ->assertCreated()
+            ->assertJsonPath('data.belated', true)
+            ->assertJsonPath('data.birthday_year', 2026);
+
+        $this->assertStringStartsWith('Belated Happy Birthday, Priyanshu', BirthdayWish::firstOrFail()->message);
+        Notification::assertSentTo($this->priyanshuUser, CrmNotification::class);
+
+        $this->actingAs($this->bobUser)->getJson('/api/v1/crm/birthdays/recent')
+            ->assertJsonPath('data.missed.0.my_wish.belated', true);
+
+        // And Priyanshu thanks Bob from the history, days later.
+        $uuid = BirthdayWish::firstOrFail()->uuid;
+        $this->actingAs($this->priyanshuUser)->postJson("/api/v1/crm/birthday-wishes/{$uuid}/reply", ['message' => 'Thanks Bob!'])
+            ->assertOk();
+    }
+
+    public function test_a_late_wish_waits_a_week_at_most_and_belongs_to_the_birthday_it_is_late_for(): void
+    {
+        Notification::fake();
+
+        Carbon::setTestNow('2026-09-21 10:00:00'); // eight days late
+        $this->actingAs($this->bobUser)->postJson("/api/v1/crm/birthdays/{$this->priyanshu->uuid}/wish", ['message' => 'Sorry!'])
+            ->assertStatus(422);
+
+        // A New Year's Eve birthday wished on 2 January is last year's.
+        $this->priyanshu->forceFill(['dob' => '1998-12-31'])->save();
+        Carbon::setTestNow('2027-01-02 10:00:00');
+
+        $this->actingAs($this->bobUser)->postJson("/api/v1/crm/birthdays/{$this->priyanshu->uuid}/wish", ['message' => 'Sorry I missed it!'])
+            ->assertCreated()
+            ->assertJsonPath('data.birthday_year', 2026)
+            ->assertJsonPath('data.belated', true);
+    }
+
+    public function test_a_wish_edited_after_the_day_is_not_made_late(): void
+    {
+        Notification::fake();
+
+        $this->actingAs($this->bobUser)->postJson("/api/v1/crm/birthdays/{$this->priyanshu->uuid}/wish", ['message' => 'HBD!'])
+            ->assertCreated()
+            ->assertJsonPath('data.belated', false);
+
+        Carbon::setTestNow('2026-09-14 09:00:00');
+        $this->actingAs($this->bobUser)->postJson("/api/v1/crm/birthdays/{$this->priyanshu->uuid}/wish", ['message' => 'HBD again!'])
+            ->assertOk()
+            ->assertJsonPath('data.belated', false);
+
+        $this->assertSame(1, BirthdayWish::count());
+    }
 }

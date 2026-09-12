@@ -9,6 +9,7 @@ use App\Models\Crm\Member;
 use App\Notifications\CrmNotification;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 /**
  * Wishing somebody a happy birthday, from inside the CRM.
@@ -27,6 +28,61 @@ class BirthdayWishController extends Controller
 
     /** What a thank-you says when nobody writes one. {name} is who wished. */
     public const DEFAULT_REPLY = 'Thank you so much for the wishes, {name}! 🙏🎂';
+
+    /** What a wish sent after the day says when nobody writes one. */
+    public const DEFAULT_BELATED = 'Belated Happy Birthday, {name}! 🎂 Sorry I missed the day - wishing you a wonderful year ahead.';
+
+    /** How long after a birthday it can still be wished. */
+    public const BELATED_DAYS = 7;
+
+    /**
+     * Birthdays of the last week, for somebody who missed them.
+     *
+     * The day has gone, so there is no popup; the Birthdays menu lists who
+     * celebrated in the last seven days, each with the wish this person has
+     * already sent (if any), and the words a belated wish starts from.
+     */
+    public function recent(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+        $today = now()->startOfDay();
+
+        $missed = Member::visible()
+            ->with(['user:id,name', 'user.profile:user_id,photo_path,avatar,gender'])
+            ->where('organization_id', $org->id)
+            ->where('status', 'active')
+            ->whereNotNull('dob')
+            ->where('id', '!=', $me->id)
+            ->get()
+            ->map(fn (Member $m) => ['member' => $m, 'on' => $this->lastBirthday($m)])
+            ->filter(fn (array $p) => $this->daysLate($p['on']) !== null)
+            ->sortByDesc(fn (array $p) => $p['on']->timestamp)
+            ->values();
+
+        $sent = BirthdayWish::with(['from.user:id,name', 'to.user:id,name'])
+            ->where('from_member_id', $me->id)
+            ->whereIn('to_member_id', $missed->pluck('member.id'))
+            ->get()
+            ->keyBy(fn (BirthdayWish $w) => $w->to_member_id . '-' . $w->birthday_year);
+
+        return response()->json(['data' => [
+            'missed' => $missed->map(fn (array $p) => [
+                'uuid' => $p['member']->uuid,
+                'name' => $p['member']->user?->name,
+                'photo_path' => $p['member']->user?->profile?->photo_path,
+                'avatar' => $p['member']->user?->profile?->avatar,
+                'gender' => $p['member']->gender ?? $p['member']->user?->profile?->gender,
+                'birthday_on' => $p['on']->toDateString(),
+                'days_ago' => $this->daysLate($p['on']),
+                'my_wish' => isset($sent[$p['member']->id . '-' . $p['on']->year])
+                    ? $this->serialize($sent[$p['member']->id . '-' . $p['on']->year]) : null,
+            ]),
+            'default_belated' => \App\Support\Appearance::birthday($me->user, $org)['belated'],
+            'window_days' => self::BELATED_DAYS,
+        ]]);
+    }
 
     /**
      * Who is celebrating today, and what has already been said.
@@ -84,8 +140,8 @@ class BirthdayWishController extends Controller
                 ->values(),
             'is_my_birthday' => $mine,
             'received' => $received->values(),
-            'default_wish' => $this->defaultWish($org),
-            'default_reply' => $this->defaultReply($org),
+            'default_wish' => $this->defaultWish($org, $me),
+            'default_reply' => $this->defaultReply($org, $me),
         ]]);
     }
 
@@ -110,34 +166,54 @@ class BirthdayWishController extends Controller
             ->firstOrFail();
 
         abort_if($target->id === $me->id, 422, 'Nobody gets to wish themselves a happy birthday - that is what the rest of us are for.');
+
+        /*
+         * On the day, or up to a week after it. A late wish belongs to the
+         * birthday it is late for - a New Year's Eve birthday wished on
+         * 2 January is last year's - and says so on the wish.
+         */
+        $onTheDay = $target->dob !== null && $target->dob->isBirthday();
+        $last = $this->lastBirthday($target);
+        $late = $onTheDay ? null : $this->daysLate($last);
+
         abort_unless(
-            $target->dob !== null && $target->dob->isBirthday(),
+            $onTheDay || $late !== null,
             422,
-            'It is not ' . ($target->user?->name ?? 'their') . "'s birthday today.",
+            'It is not ' . ($target->user?->name ?? 'their') . "'s birthday today, and it was not in the last "
+                . self::BELATED_DAYS . ' days either.',
         );
 
         $data = $request->validate(['message' => ['nullable', 'string', 'max:1000']]);
 
         $message = trim((string) ($data['message'] ?? ''))
-            ?: str_replace('{name}', $target->user?->name ?? 'you', $this->defaultWish($org));
+            ?: str_replace(
+                '{name}',
+                $target->user?->name ?? 'you',
+                $onTheDay ? $this->defaultWish($org, $me) : \App\Support\Appearance::birthday($me->user, $org)['belated'],
+            );
 
-        $wish = BirthdayWish::updateOrCreate(
-            [
-                'from_member_id' => $me->id,
-                'to_member_id' => $target->id,
-                'birthday_year' => (int) now()->format('Y'),
-            ],
-            ['organization_id' => $org->id, 'message' => $message],
-        );
+        $wish = BirthdayWish::firstOrNew([
+            'from_member_id' => $me->id,
+            'to_member_id' => $target->id,
+            'birthday_year' => $onTheDay ? (int) now()->format('Y') : $last->year,
+        ]);
+        $wish->fill(['organization_id' => $org->id, 'message' => $message]);
+        // Editing a wish sent on the day does not make it late.
+        if (! $wish->exists) {
+            $wish->belated = ! $onTheDay;
+        }
+        $wish->save();
 
         $target->user?->notify(new CrmNotification(
             'crm_birthday',
-            ($me->user?->name ?? 'Someone') . ' wished you a happy birthday: “' . str($message)->limit(120) . '”',
+            ($me->user?->name ?? 'Someone') . ($wish->belated ? ' wished you a belated happy birthday: “' : ' wished you a happy birthday: “')
+                . str($message)->limit(120) . '”',
             '/crm/birthdays',
         ));
 
         ActivityLog::record($me, $org->id, 'birthday.wished', $wish, [
             'to' => $target->user?->name,
+            'belated' => $wish->belated,
             'message' => str($message)->limit(200)->toString(),
         ]);
 
@@ -168,7 +244,7 @@ class BirthdayWishController extends Controller
         $data = $request->validate(['message' => ['nullable', 'string', 'max:1000']]);
 
         $reply = trim((string) ($data['message'] ?? ''))
-            ?: str_replace('{name}', $wish->from?->user?->name ?? 'you', $this->defaultReply($org));
+            ?: str_replace('{name}', $wish->from?->user?->name ?? 'you', $this->defaultReply($org, $me));
 
         $wish->update([
             'reply' => $reply,
@@ -239,14 +315,55 @@ class BirthdayWishController extends Controller
 
     // ---- Helpers -----------------------------------------------------------
 
-    private function defaultWish($org): string
+    /*
+     * The words start in the voice of whoever is writing: their own default
+     * from CRM Theme, else the company's, else Netvork's, else the built-in.
+     */
+    private function defaultWish($org, Member $me): string
     {
-        return (string) (data_get($org->settings, 'birthday.default_wish') ?: self::DEFAULT_WISH);
+        return \App\Support\Appearance::birthday($me->user, $org)['wish'];
     }
 
-    private function defaultReply($org): string
+    private function defaultReply($org, Member $me): string
     {
-        return (string) (data_get($org->settings, 'birthday.default_reply') ?: self::DEFAULT_REPLY);
+        return \App\Support\Appearance::birthday($me->user, $org)['reply'];
+    }
+
+    /**
+     * When this person's latest birthday fell - today or before.
+     *
+     * A 29 February birthday falls on the 28th in other years, which is when
+     * everybody who knows them celebrates it anyway.
+     */
+    private function lastBirthday(Member $m): ?Carbon
+    {
+        if ($m->dob === null) {
+            return null;
+        }
+
+        $today = now()->startOfDay();
+        $in = function (int $year) use ($m) {
+            $day = $m->dob->month === 2 && $m->dob->day === 29 && ! Carbon::create($year)->isLeapYear()
+                ? 28 : $m->dob->day;
+
+            return Carbon::create($year, $m->dob->month, $day)->startOfDay();
+        };
+
+        $date = $in($today->year);
+
+        return $date->greaterThan($today) ? $in($today->year - 1) : $date;
+    }
+
+    /** Days since a birthday, while it can still be wished late; null otherwise. */
+    private function daysLate(?Carbon $on): ?int
+    {
+        if ($on === null) {
+            return null;
+        }
+
+        $days = (int) round($on->diffInDays(now()->startOfDay()));
+
+        return $days >= 1 && $days <= self::BELATED_DAYS ? $days : null;
     }
 
     private function serialize(BirthdayWish $w): array
@@ -260,6 +377,7 @@ class BirthdayWishController extends Controller
                 ? ['uuid' => $w->to->uuid, 'name' => $w->to->user?->name] : null,
             'message' => $w->message,
             'reply' => $w->reply,
+            'belated' => (bool) $w->belated,
             'sent_at' => $w->created_at?->toDateTimeString(),
             'updated_at' => $w->updated_at?->toDateTimeString(),
             'replied_at' => $w->replied_at?->toDateTimeString(),

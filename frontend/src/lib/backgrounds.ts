@@ -193,3 +193,8 @@ export function backgroundRule(attribute: string, key?: string | null): string {
   return `${selector}{background:${preset.light};background-attachment:local}`
     + `.dark ${selector}{background:${preset.dark}}`
 }
+
+/** The built-in birthday words - the same as the server's, shown as placeholders. */
+export const BIRTHDAY_WISH_BUILT_IN = 'Happy Birthday, {name}! 🎂🎉 Wishing you a wonderful year ahead.'
+export const BIRTHDAY_REPLY_BUILT_IN = 'Thank you so much for the wishes, {name}! 🙏🎂'
+export const BIRTHDAY_BELATED_BUILT_IN = 'Belated Happy Birthday, {name}! 🎂 Sorry I missed the day - wishing you a wonderful year ahead.'

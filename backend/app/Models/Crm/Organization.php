@@ -29,7 +29,7 @@ class Organization extends Model
         'vendors', 'expenses', 'salary', 'leaves', 'leave-log', 'tasks', 'approvals', 'newsletters',
         'cms', 'user-log', 'reports', 'workspace-fields', 'field-requests', 'contests',
         'invoices', 'invoice-log', 'tds-certificates', 'spam-reports', 'birthdays', 'recurring', 'commissions', 'overview', 'settings',
-        'connect', 'pl', 'assets', 'churn', 'communication', 'new', 'edit',
+        'connect', 'pl', 'assets', 'churn', 'communication', 'theme', 'new', 'edit',
     ];
 
     /**

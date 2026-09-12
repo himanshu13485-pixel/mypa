@@ -57,6 +57,8 @@ class UserSetting extends Model
     protected $fillable = [
         'user_id', 'theme', 'compact_mode', 'default_task_view',
         'dashboard_layout', 'notification_preferences', 'privacy',
+        // Background, sidebar and birthday words - see App\Support\Appearance.
+        'appearance',
     ];
 
     protected function casts(): array
@@ -66,6 +68,7 @@ class UserSetting extends Model
             'dashboard_layout' => 'array',
             'notification_preferences' => 'array',
             'privacy' => 'array',
+            'appearance' => 'array',
         ];
     }
 

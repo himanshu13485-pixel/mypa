@@ -1066,3 +1066,22 @@ export const publicBookingApi = {
   reschedule: (token: string, starts_at: string) =>
     api.post<{ data: BookingDetail }>(`/bookings/${token}/reschedule`, { starts_at }).then((r) => r.data.data),
 }
+
+export interface ThemeLayer {
+  background: string | null
+  sidebar: string | null
+}
+
+/** A person's theme across Netvork, and the levels it falls back through. */
+export interface NetvorkTheme extends ThemeLayer {
+  mine: ThemeLayer
+  /** Null for somebody who is not in a company. */
+  company: (ThemeLayer & { name: string }) | null
+  netvork: ThemeLayer
+}
+
+export const theme = {
+  get: () => api.get<{ data: NetvorkTheme }>('/me/theme').then((r) => r.data.data),
+  set: (payload: Partial<ThemeLayer>) =>
+    api.put<{ message: string; data: NetvorkTheme }>('/me/theme', payload).then((r) => r.data),
+}

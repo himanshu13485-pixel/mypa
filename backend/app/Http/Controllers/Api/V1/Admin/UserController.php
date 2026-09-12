@@ -270,6 +270,12 @@ class UserController extends Controller
             'voice_ai_enabled' => ['sometimes', 'boolean'],
             'voice_ai_key' => ['sometimes', 'nullable', 'string', 'max:300'],
             'voice_ai_model' => ['sometimes', 'in:claude-opus-5,claude-sonnet-5,claude-haiku-4-5'],
+            // Netvork's default theme and birthday words (Admin panel -> Theme).
+            'theme_background' => ['sometimes', 'nullable', \Illuminate\Validation\Rule::in(\App\Support\Appearance::backgroundChoices())],
+            'theme_sidebar' => ['sometimes', 'nullable', \Illuminate\Validation\Rule::in(\App\Support\Appearance::sidebarChoices())],
+            'birthday_default_wish' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'birthday_default_reply' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'birthday_default_belated' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
 
         // An empty key field means "keep the saved one" — the UI never sees
