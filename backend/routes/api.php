@@ -142,6 +142,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         // in the same meeting, and the pass they hold is only good for it.
         Route::post('/guest/meetings/{meeting}/realtime-token', [\App\Http\Controllers\Api\V1\MeetingController::class, 'realtimeToken']);
         Route::get('/guest/meetings/{meeting}/participants', [\App\Http\Controllers\Api\V1\MeetingController::class, 'participants']);
+        // A guest who joined late deserves to read what was said before they did.
+        Route::get('/guest/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'transcript']);
     });
 
     // --- Public auth (strictly throttled) --------------------------------
@@ -363,6 +365,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/meetings/{meeting}/heartbeat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'heartbeat']);
         Route::post('/meetings/{meeting}/host-action', [\App\Http\Controllers\Api\V1\MeetingController::class, 'hostAction']);
         Route::post('/meetings/{meeting}/end', [\App\Http\Controllers\Api\V1\MeetingController::class, 'end']);
+        // What was said in the room - during it, and long after.
+        Route::get('/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'transcript']);
         Route::delete('/meetings/{meeting}', [\App\Http\Controllers\Api\V1\MeetingController::class, 'destroy']);
         // A join token for the SFU. Only ever issued to somebody the room has
         // already admitted — see the controller.

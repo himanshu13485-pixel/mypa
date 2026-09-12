@@ -269,6 +269,12 @@ class Meeting extends Model
         return $this->hasMany(MeetingFile::class);
     }
 
+    /** Everything said in the room, oldest first. */
+    public function messages(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(MeetingMessage::class)->orderBy('id');
+    }
+
     public function participants(): BelongsToMany
     {
         // Guests are hidden from ordinary user queries by a global scope on

@@ -45,6 +45,29 @@ export const auth = {
 
 // --- Profile ----------------------------------------------------------------
 
+/** One line said in a meeting or a screen share. */
+export interface MeetingChatLine {
+  uuid: string
+  from_uuid: string | null
+  from: string
+  is_mine: boolean
+  message: string | null
+  private: boolean
+  to: string | null
+  file: { uuid: string; name: string; mime: string | null; size: number } | null
+  at: string | null
+}
+
+export interface MeetingChatRoom {
+  uuid: string
+  code: string
+  title: string | null
+  is_screen: boolean
+  status: string
+  started_at: string | null
+  ended_at: string | null
+}
+
 /** One menu's two switches. */
 export interface NotificationTopicValue {
   email: boolean
@@ -849,6 +872,16 @@ export const meetings = {
   chatFileUrl: (code: string, fileUuid: string) => `${api.defaults.baseURL}/meetings/${code}/chat-file/${fileUuid}`,
   chat: (code: string, message: string, toUuid?: string | null) =>
     api.post(`/meetings/${code}/chat`, { message, ...(toUuid ? { to_uuid: toUuid } : {}) }),
+  /**
+   * What was said in the room - during it, and long after.
+   *
+   * The same call answers "what did I miss", asked by somebody joining
+   * late, and "what was said", asked a week after the call ended. Private
+   * lines come back only to the two people on them.
+   */
+  transcript: (code: string) =>
+    api.get<{ data: MeetingChatLine[]; meeting: MeetingChatRoom }>(`/meetings/${code}/chat`)
+      .then((r) => r.data),
   listScreens: () =>
     api.get<{ data: import('../types').MeetingItem[] }>('/meetings', { params: { screen: 1 } }).then((r) => r.data.data),
   rename: (code: string, display_name: string) =>

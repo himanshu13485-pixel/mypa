@@ -747,8 +747,10 @@ class MeetingController extends Controller
         if (! empty($data['to_uuid'])) {
             $target = $meeting->participants()->where('users.uuid', $data['to_uuid'])->wherePivot('status', 'joined')->first();
             abort_unless($target && $target->id !== $me->id, 422, 'That participant is not in the meeting.');
+            $this->recordChat($meeting, $me, $fromName, $data['message'], $target->id);
             \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $fromName, $target->uuid, 'chat', $payload));
         } else {
+            $this->recordChat($meeting, $me, $fromName, $data['message']);
             $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
             foreach ($others as $peer) {
                 \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $fromName, $peer->uuid, 'chat', $payload));
@@ -810,8 +812,10 @@ class MeetingController extends Controller
         if (! empty($data['to_uuid'])) {
             $target = $meeting->participants()->where('users.uuid', $data['to_uuid'])->wherePivot('status', 'joined')->first();
             abort_unless($target && $target->id !== $me->id, 422, 'That participant is not in the meeting.');
+            $this->recordChat($meeting, $me, $fromName, null, $target->id, $file->id);
             \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $fromName, $target->uuid, 'chat', $payload));
         } else {
+            $this->recordChat($meeting, $me, $fromName, null, null, $file->id);
             $others = $meeting->participants()->wherePivot('status', 'joined')->where('users.id', '!=', $me->id)->get();
             foreach ($others as $peer) {
                 \App\Support\Realtime::send(new MeetingSignal($meeting, $me->uuid, $fromName, $peer->uuid, 'chat', $payload));
@@ -819,6 +823,90 @@ class MeetingController extends Controller
         }
 
         return response()->json(['message' => 'Shared.', 'data' => $payload['file']]);
+    }
+
+    /**
+     * Everything said in this room, for somebody who was in it.
+     *
+     * The same endpoint answers two questions: what did I miss, asked by
+     * somebody joining late, and what was said, asked a week after the call
+     * ended. Private lines are the two people on them and nobody else - the
+     * host has no more right to read those than anybody else does.
+     */
+    public function transcript(Request $request, Meeting $meeting): JsonResponse
+    {
+        $me = $request->user();
+
+        abort_unless(
+            $meeting->host_id === $me->id || $meeting->participants()->where('users.id', $me->id)->exists(),
+            403,
+            'Only somebody who was in this meeting can read it.',
+        );
+
+        $messages = $meeting->messages()
+            ->with(['sender:id,uuid,name', 'recipient:id,uuid,name', 'file'])
+            ->get()
+            ->filter(fn (\App\Models\MeetingMessage $m) => $m->visibleTo($me))
+            ->map(fn (\App\Models\MeetingMessage $m) => [
+                'uuid' => $m->uuid,
+                'from_uuid' => $m->sender?->uuid,
+                'from' => $m->display_name ?: ($m->sender?->name ?? 'Someone'),
+                'is_mine' => $m->user_id === $me->id,
+                'message' => $m->body,
+                'private' => $m->to_user_id !== null,
+                'to' => $m->recipient?->name,
+                'file' => $m->file ? [
+                    'uuid' => $m->file->uuid,
+                    'name' => $m->file->name,
+                    'mime' => $m->file->mime,
+                    'size' => $m->file->size,
+                ] : null,
+                'at' => $m->created_at?->toDateTimeString(),
+            ])
+            ->values();
+
+        return response()->json([
+            'data' => $messages,
+            'meeting' => [
+                'uuid' => $meeting->uuid,
+                'code' => $meeting->code,
+                'title' => $meeting->title,
+                'is_screen' => (bool) $meeting->is_screen,
+                'status' => $meeting->status,
+                'started_at' => $meeting->started_at?->toDateTimeString(),
+                'ended_at' => $meeting->ended_at?->toDateTimeString(),
+            ],
+        ]);
+    }
+
+    /**
+     * Write down what was said.
+     *
+     * Before the broadcast rather than after it: a line that reached three
+     * tabs and no database is the thing this exists to stop. Failure here
+     * must not swallow the message either - a full disk is a reason to lose
+     * the record, not a reason for the room to go silent.
+     */
+    private function recordChat(
+        Meeting $meeting,
+        \App\Models\User $me,
+        string $fromName,
+        ?string $body = null,
+        ?int $toUserId = null,
+        ?int $fileId = null,
+    ): void {
+        try {
+            \App\Models\MeetingMessage::create([
+                'meeting_id' => $meeting->id,
+                'user_id' => $me->id,
+                'display_name' => $fromName,
+                'body' => $body,
+                'to_user_id' => $toUserId,
+                'meeting_file_id' => $fileId,
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+        }
     }
 
     /** Download a chat file - meeting participants only. */

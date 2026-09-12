@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Copy, Eye, MonitorUp } from 'lucide-react'
+import { Copy, Eye, MessageSquare, MonitorUp } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { Badge, Button, Card, EmptyState, Input, SkeletonList } from '../components/ui'
 import { screenShareSupported } from '../lib/devices'
+import { MeetingTranscript } from '../components/MeetingTranscript'
+import type { MeetingItem } from '../types'
 
 export function screenLink(code: string): string {
   return `${window.location.origin}/screen/session/${code}`
@@ -23,6 +25,8 @@ export default function ScreenPage() {
   const queryClient = useQueryClient()
   const [viewCode, setViewCode] = useState('')
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  /* Whose conversation is being read - during the share or long after. */
+  const [chatFor, setChatFor] = useState<MeetingItem | null>(null)
 
   const { data: sessions, isLoading } = useQuery({
     queryKey: ['screen-sessions'],
@@ -130,6 +134,11 @@ export default function ScreenPage() {
                 </p>
               </div>
               <div className="flex gap-1.5">
+                {/* What was typed while the screen was up. It used to go
+                    when the session did. */}
+                <Button size="sm" variant="secondary" title="Read the chat" onClick={() => setChatFor(s)}>
+                  <MessageSquare className="size-3.5" /> Chat
+                </Button>
                 <Button size="sm" variant="secondary" onClick={() => copyLink(s.code)}>
                   <Copy className="size-3.5" /> {copiedCode === s.code ? 'Copied ✓' : 'Link'}
                 </Button>
@@ -151,6 +160,14 @@ export default function ScreenPage() {
           computer. Pair it with an audio call or meeting to talk while you share.
         </p>
       </Card>
+
+      {chatFor && (
+        <MeetingTranscript
+          code={chatFor.code}
+          title={chatFor.title}
+          onClose={() => setChatFor(null)}
+        />
+      )}
     </div>
   )
 }

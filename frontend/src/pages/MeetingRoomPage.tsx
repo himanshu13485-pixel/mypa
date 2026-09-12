@@ -1059,6 +1059,30 @@ export default function MeetingRoomPage() {
       setRoster(room.joined_peers ?? [])
       keepScreenAwake().then((lock) => (wakeLockRef.current = lock))
 
+      /*
+       * What was said before you arrived.
+       *
+       * The chat used to begin at the moment you joined, so somebody ten
+       * minutes late walked into an empty panel and had to ask for the link
+       * again. Loaded once, and only replacing the panel if nothing has
+       * been said since - a line that arrived while this was in flight is
+       * newer than the transcript and must not be overwritten by it.
+       */
+      meetingsApi.transcript(live)
+        .then((past) => {
+          const history = past.data.map((line) => ({
+            from: line.from_uuid ?? 'past',
+            name: line.is_mine ? 'You' : line.from,
+            text: line.message ?? '',
+            priv: line.private,
+            me: line.is_mine,
+            ...(line.file ? { file: line.file } : {}),
+          }))
+
+          setChatMsgs((live_msgs) => (live_msgs.length === 0 ? history : [...history, ...live_msgs]))
+        })
+        .catch(() => undefined)
+
       // One peer we cannot reach must not cost us the others: a throw here
       // used to abandon everybody further down the list and drop the room
       // into the error screen. The heartbeat picks up whatever failed.

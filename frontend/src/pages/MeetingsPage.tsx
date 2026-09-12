@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Calendar, Copy, KeyRound, LogIn, Trash2, UserPlus, Video } from 'lucide-react'
+import { Calendar, Copy, KeyRound, LogIn, MessageSquare, Trash2, UserPlus, Video } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { badges as badgesApi, meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useToast } from '../components/Toast'
 import { usePrompt } from '../components/Prompt'
 import UserSuggest from '../components/UserSuggest'
+import { MeetingTranscript } from '../components/MeetingTranscript'
 import type { MeetingItem } from '../types'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, SkeletonCards,
@@ -53,6 +54,8 @@ export default function MeetingsPage() {
   const [joinCode, setJoinCode] = useState('')
   const [showSchedule, setShowSchedule] = useState(false)
   const [inviteFor, setInviteFor] = useState<MeetingItem | null>(null)
+  /* Whose conversation is being read - during the call or long after. */
+  const [chatFor, setChatFor] = useState<MeetingItem | null>(null)
 
   const { data: meetings, isLoading, isError, error: loadError, refetch } = useQuery({
     queryKey: ['meetings'],
@@ -315,6 +318,11 @@ export default function MeetingsPage() {
                     <UserPlus className="size-3.5" /> Invite
                   </Button>
                 )}
+                {/* What was said in it, however long ago. The chat used
+                    to live only in the tabs that were open at the time. */}
+                <Button size="sm" variant="secondary" title="Read the chat" onClick={() => setChatFor(m)}>
+                  <MessageSquare className="size-3.5" /> Chat
+                </Button>
                 <Button size="sm" variant="secondary" title="Copy invite link" onClick={() => copyLink(m)}>
                   <Copy className="size-3.5" /> {copiedCode === m.code ? 'Copied ✓' : 'Link'}
                 </Button>
@@ -333,6 +341,14 @@ export default function MeetingsPage() {
         <ScheduleModal
           onClose={() => setShowSchedule(false)}
           onCreated={() => queryClient.invalidateQueries({ queryKey: ['meetings'] })}
+        />
+      )}
+
+      {chatFor && (
+        <MeetingTranscript
+          code={chatFor.code}
+          title={chatFor.title}
+          onClose={() => setChatFor(null)}
         />
       )}
 
