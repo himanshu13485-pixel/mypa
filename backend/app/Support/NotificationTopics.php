@@ -124,6 +124,7 @@ class NotificationTopics
         'crm_contest' => 'contests',
         'crm_notice' => 'notice',
         'crm_celebration' => 'notice',
+        'crm_birthday' => 'notice',
     ];
 
     /** Which menu this notification belongs to. */

@@ -322,6 +322,57 @@ class ConversationController extends Controller
         ]);
     }
 
+    /**
+     * What sits behind the messages - for everybody in the chat, or for me.
+     *
+     * The same two scopes as the theme, for the same reason: a background the
+     * whole chat wears is said in the chat, and one only I see is nobody
+     * else's news.
+     */
+    public function setBackground(Request $request, Conversation $conversation): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $data = $request->validate([
+            'background' => ['nullable', 'string', Rule::in(\App\Support\Appearance::backgroundKeys())],
+            'scope' => ['sometimes', Rule::in(['me', 'everyone'])],
+        ]);
+
+        $background = $data['background'] ?? null;
+
+        if (($data['scope'] ?? 'me') === 'everyone') {
+            if ($conversation->group?->only_admins_post && ! $conversation->group->canManage($me)) {
+                abort(403, 'Only the admins of this group can change its background.');
+            }
+
+            $conversation->update(['background' => $background]);
+
+            Message::create([
+                'conversation_id' => $conversation->id,
+                'user_id' => $me->id,
+                'type' => 'text',
+                'body' => $background
+                    ? '🖼️ ' . $me->name . ' changed the chat background to '
+                        . (\App\Support\Appearance::BACKGROUNDS[$background] ?? $background) . '.'
+                    : '🖼️ ' . $me->name . ' removed the chat background.',
+            ]);
+            $conversation->update(['last_message_at' => now()]);
+
+            return response()->json([
+                'message' => 'Background changed for everyone in this chat.',
+                'data' => ['background' => $background, 'scope' => 'everyone'],
+            ]);
+        }
+
+        $conversation->members()->updateExistingPivot($me->id, ['background' => $background]);
+
+        return response()->json([
+            'message' => 'Background saved for you.',
+            'data' => ['background' => $background, 'scope' => 'me'],
+        ]);
+    }
+
     public function toggleArchive(Request $request, Conversation $conversation): JsonResponse
     {
         abort_unless($conversation->hasMember($request->user()), 403);
@@ -523,6 +574,10 @@ class ConversationController extends Controller
             'theme' => $myPivot?->theme ?? $conversation->theme,
             'shared_theme' => $conversation->theme,
             'my_theme' => $myPivot?->theme,
+            // Behind the messages, resolved the same way as the theme.
+            'background' => $myPivot?->background ?? $conversation->background,
+            'shared_background' => $conversation->background,
+            'my_background' => $myPivot?->background,
             // Null unless somebody in the room set a span; the chat
             // header reads it to say what is happening to these words.
             'auto_delete_hours' => $conversation->auto_delete_hours,

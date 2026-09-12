@@ -7,6 +7,7 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { usePrompt } from '../../components/Prompt'
 import { photoUrl } from '../../lib/avatars'
+import { BACKGROUNDS, SIDEBARS } from '../../lib/backgrounds'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner } from '../../components/ui'
 
 type Company = CrmMasters['issuing_companies'][number]
@@ -33,6 +34,7 @@ export default function CrmSettingsPage() {
       <PaymentRules />
       <CashfreeAccount />
       <FxMargin />
+      <AppearanceCard />
       <BirthdaySong />
       <FestivalCelebrations />
       <LeadAlertTiming />
@@ -363,11 +365,16 @@ function FxMargin() {
 function BirthdaySong() {
   const { toast, toastError } = useToast()
   const { data } = useQuery({ queryKey: ['crm', 'birthday-settings'], queryFn: crm.masterData.birthdaySettings })
-  const [draft, setDraft] = useState<{ enabled: boolean; song_url: string } | null>(null)
+  const [draft, setDraft] = useState<{ enabled: boolean; song_url: string; default_wish?: string; default_reply?: string } | null>(null)
   const cfg = draft ?? (data ? { enabled: data.enabled, song_url: data.song_url ?? '' } : null)
 
   const save = useMutation({
-    mutationFn: () => crm.masterData.saveBirthdaySettings({ enabled: cfg!.enabled, song_url: cfg!.song_url || null }),
+    mutationFn: () => crm.masterData.saveBirthdaySettings({
+      enabled: cfg!.enabled,
+      song_url: cfg!.song_url || null,
+      default_wish: cfg!.default_wish || null,
+      default_reply: cfg!.default_reply || null,
+    }),
     onSuccess: (res) => toast(res.message, 'success'),
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -408,9 +415,113 @@ function BirthdaySong() {
             className="block w-full text-sm text-slate-500 file:mr-2 file:rounded-lg file:border-0 file:bg-emerald-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-emerald-700"
           />
         </div>
+        {/* What a wish and a thank-you say before anybody edits them.
+            {name} becomes the person's name. */}
+        <div>
+          <Label>Default birthday wish</Label>
+          <Input
+            value={cfg.default_wish ?? ''}
+            onChange={(e) => setDraft({ ...cfg, default_wish: e.target.value })}
+            placeholder="Happy Birthday, {name}! 🎂🎉"
+            className="w-full"
+          />
+        </div>
+        <div>
+          <Label>Default thank-you</Label>
+          <Input
+            value={cfg.default_reply ?? ''}
+            onChange={(e) => setDraft({ ...cfg, default_reply: e.target.value })}
+            placeholder="Thank you so much for the wishes, {name}! 🙏🎂"
+            className="w-full"
+          />
+        </div>
         <Button size="sm" variant="secondary" disabled={save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? 'Saving…' : 'Save'}
         </Button>
+      </div>
+    </Card>
+  )
+}
+
+/**
+ * The company's look: the background behind every CRM page, and the sidebar.
+ *
+ * Applied the moment a swatch is picked, for everybody in the company, and
+ * written to the activity log with what it was and what it became. Only the
+ * Admin sees this card at all.
+ */
+function AppearanceCard() {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const { data } = useQuery({ queryKey: ['crm', 'appearance'], queryFn: crm.appearance.get })
+
+  const save = useMutation({
+    mutationFn: (payload: { background?: string | null; sidebar?: string | null }) => crm.appearance.set(payload),
+    onSuccess: (res) => {
+      queryClient.setQueryData(['crm', 'appearance'], res.data)
+      toast(res.message, 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  if (!data?.can_edit) return null
+
+  return (
+    <Card>
+      <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">CRM look</h2>
+      <p className="mt-0.5 text-xs text-slate-400">
+        The background and sidebar everybody in the company sees. Changes are recorded in the activity log.
+      </p>
+
+      <p className="mt-3 mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">Background</p>
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+        <button
+          type="button"
+          disabled={save.isPending}
+          onClick={() => save.mutate({ background: null })}
+          className={clsx(
+            'flex h-16 items-center justify-center rounded-xl border text-[11px] text-slate-500',
+            !data.background ? 'border-emerald-500 ring-2 ring-emerald-500' : 'border-slate-200 dark:border-slate-700',
+          )}
+        >
+          Plain
+        </button>
+        {BACKGROUNDS.map((b) => (
+          <button
+            key={b.key}
+            type="button"
+            disabled={save.isPending}
+            title={`${b.label} (${b.kind})`}
+            onClick={() => save.mutate({ background: b.key })}
+            className={clsx(
+              'relative h-16 overflow-hidden rounded-xl border',
+              data.background === b.key ? 'border-emerald-500 ring-2 ring-emerald-500' : 'border-slate-200 dark:border-slate-700',
+            )}
+            style={{ background: b.light }}
+          >
+            <span className="absolute inset-x-0 bottom-0 truncate bg-white/70 px-1 text-[10px] text-slate-700">{b.label}</span>
+          </button>
+        ))}
+      </div>
+
+      <p className="mt-4 mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">Sidebar</p>
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-7">
+        {SIDEBARS.map((sb) => (
+          <button
+            key={sb.key}
+            type="button"
+            disabled={save.isPending}
+            title={sb.label}
+            onClick={() => save.mutate({ sidebar: sb.key })}
+            className={clsx(
+              'flex h-16 items-end overflow-hidden rounded-xl border p-1',
+              (data.sidebar ?? 'midnight') === sb.key ? 'border-emerald-500 ring-2 ring-emerald-500' : 'border-slate-200 dark:border-slate-700',
+            )}
+            style={{ background: sb.background }}
+          >
+            <span className="w-full truncate text-[10px] text-white/90">{sb.label}</span>
+          </button>
+        ))}
       </div>
     </Card>
   )

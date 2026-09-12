@@ -585,6 +585,10 @@ export interface ConversationItem {
   shared_theme?: string | null
   /** A colour only I see, laid over the shared one. */
   my_theme?: string | null
+  /** Behind the messages: mine if I chose one, else the chat's. */
+  background?: string | null
+  shared_background?: string | null
+  my_background?: string | null
   /** Disappearing messages: null keeps everything, else a span in hours. */
   auto_delete_hours?: number | null
   last_message_at?: string | null

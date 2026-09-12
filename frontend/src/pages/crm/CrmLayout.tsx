@@ -5,6 +5,8 @@ import { NewLeadAlerts } from './NewLeadAlerts'
 import { ComplaintAlerts } from './ComplaintAlerts'
 import { TaskReminderAlerts } from './TaskReminderAlerts'
 import { BirthdayVibes } from './BirthdayVibes'
+import { BirthdayWishes } from './BirthdayWishes'
+import { backgroundRule, sidebarStyle } from '../../lib/backgrounds'
 import { FestivalVibes } from './FestivalVibes'
 import { CallProvider } from '../../components/CallManager'
 import ImpersonationBanner from '../../components/ImpersonationBanner'
@@ -21,6 +23,7 @@ import {
   Briefcase,
   Building2,
   Activity,
+  Cake,
   CalendarClock, CalendarDays,
   CalendarOff,
   CheckSquare,
@@ -145,6 +148,8 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'User log', icon: History, to: '/crm/user-log', module: 'user_log' },
     // Reports between employees: the company Admin's to deal with.
     { label: 'Spam reports', icon: ShieldAlert, to: '/crm/spam-reports', adminOnly: true },
+    // Every wish and every thank-you, kept.
+    { label: 'Birthdays', icon: Cake, to: '/crm/birthdays' },
     { label: 'Reports', icon: BarChart3, to: '/crm/reports', capability: 'reports.view' },
     { label: 'Churn', icon: TrendingDown, to: '/crm/churn' },
     { label: 'Office Assets', section: 'assets', icon: Boxes, to: '/crm/assets' },
@@ -177,6 +182,13 @@ export default function CrmLayout() {
   const location = useLocation()
   const queryClient = useQueryClient()
   const { data: me, isLoading } = useQuery(crmMeQuery())
+  // The company's look. Read by everybody, set only by the Admin.
+  const { data: appearance } = useQuery({
+    queryKey: ['crm', 'appearance'],
+    queryFn: crm.appearance.get,
+    enabled: !!me?.enabled,
+    staleTime: 5 * 60_000,
+  })
   // The phone menu: the same list as the sidebar, behind the three lines.
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -450,8 +462,15 @@ export default function CrmLayout() {
       * owns the scrolling, exactly as the personal shell does, and the two
       * headers above it stay put for free.
       */}
-    <div data-print-root className="flex h-dvh overflow-hidden bg-slate-100 dark:bg-slate-950">
-      <aside data-print-chrome className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-800 bg-slate-900 text-slate-300 md:flex">
+    {/* The company's chosen background, both modes, beating the shell's own
+        grey without an inline style that would ignore the dark switch. */}
+    {appearance?.background && <style>{backgroundRule('data-crm-bg', appearance.background)}</style>}
+    <div data-print-root data-crm-bg={appearance?.background ? '' : undefined} className="flex h-dvh overflow-hidden bg-slate-100 dark:bg-slate-950">
+      <aside
+        data-print-chrome
+        style={sidebarStyle(appearance?.sidebar)}
+        className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-slate-800 bg-slate-900 text-slate-300 md:flex"
+      >
         {sidebar}
       </aside>
 
@@ -462,6 +481,7 @@ export default function CrmLayout() {
           <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={() => setMenuOpen(false)} />
           <aside
             onClick={(e) => { if ((e.target as HTMLElement).closest('a')) setMenuOpen(false) }}
+            style={sidebarStyle(appearance?.sidebar)}
             className="pt-safe absolute inset-y-0 left-0 flex h-full w-72 max-w-[85vw] flex-col overflow-hidden bg-slate-900 text-slate-300 shadow-lift"
           >
             <button
@@ -531,6 +551,7 @@ export default function CrmLayout() {
           <ComplaintAlerts me={me} />
           <TaskReminderAlerts me={me} />
           <BirthdayVibes me={me} />
+          <BirthdayWishes me={me} />
           <FestivalVibes me={me} />
         </main>
       </div>

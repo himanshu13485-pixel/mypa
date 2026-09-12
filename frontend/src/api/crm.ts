@@ -1778,6 +1778,26 @@ export interface CrmTaskSummary {
   pendencies: number
 }
 
+/** One birthday wish, and the thank-you that came back. */
+export interface CrmBirthdayWish {
+  uuid: string
+  birthday_year: number
+  from: { uuid: string; name: string | null } | null
+  to: { uuid: string; name: string | null } | null
+  message: string
+  reply: string | null
+  sent_at: string | null
+  updated_at: string | null
+  replied_at: string | null
+}
+
+/** What the company's CRM looks like. */
+export interface CrmAppearance {
+  background: string | null
+  sidebar: string | null
+  can_edit: boolean
+}
+
 /** A report one employee filed about another. */
 export interface CrmSpamReport {
   uuid: string
@@ -2577,6 +2597,35 @@ export const crm = {
       ).then((r) => r.data),
   },
 
+  /** Wishing, and being wished, without leaving the CRM. */
+  birthdays: {
+    today: () =>
+      api.get<{ data: {
+        celebrating: { uuid: string; name: string | null; photo_path?: string | null; avatar?: string | null; gender?: string | null; my_wish: CrmBirthdayWish | null }[]
+        is_my_birthday: boolean
+        received: CrmBirthdayWish[]
+        default_wish: string
+        default_reply: string
+      } }>('/crm/birthdays/today').then((r) => r.data.data),
+    wish: (memberUuid: string, message: string) =>
+      api.post<{ message: string; data: CrmBirthdayWish }>(`/crm/birthdays/${memberUuid}/wish`, { message })
+        .then((r) => r.data),
+    reply: (wishUuid: string, message: string) =>
+      api.post<{ message: string; data: CrmBirthdayWish }>(`/crm/birthday-wishes/${wishUuid}/reply`, { message })
+        .then((r) => r.data),
+    history: (params: Record<string, string | number | undefined>) =>
+      api.get<Paginated<CrmBirthdayWish> & { years: number[] }>('/crm/birthday-wishes', { params })
+        .then((r) => r.data),
+  },
+
+  /** The company's look - background and sidebar - set by its Admin. */
+  appearance: {
+    get: () =>
+      api.get<{ data: CrmAppearance }>('/crm/appearance').then((r) => r.data.data),
+    set: (payload: { background?: string | null; sidebar?: string | null }) =>
+      api.put<{ message: string; data: CrmAppearance }>('/crm/appearance', payload).then((r) => r.data),
+  },
+
   /** Reports between two people in this company, for its Admin. */
   reportsQueue: {
     list: (status: string) =>
@@ -2908,8 +2957,10 @@ export const crm = {
     saveFxMargin: (marginInr: number) =>
       api.put<{ message: string }>('/crm/masters/fx-settings', { margin_inr: marginInr }).then((r) => r.data),
     birthdaySettings: () =>
-      api.get<{ data: { enabled: boolean; song_url: string | null } }>('/crm/masters/birthday-settings').then((r) => r.data.data),
-    saveBirthdaySettings: (payload: { enabled: boolean; song_url: string | null }) =>
+      api.get<{ data: { enabled: boolean; song_url: string | null; default_wish?: string; default_reply?: string } }>(
+        '/crm/masters/birthday-settings',
+      ).then((r) => r.data.data),
+    saveBirthdaySettings: (payload: { enabled: boolean; song_url: string | null; default_wish?: string | null; default_reply?: string | null }) =>
       api.put<{ message: string }>('/crm/masters/birthday-settings', payload).then((r) => r.data),
     communication: () =>
       api.get<{ data: CrmCommunicationSettings }>('/crm/masters/communication').then((r) => r.data.data),

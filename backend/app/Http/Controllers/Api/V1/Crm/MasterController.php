@@ -393,6 +393,11 @@ class MasterController extends Controller
         return response()->json(['data' => [
             'enabled' => (bool) data_get($org->settings, 'birthday.enabled', true),
             'song_url' => data_get($org->settings, 'birthday.song_url'),
+            // What a wish and a thank-you say before anybody edits them.
+            'default_wish' => data_get($org->settings, 'birthday.default_wish')
+                ?: \App\Http\Controllers\Api\V1\Crm\BirthdayWishController::DEFAULT_WISH,
+            'default_reply' => data_get($org->settings, 'birthday.default_reply')
+                ?: \App\Http\Controllers\Api\V1\Crm\BirthdayWishController::DEFAULT_REPLY,
         ]]);
     }
 
@@ -402,10 +407,17 @@ class MasterController extends Controller
         $data = $request->validate([
             'enabled' => ['required', 'boolean'],
             'song_url' => ['nullable', 'url', 'max:1024'],
+            'default_wish' => ['sometimes', 'nullable', 'string', 'max:500'],
+            'default_reply' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
 
         $settings = $org->settings ?? [];
-        $settings['birthday'] = ['enabled' => $data['enabled'], 'song_url' => $data['song_url'] ?? null];
+        // Merged, not replaced: a form that only sends the song must not
+        // wipe the wording somebody set last week.
+        $settings['birthday'] = array_merge((array) ($settings['birthday'] ?? []), [
+            'enabled' => $data['enabled'],
+            'song_url' => $data['song_url'] ?? null,
+        ], array_intersect_key($data, array_flip(['default_wish', 'default_reply'])));
         $org->update(['settings' => $settings]);
 
         return response()->json(['message' => 'Birthday settings saved.']);

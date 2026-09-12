@@ -236,6 +236,10 @@ class GroupController extends Controller
 
         $this->syncConversation($group);
 
+        // Said in the group, not only to the person added: everybody else
+        // should know who is now reading along, and who brought them in.
+        $this->announce($group, $request->user(), '➕ ' . $request->user()->name . ' added ' . $target->name . ' to the group.');
+
         $target->notify(new \App\Notifications\SocialNotification(
             'group_added',
             "{$request->user()->name} added you to the group “{$group->name}”.",
@@ -258,6 +262,11 @@ class GroupController extends Controller
 
         $group->members()->updateExistingPivot($member->id, ['role' => $data['role']]);
 
+        $this->announce($group, $request->user(), '⭐ ' . $request->user()->name
+            . ($data['role'] === 'admin'
+                ? ' made ' . $member->name . ' a group admin.'
+                : ' changed ' . $member->name . "'s role to " . $data['role'] . '.'));
+
         $member->notify(new \App\Notifications\SocialNotification(
             'group_role',
             "{$request->user()->name} changed your role in " . $this->quoted($group->name) . " to {$data['role']}.",
@@ -277,6 +286,12 @@ class GroupController extends Controller
         $leavingSelf = $member->id === $me->id;
         abort_unless($leavingSelf || $group->canManage($me), 403);
         abort_if($member->id === $group->owner_id, 422, 'The owner cannot be removed. Delete the group instead.');
+
+        // Said before the room is re-synced, while the person leaving is
+        // still in it and can read their own departure.
+        $this->announce($group, $me, $leavingSelf
+            ? '👋 ' . $member->name . ' left the group.'
+            : '👋 ' . $me->name . ' removed ' . $member->name . ' from the group.');
 
         $group->members()->detach($member->id);
         $this->syncConversation($group);
@@ -315,6 +330,30 @@ class GroupController extends Controller
         $conversation = \App\Models\Conversation::where('group_id', $group->id)->first();
 
         $conversation?->members()->sync($group->members()->pluck('users.id'));
+    }
+
+    /**
+     * A line in the group's chat about who joined, left, or changed role.
+     *
+     * The room is made if it does not exist yet: a group always has a chat,
+     * and the first thing said in one should not depend on whether somebody
+     * happened to open it before the change was made.
+     */
+    protected function announce(Group $group, \App\Models\User $by, string $line): void
+    {
+        $conversation = \App\Models\Conversation::firstOrCreate(
+            ['type' => 'group', 'group_id' => $group->id],
+            ['name' => $group->name, 'created_by' => $by->id],
+        );
+        $conversation->members()->syncWithoutDetaching($group->members()->pluck('users.id'));
+
+        \App\Models\Message::create([
+            'conversation_id' => $conversation->id,
+            'user_id' => $by->id,
+            'type' => 'text',
+            'body' => $line,
+        ]);
+        $conversation->update(['last_message_at' => now()]);
     }
 
     /** Curly quotes, kept in one place so every message uses the same pair. */

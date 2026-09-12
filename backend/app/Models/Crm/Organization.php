@@ -28,7 +28,7 @@ class Organization extends Model
         'punch', 'payments', 'complaints', 'complaint-log', 'hr-policy', 'incentives',
         'vendors', 'expenses', 'salary', 'leaves', 'leave-log', 'tasks', 'approvals', 'newsletters',
         'cms', 'user-log', 'reports', 'workspace-fields', 'field-requests', 'contests',
-        'invoices', 'invoice-log', 'tds-certificates', 'spam-reports', 'recurring', 'commissions', 'overview', 'settings',
+        'invoices', 'invoice-log', 'tds-certificates', 'spam-reports', 'birthdays', 'recurring', 'commissions', 'overview', 'settings',
         'connect', 'pl', 'assets', 'churn', 'communication', 'new', 'edit',
     ];
 

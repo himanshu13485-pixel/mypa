@@ -521,6 +521,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         // A chat kept on top, and the colours it wears - both mine alone.
         Route::post('/conversations/{conversation}/pin', [ConversationController::class, 'togglePin']);
         Route::post('/conversations/{conversation}/theme', [ConversationController::class, 'setTheme']);
+        Route::post('/conversations/{conversation}/background', [ConversationController::class, 'setBackground']);
         Route::get('/conversations/{conversation}/members', [ConversationController::class, 'members']);
         // Removing somebody from a group chat is removing them from the
         // group — the chat is the group's, not a guest list of its own.
@@ -1298,6 +1299,14 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member');
             // Which CRM menus send mail and alerts - the Admin's call, for everyone.
             Route::middleware('crm.member')->group(function () {
+                // Birthdays: who is celebrating, the wish, the thank-you, the history.
+                Route::get('/birthdays/today', [\App\Http\Controllers\Api\V1\Crm\BirthdayWishController::class, 'today']);
+                Route::post('/birthdays/{memberUuid}/wish', [\App\Http\Controllers\Api\V1\Crm\BirthdayWishController::class, 'wish']);
+                Route::post('/birthday-wishes/{uuid}/reply', [\App\Http\Controllers\Api\V1\Crm\BirthdayWishController::class, 'reply']);
+                Route::get('/birthday-wishes', [\App\Http\Controllers\Api\V1\Crm\BirthdayWishController::class, 'history']);
+                // The company's look: background and sidebar, set by its Admin.
+                Route::get('/appearance', [\App\Http\Controllers\Api\V1\Crm\AppearanceController::class, 'show']);
+                Route::put('/appearance', [\App\Http\Controllers\Api\V1\Crm\AppearanceController::class, 'update']);
                 Route::get('/notification-topics', [\App\Http\Controllers\Api\V1\Crm\NotificationPolicyController::class, 'index']);
                 Route::put('/notification-topics', [\App\Http\Controllers\Api\V1\Crm\NotificationPolicyController::class, 'update']);
                 // Reports between two people in this company, for its Admin.

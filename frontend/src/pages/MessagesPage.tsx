@@ -33,6 +33,7 @@ import { PresenceDot, PresenceInline } from '../components/PresenceDot'
 import { lastSeenLabel, resolvePresence, usePresenceMap } from '../lib/presence'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { CHAT_THEMES, chatTheme } from '../lib/chatThemes'
+import { BACKGROUNDS, backgroundRule } from '../lib/backgrounds'
 import { quickReactions, recordReaction, THUMBS_UP } from '../lib/quickReactions'
 import { useLongPress } from '../lib/useLongPress'
 import {
@@ -75,10 +76,11 @@ function ChatMenuItem({ icon, label, onClick, danger }: {
  * checkbox rather than a second button so that it is plainly the same
  * decision, made wider.
  */
-function ThemeModal({ conversation, busy, onPick, onClose }: {
+function ThemeModal({ conversation, busy, onPick, onPickBackground, onClose }: {
   conversation: ConversationItem
   busy: boolean
   onPick: (theme: string | null, scope: 'everyone' | 'me', applyToAll: boolean) => void
+  onPickBackground: (background: string | null, scope: 'everyone' | 'me') => void
   onClose: () => void
 }) {
   /*
@@ -155,6 +157,52 @@ function ThemeModal({ conversation, busy, onPick, onClose }: {
             Use for all my chats
           </label>
         )}
+
+        {/*
+          * Behind the messages: gradients, meshes and patterns rather than
+          * one flat tint. The same scope as the colours above - for everyone
+          * it is said in the chat, for me it is nobody else's news.
+          */}
+        <div>
+          <p className="mb-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">Background</p>
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onPickBackground(null, scope)}
+              className={clsx(
+                'flex h-14 items-center justify-center rounded-xl border text-[11px] text-slate-500',
+                !(scope === 'everyone' ? conversation.shared_background : conversation.my_background)
+                  ? 'border-brand-500 ring-1 ring-brand-500'
+                  : 'border-slate-200 dark:border-slate-700',
+              )}
+            >
+              None
+            </button>
+            {BACKGROUNDS.map((b) => {
+              const chosen = (scope === 'everyone' ? conversation.shared_background : conversation.my_background) === b.key
+
+              return (
+                <button
+                  key={b.key}
+                  type="button"
+                  disabled={busy}
+                  title={b.label}
+                  onClick={() => onPickBackground(b.key, scope)}
+                  className={clsx(
+                    'relative h-14 overflow-hidden rounded-xl border',
+                    chosen ? 'border-brand-500 ring-2 ring-brand-500' : 'border-slate-200 dark:border-slate-700',
+                  )}
+                  style={{ background: b.light }}
+                >
+                  <span className="absolute inset-x-0 bottom-0 truncate bg-white/70 px-1 text-[10px] text-slate-700 dark:bg-slate-900/70 dark:text-slate-200">
+                    {b.label}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
 
         <div className="flex justify-end">
           <Button variant="secondary" onClick={onClose}>Done</Button>
@@ -608,6 +656,17 @@ export default function MessagesPage() {
       queryClient.invalidateQueries({ queryKey: ['messages', c.uuid] })
       queryClient.invalidateQueries({ queryKey: ['pinned', c.uuid] })
       refreshChats()
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const backgroundMutation = useMutation({
+    mutationFn: ({ c, background, scope }: { c: ConversationItem; background: string | null; scope: 'everyone' | 'me' }) =>
+      chat.setBackground(c.uuid, background, scope),
+    onSuccess: (res, vars) => {
+      toast(res.message)
+      refreshChats()
+      if (vars.scope === 'everyone') queryClient.invalidateQueries({ queryKey: ['messages', vars.c.uuid] })
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -1834,6 +1893,7 @@ export default function MessagesPage() {
         <ThemeModal
           conversation={themeFor}
           busy={themeMutation.isPending}
+          onPickBackground={(key, scope) => backgroundMutation.mutate({ c: themeFor, background: key, scope })}
           onPick={(key, scope, all) => {
             themeMutation.mutate({ c: themeFor, theme: key, scope, all })
             // A shared change is a line in the chat - show it straight away.
@@ -2059,7 +2119,14 @@ export default function MessagesPage() {
               </div>
             )}
 
-            <div ref={listRef} className={clsx('flex-1 space-y-2 overflow-y-auto p-4', theme.pane)}>
+            {/* The chat's background, as a rule with a dark variant so it
+                follows the mode switch without waiting for a re-render. */}
+            {selected.background && <style>{backgroundRule('data-chat-bg', selected.background)}</style>}
+            <div
+              ref={listRef}
+              data-chat-bg={selected.background ? '' : undefined}
+              className={clsx('flex-1 space-y-2 overflow-y-auto p-4', theme.pane)}
+            >
               {/* A thread being opened for the first time. Once it has been
                   read once the cache answers instantly and this never shows;
                   before, every switch blanked the panel either way. */}

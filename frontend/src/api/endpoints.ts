@@ -714,6 +714,11 @@ export const chat = {
    * The colours a chat wears. 'everyone' changes it for the whole chat and is
    * announced in it; 'me' is a private colour nobody else sees.
    */
+  /** What sits behind the messages - for everyone (announced) or only for me. */
+  setBackground: (uuid: string, background: string | null, scope: 'everyone' | 'me' = 'me') =>
+    api.post<{ message: string; data: { background: string | null; scope: string } }>(
+      `/conversations/${uuid}/background`, { background, scope },
+    ).then((r) => r.data),
   setTheme: (uuid: string, theme: string | null, scope: 'everyone' | 'me' = 'me', applyToAll = false) =>
     api.post<{ message: string; data: { theme: string | null; scope: string; applied_to_all: boolean } }>(
       `/conversations/${uuid}/theme`, { theme, scope, apply_to_all: applyToAll },

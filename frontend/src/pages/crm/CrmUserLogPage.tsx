@@ -9,6 +9,7 @@ const ACTION_GROUPS = [
   ['employee', 'Employees'], ['client', 'Clients'], ['lead', 'Leads'],
   ['proforma', 'Proforma'], ['invoice', 'Invoices'], ['payment', 'Payments'],
   ['tds', 'TDS certificates'], ['task', 'Tasks and pendencies'],
+  ['birthday', 'Birthday wishes'], ['settings', 'Settings and look'],
   ['dcw', 'Workspace fields'],
 ] as const
 

@@ -13,7 +13,7 @@ class Conversation extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['type', 'group_id', 'name', 'auto_delete_hours', 'theme', 'created_by', 'last_message_at'];
+    protected $fillable = ['type', 'group_id', 'name', 'auto_delete_hours', 'theme', 'background', 'created_by', 'last_message_at'];
 
     protected function casts(): array
     {
@@ -40,7 +40,7 @@ class Conversation extends Model
     public function members(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'conversation_members')
-            ->withPivot(['last_read_at', 'muted_at', 'archived_at', 'pinned_at', 'theme'])
+            ->withPivot(['last_read_at', 'muted_at', 'archived_at', 'pinned_at', 'theme', 'background'])
             ->withTimestamps();
     }
 
