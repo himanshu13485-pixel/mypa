@@ -46,6 +46,20 @@ class LeaveController extends Controller
         if ($to = $request->query('date_to')) {
             $query->whereDate('date_to', '<=', $to);
         }
+        /*
+         * Asked for before it was taken, or after.
+         *
+         * A leave applied on the morning of the day it covers is still
+         * post-applied: the question an approver is asking is "did I get a
+         * say before this happened", and on that morning they did not. So
+         * pre-applied means applied on a day strictly before the first day
+         * of leave, and everything else is after the fact.
+         */
+        if ($timing = $request->query('timing')) {
+            $timing === 'pre'
+                ? $query->whereRaw('date(created_at) < date(date_from)')
+                : $query->whereRaw('date(created_at) >= date(date_from)');
+        }
 
         // Chart feed over the whole filtered range.
         $all = (clone $query)->get(['id', 'category', 'status', 'days', 'member_id']);
@@ -387,6 +401,10 @@ class LeaveController extends Controller
             'decided_at' => $l->decided_at?->toDateTimeString(),
             'decision_note' => $l->decision_note,
             'created_at' => $l->created_at?->toDateTimeString(),
+            // Asked before the first day of leave, or on/after it.
+            'applied_timing' => $l->created_at && $l->created_at->toDateString() < $l->date_from->toDateString()
+                ? 'pre'
+                : 'post',
         ];
     }
 }

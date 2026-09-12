@@ -223,6 +223,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::put('/me/settings', [ProfileController::class, 'updateSettings']);
         // Which menus may write to you, and how.
         Route::get('/me/notification-topics', [ProfileController::class, 'notificationTopics']);
+        // Keep the people you actually talk to at the top.
+        Route::post('/connections/{uuid}/favorite', [ConnectionController::class, 'favorite']);
         Route::put('/me/notification-topics', [ProfileController::class, 'updateNotificationTopics']);
         Route::post('/me/photo', [ProfileController::class, 'uploadPhoto']);
         // Closing an account for good. Throttled because it is irreversible
@@ -1294,6 +1296,15 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // the reports module right.
             Route::get('/reports/overview', [\App\Http\Controllers\Api\V1\Crm\ReportController::class, 'overview'])
                 ->middleware('crm.member');
+            // Which CRM menus send mail and alerts - the Admin's call, for everyone.
+            Route::middleware('crm.member')->group(function () {
+                Route::get('/notification-topics', [\App\Http\Controllers\Api\V1\Crm\NotificationPolicyController::class, 'index']);
+                Route::put('/notification-topics', [\App\Http\Controllers\Api\V1\Crm\NotificationPolicyController::class, 'update']);
+                // Reports between two people in this company, for its Admin.
+                Route::get('/reports-queue', [\App\Http\Controllers\Api\V1\Crm\ReportQueueController::class, 'index']);
+                Route::post('/reports-queue/{uuid}/act', [\App\Http\Controllers\Api\V1\Crm\ReportQueueController::class, 'act']);
+            });
+
             Route::get('/user-log', [\App\Http\Controllers\Api\V1\Crm\ReportController::class, 'userLog'])
                 ->middleware('crm.member:user_log,view');
 

@@ -52,6 +52,9 @@ class ConnectionResource extends JsonResource
                  */
                 'presence' => $other->presenceFor($me),
             ] : null,
+            // Starred by the person reading, not by the connection.
+            'is_favorite' => $other !== null
+                && isset(($request->attributes->get('favorite_user_ids') ?? [])[$other->id]),
             'responded_at' => $this->responded_at,
             'created_at' => $this->created_at,
         ];

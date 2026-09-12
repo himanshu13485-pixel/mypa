@@ -19,11 +19,22 @@ class ModerationController extends Controller
             'reportedUser:id,uuid,name,username,status',
             'message:id,uuid,body,type,deleted_at',
             'reviewer:id,uuid,name',
+            'organization:id,name',
+            'escalator:id,uuid,name',
         ]);
 
-        $query->where('status', $request->query('status', 'open'));
+        $status = $request->query('status', 'open');
 
-        return response()->json($query->oldest()->paginate(30));
+        if ($status === 'escalated') {
+            $query->where('status', 'open')->whereNotNull('escalated_at');
+        } else {
+            $query->where('status', $status);
+        }
+
+        // A company that asked for help goes to the front of the line.
+        return response()->json(
+            $query->orderByRaw('escalated_at is null')->orderBy('escalated_at')->oldest()->paginate(30),
+        );
     }
 
     /** Act on a report: dismiss, warn, delete the message, or suspend the user. */

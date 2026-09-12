@@ -145,4 +145,60 @@ class NotificationTopics
     {
         return array_key_exists($topic, self::TOPICS);
     }
+
+    public static function isCrm(string $topic): bool
+    {
+        return (self::TOPICS[$topic]['group'] ?? null) === 'CRM';
+    }
+
+    /** The topics a person decides for themselves: everything but the CRM's. */
+    public static function personal(): array
+    {
+        return array_values(array_filter(self::all(), fn (array $t) => $t['group'] !== 'CRM'));
+    }
+
+    /** The topics a company's Admin decides for everybody in it. */
+    public static function crm(): array
+    {
+        return array_values(array_filter(self::all(), fn (array $t) => $t['group'] === 'CRM'));
+    }
+
+    /**
+     * May a notification from this menu reach this person on this channel?
+     *
+     * Three layers, in this order. The person's own app-wide switch first:
+     * somebody who turned e-mail off entirely is not written to by anything.
+     * Then, for a CRM menu, the company's policy - an Admin decides for the
+     * whole company whether payments or vendors send mail, and an employee
+     * does not overrule the company about the company's own mail. And for
+     * everything personal, the person's own per-menu switch.
+     */
+    public static function allows(object $notifiable, string $topic, string $channel): bool
+    {
+        $settings = $notifiable->settings ?? null;
+
+        if ($settings && ! $settings->notificationValue($channel === 'email' ? 'email' : 'push')) {
+            return false;
+        }
+
+        if (self::isCrm($topic) && $notifiable instanceof \App\Models\User) {
+            $org = self::companyOf($notifiable);
+            if ($org) {
+                return $org->topicAllows($topic, $channel);
+            }
+        }
+
+        return $settings?->topicAllows($topic, $channel) ?? true;
+    }
+
+    /** The active company this person works for, if any. */
+    private static function companyOf(\App\Models\User $user): ?\App\Models\Crm\Organization
+    {
+        return \App\Models\Crm\Member::with('organization')
+            ->where('user_id', $user->id)
+            ->where('status', 'active')
+            ->get()
+            ->map(fn ($m) => $m->organization)
+            ->first(fn ($org) => $org && $org->status === 'active');
+    }
 }

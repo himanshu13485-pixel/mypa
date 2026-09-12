@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bell, BellOff } from 'lucide-react'
 import { clsx } from 'clsx'
 import { profile as profileApi } from '../api/endpoints'
+import { crm } from '../api/crm'
 
 /**
  * Which menu a screen belongs to, for the switch in its header.
@@ -47,6 +48,23 @@ const TOPIC_OF_PATH: Record<string, string> = {
   files: 'files',
 }
 
+/** What either source answers with: the menus, and each one's two switches. */
+type TopicSwitches = {
+  topics: { key: string; label: string; hint: string; group: string }[]
+  values: Record<string, { email: boolean; app: boolean }>
+}
+
+/**
+ * The menus a company decides, as opposed to the ones a person does.
+ *
+ * Mirrors the server's NotificationTopics groups. Kept beside the path map
+ * because the two answer one question together: which switch, and whose.
+ */
+const COMPANY_TOPICS = new Set([
+  'leads', 'clients', 'invoices', 'payments', 'tds', 'vendors', 'expenses', 'salary',
+  'tasks', 'approvals', 'leaves', 'complaints', 'contests', 'notice',
+])
+
 /** The menu this path belongs to, or null when it has no switch of its own. */
 function topicForPath(pathname: string): string | null {
   const parts = pathname.split('/').filter(Boolean)
@@ -69,24 +87,43 @@ function topicForPath(pathname: string): string | null {
  * the screen carries its own pair of switches, saving the same preference
  * the settings page reads.
  */
-export function MenuAlertToggle({ className }: { className?: string }) {
+export function MenuAlertToggle({ className, scope = 'personal' }: {
+  className?: string
+  /*
+   * Whose switch this is.
+   *
+   * 'company' is the CRM's menus, decided by the company Admin for everybody
+   * - the CRM shell only renders it for the Admin. 'personal' is a person's
+   * own account: chat, calendar, connections. Each shows only its own menus,
+   * so an Admin in the CRM cannot silence somebody's personal chat and an
+   * employee cannot silence the company's payments.
+   */
+  scope?: 'personal' | 'company'
+}) {
   const { pathname } = useLocation()
-  const topic = topicForPath(pathname)
+  const found = topicForPath(pathname)
+  const topic = found && (scope === 'company') === COMPANY_TOPICS.has(found) ? found : null
   const [open, setOpen] = useState(false)
   const queryClient = useQueryClient()
+  const key = scope === 'company' ? ['crm', 'notification-policy'] : ['notification-topics']
 
   const { data } = useQuery({
-    queryKey: ['notification-topics'],
-    queryFn: profileApi.notificationTopics,
+    queryKey: key,
+    // Two sources, one shape: the menus, and each one's two switches.
+    queryFn: (): Promise<TopicSwitches> => (scope === 'company'
+      ? crm.notificationPolicy.get()
+      : profileApi.notificationTopics()),
     enabled: !!topic,
     staleTime: 5 * 60_000,
   })
 
   const mutation = useMutation({
     mutationFn: (change: { email?: boolean; app?: boolean }) =>
-      profileApi.setNotificationTopics({ [topic!]: change }),
+      scope === 'company'
+        ? crm.notificationPolicy.set({ [topic!]: change })
+        : profileApi.setNotificationTopics({ [topic!]: change }),
     onSuccess: (res) => {
-      queryClient.setQueryData(['notification-topics'], (prev: typeof data) =>
+      queryClient.setQueryData(key, (prev: typeof data) =>
         prev ? { ...prev, values: res.data.values } : prev)
     },
   })
@@ -121,6 +158,11 @@ export function MenuAlertToggle({ className }: { className?: string }) {
             <p className="mb-2 text-xs font-semibold text-slate-700 dark:text-slate-100">
               Alerts for {label}
             </p>
+            {scope === 'company' && (
+              <p className="mb-2 text-[11px] text-amber-600 dark:text-amber-400">
+                For everyone in the company.
+              </p>
+            )}
             {(['email', 'app'] as const).map((channel) => (
               <label key={channel} className="flex items-center gap-2 py-1 text-xs text-slate-600 dark:text-slate-300">
                 <input

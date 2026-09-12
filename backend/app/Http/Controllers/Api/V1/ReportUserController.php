@@ -48,16 +48,49 @@ class ReportUserController extends Controller
             return response()->json(['message' => 'You already have an open report for this. Our moderators will review it.'], 409);
         }
 
-        Report::create([
+        /*
+         * Whose queue this lands in.
+         *
+         * Two people in the same company: that company's Admin, who employs
+         * both and can act on it today. Anybody else: Netvork. Netvork's own
+         * queue shows the company ones as well - the platform does not stop
+         * being responsible because a company exists.
+         */
+        $companyId = Report::sharedCompany($me, $target);
+
+        $report = Report::create([
             'reporter_id' => $me->id,
             'reported_user_id' => $target->id,
             'message_id' => $message?->id,
+            'organization_id' => $companyId,
             'reason' => $data['reason'],
             'details' => $data['details'] ?? null,
         ]);
 
+        if ($companyId) {
+            $admins = \App\Models\Crm\Member::with('user')
+                ->where('organization_id', $companyId)
+                ->where('crm_role', 'admin')
+                ->where('status', 'active')
+                ->get()
+                ->pluck('user')
+                ->filter()
+                // An Admin reported, or reporting, is not told about themselves.
+                ->reject(fn ($u) => $u->id === $target->id);
+
+            foreach ($admins as $admin) {
+                $admin->notify(new \App\Notifications\CrmNotification(
+                    'crm_report',
+                    $me->name . ' reported ' . $target->name . ' (' . $report->reason . ').',
+                    '/crm/spam-reports',
+                ));
+            }
+        }
+
         return response()->json([
-            'message' => 'Report submitted. A moderator will review it — thank you for keeping My PA safe.',
+            'message' => $companyId
+                ? 'Report sent to your company admin, who will review it.'
+                : 'Report submitted. Netvork will review it — thank you for keeping the community safe.',
         ], 201);
     }
 }

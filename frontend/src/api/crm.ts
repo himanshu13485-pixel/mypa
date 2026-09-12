@@ -1635,6 +1635,8 @@ export interface CrmCompensation {
 }
 
 export interface CrmLeave {
+  /** Asked for before its first day ('pre'), or on/after it ('post'). */
+  applied_timing?: 'pre' | 'post'
   uuid: string
   member: { uuid: string; name: string | null } | null
   category: string
@@ -1774,6 +1776,24 @@ export interface CrmTaskSummary {
   overdue: number
   awaiting_review: number
   pendencies: number
+}
+
+/** A report one employee filed about another. */
+export interface CrmSpamReport {
+  uuid: string
+  reason: string
+  details: string | null
+  status: 'open' | 'actioned' | 'dismissed'
+  action_taken: string | null
+  action_note: string | null
+  created_at: string | null
+  reporter: { uuid: string; name: string } | null
+  reported_user: { uuid: string; name: string; status?: string } | null
+  message: { uuid: string; body: string | null; deleted_at: string | null } | null
+  reviewer: string | null
+  escalated_at: string | null
+  escalated_by: string | null
+  escalation_note: string | null
 }
 
 /** One invoice with tax deducted on it, and whether the certificate came. */
@@ -2538,6 +2558,35 @@ export const crm = {
     documents: (search: string, kind?: string) =>
       api.get<{ data: CrmTaskDocument[] }>('/crm/task-documents', { params: { search, kind } })
         .then((r) => r.data.data),
+  },
+
+  /**
+   * Which CRM menus send mail and alerts - the company Admin's decision, for
+   * everybody in the company.
+   */
+  notificationPolicy: {
+    get: () =>
+      api.get<{ data: {
+        topics: { key: string; label: string; hint: string; group: string }[]
+        values: Record<string, { email: boolean; app: boolean }>
+        can_edit: boolean
+      } }>('/crm/notification-topics').then((r) => r.data.data),
+    set: (topics: Record<string, { email?: boolean; app?: boolean }>) =>
+      api.put<{ message: string; data: { values: Record<string, { email: boolean; app: boolean }> } }>(
+        '/crm/notification-topics', { topics },
+      ).then((r) => r.data),
+  },
+
+  /** Reports between two people in this company, for its Admin. */
+  reportsQueue: {
+    list: (status: string) =>
+      api.get<Paginated<CrmSpamReport> & { counts: { open: number; escalated: number } }>(
+        '/crm/reports-queue', { params: { status } },
+      ).then((r) => r.data),
+    act: (uuid: string, action: string, note?: string) =>
+      api.post<{ message: string; data: CrmSpamReport }>(
+        `/crm/reports-queue/${uuid}/act`, { action, note: note || null },
+      ).then((r) => r.data),
   },
 
   /** The other thing a client owes: the certificate for tax they deducted. */

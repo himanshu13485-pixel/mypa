@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Crm\Member;
 use App\Models\Crm\Organization;
 use App\Models\User;
-use App\Notifications\CrmNotification;
 use App\Notifications\SocialNotification;
 use App\Support\NotificationTopics;
 use Database\Seeders\RolePermissionSeeder;
@@ -14,12 +13,11 @@ use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
- * Which menus may write to you, and whose letterhead it arrives on.
+ * A person's own menus, and whose letterhead work mail arrives on.
  *
- * Two app-wide switches is not a choice anybody wants to make. What people
- * want is to stop the payment e-mails and keep the leave approvals - so
- * every notification is filed under the screen it came from, and each
- * screen has its own pair.
+ * The CRM's menus are the company Admin's to decide (see
+ * CompanyNotificationPolicyTest). What is left here is what belongs to the
+ * person: their chat, their calendar, their connections - their own account.
  */
 class NotificationTopicTest extends TestCase
 {
@@ -36,17 +34,18 @@ class NotificationTopicTest extends TestCase
         return $user;
     }
 
-    public function test_every_menu_is_on_until_somebody_turns_one_off(): void
+    public function test_a_persons_own_list_is_only_their_own_menus(): void
     {
         $user = $this->person();
 
         $listed = $this->actingAs($user)->getJson('/api/v1/me/notification-topics')->assertOk();
 
-        // Every topic the server knows, each on for both channels.
-        $this->assertSame(count(NotificationTopics::TOPICS), count($listed->json('data.topics')));
-        $this->assertTrue($listed->json('data.values.payments.email'));
-        $this->assertTrue($listed->json('data.values.payments.app'));
-        $this->assertTrue($listed->json('data.email'));
+        $keys = collect($listed->json('data.topics'))->pluck('key');
+        $this->assertSame(count(NotificationTopics::personal()), $keys->count());
+        // Chat is theirs; payments are the company's.
+        $this->assertTrue($keys->contains('chat'));
+        $this->assertFalse($keys->contains('payments'));
+        $this->assertTrue($listed->json('data.values.chat.email'));
     }
 
     public function test_one_menu_can_be_silenced_without_touching_the_rest(): void
@@ -54,35 +53,37 @@ class NotificationTopicTest extends TestCase
         $user = $this->person();
 
         $this->actingAs($user)->putJson('/api/v1/me/notification-topics', [
-            'topics' => ['payments' => ['email' => false]],
+            'topics' => ['connections' => ['email' => false]],
         ])->assertOk()
-            ->assertJsonPath('data.values.payments.email', false)
-            // The bell for payments is untouched, and so is every other menu.
-            ->assertJsonPath('data.values.payments.app', true)
-            ->assertJsonPath('data.values.expenses.email', true);
+            ->assertJsonPath('data.values.connections.email', false)
+            ->assertJsonPath('data.values.connections.app', true)
+            ->assertJsonPath('data.values.calendar.email', true);
 
-        $settings = $user->fresh()->settings;
-        $this->assertFalse($settings->topicAllows('payments', 'email'));
-        $this->assertTrue($settings->topicAllows('expenses', 'email'));
+        $this->assertNotContains('mail', (new SocialNotification('connection_request', 'Hi.'))->via($user->fresh()));
+        $this->assertContains('database', (new SocialNotification('connection_request', 'Hi.'))->via($user->fresh()));
+        $this->assertContains('mail', (new SocialNotification('event_invite', 'Hi.'))->via($user->fresh()));
+    }
 
-        // A payment notification now reaches the bell and no inbox.
-        $via = (new CrmNotification('crm_payment', 'Money landed.'))->via($user->fresh());
-        $this->assertNotContains('mail', $via);
-        $this->assertContains('database', $via);
+    public function test_a_person_cannot_switch_off_a_company_menu_for_themselves(): void
+    {
+        $user = $this->person();
 
-        // An expense one still does both.
-        $this->assertContains('mail', (new CrmNotification('crm_expense', 'Bill added.'))->via($user->fresh()));
+        $this->actingAs($user)->putJson('/api/v1/me/notification-topics', [
+            'topics' => ['payments' => ['email' => false], 'chat' => ['app' => false]],
+        ])->assertOk();
+
+        $saved = $user->fresh()->settings->notification_preferences['topics'];
+        $this->assertArrayNotHasKey('payments', $saved);
+        $this->assertFalse($saved['chat']['app']);
     }
 
     public function test_a_menu_nobody_has_filed_is_loud_rather_than_silent(): void
     {
         $user = $this->person();
 
-        // A kind invented after this list was written falls under 'other'…
         $this->assertSame('other', NotificationTopics::of('something_new'));
         $this->assertContains('mail', (new SocialNotification('something_new', 'Hello.'))->via($user));
 
-        // …and 'other' can be switched off like any of them.
         $this->actingAs($user)->putJson('/api/v1/me/notification-topics', [
             'topics' => ['other' => ['email' => false]],
         ])->assertOk();
@@ -98,24 +99,8 @@ class NotificationTopicTest extends TestCase
             'notification_preferences' => ['email' => false],
         ])->assertOk();
 
-        // Every menu says "on" and none of them may write: turning e-mail
-        // off entirely and finding one menu still writing would be a setting
-        // that lied.
-        $this->assertFalse($user->fresh()->settings->topicAllows('payments', 'email'));
-        $this->assertFalse($user->fresh()->settings->topicAllows('tasks', 'email'));
-    }
-
-    public function test_an_unknown_menu_is_ignored_rather_than_stored(): void
-    {
-        $user = $this->person();
-
-        $this->actingAs($user)->putJson('/api/v1/me/notification-topics', [
-            'topics' => ['not_a_menu' => ['email' => false], 'leads' => ['app' => false]],
-        ])->assertOk();
-
-        $saved = $user->fresh()->settings->notification_preferences['topics'];
-        $this->assertArrayNotHasKey('not_a_menu', $saved);
-        $this->assertFalse($saved['leads']['app']);
+        $this->assertFalse(NotificationTopics::allows($user->fresh(), 'chat', 'email'));
+        $this->assertFalse(NotificationTopics::allows($user->fresh(), 'payments', 'email'));
     }
 
     public function test_an_employees_mail_leaves_from_their_company(): void
@@ -123,7 +108,6 @@ class NotificationTopicTest extends TestCase
         Mail::fake();
         $user = $this->person();
 
-        // On their own, they hear from the platform.
         $this->assertNull(\App\Services\Crm\CompanyMailer::forStaff($user));
 
         $org = Organization::create([
@@ -141,7 +125,6 @@ class NotificationTopicTest extends TestCase
             'organization_id' => $org->id, 'user_id' => $user->id, 'crm_role' => 'employee', 'status' => 'active',
         ]);
 
-        // The day the company takes them on, the company is the one writing.
         $sender = \App\Services\Crm\CompanyMailer::forStaff($user->fresh());
         $this->assertSame('admin@acme-exports.com', $sender['address']);
         $this->assertSame('Acme Exports', $sender['name']);

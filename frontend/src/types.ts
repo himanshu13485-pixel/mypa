@@ -113,6 +113,12 @@ export interface ModerationReport {
   reported_user?: { uuid: string; name: string; username?: string; status?: string }
   message?: { uuid: string; body?: string | null; type: string; deleted_at?: string | null } | null
   reviewer?: { name: string } | null
+  /** Set when both people belong to one company - its Admin deals with it first. */
+  organization?: { id: number; name: string } | null
+  /** A company handed this up, and why. */
+  escalated_at?: string | null
+  escalation_note?: string | null
+  escalator?: { name: string } | null
 }
 
 export interface AuditLogRow {
@@ -235,6 +241,8 @@ export interface Connection {
      */
     presence?: PresenceState | null
   } | null
+  /** Starred by the person reading - kept at the top of their list. */
+  is_favorite?: boolean
   responded_at?: string | null
   created_at: string
 }
@@ -571,8 +579,12 @@ export interface ConversationItem {
   is_archived: boolean
   /** Kept at the top of my list. Mine alone - the other side has their own. */
   is_pinned?: boolean
-  /** The colours I read this chat in; null means the app's own. */
+  /** The colours I read this chat in: my own if I chose one, else the chat's. */
   theme?: string | null
+  /** The theme the whole chat wears, set by anybody in it. */
+  shared_theme?: string | null
+  /** A colour only I see, laid over the shared one. */
+  my_theme?: string | null
   /** Disappearing messages: null keeps everything, else a span in hours. */
   auto_delete_hours?: number | null
   last_message_at?: string | null

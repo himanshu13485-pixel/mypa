@@ -78,18 +78,45 @@ function ChatMenuItem({ icon, label, onClick, danger }: {
 function ThemeModal({ conversation, busy, onPick, onClose }: {
   conversation: ConversationItem
   busy: boolean
-  onPick: (theme: string | null, applyToAll: boolean) => void
+  onPick: (theme: string | null, scope: 'everyone' | 'me', applyToAll: boolean) => void
   onClose: () => void
 }) {
+  /*
+   * Everyone, or only me.
+   *
+   * Two different acts. Changing the chat's own theme changes what the whole
+   * room sees, so it is said in the chat - "Asha changed the chat theme to
+   * Forest" - and anybody reading later knows who did it. A colour only for
+   * yourself changes nothing for anybody else, so nothing is announced.
+   */
+  const [scope, setScope] = useState<'everyone' | 'me'>('everyone')
   const [applyToAll, setApplyToAll] = useState(false)
-  const current = conversation.theme ?? 'default'
+  const current = (scope === 'everyone' ? conversation.shared_theme : conversation.my_theme) ?? 'default'
 
   return (
     <Modal title={`Colours for “${conversation.name}”`} onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-xs text-slate-400">
-          Yours only. The person on the other side keeps whatever colours they chose.
-        </p>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            ['everyone', 'Everyone in this chat', 'Announced in the chat.'],
+            ['me', 'Only me', 'Nobody else sees it.'],
+          ] as const).map(([value, label, hint]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setScope(value)}
+              className={clsx(
+                'rounded-xl border p-2 text-left',
+                scope === value
+                  ? 'border-brand-500 ring-1 ring-brand-500'
+                  : 'border-slate-200 hover:border-slate-300 dark:border-slate-700',
+              )}
+            >
+              <span className="block text-xs font-medium text-slate-700 dark:text-slate-200">{label}</span>
+              <span className="block text-[11px] text-slate-400">{hint}</span>
+            </button>
+          ))}
+        </div>
 
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {CHAT_THEMES.map((t) => (
@@ -97,7 +124,7 @@ function ThemeModal({ conversation, busy, onPick, onClose }: {
               key={t.key}
               type="button"
               disabled={busy}
-              onClick={() => onPick(t.key === 'default' ? null : t.key, applyToAll)}
+              onClick={() => onPick(t.key === 'default' ? null : t.key, scope, scope === 'me' && applyToAll)}
               className={clsx(
                 'tap flex flex-col items-center gap-2 rounded-xl border p-3 transition-colors disabled:opacity-60',
                 current === t.key
@@ -115,14 +142,19 @@ function ThemeModal({ conversation, busy, onPick, onClose }: {
           ))}
         </div>
 
-        <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-          <input
-            type="checkbox"
-            checked={applyToAll}
-            onChange={(e) => setApplyToAll(e.target.checked)}
-          />
-          Use for all my chats
-        </label>
+        {/* Only a private colour can be spread across chats: putting one
+            theme on everybody else's view of every chat is not a choice any
+            one person gets to make. */}
+        {scope === 'me' && (
+          <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={applyToAll}
+              onChange={(e) => setApplyToAll(e.target.checked)}
+            />
+            Use for all my chats
+          </label>
+        )}
 
         <div className="flex justify-end">
           <Button variant="secondary" onClick={onClose}>Done</Button>
@@ -581,8 +613,8 @@ export default function MessagesPage() {
   })
 
   const themeMutation = useMutation({
-    mutationFn: ({ c, theme, all }: { c: ConversationItem; theme: string | null; all: boolean }) =>
-      chat.setTheme(c.uuid, theme, all),
+    mutationFn: ({ c, theme, scope, all }: { c: ConversationItem; theme: string | null; scope: 'everyone' | 'me'; all: boolean }) =>
+      chat.setTheme(c.uuid, theme, scope, all),
     onSuccess: (res) => { toast(res.message); refreshChats() },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -1802,7 +1834,11 @@ export default function MessagesPage() {
         <ThemeModal
           conversation={themeFor}
           busy={themeMutation.isPending}
-          onPick={(key, all) => themeMutation.mutate({ c: themeFor, theme: key, all })}
+          onPick={(key, scope, all) => {
+            themeMutation.mutate({ c: themeFor, theme: key, scope, all })
+            // A shared change is a line in the chat - show it straight away.
+            if (scope === 'everyone') queryClient.invalidateQueries({ queryKey: ['messages', themeFor.uuid] })
+          }}
           onClose={() => setThemeFor(null)}
         />
       )}

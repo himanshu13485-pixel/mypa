@@ -242,12 +242,25 @@ class ConversationController extends Controller
         ]);
     }
 
+    /** What each theme is called, in the sentence that announces it. */
+    private const THEME_LABELS = [
+        'default' => 'Netvork', 'ocean' => 'Ocean', 'forest' => 'Forest', 'violet' => 'Violet',
+        'rose' => 'Rose', 'sunset' => 'Sunset', 'graphite' => 'Graphite', 'midnight' => 'Midnight',
+    ];
+
     /**
-     * What colour this chat is, for me.
+     * What colour this chat is - for everybody in it, or for me.
      *
-     * A theme is a reading preference, so it is stored per member and never
-     * imposed on the other side. `apply_to_all` is here because the usual
-     * reason to change one is that you want them all that way.
+     * Two scopes, because they are two different acts. Changing the chat's
+     * own theme changes what the whole room sees, so it is said out loud in
+     * the room - "Asha changed the chat theme to Forest" - the way a rename
+     * is, and anybody reading later can see who did it and when. Choosing a
+     * colour only for yourself changes nothing for anybody else, so nothing
+     * is announced: telling a room about a change none of them can see is
+     * noise.
+     *
+     * Scope defaults to "me", which is what this endpoint meant before the
+     * shared theme existed.
      */
     public function setTheme(Request $request, Conversation $conversation): JsonResponse
     {
@@ -257,10 +270,38 @@ class ConversationController extends Controller
         $data = $request->validate([
             // Null means the app's own colours - always an available answer.
             'theme' => ['nullable', 'string', Rule::in(self::THEMES)],
+            'scope' => ['sometimes', Rule::in(['me', 'everyone'])],
             'apply_to_all' => ['sometimes', 'boolean'],
         ]);
 
         $theme = $data['theme'] ?? null;
+        if ($theme === 'default') {
+            $theme = null;
+        }
+
+        if (($data['scope'] ?? 'me') === 'everyone') {
+            // An announcement group is run by its admins; its look is theirs.
+            if ($conversation->group?->only_admins_post && ! $conversation->group->canManage($me)) {
+                abort(403, 'Only the admins of this group can change its theme.');
+            }
+
+            $conversation->update(['theme' => $theme]);
+
+            Message::create([
+                'conversation_id' => $conversation->id,
+                'user_id' => $me->id,
+                'type' => 'text',
+                'body' => $theme
+                    ? '🎨 ' . $me->name . ' changed the chat theme to ' . (self::THEME_LABELS[$theme] ?? $theme) . '.'
+                    : '🎨 ' . $me->name . ' reset the chat theme to the default.',
+            ]);
+            $conversation->update(['last_message_at' => now()]);
+
+            return response()->json([
+                'message' => 'Theme changed for everyone in this chat.',
+                'data' => ['theme' => $theme, 'scope' => 'everyone', 'applied_to_all' => false],
+            ]);
+        }
 
         if ($data['apply_to_all'] ?? false) {
             \Illuminate\Support\Facades\DB::table('conversation_members')
@@ -268,16 +309,16 @@ class ConversationController extends Controller
                 ->update(['theme' => $theme]);
 
             return response()->json([
-                'message' => 'Every chat now uses this colour.',
-                'data' => ['theme' => $theme, 'applied_to_all' => true],
+                'message' => 'Every chat now uses this colour for you.',
+                'data' => ['theme' => $theme, 'scope' => 'me', 'applied_to_all' => true],
             ]);
         }
 
         $conversation->members()->updateExistingPivot($me->id, ['theme' => $theme]);
 
         return response()->json([
-            'message' => 'Chat colour saved.',
-            'data' => ['theme' => $theme, 'applied_to_all' => false],
+            'message' => 'Chat colour saved for you.',
+            'data' => ['theme' => $theme, 'scope' => 'me', 'applied_to_all' => false],
         ]);
     }
 
@@ -477,8 +518,11 @@ class ConversationController extends Controller
             'is_muted' => $myPivot?->muted_at !== null,
             'is_archived' => $myPivot?->archived_at !== null,
             'is_pinned' => $myPivot?->pinned_at !== null,
-            // Mine, not the room's - the other side reads their own colour.
-            'theme' => $myPivot?->theme,
+            // What this person sees: their own colour if they chose one,
+            // otherwise the chat's shared theme.
+            'theme' => $myPivot?->theme ?? $conversation->theme,
+            'shared_theme' => $conversation->theme,
+            'my_theme' => $myPivot?->theme,
             // Null unless somebody in the room set a span; the chat
             // header reads it to say what is happening to these words.
             'auto_delete_hours' => $conversation->auto_delete_hours,

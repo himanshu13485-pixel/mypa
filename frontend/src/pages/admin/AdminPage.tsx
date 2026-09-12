@@ -292,7 +292,7 @@ function ModerationTab() {
       <div className="mb-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold">Moderation queue</h2>
         <div className="flex gap-1">
-          {['open', 'actioned', 'dismissed'].map((option) => (
+          {['open', 'escalated', 'actioned', 'dismissed'].map((option) => (
             <Button key={option} size="sm" variant={status === option ? 'primary' : 'ghost'} onClick={() => setStatus(option)}>
               {option}
             </Button>
@@ -315,7 +315,19 @@ function ModerationTab() {
                     <span className="text-slate-500"> reported </span>
                     <span className="font-medium">{report.reported_user?.name}</span>
                     {report.reported_user?.status === 'suspended' && <Badge value="suspended" className="ml-2" />}
+                    {/* Whose company it happened in. Its Admin sees it too, and
+                        usually acts first. */}
+                    {report.organization && (
+                      <span className="ml-2 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        {report.organization.name}
+                      </span>
+                    )}
                   </p>
+                  {report.escalated_at && (
+                    <p className="mt-1 text-xs font-medium text-amber-600">
+                      Handed up by {report.escalator?.name ?? 'the company'}: “{report.escalation_note}”
+                    </p>
+                  )}
                   {report.message && (
                     <p className="mt-1 rounded bg-slate-50 px-2 py-1 text-xs italic text-slate-600 dark:bg-slate-800 dark:text-slate-300">
                       {report.message.deleted_at ? '(message deleted)' : `“${report.message.body ?? '…'}”`}

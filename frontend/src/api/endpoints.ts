@@ -190,6 +190,10 @@ export const connections = {
   send: (app_id: string, message?: string) => api.post('/connections', { app_id, message }),
   respond: (uuid: string, action: 'accept' | 'decline') => api.put(`/connections/${uuid}`, { action }),
   remove: (uuid: string) => api.delete(`/connections/${uuid}`),
+  /** Star, or unstar. A favourite sits at the top of your list alone. */
+  favorite: (uuid: string) =>
+    api.post<{ message: string; data: { is_favorite: boolean } }>(`/connections/${uuid}/favorite`)
+      .then((r) => r.data),
   /*
    * My own invite link, for somebody who is not on Netvork yet.
    *
@@ -706,9 +710,13 @@ export const chat = {
   togglePin: (uuid: string) =>
     api.post<{ message: string; data: { is_pinned: boolean } }>(`/conversations/${uuid}/pin`).then((r) => r.data),
   /** The colours I read one chat in, or - with applyToAll - all of them. */
-  setTheme: (uuid: string, theme: string | null, applyToAll = false) =>
-    api.post<{ message: string; data: { theme: string | null; applied_to_all: boolean } }>(
-      `/conversations/${uuid}/theme`, { theme, apply_to_all: applyToAll },
+  /**
+   * The colours a chat wears. 'everyone' changes it for the whole chat and is
+   * announced in it; 'me' is a private colour nobody else sees.
+   */
+  setTheme: (uuid: string, theme: string | null, scope: 'everyone' | 'me' = 'me', applyToAll = false) =>
+    api.post<{ message: string; data: { theme: string | null; scope: string; applied_to_all: boolean } }>(
+      `/conversations/${uuid}/theme`, { theme, scope, apply_to_all: applyToAll },
     ).then((r) => r.data),
   /** Disappearing messages: null keeps everything, or 24 / 168 / 720 hours. */
   setRetention: (uuid: string, hours: number | null) =>

@@ -180,10 +180,25 @@ class ConnectionController extends Controller
          * fine, where the plain paginated query takes over again and the
          * ordering is simply not offered.
          */
+        // Whom this person has starred, looked up once for every row.
+        $favoriteIds = \App\Models\ConnectionFavorite::where('user_id', $me->id)
+            ->pluck('favorite_user_id')
+            ->all();
+        $request->attributes->set('favorite_user_ids', array_flip($favoriteIds));
+
         $rows = $query->latest()->limit(self::RANK_LIMIT + 1)->get();
 
         if ($rows->count() > self::RANK_LIMIT) {
-            return ConnectionResource::collection($query->latest()->paginate(20));
+            // Too many to rank in memory - but favourites still lead, asked
+            // of the database instead.
+            return ConnectionResource::collection(
+                $query->orderByRaw(
+                    'exists(select 1 from connection_favorites f where f.user_id = ?'
+                    . ' and f.favorite_user_id = case when connections.requester_id = ?'
+                    . ' then connections.addressee_id else connections.requester_id end) desc',
+                    [$me->id, $me->id],
+                )->latest()->paginate(20),
+            );
         }
 
         $onlineCount = $rows
@@ -196,6 +211,21 @@ class ConnectionController extends Controller
             // which group you are in, never where you sit within it.
             $rows = $rows->sortBy(fn ($c) => $this->sortRank($c, $me))->values();
         }
+
+        /*
+         * Favourites first, always.
+         *
+         * Sorted last, so it is the outermost order: the starred people lead,
+         * and inside each half whatever order was already there - online
+         * first, or newest - still holds. A favourite is the person you want
+         * whether or not they happen to be online.
+         */
+        $starred = array_flip($favoriteIds);
+        $rows = $rows->sortBy(function ($c) use ($me, $starred) {
+            $other = $c->requester_id === $me->id ? $c->addressee_id : $c->requester_id;
+
+            return isset($starred[$other]) ? 0 : 1;
+        })->values();
 
         $perPage = 20;
         $page = LengthAwarePaginator::resolveCurrentPage();
@@ -214,6 +244,41 @@ class ConnectionController extends Controller
         // the number the toggle exists to stop you having to trust.
         return ConnectionResource::collection($paginator)
             ->additional(['online_count' => $onlineCount]);
+    }
+
+    /**
+     * Star a connection, or unstar one.
+     *
+     * Only an accepted connection: a pending request is somebody you have
+     * not yet decided about, and a favourite you are not connected to is a
+     * name at the top of a list that cannot be called.
+     */
+    public function favorite(Request $request, string $uuid): \Illuminate\Http\JsonResponse
+    {
+        $me = $request->user();
+
+        $connection = Connection::where('uuid', $uuid)
+            ->where(fn ($q) => $q->where('requester_id', $me->id)->orWhere('addressee_id', $me->id))
+            ->firstOrFail();
+
+        abort_unless($connection->status === 'accepted', 422, 'Only an accepted connection can be a favourite.');
+
+        $other = $connection->requester_id === $me->id ? $connection->addressee_id : $connection->requester_id;
+
+        $existing = \App\Models\ConnectionFavorite::where('user_id', $me->id)
+            ->where('favorite_user_id', $other)
+            ->first();
+
+        if ($existing) {
+            $existing->delete();
+        } else {
+            \App\Models\ConnectionFavorite::create(['user_id' => $me->id, 'favorite_user_id' => $other]);
+        }
+
+        return response()->json([
+            'message' => $existing ? 'Removed from favourites.' : 'Added to favourites.',
+            'data' => ['is_favorite' => ! $existing],
+        ]);
     }
 
     /** Where the three states sort. Online first, and the rest in order. */

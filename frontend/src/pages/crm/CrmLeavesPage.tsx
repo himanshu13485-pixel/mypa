@@ -29,6 +29,8 @@ export default function CrmLeavesPage() {
   const { toast, toastError } = useToast()
 
   const [status, setStatus] = useState('')
+  /* Asked for in advance, or after the fact. */
+  const [timing, setTiming] = useState('')
   const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ category: '', duration: 'full', date_from: '', date_to: '', reason: '' })
@@ -36,8 +38,8 @@ export default function CrmLeavesPage() {
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'leaves', status, page],
-    queryFn: () => crm.leaves.list({ status: status || undefined, page }),
+    queryKey: ['crm', 'leaves', status, timing, page],
+    queryFn: () => crm.leaves.list({ status: status || undefined, timing: timing || undefined, page }),
   })
 
   const refresh = () => {
@@ -160,6 +162,12 @@ export default function CrmLeavesPage() {
             <option value="rejected">Rejected</option>
             <option value="cancelled">Cancelled</option>
           </Select>
+          {/* Did the approver get a say before it happened? */}
+          <Select value={timing} onChange={(e) => { setTiming(e.target.value); setPage(1) }} title="Applied before or after the leave">
+            <option value="">Pre and post-applied</option>
+            <option value="pre">Pre-applied</option>
+            <option value="post">Post-applied</option>
+          </Select>
         </div>
 
         {isLoading ? (
@@ -197,6 +205,23 @@ export default function CrmLeavesPage() {
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3">
                       {l.date_from}{l.date_to !== l.date_from && <> → {l.date_to}</>}
+                      {/* Applied before the first day, or after the leave was
+                          already under way - the thing an approver weighs. */}
+                      {l.applied_timing && (
+                        <div>
+                          <span
+                            className={clsx(
+                              'rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+                              l.applied_timing === 'pre'
+                                ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
+                                : 'bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400',
+                            )}
+                            title={l.created_at ? `Applied ${l.created_at.slice(0, 16)}` : undefined}
+                          >
+                            {l.applied_timing === 'pre' ? 'Pre-applied' : 'Post-applied'}
+                          </span>
+                        </div>
+                      )}
                     </td>
                     <td className="py-2.5 pr-3 text-right font-medium">{Number(l.days)}</td>
                     <td className="max-w-[200px] truncate py-2.5 pr-3 text-slate-500" title={l.reason ?? ''}>{l.reason ?? '—'}</td>

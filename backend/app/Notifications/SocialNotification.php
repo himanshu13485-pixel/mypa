@@ -110,15 +110,14 @@ class SocialNotification extends Notification implements ShouldQueue
          * switches is whether it is pushed at them.
          */
         $topic = \App\Support\NotificationTopics::of($this->kind);
-        $settings = $notifiable->settings ?? null;
 
         $mail = self::wantsMail($notifiable)
             && ! in_array($this->kind, self::NEVER_MAIL, true)
-            && ($settings?->topicAllows($topic, 'email') ?? true);
+            && \App\Support\NotificationTopics::allows($notifiable, $topic, 'email');
 
         $via = $mail ? [...self::BELL, 'mail'] : self::BELL;
 
-        if (self::wantsPush($notifiable) && ($settings?->topicAllows($topic, 'app') ?? true)) {
+        if (self::wantsPush($notifiable) && \App\Support\NotificationTopics::allows($notifiable, $topic, 'app')) {
             $via[] = \App\Notifications\Channels\WebPushChannel::class;
             $via[] = \App\Notifications\Channels\FcmChannel::class;
         }

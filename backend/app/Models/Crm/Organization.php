@@ -28,7 +28,7 @@ class Organization extends Model
         'punch', 'payments', 'complaints', 'complaint-log', 'hr-policy', 'incentives',
         'vendors', 'expenses', 'salary', 'leaves', 'leave-log', 'tasks', 'approvals', 'newsletters',
         'cms', 'user-log', 'reports', 'workspace-fields', 'field-requests', 'contests',
-        'invoices', 'invoice-log', 'tds-certificates', 'recurring', 'commissions', 'overview', 'settings',
+        'invoices', 'invoice-log', 'tds-certificates', 'spam-reports', 'recurring', 'commissions', 'overview', 'settings',
         'connect', 'pl', 'assets', 'churn', 'communication', 'new', 'edit',
     ];
 
@@ -457,6 +457,28 @@ class Organization extends Model
      * company so it is set once rather than typed into every letter, and
      * still changeable on any one of them.
      */
+    /**
+     * Whether one CRM menu may use one channel, for everybody in the company.
+     *
+     * Set by the Admin. Absent means on: a company that never opened the
+     * switch has not decided its payments should go quiet.
+     */
+    public function topicAllows(string $topic, string $channel): bool
+    {
+        return (bool) (data_get($this->settings, "notification_topics.{$topic}.{$channel}") ?? true);
+    }
+
+    /** Every CRM menu's two switches, for the Admin's screen. */
+    public function topicPolicy(): array
+    {
+        return collect(\App\Support\NotificationTopics::crm())
+            ->mapWithKeys(fn (array $t) => [$t['key'] => [
+                'email' => $this->topicAllows($t['key'], 'email'),
+                'app' => $this->topicAllows($t['key'], 'app'),
+            ]])
+            ->all();
+    }
+
     public function tdsAccountsEmail(): string
     {
         return (string) (data_get($this->settings, 'tds.accounts_email') ?: 'accounts@grapmail.com');

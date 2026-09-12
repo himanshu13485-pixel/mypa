@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { useConnectBase } from '../lib/connectBase'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, Flag, MessageSquare, Phone, Search, Undo2, UserPlus, Video, X } from 'lucide-react'
+import { Check, Copy, Flag, MessageSquare, Phone, Search, Star, Undo2, UserPlus, Video, X } from 'lucide-react'
 import { badges as badgesApi, chat, connections as connectionsApi, profile, reportsApi } from '../api/endpoints'
 import { useCalls } from '../components/CallManager'
 import { REPORT_REASONS } from '../types'
@@ -562,6 +562,19 @@ export default function ConnectionsPage() {
                     </div>
                     {c.user?.app_id && (
                       <div className="flex items-center gap-1.5">
+                        {/* A star, kept at the top of your list and nobody else's. */}
+                        <button
+                          type="button"
+                          aria-pressed={!!c.is_favorite}
+                          title={c.is_favorite ? `Remove ${c.user.name} from favourites` : `Add ${c.user.name} to favourites`}
+                          onClick={() => connectionsApi.favorite(c.uuid).then(invalidate)}
+                          className={clsx(
+                            'rounded p-1.5',
+                            c.is_favorite ? 'text-amber-500' : 'text-slate-300 hover:text-amber-500',
+                          )}
+                        >
+                          <Star className={clsx('size-4', c.is_favorite && 'fill-current')} />
+                        </button>
                         <Button
                           size="sm"
                           variant="secondary"

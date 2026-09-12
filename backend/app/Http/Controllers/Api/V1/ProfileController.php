@@ -103,7 +103,9 @@ class ProfileController extends Controller
 
         return response()->json([
             'data' => [
-                'topics' => \App\Support\NotificationTopics::all(),
+                // The CRM's menus are the company Admin's to decide, so a
+                // person's own list is only the menus that are theirs.
+                'topics' => \App\Support\NotificationTopics::personal(),
                 'values' => $settings->topicPreferences(),
                 // The two app-wide switches still sit above all of them.
                 'email' => $settings->notificationValue('email'),
@@ -132,7 +134,9 @@ class ProfileController extends Controller
         $saved = (array) ($preferences['topics'] ?? []);
 
         foreach ($data['topics'] as $key => $wanted) {
-            if (! \App\Support\NotificationTopics::exists((string) $key)) {
+            // A CRM menu is not a person's to switch - the company decides.
+            if (! \App\Support\NotificationTopics::exists((string) $key)
+                || \App\Support\NotificationTopics::isCrm((string) $key)) {
                 continue;
             }
 

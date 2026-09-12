@@ -46,6 +46,7 @@ import {
   Settings2,
   Scale,
   ScrollText,
+  ShieldAlert,
   Sparkles,
   Store,
   Target,
@@ -142,6 +143,8 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Complaint log', icon: ListChecks, to: '/crm/complaint-log', module: 'complaint_log' },
     { label: 'Notice board', section: 'cms', icon: LayoutTemplate, to: '/crm/cms', badge: 'notice' },
     { label: 'User log', icon: History, to: '/crm/user-log', module: 'user_log' },
+    // Reports between employees: the company Admin's to deal with.
+    { label: 'Spam reports', icon: ShieldAlert, to: '/crm/spam-reports', adminOnly: true },
     { label: 'Reports', icon: BarChart3, to: '/crm/reports', capability: 'reports.view' },
     { label: 'Churn', icon: TrendingDown, to: '/crm/churn' },
     { label: 'Office Assets', section: 'assets', icon: Boxes, to: '/crm/assets' },
@@ -509,7 +512,7 @@ export default function CrmLayout() {
           >
             <ArrowLeftRight className="size-4" />
           </button>
-          <MenuAlertToggle />
+          {me?.member?.crm_role === 'admin' && <MenuAlertToggle scope="company" />}
           <NotificationBell />
         </header>
         {/* The CRM has its own shell, so it needs its own bell — the same
@@ -517,7 +520,7 @@ export default function CrmLayout() {
         <div data-print-chrome className="sticky top-0 z-20 hidden items-center justify-end gap-1 border-b border-slate-200 bg-white/90 px-6 py-2 backdrop-blur dark:border-slate-800 dark:bg-slate-900/90 md:flex">
           {/* The switch for whichever menu is open, beside the bell that
               reads them all. */}
-          <MenuAlertToggle />
+          {me?.member?.crm_role === 'admin' && <MenuAlertToggle scope="company" />}
           <NotificationBell />
         </div>
         <main className="scroll-pane min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
