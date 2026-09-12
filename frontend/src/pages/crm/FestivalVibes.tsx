@@ -78,7 +78,7 @@ export function FestivalVibes({ me }: { me: CrmMe | undefined }) {
       {festival.song_url && <audio ref={audioRef} src={festival.song_url} loop />}
 
       {/* The festival's own colour paints the banner for everyone. */}
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-center md:pl-60">
+      <div className="top-below-header pointer-events-none fixed inset-x-0 z-40 flex justify-center md:pl-60">
         <div
           className="pointer-events-auto mx-3 mt-2 flex min-w-0 max-w-xl items-center gap-3 rounded-2xl px-4 py-2.5 text-white shadow-lg"
           style={{ background: `linear-gradient(100deg, ${festival.color}, ${festival.color}cc)` }}

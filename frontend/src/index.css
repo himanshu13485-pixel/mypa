@@ -370,3 +370,74 @@ h3 {
     display: table-header-group;
   }
 }
+
+/* --- Birthday wishes, floating --- */
+
+/*
+ * A wish rising up the birthday person's screen like a balloon.
+ *
+ * Starts below the layer's bottom edge, drifts up with a small sideways sway
+ * (--wish-sway flips it left or right per card so they do not march in step),
+ * and fades out near the top. Two rounds, then it rests - a screen that never
+ * stops moving is a screen nobody can work on, even on their birthday.
+ */
+@keyframes wish-float {
+  0% {
+    transform: translate3d(0, 110%, 0) rotate(-2deg);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  50% {
+    transform: translate3d(calc(var(--wish-sway, 1) * 14px), -42vh, 0) rotate(2deg);
+  }
+  86% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(0, -92vh, 0) rotate(-1deg);
+    opacity: 0;
+  }
+}
+
+.wish-float {
+  animation: wish-float 14s ease-in-out both;
+  animation-iteration-count: 2;
+  will-change: transform, opacity;
+}
+
+/*
+ * Just below the CRM's mobile header, and at the very top on a desktop.
+ *
+ * The birthday and festival banners sat at top: 0 above everything, which on
+ * a phone meant on top of the header - over the menu button and the bell.
+ * Written here rather than as an arbitrary Tailwind value because the offset
+ * has to include the notch, and calc() with env() inside a class name is
+ * exactly the kind of thing that silently produces nothing.
+ */
+.top-below-header {
+  top: calc(env(safe-area-inset-top, 0px) + 3.5rem);
+}
+@media (min-width: 48rem) {
+  .top-below-header {
+    top: 0;
+  }
+}
+
+/* Clear of the home indicator on a phone; the usual gap on a desktop. */
+.bottom-float-safe {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+}
+@media (min-width: 40rem) {
+  .bottom-float-safe {
+    bottom: 1rem;
+  }
+}
+
+/* Floating is decoration. With reduced motion asked for, the panel alone. */
+@media (prefers-reduced-motion: reduce) {
+  .wish-float-layer {
+    display: none;
+  }
+}

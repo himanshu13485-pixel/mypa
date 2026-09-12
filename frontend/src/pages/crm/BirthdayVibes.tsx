@@ -59,7 +59,7 @@ export function BirthdayVibes({ me }: { me: CrmMe | undefined }) {
       {settings.song_url && <audio ref={audioRef} src={settings.song_url} loop />}
 
       {/* The festive banner riding above every CRM page today. */}
-      <div className="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-center md:pl-60">
+      <div className="top-below-header pointer-events-none fixed inset-x-0 z-40 flex justify-center md:pl-60">
         <div className="pointer-events-auto mx-3 mt-2 flex min-w-0 max-w-xl items-center gap-3 rounded-2xl bg-gradient-to-r from-pink-500 via-fuchsia-500 to-amber-400 px-4 py-2.5 text-white shadow-lg">
           <Cake className="size-5 shrink-0" />
           <div className="min-w-0">
