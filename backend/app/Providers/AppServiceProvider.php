@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\User;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -35,6 +36,20 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->registerRateLimiters();
+
+        /*
+         * Work mail arrives from work.
+         *
+         * Registered over the framework's own mail driver rather than named
+         * in each notification's via(), so everything the app sends to a
+         * company's employee leaves from that company's mailbox - and a
+         * notification added next year is routed correctly without anybody
+         * remembering this line exists.
+         */
+        Notification::extend('mail', fn ($app) => new \App\Notifications\Channels\CompanyMailChannel(
+            $app->make(\Illuminate\Contracts\Mail\Factory::class),
+            $app->make(\Illuminate\Mail\Markdown::class),
+        ));
 
         // Password reset links open in the SPA, which posts back to the API.
         ResetPassword::createUrlUsing(function (User $user, string $token) {
