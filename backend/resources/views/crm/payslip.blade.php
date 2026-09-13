@@ -30,6 +30,7 @@
   .lines th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #64748b; border-bottom: 1px solid #cbd5e1; padding: 5px 0; }
   .lines td { padding: 5px 0; border-bottom: 1px solid #f1f5f9; }
   .lines td.num, .lines th.num { text-align: right; }
+  .lines .note { font-size: 9px; color: #64748b; font-style: italic; margin-top: 1px; }
   .lines tr.total td { border-top: 1px solid #0f172a; border-bottom: none; font-weight: bold; padding-top: 6px; }
   .net { margin-top: 16px; background: #f1f5f9; padding: 10px 12px; }
   .net .big { font-size: 15px; font-weight: bold; }
@@ -109,7 +110,13 @@
           <tr><td>Payable</td><td class="num">{{ $money($slip->payable) }}</td></tr>
         @endforelse
         @if ((float) $slip->additions > 0)
-          <tr><td>Additions</td><td class="num">{{ $money($slip->additions) }}</td></tr>
+          <tr>
+            <td>
+              Additions
+              @if ($slip->addition_note)<div class="note">{{ $slip->addition_note }}</div>@endif
+            </td>
+            <td class="num">{{ $money($slip->additions) }}</td>
+          </tr>
         @endif
         <tr class="total"><td>Gross payable</td><td class="num">{{ $money((float) $slip->payable + (float) $slip->additions) }}</td></tr>
       </table>
@@ -120,12 +127,22 @@
         @forelse ($deductions as $line)
           <tr><td>{{ $line['label'] }}</td><td class="num">{{ $money($line['amount']) }}</td></tr>
         @empty
-          <tr><td class="muted">None</td><td class="num">—</td></tr>
+          @if ((float) $slip->deductions > 0)
+            <tr><td>Deductions</td><td class="num">{{ $money($slip->deductions) }}</td></tr>
+          @elseif ((float) $slip->other_deductions <= 0)
+            <tr><td class="muted">None</td><td class="num">—</td></tr>
+          @endif
         @endforelse
-        @if ($slip->deduction_note)
-          <tr><td class="muted" colspan="2">{{ $slip->deduction_note }}</td></tr>
+        @if ((float) $slip->other_deductions > 0)
+          <tr>
+            <td>
+              Other deductions
+              @if ($slip->other_deduction_note)<div class="note">{{ $slip->other_deduction_note }}</div>@endif
+            </td>
+            <td class="num">{{ $money($slip->other_deductions) }}</td>
+          </tr>
         @endif
-        <tr class="total"><td>Total deductions</td><td class="num">{{ $money($slip->deductions) }}</td></tr>
+        <tr class="total"><td>Total deductions</td><td class="num">{{ $money((float) $slip->deductions + (float) $slip->other_deductions) }}</td></tr>
       </table>
     </td>
   </tr>

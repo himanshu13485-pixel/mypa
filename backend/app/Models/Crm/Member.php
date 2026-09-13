@@ -128,6 +128,9 @@ class Member extends Model
         // Held by name even for a Subadmin: the accounting export is the
         // Admin's, plus exactly the people the Admin has named.
         'exports.excel' => ['group' => 'Money', 'label' => 'Download invoices & payments as Excel (accounting export)'],
+        // Held by name for everybody but the Admin: a salary register is
+        // every colleague's pay, line by line.
+        'salary.export' => ['group' => 'Money', 'label' => 'Download the detailed salary register as Excel (every employee; PF, ESI and welfare fund with employer and employee shares)'],
         // Also held by name: the Reports screen is the Admin's, opened to a
         // Subadmin only when the Admin ticks them in.
         'reports.view' => ['group' => 'Money', 'label' => 'See the Reports screen (company-wide figures)'],

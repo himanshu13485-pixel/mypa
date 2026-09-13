@@ -212,13 +212,16 @@ class CrmPaymentsExpensesSalaryTest extends TestCase
         ]);
         $uuid = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/salary')->json('data.0.uuid');
 
-        // 30000 + 2000 incentive - 1500 deduction = 30500, marked paid.
+        // 30000 + 2000 bonus - 1500 other deductions = 30500, marked paid.
         $updated = $this->actingAs($this->adminUser)->putJson("/api/v1/crm/salary/{$uuid}", [
             'additions' => 2000,
-            'deductions' => 1500,
-            'deduction_note' => '1 absent day',
+            'addition_note' => 'Extra bonus',
+            'other_deductions' => 1500,
+            'other_deduction_note' => '1 absent day',
             'status' => 'paid',
         ])->assertOk();
+        $this->assertSame('Extra bonus', $updated->json('data.addition_note'));
+        $this->assertSame('1 absent day', $updated->json('data.other_deduction_note'));
         $this->assertSame('30500.00', $updated->json('data.net_salary'));
         $this->assertNotNull($updated->json('data.paid_on'));
 
@@ -230,5 +233,52 @@ class CrmPaymentsExpensesSalaryTest extends TestCase
         $mine = $this->actingAs($this->employeeUser)->getJson('/api/v1/crm/salary')->assertOk();
         $this->assertCount(1, $mine->json('data'));
         $this->assertFalse($mine->json('manages'));
+    }
+
+    public function test_other_deductions_and_each_note_stay_with_their_own_figure(): void
+    {
+        SalaryRecord::create([
+            'member_id' => $this->employeeMember->id, 'amount' => 30000,
+            'effective_from' => now()->subMonth()->toDateString(),
+        ]);
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/salary/generate', [
+            'year' => now()->year, 'month' => now()->month,
+        ])->assertOk();
+        $uuid = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/salary')->json('data.0.uuid');
+        $payable = (float) \App\Models\Crm\SalarySlip::where('uuid', $uuid)->value('payable');
+        $statutory = (float) \App\Models\Crm\SalarySlip::where('uuid', $uuid)->value('deductions');
+
+        $this->actingAs($this->adminUser)->putJson("/api/v1/crm/salary/{$uuid}", [
+            'additions' => 1000,
+            'addition_note' => 'Extra bonus',
+            'other_deductions' => 500,
+            'other_deduction_note' => 'Canteen',
+        ])->assertOk()
+            ->assertJsonPath('data.other_deductions', '500.00')
+            // The statutory figure is left alone.
+            ->assertJsonPath('data.deductions', number_format($statutory, 2, '.', ''))
+            ->assertJsonPath('data.net_salary', number_format($payable + 1000 - $statutory - 500, 2, '.', ''));
+
+        // The totals carry the new head on its own.
+        $this->actingAs($this->adminUser)->getJson('/api/v1/crm/salary')
+            ->assertJsonPath('totals.other_deductions', 500);
+
+        // Both notes are on the payslip.
+        $this->actingAs($this->adminUser)->get("/api/v1/crm/salary/{$uuid}/pdf")->assertOk();
+
+        // An emptied note is removed, not kept.
+        $this->actingAs($this->adminUser)->putJson("/api/v1/crm/salary/{$uuid}", ['addition_note' => null])
+            ->assertOk()
+            ->assertJsonPath('data.addition_note', null)
+            ->assertJsonPath('data.other_deduction_note', 'Canteen');
+
+        // Rebuilding the month keeps the hand-typed money and its reason.
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/salary/generate', [
+            'year' => now()->year, 'month' => now()->month, 'refresh_pending' => true,
+        ])->assertOk();
+        $rebuilt = \App\Models\Crm\SalarySlip::where('member_id', $this->employeeMember->id)->firstOrFail();
+        $this->assertEquals(500, (float) $rebuilt->other_deductions);
+        $this->assertSame('Canteen', $rebuilt->other_deduction_note);
+        $this->assertEquals(1000, (float) $rebuilt->additions);
     }
 }

@@ -91,10 +91,92 @@ class PlController extends Controller
         $org = $request->attributes->get('crm_org');
         $cfg = $this->settings($org);
 
+        [$from, $to] = $this->span($request);
+
+        return response()->json(['data' => $this->statement($org, $cfg, $from, $to) + ['config' => $cfg]]);
+    }
+
+    /**
+     * The statement as Excel - the Admin's alone, like the screen.
+     *
+     * The first sheet reads like the screen, month by month: income lines,
+     * expense lines, the totals and the result. The second is one row a
+     * month, for anybody who wants to chart it.
+     */
+    public function export(Request $request)
+    {
+        $me = $this->admin($request);
+        $org = $request->attributes->get('crm_org');
+        $cfg = $this->settings($org);
+        [$from, $to] = $this->span($request);
+
+        $statement = $this->statement($org, $cfg, $from, $to);
+        $label = fn (string $ym) => Carbon::parse($ym . '-01')->format('F Y');
+        $period = $from === $to ? $label($from) : $label($from) . ' to ' . $label($to);
+
+        $rows = [
+            [\App\Support\Xlsx::cell('Profit & Loss — ' . $org->name . ' — ' . $period, \App\Support\Xlsx::TITLE)],
+            ['Generated ' . now()->format('d M Y H:i') . '. Income is gross sales in INR; salaries are the month’s CTC.'],
+            [],
+            array_map(fn ($h) => \App\Support\Xlsx::cell($h, \App\Support\Xlsx::HEADER), ['Month', 'Side', 'Line', 'Amount (INR)']),
+        ];
+        foreach ($statement['months'] as $m) {
+            $month = $label($m['month']);
+            foreach ($m['income'] as $line) {
+                $rows[] = [$month, 'Income', $line['label'], \App\Support\Xlsx::money($line['amount'])];
+            }
+            $rows[] = [$month, 'Income', \App\Support\Xlsx::cell('Total income', \App\Support\Xlsx::BOLD), \App\Support\Xlsx::money($m['income_total'], true)];
+            foreach ($m['expenses'] as $line) {
+                $rows[] = [$month, 'Expense', $line['label'], \App\Support\Xlsx::money($line['amount'])];
+            }
+            $rows[] = [$month, 'Expense', \App\Support\Xlsx::cell('Total expenses', \App\Support\Xlsx::BOLD), \App\Support\Xlsx::money($m['expense_total'], true)];
+            $rows[] = [$month, '', \App\Support\Xlsx::cell($m['profit'] >= 0 ? 'Profit' : 'Loss', \App\Support\Xlsx::BOLD), \App\Support\Xlsx::money($m['profit'], true)];
+            $rows[] = [];
+        }
+
+        $summary = [
+            [\App\Support\Xlsx::cell('Summary — ' . $period, \App\Support\Xlsx::TITLE)],
+            [],
+            array_map(fn ($h) => \App\Support\Xlsx::cell($h, \App\Support\Xlsx::HEADER), ['Month', 'Income', 'Expenses', 'Profit / loss']),
+        ];
+        foreach ($statement['months'] as $m) {
+            $summary[] = [$label($m['month']), \App\Support\Xlsx::money($m['income_total']), \App\Support\Xlsx::money($m['expense_total']), \App\Support\Xlsx::money($m['profit'])];
+        }
+        $summary[] = [
+            \App\Support\Xlsx::cell('Total', \App\Support\Xlsx::BOLD),
+            \App\Support\Xlsx::money($statement['totals']['income'], true),
+            \App\Support\Xlsx::money($statement['totals']['expense'], true),
+            \App\Support\Xlsx::money($statement['totals']['profit'], true),
+        ];
+
+        ActivityLog::record($me, $org->id, 'export.pl', $org, ['period' => $period]);
+
+        $path = (new \App\Support\Xlsx())
+            ->sheet('P&L', $rows, [16, 10, 44, 16], 4)
+            ->sheet('Summary', $summary, [16, 16, 16, 16], 3)
+            ->toTempFile();
+
+        return response()->streamDownload(function () use ($path) {
+            readfile($path);
+            @unlink($path);
+        }, 'profit-and-loss-' . ($from === $to ? $from : $from . '-to-' . $to) . '.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    /** @return array{0: string, 1: string} */
+    private function span(Request $request): array
+    {
         $from = $request->query('month_from', now()->format('Y-m'));
         $to = $request->query('month_to', $from);
         abort_if($to < $from, 422, 'The last month cannot come before the first.');
 
+        return [$from, $to];
+    }
+
+    /** @param array<string, mixed> $cfg */
+    private function statement($org, array $cfg, string $from, string $to): array
+    {
         $months = [];
         $cursor = Carbon::parse($from . '-01');
         $stop = Carbon::parse($to . '-01');
@@ -104,15 +186,14 @@ class PlController extends Controller
             $cursor->addMonthNoOverflow();
         }
 
-        return response()->json(['data' => [
+        return [
             'months' => $months,
-            'config' => $cfg,
             'totals' => [
                 'income' => round(collect($months)->sum('income_total'), 2),
                 'expense' => round(collect($months)->sum('expense_total'), 2),
                 'profit' => round(collect($months)->sum('profit'), 2),
             ],
-        ]]);
+        ];
     }
 
     /** @param array<string, mixed> $cfg */
@@ -155,11 +236,15 @@ class PlController extends Controller
             ->values()->all();
 
         if ($cfg['include_salaries'] ?? true) {
+            // The cost of the payroll, not what reached the bank: the net
+            // plus every deduction - both halves of PF, ESI and the welfare
+            // fund, EDLI, and the other deductions.
             $payroll = (float) SalarySlip::where('organization_id', $org->id)
                 ->where('year', $month->year)->where('month', $month->month)
-                ->sum('net_salary');
+                ->get(['net_salary', 'deductions', 'other_deductions'])
+                ->sum(fn ($s) => (float) $s->net_salary + (float) $s->deductions + (float) $s->other_deductions);
             if ($payroll > 0) {
-                $expenseLines[] = ['label' => 'Salaries (net payroll)', 'amount' => round($payroll, 2), 'source' => 'payroll'];
+                $expenseLines[] = ['label' => 'Salaries (CTC)', 'amount' => round($payroll, 2), 'source' => 'payroll'];
             }
         }
 

@@ -244,8 +244,22 @@ class CrmLaunchFeaturesTest extends TestCase
         $this->assertEquals(118000 - 55000, $month['profit']);
         $labels = collect($month['expenses'])->pluck('label');
         $this->assertTrue($labels->contains('Rent'));
-        $this->assertTrue($labels->contains('Salaries (net payroll)'));
+        $this->assertTrue($labels->contains('Salaries (CTC)'));
         $this->assertTrue($labels->contains('Credit card bill'));
+
+        // The statement as Excel: the Admin's alone, like the screen.
+        $this->actingAs($this->subUser)->get('/api/v1/crm/pl/export?month_from=2026-08&month_to=2026-08')->assertForbidden();
+        $bytes = $this->actingAs($this->adminUser)
+            ->get('/api/v1/crm/pl/export?month_from=2026-08&month_to=2026-08')
+            ->assertOk()->streamedContent();
+        $tmp = tempnam(sys_get_temp_dir(), 'pl');
+        file_put_contents($tmp, $bytes);
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($tmp) === true);
+        $this->assertStringContainsString('Salaries (CTC)', $zip->getFromName('xl/worksheets/sheet1.xml'));
+        $this->assertStringContainsString('Summary', $zip->getFromName('xl/workbook.xml'));
+        $zip->close();
+        @unlink($tmp);
     }
 
     // ---- #2 The asset register ------------------------------------------

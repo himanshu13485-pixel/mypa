@@ -560,7 +560,7 @@ class CrmCompensationTest extends TestCase
         // The admin adds a 1,000 bonus by hand.
         $slip = SalarySlip::where('member_id', $this->seller->id)->firstOrFail();
         $this->actingAs($this->adminUser)->putJson('/api/v1/crm/salary/' . $slip->uuid, [
-            'additions' => 1000, 'deduction_note' => 'bonus paid',
+            'additions' => 1000, 'addition_note' => 'bonus paid',
         ])->assertOk();
         $this->assertEquals(32000, (float) $slip->fresh()->net_salary);
 
@@ -571,7 +571,7 @@ class CrmCompensationTest extends TestCase
 
         $after = SalarySlip::where('member_id', $this->seller->id)->firstOrFail();
         $this->assertEquals(1000, (float) $after->additions);
-        $this->assertSame('bonus paid', $after->deduction_note);
+        $this->assertSame('bonus paid', $after->addition_note);
         $this->assertEquals(32000, (float) $after->net_salary);
 
         // Rebuild pending tears up the whole month — and the bonus still
@@ -581,7 +581,7 @@ class CrmCompensationTest extends TestCase
         ])->assertOk();
         $rebuilt = SalarySlip::where('member_id', $this->seller->id)->firstOrFail();
         $this->assertEquals(1000, (float) $rebuilt->additions);
-        $this->assertSame('bonus paid', $rebuilt->deduction_note);
+        $this->assertSame('bonus paid', $rebuilt->addition_note);
         $this->assertEquals(32000, (float) $rebuilt->net_salary);
     }
 
@@ -760,5 +760,61 @@ class CrmCompensationTest extends TestCase
             ->getJson('/api/v1/crm/employees/' . $this->seller->uuid . '/compensation/incentive-preview?month=2026-01')
             ->assertOk()
             ->assertJsonPath('data.total', 32000);   // 4L lands past 1L → 8%
+    }
+
+    public function test_ctc_and_the_salary_register_with_both_shares_of_every_scheme(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-02-05'));
+        $this->structure($this->seller); // PF, EDLI and welfare fund
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/salary/generate', ['year' => 2026, 'month' => 2])->assertOk();
+        $slip = SalarySlip::where('member_id', $this->seller->id)->firstOrFail();
+
+        // CTC is what the company spends: the net plus everything held back.
+        $ctc = round((float) $slip->net_salary + (float) $slip->deductions + (float) $slip->other_deductions, 2);
+        $this->assertGreaterThan((float) $slip->net_salary, $ctc);
+        $list = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/salary?year=2026&month=2')->assertOk();
+        $this->assertEquals($ctc, (float) $list->json('data.0.ctc'));
+        $this->assertEquals($ctc, (float) $list->json('totals.ctc'));
+        $this->assertTrue($list->json('can_export'));
+
+        $sheet = $this->sheetXml(
+            $this->actingAs($this->adminUser)->get('/api/v1/crm/salary/export?year=2026&month=2')->assertOk()->streamedContent()
+        );
+        foreach (['PF — employee', 'PF — employer', 'Welfare fund — employee', 'Welfare fund — employer', 'CTC (cost to company)'] as $column) {
+            $this->assertStringContainsString($column, $sheet);
+        }
+        $this->assertStringContainsString(htmlspecialchars($this->sellerUser->name, ENT_XML1 | ENT_QUOTES), $sheet);
+
+        // The employee's PF is the combined deduction less the employer's share.
+        $pf = (float) collect($slip->deduction_lines)->firstWhere('key', 'pf')['amount'];
+        $employerPf = (float) collect($slip->earnings)->firstWhere('key', 'employer_pf')['amount'];
+        $this->assertGreaterThan(0, $pf - $employerPf);
+        $this->assertStringContainsString('<v>' . rtrim(rtrim(number_format($pf - $employerPf, 6, '.', ''), '0'), '.') . '</v>', $sheet);
+
+        // One person's register works too.
+        $this->actingAs($this->adminUser)
+            ->get('/api/v1/crm/salary/export?year=2026&month=2&member=' . $this->seller->uuid)->assertOk();
+
+        // Nobody else, until the Admin names them - and the list says so.
+        $this->actingAs($this->sellerUser)->get('/api/v1/crm/salary/export?year=2026&month=2')->assertForbidden();
+        $this->assertFalse($this->actingAs($this->sellerUser)->getJson('/api/v1/crm/salary?year=2026&month=2')->json('can_export'));
+
+        $this->seller->update(['capabilities' => ['salary.export']]);
+        $this->actingAs($this->sellerUser)->get('/api/v1/crm/salary/export?year=2026&month=2')->assertOk();
+
+        $this->assertDatabaseHas('crm_activity_logs', ['action' => 'export.salary']);
+    }
+
+    private function sheetXml(string $bytes): string
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'xlsx');
+        file_put_contents($tmp, $bytes);
+        $zip = new \ZipArchive();
+        $this->assertTrue($zip->open($tmp) === true, 'The download is not a valid .xlsx.');
+        $xml = (string) $zip->getFromName('xl/worksheets/sheet1.xml');
+        $zip->close();
+        @unlink($tmp);
+
+        return $xml;
     }
 }

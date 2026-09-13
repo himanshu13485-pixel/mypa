@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use App\Support\Xlsx;
 
 /**
  * Salary slips: one row per employee per month, generated from the salary
@@ -80,12 +81,15 @@ class SalaryController extends Controller
             'payable' => round($slips->sum('payable'), 2),
             'additions' => round($slips->sum('additions'), 2),
             'deductions' => round($slips->sum('deductions'), 2),
+            'other_deductions' => round($slips->sum('other_deductions'), 2),
             'net' => round($slips->sum('net_salary'), 2),
+            // What the payroll actually costs the company.
+            'ctc' => round($slips->sum(fn (SalarySlip $s) => $this->ctc($s)), 2),
             'incentive' => round($slips->sum('incentive_amount'), 2),
             'net_without_incentive' => round($slips->sum(fn ($s) => (float) ($s->net_without_incentive ?? $s->net_salary)), 2),
             'paid' => round($slips->where('status', 'paid')->sum('net_salary'), 2),
             'pending' => round($slips->where('status', 'pending')->sum('net_salary'), 2),
-        ], 'year' => $year, 'month' => $month, 'manages' => $manages]);
+        ], 'year' => $year, 'month' => $month, 'manages' => $manages, 'can_export' => $this->canExport($me)]);
     }
 
     /** Start the month: one slip per active employee, from their salary record. */
@@ -112,11 +116,9 @@ class SalaryController extends Controller
                 ->where('status', 'pending')
                 ->get();
             foreach ($pending as $slip) {
-                if ((float) $slip->additions != 0 || $slip->deduction_note) {
-                    $manual[$slip->member_id] = [
-                        'additions' => (float) $slip->additions,
-                        'note' => $slip->deduction_note,
-                    ];
+                if ((float) $slip->additions != 0 || (float) $slip->other_deductions != 0
+                    || $slip->addition_note || $slip->other_deduction_note) {
+                    $manual[$slip->member_id] = $this->manualMoney($slip);
                 }
                 $this->unwind($slip);
                 $rebuilt++;
@@ -167,7 +169,7 @@ class SalaryController extends Controller
                 // plan releases this month, loans working their way back.
                 $calc = $calculator->compute($member, $month, $attendance[$member->id] ?? null);
 
-                $keep = $manual[$member->id] ?? ['additions' => 0.0, 'note' => null];
+                $keep = $manual[$member->id] ?? $this->manualMoney(null);
 
                 $slip = SalarySlip::create([
                     'organization_id' => $org->id,
@@ -175,7 +177,9 @@ class SalaryController extends Controller
                     'year' => $data['year'],
                     'month' => $data['month'],
                     'additions' => $keep['additions'],
-                    'deduction_note' => $keep['note'],
+                    'addition_note' => $keep['addition_note'],
+                    'other_deductions' => $keep['other_deductions'],
+                    'other_deduction_note' => $keep['other_deduction_note'],
                     'monthly_salary' => $calc['monthly_salary'],
                     'month_days' => $calc['month_days'],
                     'payable_days' => $calc['payable_days'],
@@ -187,8 +191,8 @@ class SalaryController extends Controller
                     'incentive_month' => $calc['incentive_month'],
                     'payable' => $calc['gross_payable'],
                     'deductions' => $calc['total_deductions'],
-                    'net_salary' => round($calc['net_salary'] + $keep['additions'], 2),
-                    'net_without_incentive' => round($calc['net_without_incentive'] + $keep['additions'], 2),
+                    'net_salary' => round($calc['net_salary'] + $keep['additions'] - $keep['other_deductions'], 2),
+                    'net_without_incentive' => round($calc['net_without_incentive'] + $keep['additions'] - $keep['other_deductions'], 2),
                     'bank_name' => $member->bank_name,
                     'account_holder' => $member->bank_account_name,
                     'account_no' => $member->bank_account_no,
@@ -242,8 +246,12 @@ class SalaryController extends Controller
         $data = $request->validate([
             'payable' => ['nullable', 'numeric', 'min:0'],
             'additions' => ['nullable', 'numeric', 'min:0'],
+            'addition_note' => ['nullable', 'string', 'max:512'],
+            // The statutory total - only for a slip with no computed lines;
+            // hand-typed money held back goes in other_deductions.
             'deductions' => ['nullable', 'numeric', 'min:0'],
-            'deduction_note' => ['nullable', 'string', 'max:512'],
+            'other_deductions' => ['nullable', 'numeric', 'min:0'],
+            'other_deduction_note' => ['nullable', 'string', 'max:512'],
             'bank_name' => ['nullable', 'string', 'max:255'],
             'account_holder' => ['nullable', 'string', 'max:255'],
             'account_no' => ['nullable', 'string', 'max:64'],
@@ -255,9 +263,22 @@ class SalaryController extends Controller
 
         $slip->fill(array_filter($data, fn ($v) => $v !== null));
 
+        // A note sent empty is a note taken away, not one left as it was.
+        foreach (['addition_note', 'other_deduction_note'] as $note) {
+            if ($request->exists($note)) {
+                $slip->{$note} = $data[$note] ?? null;
+            }
+        }
+        if ($request->exists('other_deductions') && $data['other_deductions'] === null) {
+            $slip->other_deductions = 0;
+        }
+
         // Net is always arithmetic — and the incentive-free reading moves
         // with it, so the two figures never drift apart under manual edits.
-        $slip->net_salary = round((float) $slip->payable + (float) $slip->additions - (float) $slip->deductions, 2);
+        $slip->net_salary = round(
+            (float) $slip->payable + (float) $slip->additions - (float) $slip->deductions - (float) $slip->other_deductions,
+            2,
+        );
         $slip->net_without_incentive = round((float) $slip->net_salary - (float) $slip->incentive_amount, 2);
         if (($data['status'] ?? null) === 'paid' && ! $slip->paid_on) {
             $slip->paid_on = now()->toDateString();
@@ -271,7 +292,10 @@ class SalaryController extends Controller
                 'employee' => $slip->member?->user?->name ?? $slip->account_holder,
                 'month' => sprintf('%04d-%02d', $slip->year, $slip->month),
                 'net' => (float) $slip->net_salary,
-                'note' => $data['deduction_note'] ?? null,
+                'additions' => (float) $slip->additions ?: null,
+                'addition_note' => $slip->addition_note,
+                'other_deductions' => (float) $slip->other_deductions ?: null,
+                'other_deduction_note' => $slip->other_deduction_note,
             ]));
 
         return response()->json(['message' => 'Slip saved.', 'data' => $this->serialize($slip->fresh()->load('member.user:id,name'), collect())]);
@@ -396,10 +420,9 @@ class SalaryController extends Controller
         // Manual money survives the recompute: an admin's +1,000 bonus is a
         // decision, not something the calendar knows — only the COMPUTED
         // side (payable, statutory deductions, incentive) is rebuilt.
-        $keepAdditions = (float) $slip->additions;
-        $keepNote = $slip->deduction_note;
+        $keep = $this->manualMoney($slip);
 
-        $newSlip = DB::transaction(function () use ($org, $slip, $member, $year, $month, $request, $keepAdditions, $keepNote) {
+        $newSlip = DB::transaction(function () use ($org, $slip, $member, $year, $month, $request, $keep) {
             $this->unwind($slip);
 
             $monthStart = \Carbon\Carbon::create($year, $month, 1);
@@ -428,11 +451,13 @@ class SalaryController extends Controller
                 'incentive_breakdown' => $calc['incentive_breakdown'],
                 'incentive_month' => $calc['incentive_month'],
                 'payable' => $calc['gross_payable'],
-                'additions' => $keepAdditions,
-                'deduction_note' => $keepNote,
+                'additions' => $keep['additions'],
+                'addition_note' => $keep['addition_note'],
+                'other_deductions' => $keep['other_deductions'],
+                'other_deduction_note' => $keep['other_deduction_note'],
                 'deductions' => $calc['total_deductions'],
-                'net_salary' => round($calc['net_salary'] + $keepAdditions, 2),
-                'net_without_incentive' => round($calc['net_without_incentive'] + $keepAdditions, 2),
+                'net_salary' => round($calc['net_salary'] + $keep['additions'] - $keep['other_deductions'], 2),
+                'net_without_incentive' => round($calc['net_without_incentive'] + $keep['additions'] - $keep['other_deductions'], 2),
                 'bank_name' => $member->bank_name,
                 'account_holder' => $member->bank_account_name,
                 'account_no' => $member->bank_account_no,
@@ -512,6 +537,253 @@ class SalaryController extends Controller
         $slip->delete();
     }
 
+    /**
+     * Cost to company: the net that reaches the bank plus everything held
+     * back on the way - the statutory lines (both halves of PF, ESI, the
+     * welfare fund, EDLI) and the other deductions. The same as the gross
+     * payable with its additions and incentive.
+     */
+    private function ctc(SalarySlip $s): float
+    {
+        return round((float) $s->net_salary + (float) $s->deductions + (float) $s->other_deductions, 2);
+    }
+
+    /** The Admin, or somebody the Admin named with salary.export. */
+    private function canExport(Member $me): bool
+    {
+        return $me->crm_role === 'admin'
+            || in_array('salary.export', (array) ($me->capabilities ?? []), true);
+    }
+
+    /**
+     * The salary register as Excel.
+     *
+     * Every slip of the month or the period - or one person's - on its own
+     * row: each earning, then PF, ESI and the welfare fund with the
+     * employee's share and the employer's apart, EDLI, professional tax, TDS,
+     * loans, the other deductions with their notes, net, and CTC. A totals
+     * row closes it.
+     *
+     * The slip keeps each scheme as one combined deduction and the employer's
+     * share as an earning; the employee's share is the difference.
+     */
+    public function export(Request $request)
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        abort_unless(
+            $this->canExport($me),
+            403,
+            'The salary register is the Admin’s, plus the people the Admin has named.',
+        );
+
+        $query = SalarySlip::with('member.user:id,name')->where('organization_id', $org->id);
+
+        $from = $request->query('month_from');
+        $to = $request->query('month_to');
+        if ($from && $to) {
+            abort_if($to < $from, 422, 'The last month cannot come before the first.');
+            $code = fn (string $ym) => (int) str_replace('-', '', $ym);
+            $query->whereRaw('(year * 100 + month) between ? and ?', [$code($from), $code($to)]);
+            $period = \Carbon\Carbon::parse($from . '-01')->format('M Y') . ' to ' . \Carbon\Carbon::parse($to . '-01')->format('M Y');
+            $fileRange = $from . '-to-' . $to;
+        } else {
+            $year = (int) $request->query('year', now()->year);
+            $month = (int) $request->query('month', now()->month);
+            abort_unless($month >= 1 && $month <= 12, 422, 'Month must be 1-12.');
+            $query->where('year', $year)->where('month', $month);
+            $period = \Carbon\Carbon::create($year, $month, 1)->format('F Y');
+            $fileRange = sprintf('%04d-%02d', $year, $month);
+        }
+
+        $person = null;
+        if ($uuid = $request->query('member')) {
+            $query->whereHas('member', fn ($m) => $m->where('uuid', $uuid));
+        }
+
+        $slips = $query->orderBy('year')->orderBy('month')->orderBy('id')->get();
+        abort_if($slips->isEmpty(), 422, 'There are no salary slips for that selection.');
+        if ($request->query('member')) {
+            $person = $slips->first()->member?->user?->name;
+        }
+
+        // The employer's statutory money sits in the earnings; it gets
+        // columns of its own below, beside the employee's share.
+        $statutory = ['employer_pf', 'edli', 'employer_esi', 'welfare_employer', 'incentive'];
+        $components = [];
+        foreach ($slips as $slip) {
+            foreach ((array) ($slip->earnings ?? []) as $line) {
+                if (! in_array($line['key'], $statutory, true) && ! isset($components[$line['key']])) {
+                    $components[$line['key']] = $line['label'];
+                }
+            }
+        }
+        if ($slips->contains(fn (SalarySlip $s) => empty($s->earnings))) {
+            $components['__payable'] = 'Payable (no breakdown)';
+        }
+
+        $header = [
+            'Employee', 'Employee code', 'Salary month', 'Released in', 'Monthly gross', 'Days in month',
+            'Payable days', 'Days without pay',
+            ...array_values($components),
+            'Incentive', 'Additions', 'Addition note', 'Gross payable',
+            'PF — employee', 'PF — employer', 'EDLI — employer', 'ESI — employee', 'ESI — employer',
+            'Welfare fund — employee', 'Welfare fund — employer', 'Professional tax', 'TDS',
+            'Loans & advances', 'Other statutory lines', 'Statutory deductions',
+            'Other deductions', 'Other deduction note', 'Total deductions',
+            'Net without incentive', 'Net salary', 'Employer contributions', 'CTC (cost to company)',
+            'Status', 'Paid on', 'Payment mode', 'Bank', 'Account holder', 'Account no.', 'IFSC',
+        ];
+        $text = ['Employee', 'Employee code', 'Salary month', 'Released in', 'Addition note', 'Other deduction note',
+            'Status', 'Paid on', 'Payment mode', 'Bank', 'Account holder', 'Account no.', 'IFSC'];
+        $count = ['Days in month', 'Payable days', 'Days without pay'];
+
+        $rows = [];
+        $totals = array_fill(0, count($header), 0.0);
+
+        foreach ($slips as $slip) {
+            $earn = collect((array) ($slip->earnings ?? []))->groupBy('key')->map(fn ($g) => (float) $g->sum('amount'));
+            $ded = collect((array) ($slip->deduction_lines ?? []))->groupBy('key')->map(fn ($g) => (float) $g->sum('amount'));
+            $e = fn (string $k) => (float) ($earn[$k] ?? 0);
+            $d = fn (string $k) => (float) ($ded[$k] ?? 0);
+
+            $pfEr = $e('employer_pf');
+            $esiEr = $e('employer_esi');
+            $welfareEr = $e('welfare_employer');
+            $edli = $d('edli') ?: $e('edli');
+            $loans = (float) $ded->filter(fn ($v, $k) => str_starts_with((string) $k, 'loan_'))->sum();
+            $otherStatutory = (float) $ded->reject(fn ($v, $k) => in_array($k, ['pf', 'edli', 'esi', 'welfare', 'pt', 'tds'], true)
+                || str_starts_with((string) $k, 'loan_'))->sum();
+
+            $month = \Carbon\Carbon::create($slip->year, $slip->month, 1);
+            $net = (float) $slip->net_salary;
+            $statutoryTotal = (float) $slip->deductions;
+            $other = (float) $slip->other_deductions;
+
+            $values = [
+                $slip->member?->user?->name ?? $slip->account_holder,
+                $slip->member?->employee_code,
+                $month->format('M Y'),
+                $month->copy()->addMonthNoOverflow()->format('M Y'),
+                (float) $slip->monthly_salary,
+                $slip->month_days,
+                $slip->payable_days !== null ? (float) $slip->payable_days : null,
+                (float) $slip->lop_days,
+            ];
+            foreach (array_keys($components) as $key) {
+                $values[] = $key === '__payable' ? (empty($slip->earnings) ? (float) $slip->payable : 0.0) : $e($key);
+            }
+            array_push(
+                $values,
+                (float) $slip->incentive_amount,
+                (float) $slip->additions,
+                $slip->addition_note,
+                round((float) $slip->payable + (float) $slip->additions, 2),
+                max(0, round($d('pf') - $pfEr, 2)),
+                $pfEr,
+                $edli,
+                max(0, round($d('esi') - $esiEr, 2)),
+                $esiEr,
+                max(0, round($d('welfare') - $welfareEr, 2)),
+                $welfareEr,
+                $d('pt'),
+                $d('tds'),
+                $loans,
+                $otherStatutory,
+                $statutoryTotal,
+                $other,
+                $slip->other_deduction_note,
+                round($statutoryTotal + $other, 2),
+                (float) ($slip->net_without_incentive ?? $slip->net_salary),
+                $net,
+                round($pfEr + $edli + $esiEr + $welfareEr, 2),
+                $this->ctc($slip),
+                $slip->status === 'paid' ? 'Paid' : 'Pending',
+                $slip->paid_on?->format('d M Y'),
+                $slip->payment_mode,
+                $slip->bank_name,
+                $slip->account_holder,
+                $slip->account_no,
+                $slip->ifsc,
+            );
+
+            $row = [];
+            foreach ($values as $i => $value) {
+                $name = $header[$i];
+                if (in_array($name, $text, true)) {
+                    $row[] = $value;
+                } elseif (in_array($name, $count, true)) {
+                    $row[] = $value;
+                } else {
+                    $row[] = Xlsx::money($value);
+                    $totals[$i] += (float) $value;
+                }
+            }
+            $rows[] = $row;
+        }
+
+        $totalRow = [];
+        foreach ($header as $i => $name) {
+            if ($i === 0) {
+                $totalRow[] = Xlsx::cell('Total (' . $slips->count() . ' slip' . ($slips->count() === 1 ? '' : 's') . ')', Xlsx::BOLD);
+            } elseif (in_array($name, $text, true) || in_array($name, $count, true) || $name === 'Monthly gross') {
+                $totalRow[] = null;
+            } else {
+                $totalRow[] = Xlsx::money($totals[$i], true);
+            }
+        }
+
+        $title = 'Salary register — ' . $org->name . ' — ' . $period . ($person ? ' — ' . $person : '');
+        $sheet = [
+            [Xlsx::cell($title, Xlsx::TITLE)],
+            ['Generated ' . now()->format('d M Y H:i') . ' by ' . ($me->user?->name ?? 'Admin')
+                . '. Amounts in the slip currency (INR). The employee share of each scheme is its deduction less the employer share.'],
+            [],
+            array_map(fn ($h) => Xlsx::cell($h, Xlsx::HEADER), $header),
+            ...$rows,
+            $totalRow,
+        ];
+
+        $widths = array_map(fn ($h) => match (true) {
+            $h === 'Employee' => 24,
+            str_contains($h, 'note') => 28,
+            in_array($h, $count, true) => 11,
+            default => max(13, min(26, mb_strlen($h) + 2)),
+        }, $header);
+
+        ActivityLog::record($me, $org->id, 'export.salary', $org, array_filter([
+            'period' => $period,
+            'employee' => $person,
+            'slips' => $slips->count(),
+        ]));
+
+        $path = (new Xlsx())->sheet('Salary register', $sheet, $widths, 4)->toTempFile();
+        $file = 'salary-register-' . ($person ? \Illuminate\Support\Str::slug($person) . '-' : '') . $fileRange . '.xlsx';
+
+        return response()->streamDownload(function () use ($path) {
+            readfile($path);
+            @unlink($path);
+        }, $file, ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
+    /**
+     * The money an admin typed onto a slip, and why.
+     *
+     * Kept through a recalculation or a rebuild of the month: a bonus or a
+     * canteen bill is a decision, not something the calendar knows.
+     */
+    private function manualMoney(?SalarySlip $slip): array
+    {
+        return [
+            'additions' => (float) ($slip?->additions ?? 0),
+            'addition_note' => $slip?->addition_note,
+            'other_deductions' => (float) ($slip?->other_deductions ?? 0),
+            'other_deduction_note' => $slip?->other_deduction_note,
+        ];
+    }
+
     private function serialize(SalarySlip $s, $punches): array
     {
         return [
@@ -533,8 +805,11 @@ class SalaryController extends Controller
             'payable' => $s->payable,
             'additions' => $s->additions,
             'deductions' => $s->deductions,
-            'deduction_note' => $s->deduction_note,
+            'addition_note' => $s->addition_note,
+            'other_deductions' => $s->other_deductions,
+            'other_deduction_note' => $s->other_deduction_note,
             'net_salary' => $s->net_salary,
+            'ctc' => $this->ctc($s),
             'bank_name' => $s->bank_name,
             'account_holder' => $s->account_holder,
             'account_no' => $s->account_no,

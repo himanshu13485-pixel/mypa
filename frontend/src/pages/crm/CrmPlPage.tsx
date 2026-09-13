@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Scale, Settings2, Trash2 } from 'lucide-react'
+import { FileSpreadsheet, Plus, Scale, Settings2, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, type CrmPlConfig, type CrmPlMonth } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
+import { saveBlob } from '../../lib/download'
 
 const inr = (v: number) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -34,6 +35,19 @@ export default function CrmPlPage() {
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['crm', 'pl'] })
 
+  const [exportingPl, setExportingPl] = useState(false)
+  const downloadExcel = async () => {
+    setExportingPl(true)
+    try {
+      const blob = await crm.pl.exportExcel(monthFrom, monthTo)
+      saveBlob(blob, `profit-and-loss-${monthFrom}${monthTo !== monthFrom ? `-to-${monthTo}` : ''}.xlsx`)
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setExportingPl(false)
+    }
+  }
+
   const deleteLine = useMutation({
     mutationFn: (id: number) => crm.pl.deleteLine(id),
     onSuccess: refresh,
@@ -60,6 +74,9 @@ export default function CrmPlPage() {
             <Label>To month</Label>
             <Input type="month" value={monthTo} onChange={(e) => setMonthTo(e.target.value)} className="w-40" />
           </div>
+          <Button variant="secondary" onClick={downloadExcel} disabled={!data || data.months.length === 0 || exportingPl}>
+            <FileSpreadsheet className="size-4" /> {exportingPl ? 'Preparing…' : 'Excel'}
+          </Button>
           <Button variant="secondary" onClick={() => setShowConfig(true)}>
             <Settings2 className="size-4" /> Setup
           </Button>
@@ -242,7 +259,7 @@ function ConfigModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
 
         <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
           <input type="checkbox" checked={cfg.include_salaries} onChange={(e) => set({ include_salaries: e.target.checked })} className="size-4 accent-emerald-600" />
-          Include salaries (the month&rsquo;s net payroll) in expenses
+          Include salaries (the month&rsquo;s CTC &mdash; net payroll plus deductions) in expenses
         </label>
         <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
           <input type="checkbox" checked={!!cfg.include_proformas} onChange={(e) => set({ include_proformas: e.target.checked })} className="size-4 accent-emerald-600" />

@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Download, PlayCircle, RefreshCw, Trash2, Wallet } from 'lucide-react'
+import { CheckCircle2, Download, FileSpreadsheet, PlayCircle, RefreshCw, Trash2, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, type CrmSalarySlip } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
+import { saveBlob } from '../../lib/download'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -20,6 +21,7 @@ export default function CrmSalaryPage() {
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [editing, setEditing] = useState<CrmSalarySlip | null>(null)
   const [viewing, setViewing] = useState<CrmSalarySlip | null>(null)
+  const [exporting, setExporting] = useState(false)
   // The payout run: tick the pending slips, mark them all paid in one act.
   const [selected, setSelected] = useState<string[]>([])
   // Between dates: read a whole period at once instead of one month.
@@ -129,6 +131,11 @@ export default function CrmSalaryPage() {
               </Select>
             </>
           )}
+          {data?.can_export && (data?.data.length ?? 0) > 0 && (
+            <Button variant="secondary" onClick={() => setExporting(true)}>
+              <FileSpreadsheet className="size-4" /> Excel
+            </Button>
+          )}
           {manages && (
             <>
             <Button onClick={() => generateMutation.mutate(false)} disabled={generateMutation.isPending}>
@@ -155,12 +162,14 @@ export default function CrmSalaryPage() {
       {data && manages && data.data.length > 0 && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[
+            // What the payroll costs: net plus every deduction held back.
+            { label: 'CTC (cost to company)', value: inr(data.totals.ctc) },
             { label: 'Net payroll (with incentive)', value: inr(data.totals.net) },
             { label: 'Without incentive', value: inr(data.totals.net_without_incentive) },
             { label: 'Incentives', value: inr(data.totals.incentive) },
             { label: 'Paid out', value: inr(data.totals.paid) },
             { label: 'Pending', value: inr(data.totals.pending) },
-            { label: 'Deductions', value: inr(data.totals.deductions) },
+            { label: 'Deductions', value: inr(data.totals.deductions + (data.totals.other_deductions ?? 0)) },
           ].map((s) => (
             <Card key={s.label} className="py-3">
               <div className="text-lg font-semibold text-slate-900 dark:text-white">{s.value}</div>
@@ -222,7 +231,7 @@ export default function CrmSalaryPage() {
                 </Button>
               </div>
             )}
-            <table className="w-full min-w-[1080px] text-sm">
+            <table className="w-full min-w-[1160px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                   {manages && (
@@ -247,6 +256,7 @@ export default function CrmSalaryPage() {
                   <th className="py-2 pr-3 text-right font-medium">Incentive</th>
                   <th className="py-2 pr-3 text-right font-medium">Net w/o inc.</th>
                   <th className="py-2 pr-3 text-right font-medium">Net</th>
+                  <th className="py-2 pr-3 text-right font-medium" title="Cost to company: net salary plus every deduction">CTC</th>
                   <th className="py-2 pr-3 font-medium">Status</th>
                   {manages && <th className="py-2 font-medium" />}
                 </tr>
@@ -286,11 +296,16 @@ export default function CrmSalaryPage() {
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right">{inr(s.monthly_salary)}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right">{inr(s.payable)}</td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-right text-emerald-600">
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-right text-emerald-600" title={s.addition_note ?? ''}>
                       {Number(s.additions) ? '+' + inr(s.additions).slice(1) : '—'}
                     </td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-right text-red-500" title={s.deduction_note ?? ''}>
-                      {Number(s.deductions) ? '−' + inr(s.deductions).slice(1) : '—'}
+                    <td
+                      className="whitespace-nowrap py-2.5 pr-3 text-right text-red-500"
+                      title={Number(s.other_deductions) ? `Includes other deductions ${inr(s.other_deductions)}${s.other_deduction_note ? ` — ${s.other_deduction_note}` : ''}` : ''}
+                    >
+                      {Number(s.deductions) + Number(s.other_deductions)
+                        ? '−' + inr(Number(s.deductions) + Number(s.other_deductions)).slice(1)
+                        : '—'}
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right text-emerald-600">
                       {Number(s.incentive_amount) ? inr(s.incentive_amount) : '—'}
@@ -302,6 +317,7 @@ export default function CrmSalaryPage() {
                       {s.net_without_incentive !== null ? inr(s.net_without_incentive) : inr(s.net_salary)}
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right font-semibold">{inr(s.net_salary)}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{inr(s.ctc)}</td>
                     <td className="py-2.5 pr-3">
                       <span className={clsx(
                         'rounded-full px-2 py-0.5 text-[11px] font-medium',
@@ -353,6 +369,17 @@ export default function CrmSalaryPage() {
         )}
       </Card>
 
+      {exporting && data && (
+        <ExportModal
+          people={Array.from(new Map(
+            data.data.flatMap((s) => (s.member ? [[s.member.uuid, { uuid: s.member.uuid, name: s.member.name }] as const] : [])),
+          ).values())}
+          params={period && monthFrom && monthTo ? { month_from: monthFrom, month_to: monthTo } : { year, month }}
+          label={period && monthFrom && monthTo ? `${monthFrom} to ${monthTo}` : `${MONTHS[month - 1]} ${year}`}
+          onClose={() => setExporting(false)}
+        />
+      )}
+
       {editing && (
         <SlipModal slip={editing} onClose={() => setEditing(null)} onDone={() => { setEditing(null); refresh() }} />
       )}
@@ -375,8 +402,10 @@ function SlipModal({ slip, onClose, onDone }: { slip: CrmSalarySlip; onClose: ()
   const [form, setForm] = useState({
     payable: String(Number(slip.payable)),
     additions: Number(slip.additions) ? String(Number(slip.additions)) : '',
+    addition_note: slip.addition_note ?? '',
     deductions: Number(slip.deductions) ? String(Number(slip.deductions)) : '',
-    deduction_note: slip.deduction_note ?? '',
+    other_deductions: Number(slip.other_deductions) ? String(Number(slip.other_deductions)) : '',
+    other_deduction_note: slip.other_deduction_note ?? '',
     bank_name: slip.bank_name ?? '',
     account_holder: slip.account_holder ?? '',
     account_no: slip.account_no ?? '',
@@ -387,15 +416,23 @@ function SlipModal({ slip, onClose, onDone }: { slip: CrmSalarySlip; onClose: ()
 
   const set = (key: keyof typeof form, value: string) => setForm((f) => ({ ...f, [key]: value }))
 
-  const net = (Number(form.payable) || 0) + (Number(form.additions) || 0) - (Number(form.deductions) || 0)
+  // PF, ESI, EDLI and the rest are worked out from the structure; they are
+  // not a place to type money in. Only an old slip with no computed lines
+  // still has its deductions entered by hand.
+  const statutoryLocked = slip.deduction_lines.length > 0
+
+  const net = (Number(form.payable) || 0) + (Number(form.additions) || 0)
+    - (Number(form.deductions) || 0) - (Number(form.other_deductions) || 0)
 
   const mutation = useMutation({
     mutationFn: () =>
       crm.salary.update(slip.uuid, {
         payable: Number(form.payable) || 0,
         additions: form.additions ? Number(form.additions) : 0,
-        deductions: form.deductions ? Number(form.deductions) : 0,
-        deduction_note: form.deduction_note || null,
+        addition_note: form.addition_note.trim() || null,
+        ...(statutoryLocked ? {} : { deductions: form.deductions ? Number(form.deductions) : 0 }),
+        other_deductions: form.other_deductions ? Number(form.other_deductions) : 0,
+        other_deduction_note: form.other_deduction_note.trim() || null,
         bank_name: form.bank_name || null,
         account_holder: form.account_holder || null,
         account_no: form.account_no || null,
@@ -425,19 +462,46 @@ function SlipModal({ slip, onClose, onDone }: { slip: CrmSalarySlip; onClose: ()
             <Label>Payable (₹)</Label>
             <Input type="number" min="0" value={form.payable} onChange={(e) => set('payable', e.target.value)} className="w-full" />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <Label>Additions</Label>
-              <Input type="number" min="0" value={form.additions} onChange={(e) => set('additions', e.target.value)} className="w-full" />
-            </div>
-            <div>
-              <Label>Deductions</Label>
+          <div>
+            <Label>Statutory deductions (PF, ESI, EDLI…)</Label>
+            {statutoryLocked ? (
+              <div
+                title="Worked out from the salary structure. Recalculate the slip to change it."
+                className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60"
+              >
+                <span className="tabular-nums text-slate-700 dark:text-slate-200">{inr(slip.deductions)}</span>
+                <span className="text-[11px] text-slate-400">computed</span>
+              </div>
+            ) : (
               <Input type="number" min="0" value={form.deductions} onChange={(e) => set('deductions', e.target.value)} className="w-full" />
+            )}
+          </div>
+
+          {/* Each figure typed by hand sits with the reason for it, and both
+              travel together onto the slip and the payslip. */}
+          <div className="rounded-xl border border-emerald-200 p-3 dark:border-emerald-900/60 sm:col-span-2">
+            <div className="grid gap-3 sm:grid-cols-[11rem_1fr]">
+              <div>
+                <Label>Additions (₹)</Label>
+                <Input type="number" min="0" value={form.additions} onChange={(e) => set('additions', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <Label>Addition note</Label>
+                <Input value={form.addition_note} onChange={(e) => set('addition_note', e.target.value)} placeholder="Extra bonus, arrears…" maxLength={512} className="w-full" />
+              </div>
             </div>
           </div>
-          <div className="sm:col-span-2">
-            <Label>Deduction note</Label>
-            <Input value={form.deduction_note} onChange={(e) => set('deduction_note', e.target.value)} placeholder="2 absent days" className="w-full" />
+          <div className="rounded-xl border border-red-200 p-3 dark:border-red-900/60 sm:col-span-2">
+            <div className="grid gap-3 sm:grid-cols-[11rem_1fr]">
+              <div>
+                <Label>Other deductions (₹)</Label>
+                <Input type="number" min="0" value={form.other_deductions} onChange={(e) => set('other_deductions', e.target.value)} className="w-full" />
+              </div>
+              <div>
+                <Label>Other deduction note</Label>
+                <Input value={form.other_deduction_note} onChange={(e) => set('other_deduction_note', e.target.value)} placeholder="Canteen, salary advance, 2 absent days…" maxLength={512} className="w-full" />
+              </div>
+            </div>
           </div>
           <div>
             <Label>Bank name</Label>
@@ -498,6 +562,15 @@ function BreakdownModal({ slip, canEdit, onEdit, onDownload, onClose }: {
       <span className={clsx('tabular-nums', tone ?? 'text-slate-800 dark:text-slate-100')}>{inr(amount)}</span>
     </div>
   )
+  // A hand-typed figure with its reason right under it.
+  const noted = (label: string, amount: number | string, note: string | null, tone: string) => (
+    <div>
+      {line(label, amount, tone)}
+      {note && <p className="-mt-0.5 break-words pb-1 text-xs italic text-slate-400">{note}</p>}
+    </div>
+  )
+  const additions = Number(slip.additions)
+  const other = Number(slip.other_deductions)
 
   return (
     <Modal title={`${slip.member?.name ?? 'Slip'} — ${MONTHS[slip.month - 1]} ${slip.year}`} onClose={onClose} wide>
@@ -515,17 +588,21 @@ function BreakdownModal({ slip, canEdit, onEdit, onDownload, onClose }: {
             {slip.earnings.length === 0
               ? line('Payable', slip.payable)
               : slip.earnings.map((l) => <div key={l.key}>{line(l.label, l.amount)}</div>)}
+            {additions > 0 && noted('Additions', additions, slip.addition_note, 'text-emerald-600')}
             <div className="mt-1 border-t border-slate-200 pt-1 dark:border-slate-700">
-              {line('Gross payable', slip.payable, 'font-semibold')}
+              {line('Gross payable', Number(slip.payable) + additions, 'font-semibold')}
             </div>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
             <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Deductions</h3>
-            {slip.deduction_lines.length === 0
-              ? <p className="py-1 text-sm text-slate-400">None.</p>
-              : slip.deduction_lines.map((l) => <div key={l.key}>{line(l.label, l.amount, 'text-red-500')}</div>)}
+            {slip.deduction_lines.length > 0
+              ? slip.deduction_lines.map((l) => <div key={l.key}>{line(l.label, l.amount, 'text-red-500')}</div>)
+              : Number(slip.deductions) > 0
+                ? line('Deductions', slip.deductions, 'text-red-500')
+                : other <= 0 && <p className="py-1 text-sm text-slate-400">None.</p>}
+            {other > 0 && noted('Other deductions', other, slip.other_deduction_note, 'text-red-500')}
             <div className="mt-1 border-t border-slate-200 pt-1 dark:border-slate-700">
-              {line('Total deductions', slip.deductions, 'font-semibold text-red-500')}
+              {line('Total deductions', Number(slip.deductions) + other, 'font-semibold text-red-500')}
             </div>
           </div>
         </div>
@@ -579,6 +656,10 @@ function BreakdownModal({ slip, canEdit, onEdit, onDownload, onClose }: {
             <span className="text-sm text-slate-500">Net salary</span>
             <span className="text-lg font-semibold tabular-nums">{inr(slip.net_salary)}</span>
           </div>
+          <div className="mt-1 flex items-baseline justify-between border-t border-slate-200 pt-1 text-sm dark:border-slate-700">
+            <span className="text-slate-500" title="Net salary plus every deduction held back">CTC — cost to company</span>
+            <span className="font-medium tabular-nums">{inr(slip.ctc)}</span>
+          </div>
         </div>
 
         <div className="flex gap-2">
@@ -589,6 +670,61 @@ function BreakdownModal({ slip, canEdit, onEdit, onDownload, onClose }: {
           {canEdit && slip.status === 'pending' && (
             <Button className="flex-1" variant="secondary" onClick={onEdit}>Adjust this slip</Button>
           )}
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * The detailed salary register as Excel: everybody, or one person, for the
+ * month or period on screen. PF, ESI and the welfare fund come out with the
+ * employee's share and the employer's apart.
+ */
+function ExportModal({ people, params, label, onClose }: {
+  people: { uuid: string; name: string | null }[]
+  params: Record<string, string | number>
+  label: string
+  onClose: () => void
+}) {
+  const { toastError } = useToast()
+  const [member, setMember] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const download = async () => {
+    setBusy(true)
+    try {
+      const blob = await crm.salary.exportExcel({ ...params, member: member || undefined })
+      const who = people.find((p) => p.uuid === member)?.name ?? 'all-employees'
+      const slug = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      saveBlob(blob, `salary-register-${slug(who)}-${slug(label)}.xlsx`)
+      onClose()
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal title="Download salary register (Excel)" onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500">
+          For {label}. One row per slip: every earning, PF, ESI and welfare fund with the employee&rsquo;s and the
+          employer&rsquo;s share apart, EDLI, other deductions with their notes, net salary and CTC.
+        </p>
+        <div>
+          <Label>Employees</Label>
+          <Select value={member} onChange={(e) => setMember(e.target.value)} className="w-full">
+            <option value="">All employees</option>
+            {people.map((p) => <option key={p.uuid} value={p.uuid}>{p.name ?? '—'}</option>)}
+          </Select>
+        </div>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button disabled={busy} onClick={download}>
+            <FileSpreadsheet className="size-4" /> {busy ? 'Preparing…' : 'Download Excel'}
+          </Button>
         </div>
       </div>
     </Modal>

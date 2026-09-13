@@ -105,7 +105,7 @@ export default function CrmEmployeeFormPage() {
    * own field below, which only an Admin is shown and only an Admin's payload
    * is allowed to carry.
    */
-  const NAMED_GRANTS = ['exports.excel', 'reports.view', 'hr.policy_edit', 'employees.rights']
+  const NAMED_GRANTS = ['exports.excel', 'salary.export', 'reports.view', 'hr.policy_edit', 'employees.rights']
 
   // The register flow's first step: everyone signs up on Netvork the normal
   // way; the company fetches that account and fills only the employment side.

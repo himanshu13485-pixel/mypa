@@ -1118,6 +1118,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // Salary: everyone reads (own slips scoped inside); managing needs rights
             Route::get('/salary', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'index'])
                 ->middleware('crm.member');
+            // The detailed register as Excel: the Admin, plus whoever the
+            // Admin named with salary.export (checked inside).
+            Route::get('/salary/export', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'export'])
+                ->middleware('crm.member');
             Route::post('/salary/generate', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'generate'])
                 ->middleware('crm.member:salary,create');
             // The Incentives ledger: own by default; another's needs the
@@ -1136,6 +1140,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::get('/assets/{uuid}/history', [\App\Http\Controllers\Api\V1\Crm\AssetController::class, 'history'])->middleware('crm.member');
             // The P&L: the Admin's page alone (gate inside).
             Route::get('/pl', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'index'])->middleware('crm.member');
+            Route::get('/pl/export', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'export'])->middleware('crm.member');
             Route::get('/pl/config', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'config'])->middleware('crm.member');
             Route::put('/pl/config', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'saveConfig'])->middleware('crm.member');
             Route::post('/pl/lines', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'storeLine'])->middleware('crm.member');

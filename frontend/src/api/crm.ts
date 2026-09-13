@@ -1429,8 +1429,14 @@ export interface CrmSalarySlip {
   payable: string
   additions: string
   deductions: string
-  deduction_note: string | null
+  /** Why the additions were given - printed under them. */
+  addition_note: string | null
+  /** Money held back besides the statutory lines: canteen, advance, unpaid absence. */
+  other_deductions: string
+  other_deduction_note: string | null
   net_salary: string
+  /** Cost to company: the net plus every deduction held back on the way. */
+  ctc: number
   bank_name: string | null
   account_holder: string | null
   account_no: string | null
@@ -1447,15 +1453,19 @@ export interface CrmSalaryResponse {
     payable: number
     additions: number
     deductions: number
+    other_deductions: number
     net: number
     paid: number
     pending: number
     incentive: number
     net_without_incentive: number
+    ctc: number
   }
   year: number
   month: number
   manages: boolean
+  /** The Admin, or somebody the Admin named with salary.export. */
+  can_export: boolean
 }
 
 export interface CrmSaleBreakdown {
@@ -2556,6 +2566,9 @@ export const crm = {
     /** The payslip as a PDF, earnings to net. */
     pdf: (uuid: string) =>
       api.get(`/crm/salary/${uuid}/pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
+    /** The detailed salary register as Excel - everyone, or `member`. */
+    exportExcel: (params: Record<string, string | number | undefined>) =>
+      api.get('/crm/salary/export', { params, responseType: 'blob' }).then((r) => r.data as Blob),
     /** Recompute one pending slip from the calendar as it stands now. */
     recalculate: (uuid: string) =>
       api.post<{ message: string; data: CrmSalarySlip }>(`/crm/salary/${uuid}/recalculate`).then((r) => r.data),
@@ -2946,6 +2959,10 @@ export const crm = {
     addLine: (payload: { month: string; side: 'income' | 'expense'; label: string; amount: number }) =>
       api.post<{ message: string }>('/crm/pl/lines', payload).then((r) => r.data),
     deleteLine: (id: number) => api.delete<{ message: string }>(`/crm/pl/lines/${id}`).then((r) => r.data),
+    /** The statement as Excel, month by month plus a summary sheet. */
+    exportExcel: (monthFrom: string, monthTo: string) =>
+      api.get('/crm/pl/export', { params: { month_from: monthFrom, month_to: monthTo }, responseType: 'blob' })
+        .then((r) => r.data as Blob),
   },
 
   /** Churn, the industry way — active, new, repeat, churned, not-renewed. */
