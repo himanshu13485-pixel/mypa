@@ -65,6 +65,8 @@ class PaymentSettler
                 'charge_note' => $charge > 0 ? $chargeNote : null,
                 'bank_account_id' => $entry->bank_account_id,
                 'payment_mode' => $entry->payment_mode,
+                // The receipt's own payment id travels onto the invoice.
+                'payment_no' => $entry->payment_no,
                 'reference_no' => $entry->reference_no,
                 'received_at' => $entry->received_on->toDateString(),
                 'note' => $proforma

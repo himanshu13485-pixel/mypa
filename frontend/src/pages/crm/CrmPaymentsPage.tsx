@@ -317,7 +317,11 @@ export default function CrmPaymentsPage() {
                     'border-b border-slate-50 last:border-0 dark:border-slate-800/50',
                     e.status === 'unclaimed' && 'bg-amber-50/40 dark:bg-amber-500/5',
                   )}>
-                    <td className="whitespace-nowrap py-2.5 pr-3">{e.received_on}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3">
+                      {e.received_on}
+                      {/* The id quoted for this receipt, here and on the invoice it settles. */}
+                      {e.payment_no && <div className="text-[10px] font-medium text-emerald-600">{e.payment_no}</div>}
+                    </td>
                     <td className="max-w-[320px] py-2.5 pr-3">
                       <button onClick={() => e.status === 'unclaimed' && openEdit(e)} className="block max-w-full truncate text-left" title={e.details ?? ''}>
                         {e.details || e.reference_no || '—'}
@@ -535,6 +539,7 @@ function ClaimModal({ entry, isManager, defaultMode, moving, onClose, onDone }: 
       <div className="space-y-3">
         <p className="text-sm text-slate-500">
           <Banknote className="mr-1 inline size-4 text-emerald-500" />
+          {entry.payment_no && <span className="font-medium text-emerald-600">{entry.payment_no} · </span>}
           {entry.details || entry.reference_no || 'This payment'} · received {entry.received_on}
           {moving && entry.claimed_invoice && <> · currently on {entry.claimed_invoice.number}</>}
         </p>
@@ -931,7 +936,9 @@ function SettleModal({ entry, pending, onClose, onSettle }: {
             <span className="font-semibold">{inr(entry.amount)}</span>
           </div>
           {entry.claimed_invoice && (
-            <div className="mt-0.5 text-xs text-slate-400">against {entry.claimed_invoice.number}</div>
+            <div className="mt-0.5 text-xs text-slate-400">
+              {entry.payment_no ? `${entry.payment_no} · ` : ''}against {entry.claimed_invoice.number}
+            </div>
           )}
         </div>
 

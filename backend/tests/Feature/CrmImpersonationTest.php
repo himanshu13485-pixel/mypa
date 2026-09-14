@@ -195,8 +195,8 @@ class CrmImpersonationTest extends TestCase
         $this->lend($subMember, 'account', $sub)->assertOk();
         $this->assertNull($subMember->fresh()->impersonation_level);
 
-        // Nor onto each other.
-        $this->lend($peerMember, 'account', $sub)->assertOk();
+        // Nor onto each other - a Subadmin may not change a peer's account at all now.
+        $this->lend($peerMember, 'account', $sub)->assertForbidden();
         $this->assertNull($peerMember->fresh()->impersonation_level);
 
         // The Admin's hand is the only one that writes it.

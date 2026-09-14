@@ -230,7 +230,14 @@ export default function CrmApprovalsPage() {
                             <div className="truncate text-xs text-slate-400">{a.client.company_name}</div>
                           )}
                         </td>
-                        <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{Number(a.amount) ? inr(a.amount) : '—'}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">
+                          {Number(a.amount) ? inr(a.amount) : '—'}
+                          {a.reimbursed_in ? (
+                            <div className="text-[10px] font-normal text-emerald-600">Paid in {a.reimbursed_in} salary</div>
+                          ) : a.reimbursable && a.status === 'approved' ? (
+                            <div className="text-[10px] font-normal text-slate-400">With the next salary</div>
+                          ) : null}
+                        </td>
                         <td className="py-2.5 pr-3">{a.requested_by ?? '—'}</td>
                         <td className="py-2.5 pr-3">
                           <span className={decisionBadge(a.status)} title={a.decision_note ?? ''}>
@@ -383,6 +390,11 @@ export default function CrmApprovalsPage() {
                 <Input type="number" min="0" value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))} className="w-full" />
               </div>
             </div>
+            {form.scope === 'general' && (
+              <p className="-mt-1 text-xs text-slate-400">
+                Once approved, the amount is paid back with your next salary, as a reimbursement on the earnings side.
+              </p>
+            )}
             <div>
               <Label>Details</Label>
               <Textarea rows={3} value={form.details} onChange={(e) => setForm((f) => ({ ...f, details: e.target.value }))} className="w-full" />

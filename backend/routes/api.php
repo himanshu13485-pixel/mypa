@@ -812,6 +812,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::post('/employees/{uuid}/documents', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'uploadDocument']);
                 Route::delete('/employees/{uuid}/documents/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'deleteDocument']);
                 Route::delete('/employees/{uuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'destroy']);
+                Route::post('/employees/{uuid}/reactivate', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'reactivate']);
 
                 /*
                  * The company master key, and putting somebody back in with it.

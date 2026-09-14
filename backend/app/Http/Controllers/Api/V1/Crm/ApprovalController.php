@@ -232,7 +232,9 @@ class ApprovalController extends Controller
             $approval->requester->user->notify(new CrmNotification(
                 'crm_approval',
                 'Your approval request (' . $approval->type . ') was ' . $data['status']
-                    . (($data['note'] ?? null) ? ' — "' . $data['note'] . '"' : '') . '.',
+                    . (($data['note'] ?? null) ? ' — "' . $data['note'] . '"' : '') . '.'
+                    . ($data['status'] === 'approved' && $approval->scope === 'general' && (float) $approval->amount > 0
+                        ? ' The amount will be reimbursed with your next salary.' : ''),
                 '/crm/approvals',
             ));
         }
@@ -406,6 +408,11 @@ class ApprovalController extends Controller
             'decided_at' => $a->decided_at?->toDateTimeString(),
             'decision_note' => $a->decision_note,
             'created_at' => $a->created_at?->toDateTimeString(),
+            // Office money claimed back: paid with the salary, once.
+            'reimbursable' => $a->scope === 'general' && (float) $a->amount > 0,
+            'reimbursed_in' => $a->reimbursedSlip
+                ? \Carbon\Carbon::create($a->reimbursedSlip->year, $a->reimbursedSlip->month, 1)->format('F Y')
+                : null,
         ];
     }
 

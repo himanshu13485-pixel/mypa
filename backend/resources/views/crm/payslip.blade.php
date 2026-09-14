@@ -118,7 +118,16 @@
             <td class="num">{{ $money($slip->additions) }}</td>
           </tr>
         @endif
-        <tr class="total"><td>Gross payable</td><td class="num">{{ $money((float) $slip->payable + (float) $slip->additions) }}</td></tr>
+        @foreach ($slip->reimbursement_lines ?? [] as $claim)
+          <tr>
+            <td>
+              Reimbursement — {{ $claim['type'] }}
+              <div class="note">{{ collect([$claim['date'] ?? null, $claim['details'] ?? null])->filter()->implode(' · ') }}</div>
+            </td>
+            <td class="num">{{ $money($claim['amount']) }}</td>
+          </tr>
+        @endforeach
+        <tr class="total"><td>Gross payable</td><td class="num">{{ $money((float) $slip->payable + (float) $slip->additions + (float) $slip->reimbursements) }}</td></tr>
       </table>
     </td>
     <td>

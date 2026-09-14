@@ -18,7 +18,7 @@ class SalarySlip extends Model
         'earnings', 'deduction_lines', 'incentive_amount', 'incentive_breakdown',
         'incentive_month', 'net_without_incentive',
         'payable', 'additions', 'addition_note', 'deductions', 'deduction_note',
-        'other_deductions', 'other_deduction_note', 'net_salary',
+        'other_deductions', 'other_deduction_note', 'reimbursements', 'reimbursement_lines', 'net_salary',
         'bank_name', 'account_holder', 'account_no', 'ifsc', 'status',
         'paid_on', 'payment_mode', 'created_by',
     ];
@@ -31,6 +31,8 @@ class SalarySlip extends Model
             'additions' => 'decimal:2',
             'deductions' => 'decimal:2',
             'other_deductions' => 'decimal:2',
+            'reimbursements' => 'decimal:2',
+            'reimbursement_lines' => 'array',
             'net_salary' => 'decimal:2',
             'net_without_incentive' => 'decimal:2',
             'incentive_amount' => 'decimal:2',

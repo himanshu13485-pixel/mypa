@@ -101,10 +101,11 @@ class CrmRightsEscalationTest extends TestCase
             'organization_id' => $this->org->id, 'user_id' => $peer->id, 'crm_role' => 'subadmin',
         ]);
 
+        // Refused outright now: a Subadmin may not change a peer's account at all.
         $this->edit($this->sub, $peerMember, [
             'rights' => ['salary' => ['view', 'edit']],
             'capabilities' => ['exports.excel'],
-        ])->assertOk();
+        ])->assertForbidden();
 
         $this->assertSame([], (array) ($peerMember->fresh()->rights['salary'] ?? []));
         $this->assertSame([], (array) $peerMember->fresh()->capabilities);

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { KeyRound, Plus, Search, UserCog } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { KeyRound, Plus, RotateCcw, Search, UserCog } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery } from '../../api/crm'
 import { enterWorkspace } from '../../lib/impersonation'
@@ -104,6 +104,35 @@ export default function CrmEmployeesPage() {
       setResetting(null)
     }
   }
+  /*
+   * Bring a deactivated person back.
+   *
+   * Deactivating only ever switched their CRM access off - the account, the
+   * history and the rights are all still there - so this is one click, for
+   * whoever may change that person.
+   */
+  const queryClient = useQueryClient()
+  const [reactivating, setReactivating] = useState<string | null>(null)
+  const reactivate = async (uuid: string, name: string) => {
+    const ok = await confirm({
+      title: `Reactivate ${name}?`,
+      message: 'They get their CRM access back, with the role and rights they had.',
+      actionLabel: 'Reactivate',
+    })
+    if (!ok) return
+
+    setReactivating(uuid)
+    try {
+      const res = await crm.employees.reactivate(uuid)
+      toast(res.message, 'success')
+      queryClient.invalidateQueries({ queryKey: ['crm', 'employees'] })
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setReactivating(null)
+    }
+  }
+
   // Registering staff is company authority, not a grantable right.
   const manages = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
   const { data, isLoading } = useQuery({
@@ -146,7 +175,7 @@ export default function CrmEmployeesPage() {
           </Select>
           <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
             <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
+            <option value="inactive">Inactive (deactivated)</option>
             <option value="">All</option>
           </Select>
           <Select value={reportsTo} onChange={(e) => { setReportsTo(e.target.value); setPage(1) }} title="Show one team leader's people (Team Workspace or org chart)">
@@ -230,6 +259,18 @@ export default function CrmEmployeesPage() {
                         * without one is "set a master key first" and the
                         * place to do that is Settings.
                         */}
+                      {m.status !== 'active' && m.can_manage && (
+                        <button
+                          type="button"
+                          disabled={reactivating !== null}
+                          onClick={() => reactivate(m.uuid, m.name ?? 'this member')}
+                          className="tap mr-1.5 inline-flex items-center gap-1 rounded-lg border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-500/10"
+                          title={`Give ${m.name} their CRM access back`}
+                        >
+                          <RotateCcw className="size-3.5" />
+                          {reactivating === m.uuid ? 'Reactivating…' : 'Reactivate'}
+                        </button>
+                      )}
                       {isAdmin && masterKey?.is_set && m.crm_role !== 'admin'
                         && m.uuid !== me?.member?.uuid && (
                         <button

@@ -94,7 +94,7 @@ class CompensationController extends Controller
     public function storeStructure(Request $request, string $memberUuid): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
-        $member = $this->member($request, $memberUuid);
+        $member = $this->managedMember($request, $memberUuid);
 
         $data = $request->validate([
             'effective_from' => ['required', 'date'],
@@ -139,7 +139,7 @@ class CompensationController extends Controller
 
     public function deleteStructure(Request $request, string $memberUuid, string $uuid): JsonResponse
     {
-        $member = $this->member($request, $memberUuid);
+        $member = $this->managedMember($request, $memberUuid);
         SalaryStructure::where('member_id', $member->id)->where('uuid', $uuid)->firstOrFail()->delete();
 
         return response()->json(['message' => 'Structure removed.']);
@@ -150,7 +150,7 @@ class CompensationController extends Controller
     public function storePlan(Request $request, string $memberUuid): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
-        $member = $this->member($request, $memberUuid);
+        $member = $this->managedMember($request, $memberUuid);
 
         $data = $request->validate([
             'effective_from' => ['required', 'date'],
@@ -195,7 +195,7 @@ class CompensationController extends Controller
 
     public function deletePlan(Request $request, string $memberUuid, string $uuid): JsonResponse
     {
-        $member = $this->member($request, $memberUuid);
+        $member = $this->managedMember($request, $memberUuid);
         IncentivePlan::where('member_id', $member->id)->where('uuid', $uuid)->firstOrFail()->delete();
 
         return response()->json(['message' => 'Plan removed.']);
@@ -223,7 +223,7 @@ class CompensationController extends Controller
     public function setPaymentGate(Request $request, string $memberUuid): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
-        $member = $this->member($request, $memberUuid);
+        $member = $this->managedMember($request, $memberUuid);
 
         $data = $request->validate([
             'mode' => ['required', Rule::in(['policy', 'require', 'release'])],
@@ -254,7 +254,7 @@ class CompensationController extends Controller
     public function storeLoan(Request $request, string $memberUuid): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
-        $member = $this->member($request, $memberUuid);
+        $member = $this->managedMember($request, $memberUuid);
 
         $data = $request->validate([
             'kind' => ['required', Rule::in(['loan', 'advance'])],
@@ -286,7 +286,7 @@ class CompensationController extends Controller
     /** A repayment made outside payroll — cash, transfer, adjustment. */
     public function repayLoan(Request $request, string $memberUuid, string $uuid): JsonResponse
     {
-        $member = $this->member($request, $memberUuid);
+        $member = $this->managedMember($request, $memberUuid);
         $loan = Loan::where('member_id', $member->id)->where('uuid', $uuid)->firstOrFail();
 
         $data = $request->validate([
@@ -328,7 +328,7 @@ class CompensationController extends Controller
 
     public function closeLoan(Request $request, string $memberUuid, string $uuid): JsonResponse
     {
-        $member = $this->member($request, $memberUuid);
+        $member = $this->managedMember($request, $memberUuid);
         $loan = Loan::where('member_id', $member->id)->where('uuid', $uuid)->firstOrFail();
         // Closing writes off whatever is left — deliberately, and on the trail.
         $left = $loan->balance();
@@ -345,6 +345,20 @@ class CompensationController extends Controller
     }
 
     // ---- Helpers -------------------------------------------------------------
+
+    /** A member whose pay the caller may change: downwards only, never their own. */
+    private function managedMember(Request $request, string $uuid): Member
+    {
+        $member = $this->member($request, $uuid);
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        abort_unless($me->mayManage($member), 403, $member->id === $me->id
+            ? 'Your own pay is set by the Company Admin.'
+            : 'Only the Company Admin may change the pay of a Subadmin or the Admin.');
+
+        return $member;
+    }
 
     private function member(Request $request, string $uuid): Member
     {

@@ -57,6 +57,7 @@ class PaymentInboxController extends Controller
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {
                 $q->where('details', 'like', "%{$search}%")
+                    ->orWhere('payment_no', 'like', "%{$search}%")
                     ->orWhere('reference_no', 'like', "%{$search}%")
                     ->orWhereHas('claimedInvoice', fn ($i) => $i->where('number', 'like', "%{$search}%"));
             });
@@ -495,6 +496,7 @@ class PaymentInboxController extends Controller
     {
         return [
             'uuid' => $e->uuid,
+            'payment_no' => $e->payment_no,
             'received_on' => $e->received_on->toDateString(),
             'issuing_company' => $e->issuingCompany?->name,
             'issuing_company_id' => $e->issuing_company_id,

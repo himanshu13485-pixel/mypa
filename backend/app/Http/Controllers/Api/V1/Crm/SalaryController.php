@@ -82,6 +82,7 @@ class SalaryController extends Controller
             'additions' => round($slips->sum('additions'), 2),
             'deductions' => round($slips->sum('deductions'), 2),
             'other_deductions' => round($slips->sum('other_deductions'), 2),
+            'reimbursements' => round($slips->sum('reimbursements'), 2),
             'net' => round($slips->sum('net_salary'), 2),
             // What the payroll actually costs the company.
             'ctc' => round($slips->sum(fn (SalarySlip $s) => $this->ctc($s)), 2),
@@ -170,6 +171,9 @@ class SalaryController extends Controller
                 $calc = $calculator->compute($member, $month, $attendance[$member->id] ?? null);
 
                 $keep = $manual[$member->id] ?? $this->manualMoney(null);
+                // Approved office-money claims still owed to them.
+                $claims = $this->reimbursable($org->id, $member, $month);
+                $reimb = round((float) $claims->sum('amount'), 2);
 
                 $slip = SalarySlip::create([
                     'organization_id' => $org->id,
@@ -180,6 +184,8 @@ class SalaryController extends Controller
                     'addition_note' => $keep['addition_note'],
                     'other_deductions' => $keep['other_deductions'],
                     'other_deduction_note' => $keep['other_deduction_note'],
+                    'reimbursements' => $reimb,
+                    'reimbursement_lines' => $this->reimbursementLines($claims),
                     'monthly_salary' => $calc['monthly_salary'],
                     'month_days' => $calc['month_days'],
                     'payable_days' => $calc['payable_days'],
@@ -191,8 +197,8 @@ class SalaryController extends Controller
                     'incentive_month' => $calc['incentive_month'],
                     'payable' => $calc['gross_payable'],
                     'deductions' => $calc['total_deductions'],
-                    'net_salary' => round($calc['net_salary'] + $keep['additions'] - $keep['other_deductions'], 2),
-                    'net_without_incentive' => round($calc['net_without_incentive'] + $keep['additions'] - $keep['other_deductions'], 2),
+                    'net_salary' => round($calc['net_salary'] + $keep['additions'] - $keep['other_deductions'] + $reimb, 2),
+                    'net_without_incentive' => round($calc['net_without_incentive'] + $keep['additions'] - $keep['other_deductions'] + $reimb, 2),
                     'bank_name' => $member->bank_name,
                     'account_holder' => $member->bank_account_name,
                     'account_no' => $member->bank_account_no,
@@ -202,6 +208,11 @@ class SalaryController extends Controller
 
                 // What the slip recovers is written into the loan's own book,
                 // so the balance falls with the payroll and never twice.
+                if ($claims->isNotEmpty()) {
+                    \App\Models\Crm\Approval::whereIn('id', $claims->pluck('id'))
+                        ->update(['reimbursed_slip_id' => $slip->id]);
+                }
+
                 foreach ($calc['loan_lines'] as $line) {
                     \App\Models\Crm\LoanRepayment::create([
                         'loan_id' => $line['loan_id'],
@@ -276,7 +287,8 @@ class SalaryController extends Controller
         // Net is always arithmetic — and the incentive-free reading moves
         // with it, so the two figures never drift apart under manual edits.
         $slip->net_salary = round(
-            (float) $slip->payable + (float) $slip->additions - (float) $slip->deductions - (float) $slip->other_deductions,
+            (float) $slip->payable + (float) $slip->additions + (float) $slip->reimbursements
+                - (float) $slip->deductions - (float) $slip->other_deductions,
             2,
         );
         $slip->net_without_incentive = round((float) $slip->net_salary - (float) $slip->incentive_amount, 2);
@@ -436,6 +448,10 @@ class SalaryController extends Controller
                 $org, new \App\Services\Crm\IncentiveCalculator($org),
             ))->compute($member, $monthStart, $attendance);
 
+            // The unwind above released this slip's claims; take them up again.
+            $claims = $this->reimbursable($org->id, $member, $monthStart);
+            $reimb = round((float) $claims->sum('amount'), 2);
+
             $fresh = SalarySlip::create([
                 'organization_id' => $org->id,
                 'member_id' => $member->id,
@@ -455,15 +471,22 @@ class SalaryController extends Controller
                 'addition_note' => $keep['addition_note'],
                 'other_deductions' => $keep['other_deductions'],
                 'other_deduction_note' => $keep['other_deduction_note'],
+                'reimbursements' => $reimb,
+                'reimbursement_lines' => $this->reimbursementLines($claims),
                 'deductions' => $calc['total_deductions'],
-                'net_salary' => round($calc['net_salary'] + $keep['additions'] - $keep['other_deductions'], 2),
-                'net_without_incentive' => round($calc['net_without_incentive'] + $keep['additions'] - $keep['other_deductions'], 2),
+                'net_salary' => round($calc['net_salary'] + $keep['additions'] - $keep['other_deductions'] + $reimb, 2),
+                'net_without_incentive' => round($calc['net_without_incentive'] + $keep['additions'] - $keep['other_deductions'] + $reimb, 2),
                 'bank_name' => $member->bank_name,
                 'account_holder' => $member->bank_account_name,
                 'account_no' => $member->bank_account_no,
                 'ifsc' => $member->bank_ifsc,
                 'created_by' => $request->user()->id,
             ]);
+
+            if ($claims->isNotEmpty()) {
+                \App\Models\Crm\Approval::whereIn('id', $claims->pluck('id'))
+                    ->update(['reimbursed_slip_id' => $fresh->id]);
+            }
 
             foreach ($calc['loan_lines'] as $line) {
                 \App\Models\Crm\LoanRepayment::create([
@@ -534,6 +557,8 @@ class SalaryController extends Controller
                 $loan->update(['status' => 'open']);
             }
         }
+        // Claims this slip paid back are owed again until another slip pays them.
+        \App\Models\Crm\Approval::where('reimbursed_slip_id', $slip->id)->update(['reimbursed_slip_id' => null]);
         $slip->delete();
     }
 
@@ -628,7 +653,7 @@ class SalaryController extends Controller
             'Employee', 'Employee code', 'Salary month', 'Released in', 'Monthly gross', 'Days in month',
             'Payable days', 'Days without pay',
             ...array_values($components),
-            'Incentive', 'Additions', 'Addition note', 'Gross payable',
+            'Incentive', 'Additions', 'Addition note', 'Reimbursements', 'Gross payable',
             'PF — employee', 'PF — employer', 'EDLI — employer', 'ESI — employee', 'ESI — employer',
             'Welfare fund — employee', 'Welfare fund — employer', 'Professional tax', 'TDS',
             'Loans & advances', 'Other statutory lines', 'Statutory deductions',
@@ -680,7 +705,8 @@ class SalaryController extends Controller
                 (float) $slip->incentive_amount,
                 (float) $slip->additions,
                 $slip->addition_note,
-                round((float) $slip->payable + (float) $slip->additions, 2),
+                (float) $slip->reimbursements,
+                round((float) $slip->payable + (float) $slip->additions + (float) $slip->reimbursements, 2),
                 max(0, round($d('pf') - $pfEr, 2)),
                 $pfEr,
                 $edli,
@@ -769,6 +795,38 @@ class SalaryController extends Controller
     }
 
     /**
+     * Approved office-money claims this person is still owed.
+     *
+     * General requests only (a recharge, a travel bill - not a price agreed
+     * on an invoice), approved, with an amount, not yet paid by any slip, and
+     * dated no later than the month being paid. A claim approved after last
+     * month's run therefore rides in this month's.
+     */
+    private function reimbursable(int $orgId, Member $member, \Carbon\Carbon $month)
+    {
+        return \App\Models\Crm\Approval::where('organization_id', $orgId)
+            ->where('requested_by', $member->id)
+            ->where('scope', 'general')
+            ->where('status', 'approved')
+            ->where('amount', '>', 0)
+            ->whereNull('reimbursed_slip_id')
+            ->whereDate('approval_date', '<=', $month->copy()->endOfMonth()->toDateString())
+            ->orderBy('approval_date')
+            ->get();
+    }
+
+    private function reimbursementLines($claims): array
+    {
+        return $claims->map(fn ($a) => [
+            'uuid' => $a->uuid,
+            'type' => $a->type,
+            'date' => $a->approval_date->toDateString(),
+            'amount' => round((float) $a->amount, 2),
+            'details' => $a->details ? \Illuminate\Support\Str::limit($a->details, 120) : null,
+        ])->values()->all();
+    }
+
+    /**
      * The money an admin typed onto a slip, and why.
      *
      * Kept through a recalculation or a rebuild of the month: a bonus or a
@@ -808,6 +866,8 @@ class SalaryController extends Controller
             'addition_note' => $s->addition_note,
             'other_deductions' => $s->other_deductions,
             'other_deduction_note' => $s->other_deduction_note,
+            'reimbursements' => $s->reimbursements,
+            'reimbursement_lines' => $s->reimbursement_lines ?? [],
             'net_salary' => $s->net_salary,
             'ctc' => $this->ctc($s),
             'bank_name' => $s->bank_name,

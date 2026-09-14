@@ -21,11 +21,11 @@ class InvoicePayment extends Model
     {
         // Every receipt gets its unique payment id the moment it exists —
         // the handle that ties a bank-statement line to its invoice.
+        // One series with the Payments inbox: a settled receipt arrives here
+        // carrying the id it was logged with, and keeps it.
         static::created(function (self $payment) {
             if (! $payment->payment_no) {
-                $payment->forceFill([
-                    'payment_no' => 'PAY-' . str_pad((string) $payment->id, 6, '0', STR_PAD_LEFT),
-                ])->saveQuietly();
+                \App\Support\PaymentNumber::assign($payment);
             }
         });
     }

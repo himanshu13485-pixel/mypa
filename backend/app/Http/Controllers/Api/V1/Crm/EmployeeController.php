@@ -89,7 +89,11 @@ class EmployeeController extends Controller
         $lends = $me->borrowableRoles();
 
         $members->getCollection()->transform(
-            fn ($m) => $this->serialize($m) + ['can_impersonate' => $this->borrowable($m, $me, $lends)],
+            fn ($m) => $this->serialize($m) + [
+                'can_impersonate' => $this->borrowable($m, $me, $lends),
+                // Whether this reader may change or deactivate the row.
+                'can_manage' => $me->mayManage($m),
+            ],
         );
 
         return response()->json($members);
@@ -341,6 +345,7 @@ class EmployeeController extends Controller
                 'team.user:id,name', 'leaders.user:id,name']);
 
         $data = $this->serialize($member, full: true);
+        $data['can_manage'] = $request->attributes->get('crm_member')->mayManage($member);
 
         // A person's file is their own: a Team Workspace leader opening a
         // team member's profile gets the WORKING record (name, code, role,
@@ -375,6 +380,11 @@ class EmployeeController extends Controller
         $org = $request->attributes->get('crm_org');
         $member = $this->find($request, $uuid);
 
+        // Your own record you may keep up to date; anybody else's only from above.
+        if ($member->id !== $request->attributes->get('crm_member')->id) {
+            $this->guardManage($request, $member);
+        }
+
         $data = $this->validateProfile($request, $org->id, $member->id);
 
         $me = $request->attributes->get('crm_member');
@@ -401,6 +411,11 @@ class EmployeeController extends Controller
          * answer depends on who is being edited — the same Subadmin may set
          * an employee's rights and must not set a peer's or their own.
          */
+        // Nobody switches their own account off from here.
+        if ($member->id === $me?->id) {
+            unset($data['status']);
+        }
+
         if (! $me?->maySetRightsOn($member)) {
             unset($data['rights'], $data['capabilities']);
         }
@@ -485,6 +500,7 @@ class EmployeeController extends Controller
     {
         $org = $request->attributes->get('crm_org');
         $member = $this->find($request, $uuid);
+        $this->guardManage($request, $member);
 
         if ($member->crm_role === 'admin'
             && Member::visible()->where('organization_id', $org->id)->where('crm_role', 'admin')->where('status', 'active')->count() <= 1) {
@@ -503,6 +519,7 @@ class EmployeeController extends Controller
     public function addSalary(Request $request, string $uuid): JsonResponse
     {
         $member = $this->find($request, $uuid);
+        $this->guardManage($request, $member);
         $data = $request->validate([
             'amount' => ['required', 'numeric', 'min:0'],
             'currency' => ['nullable', 'string', 'size:3'],
@@ -535,6 +552,7 @@ class EmployeeController extends Controller
     public function deleteSalary(Request $request, string $uuid, int $recordId): JsonResponse
     {
         $member = $this->find($request, $uuid);
+        $this->guardManage($request, $member);
         $member->salaryRecords()->whereKey($recordId)->firstOrFail()->delete();
 
         return response()->json(['message' => 'Salary record removed.']);
@@ -545,6 +563,7 @@ class EmployeeController extends Controller
     public function uploadDocument(Request $request, string $uuid): JsonResponse
     {
         $member = $this->find($request, $uuid);
+        $this->guardManage($request, $member);
         $request->validate([
             'name' => ['nullable', 'string', 'max:255'],
             'file' => ['required', 'file', 'max:10240'],
@@ -582,6 +601,7 @@ class EmployeeController extends Controller
     public function deleteDocument(Request $request, string $uuid, string $documentUuid): JsonResponse
     {
         $member = $this->find($request, $uuid);
+        $this->guardManage($request, $member);
         $document = $member->documents()->where('uuid', $documentUuid)->firstOrFail();
 
         Storage::disk('local')->delete($document->path);
@@ -621,6 +641,45 @@ class EmployeeController extends Controller
     }
 
     // ---- Helpers -----------------------------------------------------------
+
+    /**
+     * Stop here unless the caller may change this person's account.
+     *
+     * Every write on an employee record goes through this: the profile, the
+     * deactivation, pay records and documents.
+     */
+    private function guardManage(Request $request, Member $member): void
+    {
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        abort_unless($me->mayManage($member), 403, match (true) {
+            $member->id === $me->id => 'You cannot do this to your own account.',
+            $member->crm_role === 'admin' => 'Only the Company Admin may change the Company Admin’s account.',
+            default => 'Only the Company Admin may change a Subadmin’s account.',
+        });
+    }
+
+    /**
+     * Bring a deactivated person back.
+     *
+     * Deactivating never deleted anybody - their Netvork account, their
+     * history and their rights all stayed - so this only switches the CRM
+     * access on again, under the same rule as switching it off.
+     */
+    public function reactivate(Request $request, string $uuid): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $member = $this->find($request, $uuid);
+        $this->guardManage($request, $member);
+
+        abort_if($member->status === 'active', 422, 'This account is already active.');
+
+        $member->update(['status' => 'active', 'resigned_at' => null]);
+        ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'employee.reactivated', $member);
+
+        return response()->json(['message' => ($member->user?->name ?? 'The employee') . ' is active again.']);
+    }
 
     private function find(Request $request, string $uuid): Member
     {

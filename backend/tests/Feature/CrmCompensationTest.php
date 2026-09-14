@@ -805,6 +805,79 @@ class CrmCompensationTest extends TestCase
         $this->assertDatabaseHas('crm_activity_logs', ['action' => 'export.salary']);
     }
 
+    public function test_an_approved_expense_claim_is_paid_back_once_through_salary(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-02-05'));
+        $this->structure($this->seller, ['basic' => 20000, 'hra' => 0, 'has_pf' => false, 'has_edli' => false, 'has_welfare' => false]);
+
+        $claim = fn (string $type, float $amount, string $status, string $scope = 'general') => \App\Models\Crm\Approval::create([
+            'organization_id' => $this->org->id, 'type' => $type, 'scope' => $scope, 'approval_date' => '2026-02-03',
+            'amount' => $amount, 'details' => $type . ' for client calls', 'requested_by' => $this->seller->id,
+            'status' => $status, 'decided_by' => $this->admin->id, 'decided_at' => now(),
+        ]);
+        $recharge = $claim('Mobile recharge', 599, 'approved');
+        $claim('Travel', 1000, 'rejected');
+        $claim('Price below card rate', 2000, 'approved', 'invoice');
+
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/salary/generate', ['year' => 2026, 'month' => 2])->assertOk();
+        $slip = SalarySlip::where('member_id', $this->seller->id)->firstOrFail();
+
+        // Only the approved office-money claim, on the income side, into the net.
+        $this->assertEquals(599, (float) $slip->reimbursements);
+        $this->assertSame('Mobile recharge', $slip->reimbursement_lines[0]['type']);
+        $this->assertEquals((float) $slip->payable - (float) $slip->deductions + 599, (float) $slip->net_salary);
+        $this->assertSame($slip->id, $recharge->fresh()->reimbursed_slip_id);
+
+        $list = $this->actingAs($this->sellerUser)->getJson('/api/v1/crm/approvals')->assertOk();
+        $row = collect($list->json('data'))->firstWhere('uuid', $recharge->uuid);
+        $this->assertSame('February 2026', $row['reimbursed_in']);
+
+        // Recalculating pays it on the new slip - still once.
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/salary/' . $slip->uuid . '/recalculate')->assertOk();
+        $fresh = SalarySlip::where('member_id', $this->seller->id)->firstOrFail();
+        $this->assertEquals(599, (float) $fresh->reimbursements);
+        $this->assertSame($fresh->id, $recharge->fresh()->reimbursed_slip_id);
+
+        // A manual edit keeps it in the net.
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/salary/' . $fresh->uuid, ['additions' => 100])->assertOk();
+        $this->assertEquals((float) $fresh->payable - (float) $fresh->deductions + 599 + 100, (float) $fresh->fresh()->net_salary);
+
+        // Deleting the slip releases the claim for the next one.
+        $this->actingAs($this->adminUser)->deleteJson('/api/v1/crm/salary/' . $fresh->uuid)->assertOk();
+        $this->assertNull($recharge->fresh()->reimbursed_slip_id);
+    }
+
+    public function test_a_receipt_keeps_one_payment_id_from_the_inbox_to_the_invoice(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-02-05'));
+        $this->sale($this->seller, 10000, '2026-02-02');
+        $invoice = \App\Models\Crm\Invoice::latest('id')->firstOrFail();
+
+        $entry = \App\Models\Crm\PaymentInboxEntry::create([
+            'organization_id' => $this->org->id, 'received_on' => '2026-02-04', 'amount' => 1000,
+            'currency' => $invoice->currency ?: 'INR', 'created_by' => $this->adminUser->id,
+        ]);
+        $second = \App\Models\Crm\PaymentInboxEntry::create([
+            'organization_id' => $this->org->id, 'received_on' => '2026-02-04', 'amount' => 500,
+            'currency' => $invoice->currency ?: 'INR', 'created_by' => $this->adminUser->id,
+        ]);
+        $id = $entry->fresh()->payment_no;
+        $this->assertMatchesRegularExpression('/^PAY-\d{6}$/', $id);
+        $this->assertNotSame($id, $second->fresh()->payment_no);
+
+        $rows = collect($this->actingAs($this->adminUser)->getJson('/api/v1/crm/payments/inbox?search=' . $id)->json('data'));
+        if ($rows->isNotEmpty()) {
+            $this->assertSame($id, $rows->first()['payment_no']);
+        }
+
+        app(\App\Services\Crm\PaymentSettler::class)->settle($entry->fresh(), $invoice, $this->adminUser, $this->admin, 0.0, null);
+        $this->assertSame($id, $invoice->payments()->latest('id')->value('payment_no'));
+
+        // A payment recorded straight on an invoice continues the same series.
+        $direct = $invoice->payments()->create(['amount' => 100, 'received_at' => '2026-02-05']);
+        $this->assertNotContains($direct->fresh()->payment_no, [$id, $second->fresh()->payment_no]);
+    }
+
     private function sheetXml(string $bytes): string
     {
         $tmp = tempnam(sys_get_temp_dir(), 'xlsx');

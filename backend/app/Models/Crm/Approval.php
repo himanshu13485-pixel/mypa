@@ -17,7 +17,7 @@ class Approval extends Model
     protected $fillable = [
         'organization_id', 'type', 'scope', 'client_id', 'approval_date', 'issuing_company_id',
         'invoice_id', 'amount', 'details', 'requested_by', 'status',
-        'decided_by', 'decided_at', 'decision_note',
+        'decided_by', 'decided_at', 'decision_note', 'reimbursed_slip_id',
     ];
 
     protected function casts(): array
@@ -37,6 +37,12 @@ class Approval extends Model
     public function getRouteKeyName(): string
     {
         return 'uuid';
+    }
+
+    /** The salary slip that paid this claim back, once one has. */
+    public function reimbursedSlip(): BelongsTo
+    {
+        return $this->belongsTo(SalarySlip::class, 'reimbursed_slip_id');
     }
 
     public function requester(): BelongsTo

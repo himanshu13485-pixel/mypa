@@ -377,6 +377,27 @@ class Member extends Model
             || ($target->crm_role === 'employee' && $target->id !== $this->id);
     }
 
+    /**
+     * May this member change or deactivate $target's account?
+     *
+     * The Admin may act on anybody - the rule that keeps one Admin in the
+     * company is checked where it applies. Everybody else acts downwards
+     * only: on employees, never on a peer Subadmin, never on the Admin, and
+     * never on themselves. A Subadmin once switched another Subadmin off,
+     * and nothing said they could not.
+     */
+    public function mayManage(self $target): bool
+    {
+        if ($this->status !== 'active') {
+            return false;
+        }
+        if ($this->crm_role === 'admin') {
+            return true;
+        }
+
+        return $target->crm_role === 'employee' && $target->id !== $this->id;
+    }
+
     /** Whether the screen offers the rights editor at all. */
     public function maySetRightsAtAll(): bool
     {

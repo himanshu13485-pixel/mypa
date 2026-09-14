@@ -19,11 +19,22 @@ class PaymentInboxEntry extends Model
 
     protected $fillable = [
         'organization_id', 'received_on', 'issuing_company_id', 'bank_account_id',
-        'payment_mode', 'amount', 'currency', 'details', 'reference_no', 'status',
+        'payment_mode', 'amount', 'currency', 'details', 'reference_no', 'status', 'payment_no',
         'claimed_invoice_id', 'invoice_payment_id', 'claimed_member_id',
         'claimed_by', 'claimed_at', 'note', 'created_by',
         'settlement_mode', 'settled_by', 'settled_at', 'source_proforma_id',
     ];
+
+    protected static function booted(): void
+    {
+        // A payment id from the moment the money is logged - the same id the
+        // invoice shows once this receipt is settled onto it.
+        static::created(function (self $entry) {
+            if (! $entry->payment_no) {
+                \App\Support\PaymentNumber::assign($entry);
+            }
+        });
+    }
 
     protected function casts(): array
     {

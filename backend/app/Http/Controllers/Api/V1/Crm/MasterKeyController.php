@@ -132,6 +132,7 @@ class MasterKeyController extends Controller
             ->firstOrFail();
 
         abort_unless($target->user, 422, 'That employee has no Netvork account to reset.');
+        abort_unless($me->mayManage($target), 403, 'Only the Company Admin may reset a Subadmin’s password.');
         abort_if($target->user_id === $me->user_id, 422, 'You cannot reset your own password this way. Use Settings.');
         abort_if($target->crm_role === 'admin', 403,
             'An admin\'s password cannot be reset with the master key. Ask the platform to do it.');

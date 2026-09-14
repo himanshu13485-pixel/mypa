@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CheckCircle2, Download, FileText, Pencil, Plus, Search, Trash2, Users, UserX } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Download, FileText, Pencil, Plus, RotateCcw, Search, Trash2, UserX, Users } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, type CrmAccountMatch, type CrmEmployeeFull } from '../../api/crm'
 import { LETTER_LABELS, letterAvailability, openLetter, type LetterType } from './letters'
@@ -401,6 +401,15 @@ export default function CrmEmployeeFormPage() {
     onError: (err) => setError(errorMessage(err)),
   })
 
+  const reactivateMutation = useMutation({
+    mutationFn: () => crm.employees.reactivate(uuid!),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['crm'] })
+      toast(res.message, 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
   const deactivateMutation = useMutation({
     mutationFn: () => crm.employees.deactivate(uuid!),
     onSuccess: () => {
@@ -461,12 +470,18 @@ export default function CrmEmployeeFormPage() {
           </div>
         </div>
         <div className="flex gap-2">
-          {manages && editing && existing?.status === 'active' && (
+          {/* Downwards only: never a peer Subadmin, the Admin, or yourself. */}
+          {manages && editing && existing?.status === 'active' && existing?.can_manage && (
             <Button variant="danger" onClick={() => { if (confirm('Deactivate this employee? They lose CRM access but keep their Netvork account.')) deactivateMutation.mutate() }}>
               <UserX className="size-4" /> Deactivate
             </Button>
           )}
-          {manages && (
+          {manages && editing && existing?.status !== 'active' && existing?.can_manage && (
+            <Button variant="secondary" disabled={reactivateMutation.isPending} onClick={() => reactivateMutation.mutate()}>
+              <RotateCcw className="size-4" /> {reactivateMutation.isPending ? 'Reactivating…' : 'Reactivate'}
+            </Button>
+          )}
+          {manages && (!editing || existing?.can_manage || existing?.uuid === me?.member?.uuid) && (
             <Button
               onClick={() => saveMutation.mutate()}
               disabled={saveMutation.isPending || (!editing && accountMode === 'link' && !linked)}

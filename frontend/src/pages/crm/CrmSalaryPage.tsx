@@ -296,8 +296,13 @@ export default function CrmSalaryPage() {
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right">{inr(s.monthly_salary)}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right">{inr(s.payable)}</td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-right text-emerald-600" title={s.addition_note ?? ''}>
-                      {Number(s.additions) ? '+' + inr(s.additions).slice(1) : '—'}
+                    <td
+                      className="whitespace-nowrap py-2.5 pr-3 text-right text-emerald-600"
+                      title={[s.addition_note, Number(s.reimbursements) ? `Includes reimbursements ${inr(s.reimbursements)}` : null].filter(Boolean).join(' · ')}
+                    >
+                      {Number(s.additions) + Number(s.reimbursements)
+                        ? '+' + inr(Number(s.additions) + Number(s.reimbursements)).slice(1)
+                        : '—'}
                     </td>
                     <td
                       className="whitespace-nowrap py-2.5 pr-3 text-right text-red-500"
@@ -421,7 +426,7 @@ function SlipModal({ slip, onClose, onDone }: { slip: CrmSalarySlip; onClose: ()
   // still has its deductions entered by hand.
   const statutoryLocked = slip.deduction_lines.length > 0
 
-  const net = (Number(form.payable) || 0) + (Number(form.additions) || 0)
+  const net = (Number(form.payable) || 0) + (Number(form.additions) || 0) + Number(slip.reimbursements)
     - (Number(form.deductions) || 0) - (Number(form.other_deductions) || 0)
 
   const mutation = useMutation({
@@ -531,6 +536,12 @@ function SlipModal({ slip, onClose, onDone }: { slip: CrmSalarySlip; onClose: ()
             <Input value={form.payment_mode} onChange={(e) => set('payment_mode', e.target.value)} placeholder="NEFT" className="w-full" />
           </div>
         </div>
+        {Number(slip.reimbursements) > 0 && (
+          <div className="flex items-center justify-between rounded-xl bg-emerald-50/60 px-4 py-2 text-sm dark:bg-emerald-500/5">
+            <span className="text-slate-500">Reimbursements (approved claims)</span>
+            <span className="tabular-nums text-emerald-600">+{inr(slip.reimbursements)}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-2.5 text-sm dark:bg-slate-800/60">
           <span className="text-slate-500">Net salary</span>
           <span className="text-base font-semibold">{inr(net)}</span>
@@ -589,8 +600,14 @@ function BreakdownModal({ slip, canEdit, onEdit, onDownload, onClose }: {
               ? line('Payable', slip.payable)
               : slip.earnings.map((l) => <div key={l.key}>{line(l.label, l.amount)}</div>)}
             {additions > 0 && noted('Additions', additions, slip.addition_note, 'text-emerald-600')}
+            {/* Approved claims paid back with this salary. */}
+            {(slip.reimbursement_lines ?? []).map((r) => (
+              <div key={r.uuid}>
+                {noted(`Reimbursement — ${r.type}`, r.amount, [r.date, r.details].filter(Boolean).join(' · ') || null, 'text-emerald-600')}
+              </div>
+            ))}
             <div className="mt-1 border-t border-slate-200 pt-1 dark:border-slate-700">
-              {line('Gross payable', Number(slip.payable) + additions, 'font-semibold')}
+              {line('Gross payable', Number(slip.payable) + additions + Number(slip.reimbursements), 'font-semibold')}
             </div>
           </div>
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">

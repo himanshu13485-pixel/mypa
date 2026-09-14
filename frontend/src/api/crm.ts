@@ -444,6 +444,8 @@ export interface CrmEmployee {
    * not things this screen can see.
    */
   can_impersonate?: boolean
+  /** Whether the reader may change or deactivate this person - the server decides. */
+  can_manage?: boolean
   employee_code: string | null
   department: string | null
   designation: string | null
@@ -1150,6 +1152,8 @@ export interface CrmLeaveAccount {
 }
 
 export interface CrmPaymentEntry {
+  /** PAY-000123: logged with the receipt, carried onto the invoice when settled. */
+  payment_no?: string | null
   uuid: string
   received_on: string
   issuing_company: string | null
@@ -1434,6 +1438,9 @@ export interface CrmSalarySlip {
   /** Money held back besides the statutory lines: canteen, advance, unpaid absence. */
   other_deductions: string
   other_deduction_note: string | null
+  /** Approved office-money claims paid back on this slip, on the earnings side. */
+  reimbursements: string
+  reimbursement_lines: { uuid: string; type: string; date: string; amount: number; details: string | null }[]
   net_salary: string
   /** Cost to company: the net plus every deduction held back on the way. */
   ctc: number
@@ -1460,6 +1467,7 @@ export interface CrmSalaryResponse {
     incentive: number
     net_without_incentive: number
     ctc: number
+    reimbursements: number
   }
   year: number
   month: number
@@ -1913,6 +1921,10 @@ export interface CrmApproval {
   decided_at: string | null
   decision_note: string | null
   created_at: string | null
+  /** A general claim with an amount: paid back through salary once approved. */
+  reimbursable?: boolean
+  /** The salary month that paid it back, e.g. "February 2026". */
+  reimbursed_in?: string | null
 }
 
 export interface CrmApprovalSummary {
@@ -2143,6 +2155,9 @@ export const crm = {
     create: (payload: Record<string, unknown>) => api.post(`/crm/employees`, payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/employees/${uuid}`, payload).then((r) => r.data),
     deactivate: (uuid: string) => api.delete(`/crm/employees/${uuid}`).then((r) => r.data),
+    /** Switch a deactivated person's CRM access back on. */
+    reactivate: (uuid: string) =>
+      api.post<{ message: string }>(`/crm/employees/${uuid}/reactivate`).then((r) => r.data),
     /** Put a locked-out employee back on the company master key. */
     resetPassword: (uuid: string) =>
       api.post<{ message: string }>(`/crm/employees/${uuid}/reset-password`).then((r) => r.data),
