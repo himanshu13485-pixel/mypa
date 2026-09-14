@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileSpreadsheet, Plus, Scale, Settings2, Trash2 } from 'lucide-react'
+import { FileSpreadsheet, Link2, Plus, Scale, Settings2, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmPlConfig, type CrmPlMonth } from '../../api/crm'
+import { crm, type CrmPlConfig, type CrmPlFigure, type CrmPlMonth } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
@@ -113,7 +113,7 @@ export default function CrmPlPage() {
               key={m.month}
               m={m}
               onAdd={(side) => setAdding({ month: m.month, side })}
-              onDeleteLine={(id) => { if (confirm('Remove this manual line?')) deleteLine.mutate(id) }}
+              onDeleteLine={(id) => { if (confirm('Remove this line?')) deleteLine.mutate(id) }}
             />
           ))}
         </>
@@ -125,7 +125,7 @@ export default function CrmPlPage() {
           month={adding.month}
           side={adding.side}
           onClose={() => setAdding(null)}
-          onDone={() => { setAdding(null); refresh(); toast('Line added.', 'success') }}
+          onDone={(message) => { setAdding(null); refresh(); toast(message, 'success') }}
         />
       )}
     </div>
@@ -152,10 +152,15 @@ function MonthCard({ m, onAdd, onDeleteLine }: {
             <span className="min-w-0 truncate text-slate-600 dark:text-slate-300">
               {l.label}
               {l.source === 'manual' && <span className="ml-1 text-[10px] text-slate-400">(manual)</span>}
+              {l.source === 'linked' && (
+                <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-sky-500" title="Follows this month’s figures">
+                  <Link2 className="size-3" /> auto
+                </span>
+              )}
             </span>
             <span className="flex shrink-0 items-center gap-1 tabular-nums">
               {inr(l.amount)}
-              {l.source === 'manual' && l.id && (
+              {(l.source === 'manual' || l.source === 'linked') && l.id && (
                 <button onClick={() => onDeleteLine(l.id!)} aria-label="Remove line" className="rounded p-0.5 text-slate-300 hover:text-red-500">
                   <Trash2 className="size-3.5" />
                 </button>
@@ -274,44 +279,119 @@ function ConfigModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   )
 }
 
-/** A hand-entered line: what the books know that the system does not. */
+/**
+ * Add a line: one of the month's own figures - CGST, SGST, IGST, TDS,
+ * commission, expenses - which then follows the month, or a line typed by hand.
+ */
 function AddLineModal({ month, side, onClose, onDone }: {
   month: string
   side: 'income' | 'expense'
   onClose: () => void
-  onDone: () => void
+  onDone: (message: string) => void
 }) {
   const { toastError } = useToast()
+  const [picked, setPicked] = useState<CrmPlFigure | null>(null)
   const [label, setLabel] = useState('')
   const [amount, setAmount] = useState('')
   const [lineSide, setLineSide] = useState(side)
 
+  const figures = useQuery({
+    queryKey: ['crm', 'pl-figures', month],
+    queryFn: () => crm.pl.figures(month),
+  })
+
+  const pick = (f: CrmPlFigure | null) => {
+    setPicked(f)
+    if (f) {
+      setLabel(f.label)
+      setLineSide(f.side)
+    } else {
+      setLabel('')
+    }
+  }
+
   const save = useMutation({
-    mutationFn: () => crm.pl.addLine({ month, side: lineSide, label, amount: Number(amount) }),
-    onSuccess: onDone,
+    mutationFn: () => crm.pl.addLine(picked
+      ? { month, side: lineSide, label: label.trim() || picked.label, auto_key: picked.key }
+      : { month, side: lineSide, label: label.trim(), amount: Number(amount) }),
+    onSuccess: (res) => onDone(res.message),
     onError: (err) => toastError(errorMessage(err)),
   })
 
+  const monthName = new Date(month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+
   return (
-    <Modal title={`Add a ${lineSide} line — ${month}`} onClose={onClose}>
-      <div className="space-y-3">
+    <Modal title={`Add a line — ${monthName}`} onClose={onClose} wide>
+      <div className="space-y-4">
         <div>
-          <Label>Side</Label>
-          <Select value={lineSide} onChange={(e) => setLineSide(e.target.value as 'income' | 'expense')} className="w-full">
-            <option value="income">Income</option>
-            <option value="expense">Expense</option>
-          </Select>
+          <Label>From this month&rsquo;s figures</Label>
+          {figures.isLoading ? (
+            <div className="flex justify-center py-4"><Spinner /></div>
+          ) : (
+            <div className="mt-1 grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {(figures.data ?? []).map((f) => (
+                <button
+                  key={f.key}
+                  type="button"
+                  disabled={f.added}
+                  onClick={() => pick(picked?.key === f.key ? null : f)}
+                  className={clsx(
+                    'rounded-xl border px-3 py-2 text-left transition disabled:cursor-not-allowed disabled:opacity-50',
+                    picked?.key === f.key
+                      ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                      : 'border-slate-200 hover:border-emerald-400 dark:border-slate-700',
+                  )}
+                >
+                  <div className="text-xs text-slate-500">{f.label}</div>
+                  <div className="font-semibold tabular-nums text-slate-800 dark:text-slate-100">{inr(f.amount)}</div>
+                  {f.added
+                    ? <div className="text-[10px] text-slate-400">already added</div>
+                    : f.already_counted && <div className="text-[10px] text-amber-600 dark:text-amber-400">already in expenses</div>}
+                </button>
+              ))}
+            </div>
+          )}
+          {picked && (
+            <p className={clsx('mt-2 text-xs', picked.already_counted ? 'text-amber-600 dark:text-amber-400' : 'text-slate-400')}>
+              {picked.note} It follows the month&rsquo;s figures, so it updates as invoices and expenses change.
+              {picked.already_counted && ' The statement already counts this through the expense categories — adding it again counts it twice, unless you untick those categories in Setup.'}
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-slate-400">
+          <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+          {picked ? 'adjust the line' : 'or type a line by hand'}
+          <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <Label>Side</Label>
+            <Select value={lineSide} onChange={(e) => setLineSide(e.target.value as 'income' | 'expense')} className="w-full">
+              <option value="income">Income</option>
+              <option value="expense">Expense</option>
+            </Select>
+          </div>
+          <div>
+            <Label>Amount (₹)</Label>
+            {picked ? (
+              <Input value={inr(picked.amount)} disabled className="w-full" />
+            ) : (
+              <Input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full" />
+            )}
+          </div>
         </div>
         <div>
           <Label>Label</Label>
           <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Credit card bill / cash expense / tax provision…" className="w-full" />
         </div>
-        <div>
-          <Label>Amount (₹)</Label>
-          <Input type="number" min="0" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full" />
-        </div>
-        <Button className="w-full" disabled={!label || !Number(amount) || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? 'Adding…' : 'Add line'}
+        <Button
+          className="w-full"
+          disabled={save.isPending || (picked ? false : !label.trim() || !Number(amount))}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? 'Adding…' : picked ? `Add ${label.trim() || picked.label}` : 'Add line'}
         </Button>
       </div>
     </Modal>

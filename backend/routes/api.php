@@ -1167,6 +1167,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             });
             Route::get('/pl/config', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'config'])->middleware('crm.member');
             Route::put('/pl/config', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'saveConfig'])->middleware('crm.member');
+            Route::get('/pl/figures', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'figuresFor'])->middleware('crm.member');
             Route::post('/pl/lines', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'storeLine'])->middleware('crm.member');
             Route::delete('/pl/lines/{id}', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'deleteLine'])->middleware('crm.member');
             // Churn: reads with the reports right.

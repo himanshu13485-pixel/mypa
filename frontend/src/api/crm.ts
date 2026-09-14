@@ -3062,8 +3062,11 @@ export const crm = {
       ).then((r) => r.data.data),
     saveConfig: (payload: CrmPlConfig) =>
       api.put<{ message: string }>('/crm/pl/config', payload).then((r) => r.data),
-    addLine: (payload: { month: string; side: 'income' | 'expense'; label: string; amount: number }) =>
+    addLine: (payload: { month: string; side: 'income' | 'expense'; label: string; amount?: number | null; auto_key?: string | null }) =>
       api.post<{ message: string }>('/crm/pl/lines', payload).then((r) => r.data),
+    /** The month's own figures a line can follow: taxes, TDS, commission, the expense book. */
+    figures: (month: string) =>
+      api.get<{ data: CrmPlFigure[] }>('/crm/pl/figures', { params: { month } }).then((r) => r.data.data),
     deleteLine: (id: number) => api.delete<{ message: string }>(`/crm/pl/lines/${id}`).then((r) => r.data),
     /** The statement as Excel, month by month plus a summary sheet. */
     exportExcel: (monthFrom: string, monthTo: string) =>
@@ -3202,7 +3205,18 @@ export interface CrmPlConfig {
   include_proformas?: boolean
 }
 
-export interface CrmPlLine { id?: number; label: string; amount: number; source: string }
+export interface CrmPlLine { id?: number; label: string; amount: number; source: string; auto_key?: string | null }
+export interface CrmPlFigure {
+  key: string
+  label: string
+  amount: number
+  side: 'income' | 'expense'
+  /** The statement already counts this money on its own. */
+  already_counted: boolean
+  /** Already added to this month. */
+  added: boolean
+  note: string
+}
 export interface CrmPlMonth {
   month: string
   income: CrmPlLine[]

@@ -256,12 +256,23 @@ class PlController extends Controller
             }
         }
 
-        // The hand-entered lines, either side.
+        // The added lines, either side. One linked to a month's figure reads
+        // that figure afresh; a typed one keeps its amount.
         $manual = DB::table('crm_pl_lines')
             ->where('organization_id', $org->id)->where('month', $key)
             ->orderBy('id')->get();
+        $figures = $manual->contains(fn ($l) => ! empty($l->auto_key))
+            ? collect($this->figures($org, $cfg, $month))->keyBy('key')
+            : collect();
         foreach ($manual as $line) {
-            $row = ['id' => $line->id, 'label' => $line->label, 'amount' => (float) $line->amount, 'source' => 'manual'];
+            $linked = ! empty($line->auto_key) && $figures->has($line->auto_key);
+            $row = [
+                'id' => $line->id,
+                'label' => $line->label,
+                'amount' => $linked ? (float) $figures[$line->auto_key]['amount'] : (float) $line->amount,
+                'source' => $linked ? 'linked' : 'manual',
+                'auto_key' => $line->auto_key,
+            ];
             if ($line->side === 'income') {
                 $incomeLines[] = $row;
             } else {
@@ -282,18 +293,114 @@ class PlController extends Controller
         ];
     }
 
-    /** A manual line: what the books know that the system does not. */
+    /**
+     * The month's own figures a line can be added from: the taxes and TDS
+     * on its invoices (the same companies and documents the income counts),
+     * commission and gateway charges, and the whole expense book.
+     *
+     * Each says whether the statement already counts it, so nothing is
+     * added twice by accident.
+     *
+     * @param  array<string, mixed>  $cfg
+     * @return list<array{key: string, label: string, amount: float, side: string, already_counted: bool, note: string}>
+     */
+    private function figures($org, array $cfg, Carbon $month): array
+    {
+        $start = $month->copy()->startOfMonth()->toDateString();
+        $end = $month->copy()->endOfMonth()->toDateString();
+        $kinds = ($cfg['include_proformas'] ?? false) ? ['invoice', 'proforma'] : ['invoice'];
+
+        $invoices = Invoice::where('organization_id', $org->id)
+            ->whereIn('kind', $kinds)
+            ->where('status', '!=', 'cancelled')
+            ->whereDate('invoice_date', '>=', $start)
+            ->whereDate('invoice_date', '<=', $end)
+            ->when($cfg['income_company_ids'] ?? null, fn ($q, $ids) => $q->whereIn('issuing_company_id', $ids))
+            ->get(['currency', 'subtotal', 'discount', 'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'total', 'total_fx']);
+
+        // In INR, the way the income counts: a foreign document at its frozen rate.
+        $sum = fn (callable $pick) => round($invoices->sum(function ($i) use ($pick) {
+            $rate = strtoupper((string) ($i->currency ?: 'INR')) === 'INR' || (float) $i->total == 0.0
+                ? 1.0
+                : (float) ($i->total_fx ?: $i->total) / (float) $i->total;
+
+            return (float) $pick($i) * $rate;
+        }), 2);
+
+        $cgst = $sum(fn ($i) => $i->cgst);
+        $sgst = $sum(fn ($i) => $i->sgst);
+        $igst = $sum(fn ($i) => $i->igst);
+
+        $book = Expense::where('organization_id', $org->id)
+            ->whereDate('expense_date', '>=', $start)
+            ->whereDate('expense_date', '<=', $end)
+            ->get(['category', 'total_amount']);
+        $category = fn (string $name) => round((float) $book->where('category', $name)->sum('total_amount'), 2);
+        $counted = fn (string $name) => ($cfg['expense_categories'] ?? null) === null
+            || in_array($name, (array) $cfg['expense_categories'], true);
+        $commissionName = CommissionController::CATEGORY;
+        $gatewayName = \App\Services\Crm\GatewayCharge::CATEGORY;
+
+        $taxNote = 'From this month’s invoices. Gross sales already include it, so as an expense it takes it back out.';
+
+        return [
+            ['key' => 'cgst', 'label' => 'CGST', 'amount' => $cgst, 'side' => 'expense', 'already_counted' => false, 'note' => $taxNote],
+            ['key' => 'sgst', 'label' => 'SGST', 'amount' => $sgst, 'side' => 'expense', 'already_counted' => false, 'note' => $taxNote],
+            ['key' => 'igst', 'label' => 'IGST', 'amount' => $igst, 'side' => 'expense', 'already_counted' => false, 'note' => $taxNote],
+            ['key' => 'gst_total', 'label' => 'Total GST', 'amount' => round($cgst + $sgst + $igst, 2), 'side' => 'expense', 'already_counted' => false, 'note' => 'CGST + SGST + IGST on this month’s invoices, as one line.'],
+            ['key' => 'other_tax', 'label' => 'Other tax', 'amount' => $sum(fn ($i) => $i->other_tax), 'side' => 'expense', 'already_counted' => false, 'note' => $taxNote],
+            ['key' => 'tds', 'label' => 'TDS', 'amount' => $sum(fn ($i) => $i->tds), 'side' => 'expense', 'already_counted' => false, 'note' => 'TDS clients held back on this month’s invoices.'],
+            ['key' => 'taxable_value', 'label' => 'Basic (taxable) value', 'amount' => $sum(fn ($i) => (float) $i->subtotal - (float) $i->discount), 'side' => 'income', 'already_counted' => false, 'note' => 'This month’s invoices before tax.'],
+            ['key' => 'commission', 'label' => 'Commission', 'amount' => $category($commissionName), 'side' => 'expense', 'already_counted' => $counted($commissionName), 'note' => 'Client commission recorded against this month’s sales.'],
+            ['key' => 'gateway', 'label' => 'Bank / gateway charges', 'amount' => $category($gatewayName), 'side' => 'expense', 'already_counted' => $counted($gatewayName), 'note' => 'Payment gateway charges in the expense book.'],
+            ['key' => 'expenses', 'label' => 'Expenses', 'amount' => round((float) $book->sum('total_amount'), 2), 'side' => 'expense', 'already_counted' => $book->isNotEmpty() && ($cfg['expense_categories'] ?? null) === null, 'note' => 'Every expense this month, all categories, as one line.'],
+        ];
+    }
+
+    /** The month's figures the Add window offers. */
+    public function figuresFor(Request $request): JsonResponse
+    {
+        $this->admin($request);
+        $org = $request->attributes->get('crm_org');
+        $data = $request->validate(['month' => ['required', 'date_format:Y-m']]);
+
+        $taken = DB::table('crm_pl_lines')
+            ->where('organization_id', $org->id)->where('month', $data['month'])
+            ->whereNotNull('auto_key')->pluck('auto_key')->all();
+
+        return response()->json(['data' => collect($this->figures($org, $this->settings($org), Carbon::parse($data['month'] . '-01')))
+            ->map(fn ($f) => $f + ['added' => in_array($f['key'], $taken, true)])
+            ->values()]);
+    }
+
+    /** An added line: typed by hand, or following one of the month's figures. */
     public function storeLine(Request $request): JsonResponse
     {
         $me = $this->admin($request);
         $org = $request->attributes->get('crm_org');
 
+        $keys = ['cgst', 'sgst', 'igst', 'gst_total', 'other_tax', 'tds', 'taxable_value', 'commission', 'gateway', 'expenses'];
         $data = $request->validate([
             'month' => ['required', 'date_format:Y-m'],
             'side' => ['required', Rule::in(['income', 'expense'])],
             'label' => ['required', 'string', 'max:255'],
-            'amount' => ['required', 'numeric', 'min:0.01'],
+            'auto_key' => ['nullable', Rule::in($keys)],
+            'amount' => ['required_without:auto_key', 'nullable', 'numeric', 'min:0.01'],
         ]);
+
+        if (! empty($data['auto_key'])) {
+            abort_if(
+                DB::table('crm_pl_lines')->where('organization_id', $org->id)->where('month', $data['month'])
+                    ->where('auto_key', $data['auto_key'])->exists(),
+                422,
+                'That figure is already on this month’s P&L.',
+            );
+            // Kept as it stood when added; the statement reads the live figure.
+            $data['amount'] = collect($this->figures($org, $this->settings($org), Carbon::parse($data['month'] . '-01')))
+                ->firstWhere('key', $data['auto_key'])['amount'] ?? 0;
+        } else {
+            $data['auto_key'] = null;
+        }
 
         $id = DB::table('crm_pl_lines')->insertGetId($data + [
             'organization_id' => $org->id,
@@ -302,7 +409,7 @@ class PlController extends Controller
         ]);
         ActivityLog::record($me, $org->id, 'pl.line_added', $org, $data);
 
-        return response()->json(['message' => 'Line added.', 'data' => ['id' => $id]], 201);
+        return response()->json(['message' => $data['auto_key'] ? $data['label'] . ' added — it follows the month’s figures.' : 'Line added.', 'data' => ['id' => $id]], 201);
     }
 
     public function deleteLine(Request $request, int $id): JsonResponse
