@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, CheckCircle2, Download, FileText, Pencil, Plus, RotateCcw, Search, Trash2, UserX, Users } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Download, FileText, KeyRound, Pencil, Plus, RotateCcw, Search, Trash2, UserX, Users } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, type CrmAccountMatch, type CrmEmployeeFull } from '../../api/crm'
 import { LETTER_LABELS, letterAvailability, openLetter, type LetterType } from './letters'
@@ -404,6 +404,9 @@ export default function CrmEmployeeFormPage() {
     onError: (err) => setError(errorMessage(err)),
   })
 
+  // Reset password: your own for everybody, anybody's for the Company Admin.
+  const [showPassword, setShowPassword] = useState(false)
+
   const reactivateMutation = useMutation({
     mutationFn: () => crm.employees.reactivate(uuid!),
     onSuccess: (res) => {
@@ -473,6 +476,11 @@ export default function CrmEmployeeFormPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          {editing && existing && (existing.uuid === me?.member?.uuid || isAdmin) && (
+            <Button variant="secondary" onClick={() => setShowPassword(true)}>
+              <KeyRound className="size-4" /> Reset password
+            </Button>
+          )}
           {/* Downwards only: never a peer Subadmin, the Admin, or yourself. */}
           {manages && editing && existing?.status === 'active' && existing?.can_manage && (
             <Button variant="danger" onClick={() => { if (confirm('Deactivate this employee? They lose CRM access but keep their Netvork account.')) deactivateMutation.mutate() }}>
@@ -1112,6 +1120,15 @@ export default function CrmEmployeeFormPage() {
       {editing && existing && manages && <KpiAssignmentCard uuid={uuid!} />}
       {/* The CTC structure, incentive plan and loans — the terms every
           payroll run computes from. */}
+      {showPassword && existing && (
+        <PasswordModal
+          uuid={existing.uuid}
+          name={existing.name ?? 'this member'}
+          self={existing.uuid === me?.member?.uuid}
+          onClose={() => setShowPassword(false)}
+        />
+      )}
+
       {/* Another person's pay: the Admin, or someone named with the salary right. */}
       {editing && existing && manages && (me?.member?.can_view_salaries || existing.uuid === me?.member?.uuid) && (
         <CrmCompensationCard memberUuid={uuid!} />
@@ -1832,6 +1849,78 @@ function ShareRightsModal({
             {mutation.isPending ? 'Copying…' : 'Copy rights'}
           </Button>
         </div>
+      </div>
+    </Modal>
+  )
+}
+
+/**
+ * Change your own password, or - as the Company Admin - set somebody else's.
+ *
+ * Your own needs the current one, the same as Settings. Somebody else's is
+ * a password the Admin hands over in person: they are signed out everywhere
+ * and choose their own at the next sign-in. Nothing is emailed.
+ */
+function PasswordModal({ uuid, name, self, onClose }: {
+  uuid: string
+  name: string
+  self: boolean
+  onClose: () => void
+}) {
+  const { toast } = useToast()
+  const [current, setCurrent] = useState('')
+  const [password, setPassword] = useState('')
+  const [repeat, setRepeat] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const mismatch = repeat !== '' && repeat !== password
+
+  const save = useMutation({
+    mutationFn: () => crm.employees.setPassword(uuid, {
+      password,
+      password_confirmation: repeat,
+      ...(self ? { current_password: current } : {}),
+    }),
+    onSuccess: (res) => {
+      toast(res.message, 'success')
+      onClose()
+    },
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  return (
+    <Modal title={self ? 'Change my password' : `Reset ${name}'s password`} onClose={onClose}>
+      <div className="space-y-3">
+        <ErrorNote message={error} />
+        {!self && (
+          <p className="text-sm text-slate-500">
+            They are signed out of every device and asked to choose their own password when they next sign in.
+            Tell them this one yourself — it is not emailed.
+          </p>
+        )}
+        {self && (
+          <div>
+            <Label>Current password</Label>
+            <Input type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} className="w-full" />
+          </div>
+        )}
+        <div>
+          <Label>New password</Label>
+          <Input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full" />
+          <p className="mt-1 text-[11px] text-slate-400">At least 8 characters, with letters and numbers.</p>
+        </div>
+        <div>
+          <Label>Confirm new password</Label>
+          <Input type="password" autoComplete="new-password" value={repeat} onChange={(e) => setRepeat(e.target.value)} className="w-full" />
+          {mismatch && <p className="mt-1 text-xs text-red-500">The two passwords do not match.</p>}
+        </div>
+        <Button
+          className="w-full"
+          disabled={save.isPending || password.length < 8 || !repeat || mismatch || (self && !current)}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? 'Saving…' : self ? 'Change password' : 'Reset password'}
+        </Button>
       </div>
     </Modal>
   )

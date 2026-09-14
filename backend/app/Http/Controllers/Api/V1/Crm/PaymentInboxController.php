@@ -64,7 +64,18 @@ class PaymentInboxController extends Controller
         }
 
         $all = (clone $query)->get(['id', 'status', 'amount', 'currency', 'payment_mode', 'received_on']);
+
+        // Money in two currencies is two figures, never one sum.
+        $code = fn ($e) => strtoupper($e->currency ?: 'INR');
+        $perCurrency = fn ($rows) => $rows->groupBy($code)
+            ->map(fn ($g, $currency) => ['currency' => $currency, 'amount' => round($g->sum('amount'), 2), 'count' => $g->count()])
+            ->sortByDesc('amount')->values();
+        $lastMonths = $all->map(fn ($e) => $e->received_on->format('Y-m'))->unique()->sort()->values()->take(-12);
+
         $summary = [
+            'unclaimed_by_currency' => $perCurrency($all->where('status', 'unclaimed')),
+            'pending_by_currency' => $perCurrency($all->where('status', 'pending')),
+            'claimed_by_currency' => $perCurrency($all->where('status', 'claimed')),
             'unclaimed_count' => $all->where('status', 'unclaimed')->count(),
             'pending_count' => $all->where('status', 'pending')->count(),
             'pending_amount' => round($all->where('status', 'pending')->sum('amount'), 2),
@@ -73,12 +84,23 @@ class PaymentInboxController extends Controller
             'unclaimed_amount' => round($all->where('status', 'unclaimed')->sum('amount'), 2),
             'claimed_amount' => round($all->where('status', 'claimed')->sum('amount'), 2),
             'total_amount' => round($all->sum('amount'), 2),
-            'by_mode' => $all->groupBy(fn ($e) => $e->payment_mode ?: 'Unspecified')
-                ->map(fn ($g, $mode) => ['mode' => $mode, 'amount' => round($g->sum('amount'), 2), 'count' => $g->count()])
+            // One row per mode per currency, and per month per currency.
+            'by_mode' => $all->groupBy(fn ($e) => ($e->payment_mode ?: 'Unspecified') . '|' . $code($e))
+                ->map(fn ($g) => [
+                    'mode' => $g->first()->payment_mode ?: 'Unspecified',
+                    'currency' => $code($g->first()),
+                    'amount' => round($g->sum('amount'), 2),
+                    'count' => $g->count(),
+                ])
                 ->sortByDesc('amount')->values(),
-            'by_month' => $all->groupBy(fn ($e) => $e->received_on->format('Y-m'))
-                ->map(fn ($g, $m) => ['month' => $m, 'amount' => round($g->sum('amount'), 2)])
-                ->sortKeys()->values()->take(-12),
+            'by_month' => $all->filter(fn ($e) => $lastMonths->contains($e->received_on->format('Y-m')))
+                ->groupBy(fn ($e) => $e->received_on->format('Y-m') . '|' . $code($e))
+                ->map(fn ($g) => [
+                    'month' => $g->first()->received_on->format('Y-m'),
+                    'currency' => $code($g->first()),
+                    'amount' => round($g->sum('amount'), 2),
+                ])
+                ->sortBy('month')->values(),
             /*
              * The totals above add every receipt together, which is only
              * true while they are all in one currency. An office with a

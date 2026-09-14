@@ -56,6 +56,8 @@ class ImpersonationScope
         'api/v1/payments/*/verify',
         // Borrowing from inside a borrowed seat.
         'api/v1/crm/employees/*/impersonate',
+        // Nor changing the password of the seat being borrowed.
+        'api/v1/crm/employees/*/password',
     ];
 
     /**

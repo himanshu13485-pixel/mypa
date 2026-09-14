@@ -169,7 +169,9 @@ class SalaryController extends Controller
                 // The whole month — components prorated by the attendance
                 // calendar, statutory money on both sides, the incentive the
                 // plan releases this month, loans working their way back.
-                $calc = $calculator->compute($member, $month, $attendance[$member->id] ?? null);
+                // Absent days are paid from the leave balance before the salary is cut.
+                [$monthAttendance, $covered] = $this->coverFromLeave($org, $member, $month, $attendance[$member->id] ?? null, $request->user()->id);
+                $calc = $calculator->compute($member, $month, $monthAttendance);
 
                 $keep = $manual[$member->id] ?? $this->manualMoney(null);
                 // Approved office-money claims still owed to them.
@@ -191,6 +193,7 @@ class SalaryController extends Controller
                     'month_days' => $calc['month_days'],
                     'payable_days' => $calc['payable_days'],
                     'lop_days' => $calc['lop_days'],
+                    'leave_covered_days' => $covered,
                     'earnings' => $calc['earnings'],
                     'deduction_lines' => $calc['deduction_lines'],
                     'incentive_amount' => $calc['incentive_amount'],
@@ -448,6 +451,8 @@ class SalaryController extends Controller
                 $calendar->build($members, $monthStart->copy()->startOfMonth(), $monthStart->copy()->endOfMonth())
             )->first();
 
+            [$attendance, $covered] = $this->coverFromLeave($org, $member, $monthStart, $attendance, $request->user()->id);
+
             $calc = (new \App\Services\Crm\SalaryCalculator(
                 $org, new \App\Services\Crm\IncentiveCalculator($org),
             ))->compute($member, $monthStart, $attendance);
@@ -465,6 +470,7 @@ class SalaryController extends Controller
                 'month_days' => $calc['month_days'],
                 'payable_days' => $calc['payable_days'],
                 'lop_days' => $calc['lop_days'],
+                'leave_covered_days' => $covered,
                 'earnings' => $calc['earnings'],
                 'deduction_lines' => $calc['deduction_lines'],
                 'incentive_amount' => $calc['incentive_amount'],
@@ -563,8 +569,43 @@ class SalaryController extends Controller
             }
         }
         // Claims this slip paid back are owed again until another slip pays them.
+        // Absent days its making paid from the leave balance go back to the account.
+        \App\Models\Crm\LeaveLedger::where('member_id', $slip->member_id)->where('kind', 'absence')
+            ->where('period', sprintf('%04d-%02d', $slip->year, $slip->month))->delete();
         \App\Models\Crm\Approval::where('reimbursed_slip_id', $slip->id)->update(['reimbursed_slip_id' => null]);
         $slip->delete();
+    }
+
+    /**
+     * A month's absent and unpaid-leave days, paid from the leave balance
+     * first; only what it cannot cover is left to cut from the salary.
+     *
+     * The HR Policy can switch this off, and a month with no attendance at
+     * all is left alone - nothing to cover, and nothing to take.
+     *
+     * @return array{0: ?array, 1: float} the attendance as the salary sees it, and the days covered
+     */
+    private function coverFromLeave($org, Member $member, \Carbon\Carbon $month, ?array $attendance, ?int $byUserId): array
+    {
+        $account = new \App\Services\Crm\LeaveAccount($org);
+
+        if ($attendance === null
+            || ! ($attendance['has_attendance'] ?? false)
+            || ! ($org->hrPolicy()['cover_absence_from_leave'] ?? true)) {
+            $account->releaseAbsences($member, $month);
+
+            return [$attendance, 0.0];
+        }
+
+        $uncovered = (float) ($attendance['absent'] ?? 0) + (float) ($attendance['unpaid_leave'] ?? 0);
+        $covered = $account->coverAbsences($member, $month, $uncovered, $byUserId);
+
+        if ($covered > 0) {
+            $attendance['payable_days'] = round((float) $attendance['payable_days'] + $covered, 2);
+            $attendance['lop_days'] = round(max(0, (float) ($attendance['lop_days'] ?? 0) - $covered), 2);
+        }
+
+        return [$attendance, $covered];
     }
 
     /**
@@ -672,7 +713,7 @@ class SalaryController extends Controller
 
         $header = [
             'Employee', 'Employee code', 'Salary month', 'Released in', 'Monthly gross', 'Days in month',
-            'Payable days', 'Days without pay',
+            'Payable days', 'Days without pay', 'Days paid from leave balance',
             ...array_values($components),
             'Incentive', 'Additions', 'Addition note', 'Reimbursements', 'Gross payable',
             'PF — employee', 'PF — employer', 'EDLI — employer', 'ESI — employee', 'ESI — employer',
@@ -684,7 +725,7 @@ class SalaryController extends Controller
         ];
         $text = ['Employee', 'Employee code', 'Salary month', 'Released in', 'Addition note', 'Other deduction note',
             'Status', 'Paid on', 'Payment mode', 'Bank', 'Account holder', 'Account no.', 'IFSC'];
-        $count = ['Days in month', 'Payable days', 'Days without pay'];
+        $count = ['Days in month', 'Payable days', 'Days without pay', 'Days paid from leave balance'];
 
         $rows = [];
         $totals = array_fill(0, count($header), 0.0);
@@ -717,6 +758,7 @@ class SalaryController extends Controller
                 $slip->month_days,
                 $slip->payable_days !== null ? (float) $slip->payable_days : null,
                 (float) $slip->lop_days,
+                (float) $slip->leave_covered_days,
             ];
             foreach (array_keys($components) as $key) {
                 $values[] = $key === '__payable' ? (empty($slip->earnings) ? (float) $slip->payable : 0.0) : $e($key);
@@ -875,6 +917,7 @@ class SalaryController extends Controller
             'month_days' => $s->month_days,
             'payable_days' => $s->payable_days,
             'lop_days' => $s->lop_days,
+            'leave_covered_days' => (float) $s->leave_covered_days,
             'earnings' => $s->earnings ?? [],
             'deduction_lines' => $s->deduction_lines ?? [],
             'incentive_amount' => $s->incentive_amount,

@@ -44,9 +44,17 @@ class LeaveAccount
         $year ??= $this->financialYear();
         $rows = LeaveLedger::where('member_id', $member->id)->where('financial_year', $year)->get();
 
+        return $this->total($rows);
+    }
+
+    /** Credits and adjustments in; leave, covered absences and pay-outs out. */
+    private function total($rows): float
+    {
         return round(
             $rows->where('kind', 'credit')->sum('days')
+            + $rows->where('kind', 'adjust')->sum('days')
             - $rows->where('kind', 'debit')->sum('days')
+            - $rows->where('kind', 'absence')->sum('days')
             - $rows->where('kind', 'encash')->sum('days'),
             2
         );
@@ -66,6 +74,10 @@ class LeaveAccount
             'earned' => round($rows->where('kind', 'credit')->sum('days'), 2),
             'taken' => round($rows->where('kind', 'debit')->sum('days'), 2),
             'encashed' => round($rows->where('kind', 'encash')->sum('days'), 2),
+            // The Admin's hand: opening balances and settlements, signed.
+            'adjusted' => round($rows->where('kind', 'adjust')->sum('days'), 2),
+            // Absent and unpaid days the account paid for when salaries were made.
+            'absence_covered' => round($rows->where('kind', 'absence')->sum('days'), 2),
             'balance' => $this->balance($member, $year),
             'on_probation' => $member->onProbation((int) $policy['probation_days']),
             'probation_ends_on' => $endsOn?->toDateString(),
@@ -149,6 +161,81 @@ class LeaveAccount
         $leave->update(['paid_days' => $paid, 'unpaid_days' => $unpaid]);
 
         return ['paid' => $paid, 'unpaid' => $unpaid];
+    }
+
+    /**
+     * The Admin's hand on the account: days added or taken away, with the
+     * reason. An opening balance is one of these, dated the day before the
+     * account starts - 31 July for an account that runs from August.
+     */
+    public function adjust(Member $member, float $days, Carbon $on, string $note, ?int $byUserId = null): LeaveLedger
+    {
+        return LeaveLedger::create([
+            'organization_id' => $this->org->id,
+            'member_id' => $member->id,
+            'financial_year' => $this->financialYear($on),
+            'kind' => 'adjust',
+            'days' => round($days, 2),
+            'effective_on' => $on->toDateString(),
+            'note' => $note,
+            'created_by' => $byUserId,
+        ]);
+    }
+
+    /**
+     * Pay a month's absent days from the account, before the salary is cut.
+     *
+     * Only what the account held by the end of that month, and in whole and
+     * half days - the office does not deal in quarters. Whatever an earlier
+     * run of the same month took is put back first, so recalculating a slip
+     * never takes twice.
+     *
+     * @return float the days the account paid for
+     */
+    public function coverAbsences(Member $member, Carbon $month, float $uncovered, ?int $byUserId = null): float
+    {
+        $this->releaseAbsences($member, $month);
+
+        if ($uncovered <= 0) {
+            return 0.0;
+        }
+
+        $end = $month->copy()->endOfMonth();
+        $year = $this->financialYear($end);
+        $held = $this->total(
+            LeaveLedger::where('member_id', $member->id)
+                ->where('financial_year', $year)
+                ->whereDate('effective_on', '<=', $end->toDateString())
+                ->get()
+        );
+
+        $covered = floor(min($uncovered, max(0.0, $held)) * 2) / 2;
+        if ($covered <= 0) {
+            return 0.0;
+        }
+
+        LeaveLedger::create([
+            'organization_id' => $this->org->id,
+            'member_id' => $member->id,
+            'financial_year' => $year,
+            'kind' => 'absence',
+            'days' => $covered,
+            'effective_on' => $end->toDateString(),
+            'period' => $month->format('Y-m'),
+            'note' => $covered . ' absent or unpaid day(s) in ' . $month->format('F Y') . ' paid from the leave balance',
+            'created_by' => $byUserId,
+        ]);
+
+        return (float) $covered;
+    }
+
+    /** Give a month's covered absences back - its slip was deleted or rebuilt. */
+    public function releaseAbsences(Member $member, Carbon $month): void
+    {
+        LeaveLedger::where('member_id', $member->id)
+            ->where('kind', 'absence')
+            ->where('period', $month->format('Y-m'))
+            ->delete();
     }
 
     /** Give the days back — an approval reversed, or a leave withdrawn. */

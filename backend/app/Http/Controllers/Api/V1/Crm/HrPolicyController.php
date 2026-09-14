@@ -89,6 +89,7 @@ class HrPolicyController extends Controller
             'probation_days' => ['required', 'integer', 'min:0', 'max:1095'],
             'monthly_leave_credit' => ['required', 'numeric', 'min:0', 'max:5'],
             'encash_unused_leave' => ['required', 'boolean'],
+            'cover_absence_from_leave' => ['sometimes', 'boolean'],
             'financial_year_start_month' => ['required', 'integer', 'min:1', 'max:12'],
             // The standard salary structure: statutory rates and caps, both
             // sides of the table, edited here when the law moves — and which
@@ -302,6 +303,8 @@ class HrPolicyController extends Controller
             'members' => $members,
             'total_balance' => round($members->sum('balance'), 2),
             'can_run_year_end' => $me->crm_role === 'admin',
+            // Adjusting, crediting a month: the Company Admin's alone.
+            'can_edit' => $me->crm_role === 'admin',
         ]]);
     }
 
@@ -316,24 +319,34 @@ class HrPolicyController extends Controller
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
-        abort_unless(in_array($me->crm_role, ['admin', 'subadmin'], true), 403, 'Admins only.');
+        abort_unless($me->crm_role === 'admin', 403, 'Only the Company Admin credits leave accounts.');
 
         $data = $request->validate([
             'months_back' => ['nullable', 'integer', 'min:0', 'max:24'],
+            // One chosen month - 'YYYY-MM' - rather than counting back from now.
+            'month' => ['nullable', 'date_format:Y-m'],
         ]);
 
         $account = new LeaveAccount($org);
         $members = Member::where('organization_id', $org->id)->where('status', 'active')->get();
         $credited = 0.0;
 
-        for ($back = (int) ($data['months_back'] ?? 0); $back >= 0; $back--) {
-            $month = now()->startOfMonth()->subMonths($back);
+        $months = ! empty($data['month'])
+            ? [\Carbon\Carbon::parse($data['month'] . '-01')]
+            : collect(range((int) ($data['months_back'] ?? 0), 0))
+                ->map(fn (int $back) => now()->startOfMonth()->subMonths($back))
+                ->all();
+
+        foreach ($months as $month) {
             foreach ($members as $member) {
                 $credited += $account->creditMonth($member, $month, $request->user()->id);
             }
         }
 
-        ActivityLog::record($me, $org->id, 'hr.leave_credited', $org, ['days' => $credited]);
+        ActivityLog::record($me, $org->id, 'hr.leave_credited', $org, array_filter([
+            'days' => $credited,
+            'month' => ! empty($data['month']) ? \Carbon\Carbon::parse($data['month'] . '-01')->format('F Y') : null,
+        ]));
 
         return response()->json([
             'message' => $credited > 0
@@ -369,6 +382,76 @@ class HrPolicyController extends Controller
         ]);
     }
 
+    /**
+     * Add or take away days by hand - an opening balance, a settlement.
+     *
+     * The Company Admin's alone, always with the reason, and on the
+     * activity log with the balance it left.
+     */
+    public function adjustLeave(Request $request, string $memberUuid): JsonResponse
+    {
+        /** @var Organization $org */
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+        abort_unless($me->crm_role === 'admin', 403, 'Only the Company Admin adjusts a leave account.');
+
+        $member = Member::with('user:id,name')->where('organization_id', $org->id)->where('uuid', $memberUuid)->firstOrFail();
+
+        $data = $request->validate([
+            'days' => ['required', 'numeric', 'min:-365', 'max:365'],
+            'effective_on' => ['required', 'date'],
+            'note' => ['required', 'string', 'max:255'],
+        ]);
+        $days = round((float) $data['days'], 2);
+        abort_if($days == 0, 422, 'An adjustment needs a number of days to add or take away.');
+
+        $account = new LeaveAccount($org);
+        $row = $account->adjust($member, $days, \Carbon\Carbon::parse($data['effective_on']), trim($data['note']), $request->user()->id);
+        $balance = $account->balance($member, (int) $row->financial_year);
+
+        ActivityLog::record($me, $org->id, 'hr.leave_adjusted', $member, [
+            'employee' => $member->user?->name,
+            'days' => $days,
+            'effective_on' => $row->effective_on->toDateString(),
+            'note' => $row->note,
+            'balance_after' => $balance,
+        ]);
+
+        return response()->json([
+            'message' => ($member->user?->name ?? 'The account') . ': ' . ($days > 0 ? '+' : '') . $days
+                . ' day(s). Balance now ' . $balance . '.',
+        ]);
+    }
+
+    /** Take back an adjustment entered by mistake - and only an adjustment. */
+    public function deleteLeaveEntry(Request $request, string $uuid): JsonResponse
+    {
+        /** @var Organization $org */
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+        abort_unless($me->crm_role === 'admin', 403, 'Only the Company Admin changes a leave account.');
+
+        $row = LeaveLedger::with('member.user:id,name')->where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
+        abort_unless(
+            $row->kind === 'adjust',
+            422,
+            'Only an adjustment can be deleted here. Earned days, leave and pay-outs follow their own records.',
+        );
+
+        ActivityLog::record($me, $org->id, 'hr.leave_adjustment_deleted', $org, [
+            'employee' => $row->member?->user?->name,
+            'days' => (float) $row->days,
+            'effective_on' => $row->effective_on->toDateString(),
+            'note' => $row->note,
+        ]);
+
+        $row->delete();
+
+        return response()->json(['message' => 'Adjustment removed.']);
+    }
+
     /** One person's account, movement by movement. */
     public function leaveLedger(Request $request, string $memberUuid): JsonResponse
     {
@@ -394,6 +477,7 @@ class HrPolicyController extends Controller
             ->orderBy('effective_on')->orderBy('id')
             ->get()
             ->map(fn (LeaveLedger $l) => [
+                'uuid' => $l->uuid,
                 'kind' => $l->kind,
                 'days' => (float) $l->days,
                 'effective_on' => $l->effective_on->toDateString(),

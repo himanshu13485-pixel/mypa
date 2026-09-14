@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarDays, Clock, Plus, Save, ScrollText, Trash2, Wallet } from 'lucide-react'
+import { CalendarDays, Clock, Plus, Save, ScrollText, Trash2, Wallet, CalendarPlus } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmHrPolicy } from '../../api/crm'
+import { crm, type CrmHrPolicy, type CrmLeaveAccount } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
-import { Button, Card, EmptyState, ErrorNote, Input, Label, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, ErrorNote, Input, Label, Select, Spinner, Modal } from '../../components/ui'
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -306,6 +306,23 @@ function PolicyCard({ policy, canEdit }: { policy: CrmHrPolicy; canEdit: boolean
         </span>
       </label>
 
+      <label className="mt-3 flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+        <input
+          type="checkbox"
+          checked={draft.cover_absence_from_leave ?? true}
+          disabled={!canEdit}
+          onChange={(e) => set('cover_absence_from_leave', e.target.checked)}
+          className="mt-0.5 size-4 accent-emerald-600"
+        />
+        <span>
+          Pay absent days from the leave balance before cutting salary
+          <span className="block text-xs text-slate-400">
+            When salaries are made, each absent or unpaid-leave day is first paid from what the account held by
+            the end of that month. Only what the balance cannot cover is deducted.
+          </span>
+        </span>
+      </label>
+
       {canEdit && (
         <Button className="mt-4" disabled={save.isPending} onClick={() => { setError(null); save.mutate() }}>
           <Save className="size-4" /> {save.isPending ? 'Saving…' : 'Save HR Policy'}
@@ -446,11 +463,32 @@ function HolidayCalendar({ canManage, financialYear }: { canManage: boolean; fin
   )
 }
 
-/** Everyone's paid-leave account, and the two jobs that move it. */
+const KIND_LABELS: Record<string, string> = {
+  credit: 'Earned',
+  adjust: 'Adjustment',
+  debit: 'Leave taken',
+  absence: 'Absence covered',
+  encash: 'Paid out',
+}
+
+/** A ledger movement as it moves the balance: in (+) or out (-). */
+const signedDays = (kind: string, days: number) => (kind === 'credit' || kind === 'adjust' ? days : -days)
+const signed = (value: number) => (value > 0 ? `+${value}` : String(value))
+
+/**
+ * Everyone's paid-leave account, and the Company Admin's hand on it.
+ *
+ * Earned months, the Admin's adjustments (an opening balance is one), leave
+ * taken, absences the balance paid for at salary time, and the year-end
+ * pay-out. Only the Admin adjusts or credits; everybody else reads.
+ */
 function LeaveAccounts({ financialYear }: { financialYear: number }) {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
   const [year, setYear] = useState(financialYear)
+  const [creditFor, setCreditFor] = useState(new Date().toISOString().slice(0, 7))
+  const [adjusting, setAdjusting] = useState<CrmLeaveAccount | null>(null)
+  const [viewing, setViewing] = useState<CrmLeaveAccount | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'leave-accounts', year],
@@ -459,11 +497,12 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['crm', 'leave-accounts'] })
+    queryClient.invalidateQueries({ queryKey: ['crm', 'leave-ledger'] })
     queryClient.invalidateQueries({ queryKey: ['crm', 'leaves'] })
   }
 
   const accrual = useMutation({
-    mutationFn: () => crm.hr.runAccrual(12),
+    mutationFn: () => crm.hr.runAccrual({ month: creditFor }),
     onSuccess: (res) => { refresh(); toast(res.message, 'success') },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -475,6 +514,8 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
   })
 
   const years = Array.from({ length: 5 }, (_, i) => financialYear - 2 + i)
+  const canEdit = !!data?.can_edit
+  const cell = (value: number, withSign = false) => (value ? (withSign ? signed(value) : value) : '—')
 
   return (
     <Card>
@@ -487,8 +528,9 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
         </Select>
       </div>
       <p className="mt-1 text-xs text-slate-400">
-        One day earned per month once probation is behind them, credited on the 1st. Leave taken comes out of
-        the balance; what the balance cannot cover is still leave, but unpaid.
+        One day earned per month once probation is behind them. Approved leave spends the balance, and when
+        salaries are made each absent day is paid from what is left before any salary is cut.
+        {canEdit ? ' Tap a name for the movements.' : ' Adjusting an account is the Company Admin’s.'}
       </p>
 
       {isLoading ? (
@@ -497,23 +539,28 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
         <div className="mt-3"><EmptyState title="No active employees" hint="Accounts appear as people join." /></div>
       ) : (
         <div className="-mx-4 mt-3 overflow-x-auto px-4">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[900px] text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                 <th className="py-2 pr-3 font-medium">Employee</th>
                 <th className="py-2 pr-3 font-medium">Probation</th>
+                <th className="py-2 pr-3 text-right font-medium" title="Opening balances and settlements, entered by the Company Admin">Adjusted</th>
                 <th className="py-2 pr-3 text-right font-medium">Earned</th>
-                <th className="py-2 pr-3 text-right font-medium">Taken</th>
-                <th className="py-2 pr-3 text-right font-medium">Paid out</th>
-                <th className="py-2 text-right font-medium">Balance</th>
+                <th className="py-2 pr-3 text-right font-medium" title="Approved leave paid from the balance">Leave taken</th>
+                <th className="py-2 pr-3 text-right font-medium" title="Absent days paid from the balance when salaries were made">Absences covered</th>
+                <th className="py-2 pr-3 text-right font-medium" title="Unused days bought back at year end">Paid out</th>
+                <th className="py-2 pr-3 text-right font-medium">Balance</th>
+                {canEdit && <th className="py-2 font-medium" />}
               </tr>
             </thead>
             <tbody>
               {data.members.map((m) => (
                 <tr key={m.member_uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
                   <td className="py-2.5 pr-3">
-                    <div className="font-medium text-slate-800 dark:text-slate-100">{m.name}</div>
-                    {m.employee_code && <div className="text-xs text-slate-400">{m.employee_code}</div>}
+                    <button type="button" onClick={() => setViewing(m)} className="text-left">
+                      <div className="font-medium text-slate-800 hover:text-emerald-600 dark:text-slate-100">{m.name}</div>
+                      {m.employee_code && <div className="text-xs text-slate-400">{m.employee_code}</div>}
+                    </button>
                   </td>
                   <td className="py-2.5 pr-3 text-xs">
                     {m.on_probation ? (
@@ -523,10 +570,19 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
                       </span>
                     ) : <span className="text-slate-400">done</span>}
                   </td>
-                  <td className="py-2.5 pr-3 text-right text-slate-500">{m.earned || '—'}</td>
-                  <td className="py-2.5 pr-3 text-right text-slate-500">{m.taken || '—'}</td>
-                  <td className="py-2.5 pr-3 text-right text-slate-500">{m.encashed || '—'}</td>
-                  <td className="py-2.5 text-right font-semibold text-slate-800 dark:text-slate-100">{m.balance}</td>
+                  <td className={clsx('py-2.5 pr-3 text-right', m.adjusted < 0 ? 'text-red-500' : m.adjusted > 0 ? 'text-emerald-600' : 'text-slate-500')}>
+                    {cell(m.adjusted, true)}
+                  </td>
+                  <td className="py-2.5 pr-3 text-right text-slate-500">{cell(m.earned)}</td>
+                  <td className="py-2.5 pr-3 text-right text-slate-500">{cell(m.taken)}</td>
+                  <td className="py-2.5 pr-3 text-right text-slate-500">{cell(m.absence_covered)}</td>
+                  <td className="py-2.5 pr-3 text-right text-slate-500">{cell(m.encashed)}</td>
+                  <td className="py-2.5 pr-3 text-right font-semibold text-slate-800 dark:text-slate-100">{m.balance}</td>
+                  {canEdit && (
+                    <td className="py-2.5 text-right">
+                      <Button size="sm" variant="secondary" onClick={() => setAdjusting(m)}>Adjust</Button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -534,15 +590,18 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
         </div>
       )}
 
-      {data && (
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button variant="secondary" size="sm" disabled={accrual.isPending} onClick={() => accrual.mutate()}>
-            {accrual.isPending ? 'Crediting…' : 'Catch up the monthly credits'}
+      {data && canEdit && (
+        <div className="mt-4 flex flex-wrap items-end gap-2">
+          <div>
+            <Label>Credit month</Label>
+            <Input type="month" value={creditFor} onChange={(e) => setCreditFor(e.target.value)} className="w-40" />
+          </div>
+          <Button variant="secondary" disabled={!creditFor || accrual.isPending} onClick={() => accrual.mutate()}>
+            <CalendarPlus className="size-4" /> {accrual.isPending ? 'Crediting…' : 'Credit this month'}
           </Button>
           {data.can_run_year_end && (
             <Button
               variant="secondary"
-              size="sm"
               disabled={yearEnd.isPending}
               onClick={() => {
                 if (confirm(`Close FY ${year}–${String(year + 1).slice(2)} and pay out every unused day at one day of basic salary?`)) {
@@ -553,13 +612,184 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
               {yearEnd.isPending ? 'Closing…' : `Close FY ${year}–${String(year + 1).slice(2)} and pay out`}
             </Button>
           )}
-          <span className="text-xs text-slate-400">
-            Both run on their own — credits on the 1st, the buy-back on the first day of the new year. These
-            buttons are for catching up.
+          <span className="basis-full text-xs text-slate-400">
+            Starting the account: Adjust each person&rsquo;s opening balance dated the day before it begins (e.g.
+            31 Jul 2026), then credit the first month. Credits skip anyone still on probation and never land twice.
           </span>
         </div>
       )}
+
+      {adjusting && (
+        <AdjustLeaveModal
+          account={adjusting}
+          onClose={() => setAdjusting(null)}
+          onDone={(message) => { setAdjusting(null); refresh(); toast(message, 'success') }}
+        />
+      )}
+      {viewing && (
+        <LeaveLedgerModal
+          account={viewing}
+          year={year}
+          canEdit={canEdit}
+          onClose={() => setViewing(null)}
+          onChanged={refresh}
+        />
+      )}
     </Card>
+  )
+}
+
+/** Add or take away days by hand, with the reason. */
+function AdjustLeaveModal({ account, onClose, onDone }: {
+  account: CrmLeaveAccount
+  onClose: () => void
+  onDone: (message: string) => void
+}) {
+  const [direction, setDirection] = useState<'add' | 'deduct'>('add')
+  const [days, setDays] = useState('')
+  const [effectiveOn, setEffectiveOn] = useState(new Date().toISOString().slice(0, 10))
+  const [note, setNote] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const amount = (direction === 'add' ? 1 : -1) * (Number(days) || 0)
+
+  const save = useMutation({
+    mutationFn: () => crm.hr.adjustLeave(account.member_uuid, { days: amount, effective_on: effectiveOn, note: note.trim() }),
+    onSuccess: (res) => onDone(res.message),
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  return (
+    <Modal title={`Adjust ${account.name ?? 'leave account'}`} onClose={onClose}>
+      <div className="space-y-3">
+        <ErrorNote message={error} />
+        <p className="text-sm text-slate-500">
+          Balance now <span className="font-semibold text-slate-800 dark:text-slate-100">{account.balance}</span> day(s).
+          An opening balance is best dated the day before the account starts.
+        </p>
+        <div className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm dark:bg-slate-800/60">
+          {([['add', 'Add days'], ['deduct', 'Deduct days']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setDirection(key)}
+              className={clsx(
+                'flex-1 rounded-lg px-3 py-1.5 font-medium transition',
+                direction === key
+                  ? key === 'add' ? 'bg-emerald-600 text-white' : 'bg-red-500 text-white'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400',
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <Label>Days</Label>
+            <Input type="number" min="0.5" step="0.5" value={days} onChange={(e) => setDays(e.target.value)} className="w-full" />
+          </div>
+          <div>
+            <Label>Dated</Label>
+            <Input type="date" value={effectiveOn} onChange={(e) => setEffectiveOn(e.target.value)} className="w-full" />
+          </div>
+        </div>
+        <div>
+          <Label>Reason</Label>
+          <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Opening balance up to 31 Jul 2026" maxLength={255} className="w-full" />
+        </div>
+        {amount !== 0 && (
+          <p className="text-xs text-slate-400">
+            {signed(amount)} day(s) → about {Math.round((account.balance + amount) * 100) / 100} after, if dated in this year.
+          </p>
+        )}
+        <Button className="w-full" disabled={save.isPending || !amount || !note.trim() || !effectiveOn} onClick={() => save.mutate()}>
+          {save.isPending ? 'Saving…' : 'Save adjustment'}
+        </Button>
+      </div>
+    </Modal>
+  )
+}
+
+/** One person's account, movement by movement - and an adjustment taken back. */
+function LeaveLedgerModal({ account, year, canEdit, onClose, onChanged }: {
+  account: CrmLeaveAccount
+  year: number
+  canEdit: boolean
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const { toast, toastError } = useToast()
+  const { data, isLoading } = useQuery({
+    queryKey: ['crm', 'leave-ledger', account.member_uuid, year],
+    queryFn: () => crm.hr.ledger(account.member_uuid, year),
+  })
+
+  const remove = useMutation({
+    mutationFn: (uuid: string) => crm.hr.deleteLeaveEntry(uuid),
+    onSuccess: (res) => { onChanged(); toast(res.message, 'success') },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  return (
+    <Modal title={`${account.name ?? 'Leave account'} — FY ${year}–${String(year + 1).slice(2)}`} onClose={onClose} wide>
+      {isLoading || !data ? (
+        <div className="flex justify-center py-8"><Spinner /></div>
+      ) : data.entries.length === 0 ? (
+        <EmptyState title="No movements this year" hint="Credits, adjustments, leave and covered absences show here." />
+      ) : (
+        <div className="-mx-4 overflow-x-auto px-4">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                <th className="py-2 pr-3 font-medium">Date</th>
+                <th className="py-2 pr-3 font-medium">Movement</th>
+                <th className="py-2 pr-3 text-right font-medium">Days</th>
+                <th className="py-2 pr-3 font-medium">Note</th>
+                {canEdit && <th className="py-2 font-medium" />}
+              </tr>
+            </thead>
+            <tbody>
+              {data.entries.map((e) => {
+                const value = signedDays(e.kind, Number(e.days))
+                return (
+                  <tr key={e.uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
+                    <td className="whitespace-nowrap py-2 pr-3">{e.effective_on}</td>
+                    <td className="py-2 pr-3">{KIND_LABELS[e.kind] ?? e.kind}</td>
+                    <td className={clsx('whitespace-nowrap py-2 pr-3 text-right font-medium tabular-nums', value < 0 ? 'text-red-500' : 'text-emerald-600')}>
+                      {signed(value)}
+                    </td>
+                    <td className="py-2 pr-3 text-slate-500">{e.note ?? '—'}</td>
+                    {canEdit && (
+                      <td className="py-2 text-right">
+                        {e.kind === 'adjust' && (
+                          <button
+                            type="button"
+                            disabled={remove.isPending}
+                            onClick={() => { if (confirm('Remove this adjustment?')) remove.mutate(e.uuid) }}
+                            aria-label="Remove adjustment"
+                            className="rounded p-1.5 text-slate-400 hover:text-red-500 disabled:opacity-50"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-slate-200 font-semibold dark:border-slate-700">
+                <td className="py-2 pr-3" colSpan={2}>Balance</td>
+                <td className="py-2 pr-3 text-right tabular-nums">{data.balance}</td>
+                <td colSpan={canEdit ? 2 : 1} />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </Modal>
   )
 }
 

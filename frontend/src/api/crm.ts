@@ -1134,6 +1134,8 @@ export interface CrmHrPolicy extends CrmStatutoryRates {
   probation_days: number
   monthly_leave_credit: number
   encash_unused_leave: boolean
+  /** Absent and unpaid-leave days are paid from the leave balance before salary is cut. */
+  cover_absence_from_leave: boolean
   financial_year_start_month: number
 }
 
@@ -1156,6 +1158,10 @@ export interface CrmLeaveAccount {
   earned: number
   taken: number
   encashed: number
+  /** The Admin's adjustments, signed - an opening balance is one. */
+  adjusted: number
+  /** Absent days the account paid for when salaries were made. */
+  absence_covered: number
   balance: number
   on_probation: boolean
   probation_ends_on: string | null
@@ -1197,10 +1203,20 @@ export interface CrmPaymentSummary {
   settlement_mode: 'auto' | 'manual'
   claimed_amount: number
   total_amount: number
-  by_mode: { mode: string; amount: number; count: number }[]
-  by_month: { month: string; amount: number }[]
-  /** The totals above only add up while everything is in one currency. */
-  by_currency: { currency: string; amount: number; count: number }[]
+  /** Each mode and month is split by currency: rupees and dollars are never summed. */
+  by_mode: { mode: string; currency?: string; amount: number; count: number }[]
+  by_month: { month: string; currency?: string; amount: number }[]
+  /** The single-number totals above only add up while everything is in one currency. */
+  by_currency: CrmCurrencyTotal[]
+  unclaimed_by_currency?: CrmCurrencyTotal[]
+  pending_by_currency?: CrmCurrencyTotal[]
+  claimed_by_currency?: CrmCurrencyTotal[]
+}
+
+export interface CrmCurrencyTotal {
+  currency: string
+  amount: number
+  count: number
 }
 
 export type CrmComplaintStatus = 'unattended' | 'in_progress' | 'closed_satisfied' | 'closed_dissatisfied'
@@ -1435,6 +1451,8 @@ export interface CrmSalarySlip {
   month_days: number | null
   payable_days: string | null
   lop_days: string | null
+  /** Absent days paid from the leave balance instead of cut from salary. */
+  leave_covered_days?: number
   /** The slip's whole story, line by line. */
   earnings: CrmPayLine[]
   deduction_lines: CrmPayLine[]
@@ -2174,6 +2192,9 @@ export const crm = {
     /** Switch a deactivated person's CRM access back on. */
     reactivate: (uuid: string) =>
       api.post<{ message: string }>(`/crm/employees/${uuid}/reactivate`).then((r) => r.data),
+    /** Your own password (with the current one), or - for the Company Admin - anybody's. */
+    setPassword: (uuid: string, payload: { password: string; password_confirmation: string; current_password?: string }) =>
+      api.post<{ message: string }>(`/crm/employees/${uuid}/password`, payload).then((r) => r.data),
     /** Put a locked-out employee back on the company master key. */
     resetPassword: (uuid: string) =>
       api.post<{ message: string }>(`/crm/employees/${uuid}/reset-password`).then((r) => r.data),
@@ -2375,15 +2396,23 @@ export const crm = {
         members: CrmLeaveAccount[]
         total_balance: number
         can_run_year_end: boolean
+        can_edit: boolean
       } }>('/crm/hr-policy/leave-accounts', { params: { financial_year: financialYear } })
         .then((r) => r.data.data),
     ledger: (memberUuid: string, financialYear?: number) =>
       api.get<{ data: CrmLeaveAccount & {
-        entries: { kind: string; days: number; effective_on: string; amount: number | null; note: string | null }[]
+        entries: { uuid: string; kind: string; days: number; effective_on: string; amount: number | null; note: string | null }[]
       } }>(`/crm/hr-policy/leave-accounts/${memberUuid}`, { params: { financial_year: financialYear } })
         .then((r) => r.data.data),
-    runAccrual: (monthsBack: number) =>
-      api.post<{ message: string }>('/crm/hr-policy/accrual', { months_back: monthsBack }).then((r) => r.data),
+    /** Credit one chosen month ('YYYY-MM'), or count back from now. Company Admin only. */
+    runAccrual: (payload: { month?: string; months_back?: number }) =>
+      api.post<{ message: string }>('/crm/hr-policy/accrual', payload).then((r) => r.data),
+    /** Days added (+) or taken away (-) by hand, with the reason. Company Admin only. */
+    adjustLeave: (memberUuid: string, payload: { days: number; effective_on: string; note: string }) =>
+      api.post<{ message: string }>(`/crm/hr-policy/leave-accounts/${memberUuid}/adjust`, payload).then((r) => r.data),
+    /** Take back an adjustment entered by mistake. */
+    deleteLeaveEntry: (uuid: string) =>
+      api.delete<{ message: string }>(`/crm/hr-policy/leave-ledger/${uuid}`).then((r) => r.data),
     runYearEnd: (financialYear: number) =>
       api.post<{ message: string; data: { name: string | null; days: number; amount: number }[] }>(
         '/crm/hr-policy/year-end', { financial_year: financialYear },

@@ -751,6 +751,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // person's right, no employees module right needed.
             Route::get('/my/profile', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'myProfile'])->middleware('crm.member');
             Route::get('/my/documents/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'downloadMyDocument'])->middleware('crm.member');
+            // A password: your own for everybody, anybody's for the Company Admin (checked inside).
+            Route::post('/employees/{uuid}/password', [\App\Http\Controllers\Api\V1\Crm\EmployeePasswordController::class, 'update'])
+                ->middleware('crm.member');
 
             Route::middleware('crm.member:employees,view')->group(function () {
                 Route::get('/employees', [\App\Http\Controllers\Api\V1\Crm\EmployeeController::class, 'index']);
@@ -1097,6 +1100,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::delete('/hr-policy/holidays/{uuid}', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'deleteHoliday']);
                 Route::post('/hr-policy/accrual', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'runAccrual']);
                 Route::post('/hr-policy/year-end', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'runYearEnd']);
+                // The Company Admin's hand on a leave account (checked inside).
+                Route::post('/hr-policy/leave-accounts/{memberUuid}/adjust', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'adjustLeave']);
+                Route::delete('/hr-policy/leave-ledger/{uuid}', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'deleteLeaveEntry']);
             });
 
             // Expenses

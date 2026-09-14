@@ -80,6 +80,7 @@
       @if ($slip->month_days !== null)
         {{ $slip->payable_days }} payable of {{ $slip->month_days }} days
         @if ((float) $slip->lop_days > 0) · {{ (float) $slip->lop_days }} without pay @endif
+        @if ((float) $slip->leave_covered_days > 0) · {{ (float) $slip->leave_covered_days }} paid from leave balance @endif
       @else
         Full month
       @endif

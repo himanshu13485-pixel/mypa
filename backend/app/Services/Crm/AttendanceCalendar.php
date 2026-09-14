@@ -265,6 +265,8 @@ class AttendanceCalendar
                 'leave' => $counted->where('status', 'leave')->count(),
                 'holiday' => $counted->whereIn('status', ['holiday', 'week_off', 'sunday'])->count(),
                 'absent' => $counted->where('status', 'absent')->count(),
+                // Leave the account could not pay for when it was approved.
+                'unpaid_leave' => $counted->filter(fn ($d) => $d['status'] === 'leave' && (float) $d['day_value'] <= 0)->count(),
                 // What the month is worth: the number a salary multiplies.
                 'payable_days' => $payable,
                 'lop_days' => round(max(0, $working - $counted

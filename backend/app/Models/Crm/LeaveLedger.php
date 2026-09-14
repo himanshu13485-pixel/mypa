@@ -18,7 +18,10 @@ class LeaveLedger extends Model
 
     protected $table = 'crm_leave_ledger';
 
-    public const KINDS = ['credit', 'debit', 'encash'];
+    // credit: a month earned · adjust: the Admin's +/- (an opening balance is one)
+    // debit: approved leave · absence: absent days paid for at salary time
+    // encash: paid out at year end
+    public const KINDS = ['credit', 'adjust', 'debit', 'absence', 'encash'];
 
     protected $fillable = [
         'organization_id', 'member_id', 'financial_year', 'kind', 'days',

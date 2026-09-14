@@ -280,6 +280,9 @@ class Organization extends Model
         'monthly_leave_credit' => 1.0,
         // Anything left on 31 March is paid at one day of basic salary.
         'encash_unused_leave' => true,
+        // Absent and unpaid-leave days are paid from the leave balance before
+        // any salary is cut, when salaries are made.
+        'cover_absence_from_leave' => true,
         'financial_year_start_month' => 4,
         // Statutory payroll rates, as the company's own sheet applies them.
         // PF and EDLI are taken on basic capped at the PF wage ceiling; ESI

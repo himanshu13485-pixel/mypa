@@ -692,9 +692,13 @@ class CrmCompensationTest extends TestCase
         $this->actingAs($this->adminUser)->deleteJson("/api/v1/crm/leaves/{$leaveUuid}")->assertOk();
         $this->assertEquals(1.0, (new \App\Services\Crm\LeaveAccount($this->org))->balance($this->seller->fresh(), 2026));
 
+        // Recalculated, the 5th is absent again - and the day the account got
+        // back pays for it before the salary is cut.
         $this->actingAs($this->adminUser)->postJson('/api/v1/crm/salary/' . $recalced->fresh()->uuid . '/recalculate')->assertOk();
         $after = SalarySlip::where('member_id', $this->seller->id)->firstOrFail();
-        $this->assertEquals($baseline, (float) $after->net_salary);
+        $this->assertEquals($baseline + 1000, (float) $after->net_salary);
+        $this->assertEquals(1.0, (float) $after->leave_covered_days);
+        $this->assertEquals(0.0, (new \App\Services\Crm\LeaveAccount($this->org))->balance($this->seller->fresh(), 2026));
 
         // Every hand that touched money is on the trail.
         foreach ([

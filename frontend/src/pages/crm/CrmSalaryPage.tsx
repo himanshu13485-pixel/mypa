@@ -590,6 +590,7 @@ function BreakdownModal({ slip, canEdit, onEdit, onDownload, onClose }: {
           <p className="text-xs text-slate-400">
             {slip.payable_days} payable of {slip.month_days} days
             {Number(slip.lop_days) > 0 && <> · {Number(slip.lop_days)} without pay</>}
+            {Number(slip.leave_covered_days) > 0 && <> · {Number(slip.leave_covered_days)} paid from leave balance</>}
           </p>
         )}
 

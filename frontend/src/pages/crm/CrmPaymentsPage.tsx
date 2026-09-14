@@ -24,6 +24,13 @@ const money = (v: number | string, currency?: string | null) =>
     ? inr(v)
     : currency.toUpperCase() + ' ' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
+/**
+ * A tile's figure as one line per currency. Falls back to the single rupee
+ * total when the server has not split it (an older response).
+ */
+const perCurrency = (rows: { currency: string; amount: number }[] | undefined, fallback: number) =>
+  rows && rows.length > 0 ? rows.map((r) => money(r.amount, r.currency)) : [money(fallback, 'INR')]
+
 const EMPTY = {
   received_on: new Date().toISOString().slice(0, 10),
   issuing_company_id: '', bank_account_id: '', payment_mode: '',
@@ -64,6 +71,9 @@ export default function CrmPaymentsPage() {
   const { data: me } = useQuery(crmMeQuery())
   // Settling and correcting - change, undo, withdraw, delete - belong to the
   // Company Admin and the Subadmins the Admin named. Anybody may match.
+  // Which currency the charts draw, when the range holds more than one.
+  const [chartCurrency, setChartCurrency] = useState<string | null>(null)
+
   const isManager = me?.member?.can_settle_payments
     ?? (me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin')
   const settleMutation = useMutation({
@@ -225,13 +235,42 @@ export default function CrmPaymentsPage() {
       {data && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[
-            { label: 'Unclaimed', value: inr(data.summary.unclaimed_amount), sub: `${data.summary.unclaimed_count} entries`, alert: data.summary.unclaimed_count > 0 },
-            { label: 'Claimed', value: inr(data.summary.claimed_amount), sub: 'allocated to invoices' },
-            { label: 'Total in range', value: inr(data.summary.total_amount), sub: 'all entries' },
-            { label: 'Top mode', value: data.summary.by_mode[0]?.mode ?? '—', sub: data.summary.by_mode[0] ? inr(data.summary.by_mode[0].amount) : '' },
+            {
+              label: 'Unclaimed',
+              lines: perCurrency(data.summary.unclaimed_by_currency, data.summary.unclaimed_amount),
+              sub: `${data.summary.unclaimed_count} ${data.summary.unclaimed_count === 1 ? 'entry' : 'entries'}`,
+              alert: data.summary.unclaimed_count > 0,
+            },
+            {
+              label: 'Claimed',
+              lines: perCurrency(data.summary.claimed_by_currency, data.summary.claimed_amount),
+              sub: 'allocated to invoices',
+            },
+            {
+              label: 'Total in range',
+              lines: perCurrency(data.summary.by_currency, data.summary.total_amount),
+              sub: 'all entries',
+            },
+            {
+              label: 'Top mode',
+              lines: [data.summary.by_mode[0]?.mode ?? '—'],
+              sub: data.summary.by_mode[0] ? money(data.summary.by_mode[0].amount, data.summary.by_mode[0].currency ?? 'INR') : '',
+            },
           ].map((s) => (
             <Card key={s.label} className="py-3">
-              <div className={clsx('text-lg font-semibold', s.alert ? 'text-amber-600' : 'text-slate-900 dark:text-white')}>{s.value}</div>
+              {/* One line per currency: never a rupee sum of dollars. */}
+              {s.lines.map((line, i) => (
+                <div
+                  key={i}
+                  className={clsx(
+                    'font-semibold tabular-nums',
+                    s.lines.length > 1 ? 'text-base leading-snug' : 'text-lg',
+                    s.alert ? 'text-amber-600' : 'text-slate-900 dark:text-white',
+                  )}
+                >
+                  {line}
+                </div>
+              ))}
               <div className="text-xs font-medium text-slate-600 dark:text-slate-300">{s.label}</div>
               <div className="text-xs text-slate-400">{s.sub}</div>
             </Card>
@@ -239,38 +278,52 @@ export default function CrmPaymentsPage() {
         </div>
       )}
 
-      {/* The tiles above add every receipt together, which is only true
-          while they are all one currency. When they are not, the honest
-          figures are these. */}
-      {data && data.summary.by_currency.length > 1 && (
-        <Card className="py-2">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-            <span className="font-medium text-amber-600">More than one currency in this range:</span>
-            {data.summary.by_currency.map((c) => (
-              <span key={c.currency}>
-                <span className="font-semibold text-slate-700 dark:text-slate-200">{money(c.amount, c.currency)}</span>
-                {" "}across {c.count} {c.count === 1 ? "entry" : "entries"}
-              </span>
-            ))}
-          </div>
-        </Card>
-      )}
+      {data && data.summary.by_mode.length > 0 && (() => {
+        // The charts draw one currency at a time; pick which when there are several.
+        const currencies = data.summary.by_currency.map((c) => c.currency)
+        const shown = chartCurrency && currencies.includes(chartCurrency) ? chartCurrency : (currencies[0] ?? 'INR')
+        const inShown = (c?: string) => (c ?? 'INR') === shown
+        const modes = data.summary.by_mode.filter((m) => inShown(m.currency))
+        const months = data.summary.by_month.filter((m) => inShown(m.currency))
 
-      {data && data.summary.by_mode.length > 0 && (
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Received by mode</h2>
-            <DonutChart
-              data={data.summary.by_mode.slice(0, 5).map((m, i) => ({ label: m.mode, value: m.amount, color: CHART_COLORS[i % CHART_COLORS.length] }))}
-              centerLabel="₹ received"
-            />
-          </Card>
-          <Card>
-            <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Received by month</h2>
-            <ColumnChart data={data.summary.by_month.map((m) => ({ label: m.month.slice(2), value: m.amount }))} color={CHART_COLORS[0]} />
-          </Card>
-        </div>
-      )}
+        return (
+          <>
+            {currencies.length > 1 && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                <span>Charts in</span>
+                {currencies.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setChartCurrency(c)}
+                    className={clsx(
+                      'rounded-full px-3 py-1 font-medium transition',
+                      c === shown
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300',
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="grid gap-4 lg:grid-cols-2">
+              <Card>
+                <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Received by mode ({shown})</h2>
+                <DonutChart
+                  data={modes.slice(0, 5).map((m, i) => ({ label: m.mode, value: m.amount, color: CHART_COLORS[i % CHART_COLORS.length] }))}
+                  centerLabel={`${shown} received`}
+                />
+              </Card>
+              <Card>
+                <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Received by month ({shown})</h2>
+                <ColumnChart data={months.map((m) => ({ label: m.month.slice(2), value: m.amount }))} color={CHART_COLORS[0]} />
+              </Card>
+            </div>
+          </>
+        )
+      })()}
 
       <Card>
         <form
