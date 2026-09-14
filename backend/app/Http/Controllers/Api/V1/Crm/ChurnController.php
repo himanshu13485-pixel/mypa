@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1\Crm;
 
 use App\Http\Controllers\Controller;
 use App\Models\Crm\Invoice;
+use App\Support\QueryList;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,18 +29,22 @@ class ChurnController extends Controller
         // leader reads their team (each person filterable); the Admin and
         // Subadmin read the company, any person filterable.
         $manages = in_array($me->crm_role, ['admin', 'subadmin'], true);
+        // Several people can be read together; nothing ticked reads nobody.
         $picked = null;
-        if ($uuid = $request->query('member')) {
+        if ($uuids = QueryList::of($request, 'member')) {
+            $real = array_values(array_diff($uuids, ['__none__']));
             $picked = \App\Models\Crm\Member::where('organization_id', $org->id)
-                ->where('uuid', $uuid)->firstOrFail();
+                ->whereIn('uuid', $real)->pluck('id')->all();
+            abort_if(count($picked) < count($real), 404);
+            $picked = $picked ?: [0];
         }
         if ($manages) {
-            $memberIds = $picked ? [$picked->id] : null;
+            $memberIds = $picked;
         } else {
             $window = $me->teamMemberIds();
-            abort_if($picked && ! in_array($picked->id, $window, true), 403,
+            abort_if($picked && array_diff(array_diff($picked, [0]), $window), 403,
                 'That person is outside your team.');
-            $memberIds = $picked ? [$picked->id] : (count($window) > 1 ? $window : [$me->id]);
+            $memberIds = $picked ?? (count($window) > 1 ? $window : [$me->id]);
         }
 
         // Everything needed in two reads: every invoice's client + month,

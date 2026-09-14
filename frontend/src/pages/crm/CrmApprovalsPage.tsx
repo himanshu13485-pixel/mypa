@@ -10,6 +10,8 @@ import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
 import { decisionBadge } from './CrmLeavesPage'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -23,7 +25,9 @@ export default function CrmApprovalsPage() {
   const { toast, toastError } = useToast()
 
   const [tab, setTab] = useState<'register' | 'invoice_updates'>('register')
-  const [status, setStatus] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [status, setStatus] = useState<string[] | null>(null)
+  const [type, setType] = useState<string[] | null>(null)
   const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ type: '', scope: 'general', approval_date: new Date().toISOString().slice(0, 10), amount: '', invoice_uuid: '', client_uuid: '', details: '' })
@@ -33,8 +37,8 @@ export default function CrmApprovalsPage() {
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'approvals', status, page],
-    queryFn: () => crm.approvals.list({ status: status || undefined, page }),
+    queryKey: ['crm', 'approvals', status, type, page],
+    queryFn: () => crm.approvals.list({ status: listParam(status), type: listParam(type), page }),
   })
   const { data: updates } = useQuery({
     queryKey: ['crm', 'invoice-updates', tab],
@@ -190,13 +194,24 @@ export default function CrmApprovalsPage() {
               </button>
             ))}
           </div>
+          {/* Checkbox filters: everything ticked by default; untick what you do not want. */}
           {tab === 'register' && (
-            <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-              <option value="">All statuses</option>
-              <option value="pending">Pending</option>
-              <option value="approved">Approved</option>
-              <option value="rejected">Rejected</option>
-            </Select>
+            <>
+              <MultiSelect
+                label="Type"
+                options={optionsOf(masters?.approval_types ?? [])}
+                value={type}
+                onChange={(v) => { setType(v); setPage(1) }}
+                className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+              />
+              <MultiSelect
+                label="Status"
+                options={optionsFrom({ pending: 'Pending', approved: 'Approved', rejected: 'Rejected' })}
+                value={status}
+                onChange={(v) => { setStatus(v); setPage(1) }}
+                className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+              />
+            </>
           )}
         </div>
 

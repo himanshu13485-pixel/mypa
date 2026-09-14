@@ -4,9 +4,11 @@ import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, CRM_PAYMENT_STATUS_LABELS, type CrmInvoiceLogEntry } from '../../api/crm'
-import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Pager, Spinner } from '../../components/ui'
 import { ColumnChart, DonutChart } from './charts'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -75,8 +77,9 @@ export default function CrmInvoiceLogPage() {
 
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
-  const [action, setAction] = useState('')
-  const [member, setMember] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [action, setAction] = useState<string[] | null>(null)
+  const [member, setMember] = useState<string[] | null>(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
@@ -88,8 +91,8 @@ export default function CrmInvoiceLogPage() {
       crm.invoices.log({
         kind,
         search: applied || undefined,
-        action: action || undefined,
-        member: member || undefined,
+        action: listParam(action),
+        member: listParam(member),
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         page,
@@ -134,14 +137,21 @@ export default function CrmInvoiceLogPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Number or client…" className="w-full pl-9" />
           </div>
-          <Select value={action} onChange={(e) => { setAction(e.target.value); setPage(1) }}>
-            <option value="">All actions</option>
-            {(summary?.actions ?? []).map((a) => <option key={a} value={a}>{actionLabel(a)}</option>)}
-          </Select>
-          <Select value={member} onChange={(e) => { setMember(e.target.value); setPage(1) }}>
-            <option value="">All users</option>
-            {masters?.members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
+          <MultiSelect
+            label="Action"
+            options={(summary?.actions ?? []).map((a) => ({ value: a, label: actionLabel(a) }))}
+            value={action}
+            onChange={(v) => { setAction(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="User"
+            allLabel="Everyone"
+            options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={member}
+            onChange={(v) => { setMember(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} aria-label="From date" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} aria-label="To date" />
           <Button type="submit" variant="secondary" size="sm">Search</Button>

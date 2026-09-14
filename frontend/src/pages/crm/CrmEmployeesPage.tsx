@@ -8,8 +8,10 @@ import { enterWorkspace } from '../../lib/impersonation'
 import { errorMessage } from '../../api/client'
 import { usePrompt } from '../../components/Prompt'
 import { useToast } from '../../components/Toast'
-import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Pager, Spinner } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom } from '../../lib/multiFilter'
 
 const ROLE_LABELS: Record<string, string> = { admin: 'Admin', subadmin: 'Subadmin', employee: 'Employee' }
 
@@ -17,9 +19,10 @@ export default function CrmEmployeesPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
-  const [role, setRole] = useState('')
-  const [reportsTo, setReportsTo] = useState('')
-  const [status, setStatus] = useState('active')
+  // Checkbox filters: null is everything ticked. Status still opens on the active people.
+  const [role, setRole] = useState<string[] | null>(null)
+  const [reportsTo, setReportsTo] = useState<string[] | null>(null)
+  const [status, setStatus] = useState<string[] | null>(['active'])
   const [page, setPage] = useState(1)
   /** The row being opened, so its button says so and the rest go quiet. */
   const [entering, setEntering] = useState<string | null>(null)
@@ -137,7 +140,14 @@ export default function CrmEmployeesPage() {
   const manages = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'employees', applied, role, status, reportsTo, page],
-    queryFn: () => crm.employees.list({ search: applied || undefined, crm_role: role || undefined, status: status || undefined, reports_to: reportsTo || undefined, page }),
+    queryFn: () => crm.employees.list({
+      search: applied || undefined,
+      crm_role: listParam(role),
+      status: listParam(status),
+      // Comma-separated: reports_to is typed as one string here, and the server reads either.
+      reports_to: listParam(reportsTo),
+      page,
+    }),
   })
 
   return (
@@ -167,21 +177,30 @@ export default function CrmEmployeesPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, email, code, department…" className="w-full pl-9" />
           </div>
-          <Select value={role} onChange={(e) => { setRole(e.target.value); setPage(1) }}>
-            <option value="">All roles</option>
-            <option value="admin">Admin</option>
-            <option value="subadmin">Subadmin</option>
-            <option value="employee">Employee</option>
-          </Select>
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive (deactivated)</option>
-            <option value="">All</option>
-          </Select>
-          <Select value={reportsTo} onChange={(e) => { setReportsTo(e.target.value); setPage(1) }} title="Show one team leader's people (Team Workspace or org chart)">
-            <option value="">Any team</option>
-            {masters?.members.map((m) => <option key={m.uuid} value={m.uuid}>Under {m.name}</option>)}
-          </Select>
+          {/* Checkbox filters: tick what you want to see. */}
+          <MultiSelect
+            label="Role"
+            options={optionsFrom(ROLE_LABELS)}
+            value={role}
+            onChange={(v) => { setRole(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Status"
+            options={optionsFrom({ active: 'Active', inactive: 'Inactive (deactivated)' })}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          {/* Team leaders' people, through the Team Workspace or the org chart. */}
+          <MultiSelect
+            label="Reports to"
+            allLabel="Any team"
+            options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: `Under ${m.name ?? '—'}` }))}
+            value={reportsTo}
+            onChange={(v) => { setReportsTo(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Button type="submit" variant="secondary" size="sm">Search</Button>
         </form>
 

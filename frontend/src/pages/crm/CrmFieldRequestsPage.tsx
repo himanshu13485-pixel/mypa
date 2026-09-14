@@ -5,7 +5,9 @@ import { clsx } from 'clsx'
 import { crm, CRM_DCW_ENTITY_LABELS, CRM_FIELD_TYPE_LABELS } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
-import { Button, Card, EmptyState, Pager, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Pager, Spinner } from '../../components/ui'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom } from '../../lib/multiFilter'
 
 /**
  * The Super Admin's DCW queue: field requests from every company. Approving
@@ -14,12 +16,17 @@ import { Button, Card, EmptyState, Pager, Select, Spinner } from '../../componen
 export default function CrmFieldRequestsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [status, setStatus] = useState('pending')
-  const [organization, setOrganization] = useState('')
+  // Checkbox filters: the queue still opens on what is pending; null is everything.
+  const [status, setStatus] = useState<string[] | null>(['pending'])
+  const [organization, setOrganization] = useState<string[] | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'field-requests', status, organization],
-    queryFn: () => crm.fieldRequests.list({ status: status || undefined, organization: organization || undefined }),
+    // Comma-separated: this call's params take plain strings, and the server reads either.
+    queryFn: () => crm.fieldRequests.list({
+      status: listParam(status),
+      organization: listParam(organization),
+    }),
   })
 
   const decideMutation = useMutation({
@@ -46,16 +53,20 @@ export default function CrmFieldRequestsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Select value={organization} onChange={(e) => setOrganization(e.target.value)} title="Filter by company">
-            <option value="">All companies</option>
-            {(data?.organizations ?? []).map((o) => <option key={o.uuid} value={o.uuid}>{o.name}</option>)}
-          </Select>
-          <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="">All</option>
-          </Select>
+          <MultiSelect
+            label="Company"
+            options={(data?.organizations ?? []).map((o) => ({ value: o.uuid, label: o.name }))}
+            value={organization}
+            onChange={setOrganization}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Status"
+            options={optionsFrom({ pending: 'Pending', approved: 'Approved', rejected: 'Rejected' })}
+            value={status}
+            onChange={setStatus}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
         </div>
       </div>
 

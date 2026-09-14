@@ -9,6 +9,8 @@ import { useToast } from '../../components/Toast'
 import {
   Button, Card, EmptyState, Input, Label, Modal, Select, Spinner, Textarea,
 } from '../../components/ui'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 const inr = (value: string | number, currency = 'INR') =>
   currency + ' ' + Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -29,7 +31,8 @@ export default function CrmTdsCertificatesPage() {
   const [state, setState] = useState<'pending' | 'received' | 'all'>('pending')
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
-  const [member, setMember] = useState('')
+  // Checkbox filter: null is every salesperson, the default.
+  const [member, setMember] = useState<string[] | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [composing, setComposing] = useState(false)
   const [channel, setChannel] = useState<'email' | 'note'>('email')
@@ -50,7 +53,7 @@ export default function CrmTdsCertificatesPage() {
     queryFn: () => crm.tds.list({
       state,
       search: query || undefined,
-      member: member || undefined,
+      member: listParam(member),
     }),
   })
 
@@ -155,10 +158,14 @@ export default function CrmTdsCertificatesPage() {
             <option value="received">Certificate received</option>
             <option value="all">All with TDS</option>
           </Select>
-          <Select value={member} onChange={(e) => setMember(e.target.value)}>
-            <option value="">Every salesperson</option>
-            {masters?.members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
+          <MultiSelect
+            label="Salesperson"
+            allLabel="Everyone"
+            options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={member}
+            onChange={setMember}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <Input
               className="min-w-0 flex-1"

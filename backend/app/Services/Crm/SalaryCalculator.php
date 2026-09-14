@@ -206,8 +206,9 @@ class SalaryCalculator
         return [
             'structure_uuid' => $structure?->uuid,
             'monthly_salary' => $structure ? $structure->grossMonthly() : round($basic, 2),
-            'month_days' => $counted ? $monthDays : null,
-            'payable_days' => $counted ? $payableDays : null,
+            // Always counted out, attendance or not: a slip says how many days it paid.
+            'month_days' => $monthDays,
+            'payable_days' => $payableDays,
             'lop_days' => $counted ? (float) ($attendance['lop_days'] ?? 0) : 0,
             'earnings' => $earnings,
             'deduction_lines' => $deductions,

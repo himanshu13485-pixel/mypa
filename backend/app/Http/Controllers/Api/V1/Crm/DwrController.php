@@ -11,6 +11,7 @@ use App\Models\Crm\DwrEntry;
 use App\Models\Crm\KpiParameter;
 use App\Models\Crm\Member;
 use App\Models\Crm\MemberKpi;
+use App\Support\QueryList;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -197,11 +198,12 @@ class DwrController extends Controller
     {
         $query = $this->scoped($request)->with('member.user:id,name');
 
-        if ($member = $request->query('member')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $member));
+        // Checkbox filters: any of the values ticked.
+        if ($members = QueryList::of($request, 'member')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $members));
         }
-        if ($band = $request->query('band')) {
-            $query->where('band', $band);
+        if ($bands = QueryList::of($request, 'band')) {
+            $query->whereIn('band', $bands);
         }
         if ($from = $request->query('date_from')) {
             $query->whereDate('work_date', '>=', $from);
@@ -226,8 +228,8 @@ class DwrController extends Controller
             ->whereDate('work_date', '>=', $from)
             ->whereDate('work_date', '<=', $to)
             ->whereNotNull('score');
-        if ($member = $request->query('member')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $member));
+        if ($members = QueryList::of($request, 'member')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $members));
         }
 
         $rows = $query->with('member.user:id,name')->get();

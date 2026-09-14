@@ -6,8 +6,10 @@ import { clsx } from 'clsx'
 import { crm, crmCan, CRM_DWR_BAND_LABELS, type CrmDwrRow, type CrmMe } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
-import { Button, Card, EmptyState, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Label, Modal, Pager, Spinner, Textarea } from '../../components/ui'
 import { CHART_COLORS, ColumnChart, DonutChart, HBarChart } from './charts'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom } from '../../lib/multiFilter'
 
 export function bandBadge(band: string | null) {
   return clsx(
@@ -41,8 +43,9 @@ export default function CrmDwrPage() {
   const [workDate, setWorkDate] = useState(new Date().toISOString().slice(0, 10))
   const [values, setValues] = useState<Record<number, string>>({})
   const [note, setNote] = useState('')
-  const [member, setMember] = useState('')
-  const [band, setBand] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [member, setMember] = useState<string[] | null>(null)
+  const [band, setBand] = useState<string[] | null>(null)
   const [page, setPage] = useState(1)
   const [detail, setDetail] = useState<CrmDwrRow | null>(null)
 
@@ -51,11 +54,12 @@ export default function CrmDwrPage() {
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters, enabled: teamView })
   const { data: list, isLoading } = useQuery({
     queryKey: ['crm', 'dwr', 'list', member, band, page],
-    queryFn: () => crm.dwr.list({ member: member || undefined, band: band || undefined, page }),
+    queryFn: () => crm.dwr.list({ member: listParam(member), band: listParam(band), page }),
   })
   const { data: stats } = useQuery({
     queryKey: ['crm', 'dwr', 'stats', member],
-    queryFn: () => crm.dwr.stats({ member: member || undefined }),
+    // Comma-separated: the stats call takes plain strings, and the server reads either.
+    queryFn: () => crm.dwr.stats({ member: listParam(member) }),
   })
 
   // Pre-fill today's values when today's report already exists.
@@ -217,18 +221,25 @@ export default function CrmDwrPage() {
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h2 className="mr-auto text-sm font-semibold text-slate-800 dark:text-slate-100">Reports</h2>
           {teamView && (
-            <Select value={member} onChange={(e) => { setMember(e.target.value); setPage(1) }}>
-              <option value="">Everyone</option>
-              {masters?.members
+            <MultiSelect
+              label="Employee"
+              allLabel="Everyone"
+              options={(masters?.members ?? [])
                 .filter((m) => (m.crm_role ?? 'employee') !== 'admin')
                 .filter((m) => manager || (me?.member?.team_member_uuids ?? []).includes(m.uuid))
-                .map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-            </Select>
+                .map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+              value={member}
+              onChange={(v) => { setMember(v); setPage(1) }}
+              className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+            />
           )}
-          <Select value={band} onChange={(e) => { setBand(e.target.value); setPage(1) }}>
-            <option value="">All bands</option>
-            {Object.entries(CRM_DWR_BAND_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </Select>
+          <MultiSelect
+            label="Band"
+            options={optionsFrom(CRM_DWR_BAND_LABELS)}
+            value={band}
+            onChange={(v) => { setBand(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
         </div>
 
         {isLoading ? (

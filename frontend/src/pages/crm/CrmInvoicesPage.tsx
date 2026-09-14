@@ -10,6 +10,8 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
 import { CHART_COLORS, ColumnChart, LineChart } from './charts'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, onlyOne, optionsFrom } from '../../lib/multiFilter'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -43,11 +45,12 @@ export default function CrmInvoicesPage() {
 
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
-  const [paymentStatus, setPaymentStatus] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [paymentStatus, setPaymentStatus] = useState<string[] | null>(null)
   // The accountant's cuts: GST-wise, TDS-wise, dispatch-wise, due-wise.
-  const [gst, setGst] = useState('')
-  const [tds, setTds] = useState('')
-  const [dispatch, setDispatch] = useState('')
+  const [gst, setGst] = useState<string[] | null>(null)
+  const [tds, setTds] = useState<string[] | null>(null)
+  const [dispatch, setDispatch] = useState<string[] | null>(null)
   const [dueOnly, setDueOnly] = useState(false)
   const [dueMin, setDueMin] = useState('')
   const [dueMax, setDueMax] = useState('')
@@ -63,7 +66,7 @@ export default function CrmInvoicesPage() {
   const [period, setPeriod] = useState('this_month')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [company, setCompany] = useState('')
+  const [company, setCompany] = useState<string[] | null>(null)
   const [page, setPage] = useState(1)
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
@@ -116,27 +119,27 @@ export default function CrmInvoicesPage() {
   const [scope, setScope] = useState<'mine' | 'team'>('mine')
   const effectiveScope = teamHead ? scope : 'team'
   // One person's rows out of the combined view — E-1 looking at E-2 alone.
-  const [salesperson, setSalesperson] = useState('')
+  const [salespeople, setSalespeople] = useState<string[] | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salesperson],
+    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salespeople],
     queryFn: () =>
       crm.invoices.list({
         kind,
         scope: effectiveScope,
-        salesperson: effectiveScope === 'team' ? salesperson || undefined : undefined,
+        salesperson: effectiveScope === 'team' ? listParam(salespeople) : undefined,
         search: applied || undefined,
-        payment_status: paymentStatus || undefined,
-        gst: gst || undefined,
-        tds: tds || undefined,
-        dispatch_status: dispatch || undefined,
+        payment_status: listParam(paymentStatus),
+        gst: listParam(gst),
+        tds: listParam(tds),
+        dispatch_status: listParam(dispatch),
         due_only: dueOnly ? 1 : undefined,
         due_min: dueMin || undefined,
         due_max: dueMax || undefined,
         period: period || undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
-        issuing_company_id: company || undefined,
+        issuing_company_id: listParam(company),
         page,
       }),
   })
@@ -190,7 +193,7 @@ export default function CrmInvoicesPage() {
       </div>
 
       {/* The two ledgers, kept apart on purpose. */}
-      <ScopeToggle scope={scope} onChange={(next) => { setScope(next); setSalesperson(''); setPage(1) }} show={teamHead} />
+      <ScopeToggle scope={scope} onChange={(next) => { setScope(next); setSalespeople(null); setPage(1) }} show={teamHead} />
 
       {/*
         * The period, drawn.
@@ -238,14 +241,14 @@ export default function CrmInvoicesPage() {
           {data!.totals.by_salesperson!.map((row) => (
             <button
               key={row.name}
-              onClick={() => row.uuid && setSalesperson(salesperson === row.uuid ? '' : row.uuid)}
+              onClick={() => row.uuid && setSalespeople(onlyOne(salespeople) === row.uuid ? null : [row.uuid])}
               className="text-left"
               title={row.uuid ? 'Show only this person’s documents' : undefined}
             >
               <Card className={clsx(
                 'py-3 transition',
                 row.is_me && 'ring-2 ring-emerald-400/60',
-                salesperson === row.uuid && row.uuid && 'ring-2 ring-sky-400',
+                onlyOne(salespeople) === row.uuid && row.uuid && 'ring-2 ring-sky-400',
               )}>
                 <div className="text-lg font-semibold text-slate-900 dark:text-white">{inr(row.total)}</div>
                 <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -270,21 +273,29 @@ export default function CrmInvoicesPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Number or company…" className="w-full pl-9" />
           </div>
-          <Select value={paymentStatus} onChange={(e) => { setPaymentStatus(e.target.value); setPage(1) }}>
-            <option value="">All payment states</option>
-            {Object.entries(CRM_PAYMENT_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </Select>
-          <Select value={company} onChange={(e) => { setCompany(e.target.value); setPage(1) }}>
-            <option value="">All issuing companies</option>
-            {masters?.issuing_companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </Select>
+          {/* Checkbox filters: everything ticked by default; untick what you do not want. */}
+          <MultiSelect
+            label="Payment"
+            options={optionsFrom(CRM_PAYMENT_STATUS_LABELS)}
+            value={paymentStatus}
+            onChange={(v) => { setPaymentStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Company"
+            options={(masters?.issuing_companies ?? []).map((c) => ({ value: String(c.id), label: c.name }))}
+            value={company}
+            onChange={(v) => { setCompany(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           {effectiveScope === 'team' && (data?.totals.by_salesperson?.length ?? 0) > 1 && (
-            <Select value={salesperson} onChange={(e) => { setSalesperson(e.target.value); setPage(1) }}>
-              <option value="">All salespeople</option>
-              {data!.totals.by_salesperson!.filter((r) => r.uuid).map((r) => (
-                <option key={r.uuid!} value={r.uuid!}>{r.name}{r.is_me ? ' (you)' : ''}</option>
-              ))}
-            </Select>
+            <MultiSelect
+              label="Salesperson"
+              options={data!.totals.by_salesperson!.filter((r) => r.uuid).map((r) => ({ value: r.uuid!, label: r.name + (r.is_me ? ' (you)' : '') }))}
+              value={salespeople}
+              onChange={(v) => { setSalespeople(v); setPage(1) }}
+              className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+            />
           )}
           <Select
             value={dateFrom || dateTo ? '' : period}
@@ -301,22 +312,32 @@ export default function CrmInvoicesPage() {
             {PERIODS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             {(dateFrom || dateTo) && <option value="">Custom dates</option>}
           </Select>
-          <Select value={gst} onChange={(e) => { setGst(e.target.value); setPage(1) }} title="GST-wise">
-            <option value="">GST: any</option>
-            <option value="with">With GST</option>
-            <option value="without">Without GST</option>
-            <option value="igst">IGST documents</option>
-            <option value="cgst_sgst">CGST + SGST documents</option>
-          </Select>
-          <Select value={tds} onChange={(e) => { setTds(e.target.value); setPage(1) }} title="TDS-wise">
-            <option value="">TDS: any</option>
-            <option value="with">TDS deducted</option>
-            <option value="without">No TDS</option>
-          </Select>
-          <Select value={dispatch} onChange={(e) => { setDispatch(e.target.value); setPage(1) }} title="Dispatch-wise">
-            <option value="">Dispatch: any</option>
-            {Object.entries(CRM_DISPATCH_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </Select>
+          <MultiSelect
+            label="GST"
+            options={[
+              { value: 'with', label: 'With GST' },
+              { value: 'without', label: 'Without GST' },
+              { value: 'igst', label: 'IGST documents' },
+              { value: 'cgst_sgst', label: 'CGST + SGST documents' },
+            ]}
+            value={gst}
+            onChange={(v) => { setGst(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="TDS"
+            options={[{ value: 'with', label: 'TDS deducted' }, { value: 'without', label: 'No TDS' }]}
+            value={tds}
+            onChange={(v) => { setTds(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Dispatch"
+            options={optionsFrom(CRM_DISPATCH_STATUS_LABELS)}
+            value={dispatch}
+            onChange={(v) => { setDispatch(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <label className="flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300" title="Only documents still owing money">
             <input type="checkbox" checked={dueOnly} onChange={(e) => { setDueOnly(e.target.checked); setPage(1) }} className="size-4 accent-emerald-600" />
             Due only

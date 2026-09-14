@@ -10,6 +10,7 @@ use App\Models\Crm\Member;
 use App\Models\Crm\PaymentInboxEntry;
 use App\Notifications\CrmNotification;
 use App\Services\Crm\PaymentSettler;
+use App\Support\QueryList;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -35,14 +36,15 @@ class PaymentInboxController extends Controller
             'sourceProforma:id,number',
         ])->where('organization_id', $org->id);
 
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
-        if ($bank = $request->query('bank_account_id')) {
-            $query->where('bank_account_id', $bank);
+        if ($banks = QueryList::ids($request, 'bank_account_id')) {
+            $query->whereIn('bank_account_id', $banks);
         }
-        if ($company = $request->query('issuing_company_id')) {
-            $query->where('issuing_company_id', $company);
+        if ($companies = QueryList::ids($request, 'issuing_company_id')) {
+            $query->whereIn('issuing_company_id', $companies);
         }
         if ($from = $request->query('date_from')) {
             $query->whereDate('received_on', '>=', $from);
@@ -51,8 +53,8 @@ class PaymentInboxController extends Controller
             $query->whereDate('received_on', '<=', $to);
         }
         // Whose money: the salesperson the credit was claimed for.
-        if ($member = $request->query('member')) {
-            $query->whereHas('claimedMember', fn ($m) => $m->where('uuid', $member));
+        if ($people = QueryList::of($request, 'member')) {
+            $query->whereHas('claimedMember', fn ($m) => $m->whereIn('uuid', $people));
         }
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {

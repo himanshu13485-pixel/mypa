@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Crm\Invoice;
 use App\Models\Crm\Member;
 use App\Models\Crm\Target;
+use App\Support\QueryList;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -193,12 +194,13 @@ class TargetController extends Controller
         $optionsWindow = $window;
         $picked = null;
 
-        if ($uuid = $request->query('salesperson')) {
-            $member = Member::where('organization_id', $org->id)->where('uuid', $uuid)->first();
+        if ($uuids = QueryList::of($request, 'salesperson')) {
+            $members = Member::where('organization_id', $org->id)->whereIn('uuid', $uuids)->get(['id', 'uuid']);
             // Narrowing only: nobody reaches outside their own window here.
-            $inside = $member && ($optionsWindow === null || in_array($member->id, $optionsWindow, true));
-            $window = $inside ? [$member->id] : [0];
-            $picked = $inside ? $uuid : null;
+            $inside = $members->filter(fn (Member $m) => $optionsWindow === null || in_array($m->id, $optionsWindow, true));
+            $window = $inside->isEmpty() ? [0] : $inside->pluck('id')->all();
+            // The response names the one person picked; several have no one name.
+            $picked = $inside->count() === 1 && count($uuids) === 1 ? $inside->first()->uuid : null;
         }
 
         // Buckets run forward to the one today sits in.

@@ -7,6 +7,8 @@ import { crm, crmCan, type CrmMe, type CrmVendor } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner } from '../../components/ui'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsOf } from '../../lib/multiFilter'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -28,8 +30,9 @@ export default function CrmVendorsPage() {
 
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
-  const [status, setStatus] = useState('')
-  const [category, setCategory] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [status, setStatus] = useState<string[] | null>(null)
+  const [category, setCategory] = useState<string[] | null>(null)
   const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmVendor | null>(null)
@@ -41,8 +44,8 @@ export default function CrmVendorsPage() {
     queryKey: ['crm', 'vendors', applied, status, category, page],
     queryFn: () => crm.vendors.list({
       search: applied || undefined,
-      status: status || undefined,
-      category: category || undefined,
+      status: listParam(status),
+      category: listParam(category),
       page,
     }),
   })
@@ -167,15 +170,20 @@ export default function CrmVendorsPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, contact, GSTIN, email…" className="w-full pl-9" />
           </div>
-          <Select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1) }}>
-            <option value="">All categories</option>
-            {data?.categories.map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-            <option value="">All</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </Select>
+          <MultiSelect
+            label="Category"
+            options={optionsOf(data?.categories ?? [])}
+            value={category}
+            onChange={(v) => { setCategory(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Status"
+            options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Button type="submit" variant="secondary" size="sm">Search</Button>
         </form>
 

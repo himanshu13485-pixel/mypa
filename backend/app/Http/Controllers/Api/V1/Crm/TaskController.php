@@ -9,6 +9,7 @@ use App\Models\Crm\Member;
 use App\Models\Crm\Task;
 use App\Models\Crm\TaskComment;
 use App\Notifications\CrmNotification;
+use App\Support\QueryList;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -38,17 +39,18 @@ class TaskController extends Controller
             'invoice:id,uuid,number,kind,client_id', 'invoice.client:id,company_name',
         ])->withCount('comments');
 
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
-        if ($priority = $request->query('priority')) {
-            $query->where('priority', $priority);
+        if ($priorities = QueryList::of($request, 'priority')) {
+            $query->whereIn('priority', $priorities);
         }
-        if ($kind = $request->query('kind')) {
-            $query->where('kind', $kind);
+        if ($kinds = QueryList::of($request, 'kind')) {
+            $query->whereIn('kind', $kinds);
         }
-        if ($member = $request->query('member')) {
-            $query->whereHas('assignee', fn ($m) => $m->where('uuid', $member));
+        if ($members = QueryList::of($request, 'member')) {
+            $query->whereHas('assignee', fn ($m) => $m->whereIn('uuid', $members));
         }
         // "Mine": the two sides of a task, not one. Somebody chasing a
         // pendency needs their own outbox as much as their inbox.

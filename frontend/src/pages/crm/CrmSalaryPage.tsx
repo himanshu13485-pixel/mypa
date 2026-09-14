@@ -586,13 +586,36 @@ function BreakdownModal({ slip, canEdit, onEdit, onDownload, onClose }: {
   return (
     <Modal title={`${slip.member?.name ?? 'Slip'} — ${MONTHS[slip.month - 1]} ${slip.year}`} onClose={onClose} wide>
       <div className="space-y-4">
-        {slip.month_days !== null && (
-          <p className="text-xs text-slate-400">
-            {slip.payable_days} payable of {slip.month_days} days
-            {Number(slip.lop_days) > 0 && <> · {Number(slip.lop_days)} without pay</>}
-            {Number(slip.leave_covered_days) > 0 && <> · {Number(slip.leave_covered_days)} paid from leave balance</>}
-          </p>
-        )}
+        {(() => {
+          const monthDays = slip.month_days !== null ? Number(slip.month_days) : new Date(slip.year, slip.month, 0).getDate()
+          const tiles = [
+            { label: 'Days in month', value: monthDays },
+            { label: 'Days present', value: slip.present_days ?? '—' },
+            { label: 'Payable days', value: slip.payable_days !== null ? Number(slip.payable_days) : monthDays },
+            { label: 'Without pay', value: Number(slip.lop_days) || 0, tone: Number(slip.lop_days) > 0 ? 'text-red-500' : undefined },
+          ]
+          return (
+            <div>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {tiles.map((t) => (
+                  <div key={t.label} className="rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800/40">
+                    <div className={clsx('text-base font-semibold tabular-nums', t.tone ?? 'text-slate-800 dark:text-slate-100')}>{t.value}</div>
+                    <div className="text-xs text-slate-500">{t.label}</div>
+                  </div>
+                ))}
+              </div>
+              {(Number(slip.leave_overdrawn_days) > 0 || Number(slip.leave_covered_days) > 0 || slip.present_days == null) && (
+                <p className="mt-1.5 text-xs text-slate-400">
+                  {[
+                    Number(slip.leave_overdrawn_days) > 0 && `${Number(slip.leave_overdrawn_days)} leave beyond the balance, unpaid`,
+                    Number(slip.leave_covered_days) > 0 && `${Number(slip.leave_covered_days)} absent paid from leave balance`,
+                    slip.present_days == null && 'no attendance recorded this month',
+                  ].filter(Boolean).join(' · ')}
+                </p>
+              )}
+            </div>
+          )
+        })()}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">

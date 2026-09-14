@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Crm;
 
+use App\Support\QueryList;
 use App\Http\Controllers\Controller;
 use App\Models\Crm\ActivityLog;
 use App\Models\Crm\Invoice;
@@ -141,9 +142,10 @@ class ExportController extends Controller
             ->where('organization_id', $org->id)
             // The same narrowing the screen offers, so "download what I am
             // looking at" is a thing somebody can actually do.
-            ->when($request->query('status'), fn ($q, $v) => $q->where('lead_status', $v))
-            ->when($request->query('source'), fn ($q, $v) => $q->where('source', $v))
-            ->when($request->query('member'), fn ($q, $v) => $q->whereHas('assignedMember', fn ($m) => $m->where('uuid', $v)))
+            // Checkbox filters: any of the values ticked, as on the screen.
+            ->when(QueryList::of($request, 'status'), fn ($q, $v) => $q->whereIn('lead_status', $v))
+            ->when(QueryList::of($request, 'source'), fn ($q, $v) => $q->whereIn('source', $v))
+            ->when(QueryList::of($request, 'member'), fn ($q, $v) => $q->whereHas('assignedMember', fn ($m) => $m->whereIn('uuid', $v)))
             // The two dates the screen asks separately: when it came in, and
             // when it is next owed a call.
             ->when($request->query('date_from'), fn ($q, $v) => $q->whereDate('created_at', '>=', $v))

@@ -11,6 +11,7 @@ use App\Models\Crm\InvoicePayment;
 use App\Models\Crm\Lead;
 use App\Models\Crm\Member;
 use App\Models\Crm\SalarySlip;
+use App\Support\QueryList;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -44,11 +45,11 @@ class ReportController extends Controller
         $window = $me->salesWindow($scope);
         $optionsWindow = $window;
 
-        // One person's figures out of the combined view — narrowing only.
-        if ($picked = $request->query('salesperson')) {
-            $member = Member::where('organization_id', $org->id)->where('uuid', $picked)->first();
-            $window = ($member && ($window === null || in_array($member->id, $window, true)))
-                ? [$member->id] : [0];
+        // Some people's figures out of the combined view — narrowing only.
+        if ($picked = QueryList::of($request, 'salesperson')) {
+            $ids = Member::where('organization_id', $org->id)->whereIn('uuid', $picked)->pluck('id')->all();
+            $inside = $window === null ? $ids : array_values(array_intersect($ids, $window));
+            $window = $inside ?: [0];
         }
 
         $userWindow = $window === null ? null
@@ -193,11 +194,16 @@ class ReportController extends Controller
         $query = ActivityLog::with('member.user:id,name')
             ->where('organization_id', $org->id);
 
-        if ($member = $request->query('member')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $member));
+        if ($members = QueryList::of($request, 'member')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $members));
         }
-        if ($action = $request->query('action')) {
-            $query->where('action', 'like', $action . '%');
+        // Modules are action prefixes, so several ticked is a run of likes.
+        if ($prefixes = QueryList::of($request, 'action')) {
+            $query->where(function ($q) use ($prefixes) {
+                foreach ($prefixes as $prefix) {
+                    $q->orWhere('action', 'like', $prefix . '%');
+                }
+            });
         }
         if ($from = $request->query('date_from')) {
             $query->whereDate('created_at', '>=', $from);

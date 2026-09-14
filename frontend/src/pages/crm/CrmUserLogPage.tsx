@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { crm } from '../../api/crm'
-import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Pager, Spinner } from '../../components/ui'
 import { CHART_COLORS, ColumnChart } from './charts'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 const ACTION_GROUPS = [
   ['employee', 'Employees'], ['client', 'Clients'], ['lead', 'Leads'],
@@ -14,8 +16,9 @@ const ACTION_GROUPS = [
 ] as const
 
 export default function CrmUserLogPage() {
-  const [member, setMember] = useState('')
-  const [action, setAction] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [member, setMember] = useState<string[] | null>(null)
+  const [action, setAction] = useState<string[] | null>(null)
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -26,9 +29,10 @@ export default function CrmUserLogPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'user-log', member, action, applied, dateFrom, dateTo, page],
     queryFn: () =>
+      // Sent comma-separated: this call's params take plain strings, and the server reads either.
       crm.reports.userLog({
-        member: member || undefined,
-        action: action || undefined,
+        member: listParam(member),
+        action: listParam(action),
         search: applied || undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
@@ -70,14 +74,21 @@ export default function CrmUserLogPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search details…" className="w-full pl-9" />
           </div>
-          <Select value={member} onChange={(e) => { setMember(e.target.value); setPage(1) }}>
-            <option value="">All users</option>
-            {masters?.members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
-          <Select value={action} onChange={(e) => { setAction(e.target.value); setPage(1) }}>
-            <option value="">All modules</option>
-            {ACTION_GROUPS.map(([prefix, label]) => <option key={prefix} value={prefix}>{label}</option>)}
-          </Select>
+          <MultiSelect
+            label="User"
+            allLabel="Everyone"
+            options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={member}
+            onChange={(v) => { setMember(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Module"
+            options={ACTION_GROUPS.map(([prefix, label]) => ({ value: prefix, label }))}
+            value={action}
+            onChange={(v) => { setAction(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} aria-label="From" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} aria-label="To" />
           <Button type="submit" variant="secondary" size="sm">Search</Button>

@@ -468,11 +468,12 @@ const KIND_LABELS: Record<string, string> = {
   adjust: 'Adjustment',
   debit: 'Leave taken',
   absence: 'Absence covered',
+  overdraft: 'Cut from salary',
   encash: 'Paid out',
 }
 
 /** A ledger movement as it moves the balance: in (+) or out (-). */
-const signedDays = (kind: string, days: number) => (kind === 'credit' || kind === 'adjust' ? days : -days)
+const signedDays = (kind: string, days: number) => (kind === 'credit' || kind === 'adjust' || kind === 'overdraft' ? days : -days)
 const signed = (value: number) => (value > 0 ? `+${value}` : String(value))
 
 /**
@@ -529,7 +530,8 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
       </div>
       <p className="mt-1 text-xs text-slate-400">
         One day earned per month once probation is behind them. Approved leave spends the balance, and when
-        salaries are made each absent day is paid from what is left before any salary is cut.
+        salaries are made each absent day is paid from what is left before any salary is cut. Leave deducted
+        past the balance is cut from that month&rsquo;s salary as days without pay.
         {canEdit ? ' Tap a name for the movements.' : ' Adjusting an account is the Company Admin’s.'}
       </p>
 
@@ -548,6 +550,7 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
                 <th className="py-2 pr-3 text-right font-medium">Earned</th>
                 <th className="py-2 pr-3 text-right font-medium" title="Approved leave paid from the balance">Leave taken</th>
                 <th className="py-2 pr-3 text-right font-medium" title="Absent days paid from the balance when salaries were made">Absences covered</th>
+                <th className="py-2 pr-3 text-right font-medium" title="Leave taken past the balance, cut from salary as days without pay">Cut from salary</th>
                 <th className="py-2 pr-3 text-right font-medium" title="Unused days bought back at year end">Paid out</th>
                 <th className="py-2 pr-3 text-right font-medium">Balance</th>
                 {canEdit && <th className="py-2 font-medium" />}
@@ -576,6 +579,7 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
                   <td className="py-2.5 pr-3 text-right text-slate-500">{cell(m.earned)}</td>
                   <td className="py-2.5 pr-3 text-right text-slate-500">{cell(m.taken)}</td>
                   <td className="py-2.5 pr-3 text-right text-slate-500">{cell(m.absence_covered)}</td>
+                  <td className={clsx('py-2.5 pr-3 text-right', m.salary_cut ? 'text-red-500' : 'text-slate-500')}>{cell(m.salary_cut ?? 0)}</td>
                   <td className="py-2.5 pr-3 text-right text-slate-500">{cell(m.encashed)}</td>
                   <td className="py-2.5 pr-3 text-right font-semibold text-slate-800 dark:text-slate-100">{m.balance}</td>
                   {canEdit && (
@@ -701,6 +705,7 @@ function AdjustLeaveModal({ account, onClose, onDone }: {
         {amount !== 0 && (
           <p className="text-xs text-slate-400">
             {signed(amount)} day(s) → about {Math.round((account.balance + amount) * 100) / 100} after, if dated in this year.
+            {account.balance + amount < 0 && ' Days below zero are cut from that month’s salary when it is made or recalculated.'}
           </p>
         )}
         <Button className="w-full" disabled={save.isPending || !amount || !note.trim() || !effectiveOn} onClick={() => save.mutate()}>

@@ -1158,6 +1158,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::delete('/offline-employees/{uuid}', [$offline, 'destroy']);
                 Route::get('/offline-salaries', [$offline, 'salaries']);
                 Route::post('/offline-salaries/generate', [$offline, 'generate']);
+                Route::get('/offline-salaries/export', [$offline, 'export']);
+                Route::post('/offline-salaries/mark-paid', [$offline, 'markPaid']);
+                Route::get('/offline-salaries/{uuid}/pdf', [$offline, 'pdf']);
                 Route::post('/offline-salaries', [$offline, 'storeSalary']);
                 Route::put('/offline-salaries/{uuid}', [$offline, 'updateSalary']);
                 Route::delete('/offline-salaries/{uuid}', [$offline, 'destroySalary']);

@@ -8,6 +8,8 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
 
 export function decisionBadge(status: string) {
   return clsx(
@@ -30,9 +32,11 @@ export default function CrmLeavesPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 
-  const [status, setStatus] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [status, setStatus] = useState<string[] | null>(null)
+  const [category, setCategory] = useState<string[] | null>(null)
   /* Asked for in advance, or after the fact. */
-  const [timing, setTiming] = useState('')
+  const [timing, setTiming] = useState<string[] | null>(null)
   const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ category: '', duration: 'full', date_from: '', date_to: '', reason: '' })
@@ -40,8 +44,13 @@ export default function CrmLeavesPage() {
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'leaves', status, timing, page],
-    queryFn: () => crm.leaves.list({ status: status || undefined, timing: timing || undefined, page }),
+    queryKey: ['crm', 'leaves', status, category, timing, page],
+    queryFn: () => crm.leaves.list({
+      status: listParam(status),
+      category: listParam(category),
+      timing: listParam(timing),
+      page,
+    }),
   })
 
   const refresh = () => {
@@ -165,19 +174,29 @@ export default function CrmLeavesPage() {
           <h2 className="mr-auto flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
             <CalendarOff className="size-4 text-emerald-500" /> {decides ? 'All requests' : 'My requests'}
           </h2>
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-            <option value="">All statuses</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="cancelled">Cancelled</option>
-          </Select>
+          {/* Checkbox filters: everything ticked by default; untick what you do not want. */}
+          <MultiSelect
+            label="Status"
+            options={optionsFrom({ pending: 'Pending', approved: 'Approved', rejected: 'Rejected', cancelled: 'Cancelled' })}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Category"
+            options={optionsOf(masters?.leave_categories ?? [])}
+            value={category}
+            onChange={(v) => { setCategory(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           {/* Did the approver get a say before it happened? */}
-          <Select value={timing} onChange={(e) => { setTiming(e.target.value); setPage(1) }} title="Applied before or after the leave">
-            <option value="">Pre and post-applied</option>
-            <option value="pre">Pre-applied</option>
-            <option value="post">Post-applied</option>
-          </Select>
+          <MultiSelect
+            label="Applied"
+            options={optionsFrom({ pre: 'Pre-applied', post: 'Post-applied' })}
+            value={timing}
+            onChange={(v) => { setTiming(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
         </div>
 
         {isLoading ? (

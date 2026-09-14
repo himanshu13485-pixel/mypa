@@ -3,9 +3,11 @@ import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { crm } from '../../api/crm'
-import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Pager, Spinner } from '../../components/ui'
 import { LogEntry } from './CrmLeadDetailPage'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 /**
  * The Lead Log: everything that happened to every lead, newest first — the
@@ -16,7 +18,8 @@ export default function CrmLeadLogPage() {
   const [applied, setApplied] = useState('')
   const [leadNo, setLeadNo] = useState('')
   const [appliedNo, setAppliedNo] = useState('')
-  const [member, setMember] = useState('')
+  // Checkbox filter: null is everyone ticked, the default.
+  const [member, setMember] = useState<string[] | null>(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
@@ -28,7 +31,7 @@ export default function CrmLeadLogPage() {
       crm.leads.log({
         search: applied || undefined,
         lead_no: appliedNo || undefined,
-        member: member || undefined,
+        member: listParam(member),
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         page,
@@ -52,10 +55,14 @@ export default function CrmLeadLogPage() {
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the trail…" className="w-full pl-9" />
           </div>
           <Input type="number" min="1" value={leadNo} onChange={(e) => setLeadNo(e.target.value)} placeholder="Lead #" className="w-24" />
-          <Select value={member} onChange={(e) => { setMember(e.target.value); setPage(1) }}>
-            <option value="">All users</option>
-            {masters?.members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
+          <MultiSelect
+            label="User"
+            allLabel="Everyone"
+            options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={member}
+            onChange={(v) => { setMember(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} aria-label="From date" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} aria-label="To date" />
           <Button type="submit" variant="secondary" size="sm">Search</Button>

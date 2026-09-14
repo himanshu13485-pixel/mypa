@@ -8,6 +8,7 @@ use App\Models\Crm\Document;
 use App\Models\Crm\Expense;
 use App\Models\Crm\ExpensePayment;
 use App\Models\Crm\Vendor;
+use App\Support\QueryList;
 use App\Support\TextCase;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -45,32 +46,40 @@ class ExpenseController extends Controller
         if ($to = $request->query('date_to')) {
             $query->whereDate('expense_date', '<=', $to);
         }
-        if ($company = $request->query('issuing_company_id')) {
-            $query->where('issuing_company_id', $company);
+        // Checkbox filters: any of the values ticked.
+        if ($companies = QueryList::ids($request, 'issuing_company_id')) {
+            $query->whereIn('issuing_company_id', $companies);
         }
-        if ($category = $request->query('category')) {
-            $query->where('category', $category);
+        if ($categories = QueryList::of($request, 'category')) {
+            $query->whereIn('category', $categories);
         }
-        if ($vendorUuid = $request->query('vendor')) {
-            $vendor = Vendor::where('organization_id', $org->id)->where('uuid', $vendorUuid)->first();
-            $query->where('vendor_id', $vendor?->id ?? 0);
+        if ($vendorUuids = QueryList::of($request, 'vendor')) {
+            $query->whereIn('vendor_id', Vendor::where('organization_id', $org->id)->whereIn('uuid', $vendorUuids)->select('id'));
         }
-        if ($status = $request->query('payment_status')) {
+        if ($statuses = QueryList::of($request, 'payment_status')) {
             // "Overdue" is not a stored state — it is an unpaid bill whose
-            // date has gone by, so it is asked for as one.
-            if ($status === 'overdue') {
-                $query->where('payment_status', '!=', 'paid')
-                    ->whereNotNull('due_date')
-                    ->whereDate('due_date', '<', now()->toDateString());
-            } else {
-                $query->where('payment_status', $status);
-            }
+            // date has gone by, so it is asked for as one, OR'd with the rest.
+            $stored = array_values(array_diff($statuses, ['overdue']));
+            $query->where(function ($any) use ($statuses, $stored) {
+                if (in_array('overdue', $statuses, true)) {
+                    $any->orWhere(fn ($o) => $o->where('payment_status', '!=', 'paid')
+                        ->whereNotNull('due_date')
+                        ->whereDate('due_date', '<', now()->toDateString()));
+                }
+                if ($stored !== []) {
+                    $any->orWhereIn('payment_status', $stored);
+                }
+            });
         }
         if (($bill = $request->query('bill_available')) !== null && $bill !== '') {
             $query->where('bill_available', (bool) (int) $bill);
         }
-        if (($gst = $request->query('gst_claimed')) !== null && $gst !== '') {
-            $query->where('gst_claimed', (bool) (int) $gst);
+        // Claimed and not claimed both ticked is no filter at all.
+        if ($gst = QueryList::of($request, 'gst_claimed')) {
+            $flags = array_values(array_intersect($gst, ['0', '1']));
+            $flags === []
+                ? $query->whereRaw('1 = 0')
+                : $query->whereIn('gst_claimed', array_map(fn ($f) => (bool) (int) $f, $flags));
         }
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {

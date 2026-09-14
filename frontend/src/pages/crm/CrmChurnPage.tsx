@@ -5,6 +5,8 @@ import { clsx } from 'clsx'
 import { crm, crmMeQuery } from '../../api/crm'
 import { useQuery as useQ } from '@tanstack/react-query'
 import { Card, EmptyState, Select, Spinner } from '../../components/ui'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 const inr = (v: number) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -15,13 +17,13 @@ const inr = (v: number) => '₹' + Number(v || 0).toLocaleString('en-IN', { maxi
  */
 export default function CrmChurnPage() {
   const [months, setMonths] = useState(12)
-  const [member, setMember] = useState('')
+  const [member, setMember] = useState<string[] | null>(null)
   const { data: me } = useQ(crmMeQuery())
   const { data: masters } = useQ({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const manager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'churn', months, member],
-    queryFn: () => crm.churn(months, member || undefined),
+    queryFn: () => crm.churn(months, listParam(member)),
   })
 
   return (
@@ -36,13 +38,17 @@ export default function CrmChurnPage() {
           </p>
         </div>
         {(manager || !!me?.has_team) && (
-          <Select value={member} onChange={(e) => setMember(e.target.value)} title="Whose churn">
-            <option value="">{manager ? 'Whole company' : 'My whole team'}</option>
-            {(masters?.members ?? [])
+          <MultiSelect
+            label="Whose"
+            allLabel={manager ? 'Whole company' : 'My whole team'}
+            options={(masters?.members ?? [])
               .filter((m) => (m.crm_role ?? 'employee') !== 'admin')
               .filter((m) => manager || (me?.member?.team_member_uuids ?? []).includes(m.uuid))
-              .map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
+              .map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={member}
+            onChange={setMember}
+            className="w-full sm:w-auto sm:min-w-[13rem]"
+          />
         )}
         <Select value={months} onChange={(e) => setMonths(Number(e.target.value))}>
           <option value={6}>Last 6 months</option>

@@ -76,14 +76,17 @@
 <table class="meta">
   <tr>
     <td>
+      @php
+        $daysInMonth = (int) ($slip->month_days ?? \Carbon\Carbon::create($slip->year, $slip->month, 1)->daysInMonth);
+        $payableDays = $slip->payable_days !== null ? (float) $slip->payable_days : (float) $daysInMonth;
+      @endphp
       <div class="muted">Attendance</div>
-      @if ($slip->month_days !== null)
-        {{ $slip->payable_days }} payable of {{ $slip->month_days }} days
-        @if ((float) $slip->lop_days > 0) · {{ (float) $slip->lop_days }} without pay @endif
-        @if ((float) $slip->leave_covered_days > 0) · {{ (float) $slip->leave_covered_days }} paid from leave balance @endif
-      @else
-        Full month
-      @endif
+      Days in month: {{ $daysInMonth }}<br>
+      Days present: {{ $slip->present_days !== null ? (float) $slip->present_days : 'not recorded' }}<br>
+      Payable days: {{ $payableDays }}
+      @if ((float) $slip->lop_days > 0)<br>Without pay: {{ (float) $slip->lop_days }}@endif
+      @if ((float) $slip->leave_overdrawn_days > 0)<br><span class="muted">incl. {{ (float) $slip->leave_overdrawn_days }} leave beyond balance</span>@endif
+      @if ((float) $slip->leave_covered_days > 0)<br><span class="muted">{{ (float) $slip->leave_covered_days }} absent paid from leave balance</span>@endif
     </td>
     <td>
       <div class="muted">Monthly gross</div>

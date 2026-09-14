@@ -10,6 +10,8 @@ import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select
 import { PhoneLink } from '../../components/ContactLink'
 import { companyCase, emailCase, nameCase } from './textCase'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -38,9 +40,10 @@ export default function CrmLeadsPage() {
   const [applied, setApplied] = useState('')
   /** The export is a stream the server builds; the button says so meanwhile. */
   const [exporting, setExporting] = useState(false)
-  const [status, setStatus] = useState('')
-  const [source, setSource] = useState('')
-  const [assigned, setAssigned] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [status, setStatus] = useState<string[] | null>(null)
+  const [source, setSource] = useState<string[] | null>(null)
+  const [assigned, setAssigned] = useState<string[] | null>(null)
   const [dueOnly, setDueOnly] = useState(false)
   /*
    * Two dates, asked separately because they are two questions: when the
@@ -76,9 +79,9 @@ export default function CrmLeadsPage() {
     queryFn: () =>
       crm.leads.list({
         search: applied || undefined,
-        lead_status: status || undefined,
-        source: source || undefined,
-        assigned_to: assigned || undefined,
+        lead_status: listParam(status),
+        source: listParam(source),
+        assigned_to: listParam(assigned),
         due: dueOnly ? 1 : undefined,
         date_from: from || undefined,
         date_to: to || undefined,
@@ -362,18 +365,29 @@ export default function CrmLeadsPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Company, person, mobile, email…" className="w-full pl-9" />
           </div>
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-            <option value="">All statuses</option>
-            {Object.entries(CRM_LEAD_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </Select>
-          <Select value={source} onChange={(e) => { setSource(e.target.value); setPage(1) }}>
-            <option value="">All sources</option>
-            {masters?.lead_sources.map((s) => <option key={s} value={s}>{s}</option>)}
-          </Select>
-          <Select value={assigned} onChange={(e) => { setAssigned(e.target.value); setPage(1) }}>
-            <option value="">Everyone</option>
-            {masters?.members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
+          {/* Checkbox filters: everything ticked by default; untick what you do not want. */}
+          <MultiSelect
+            label="Status"
+            options={optionsFrom(CRM_LEAD_STATUS_LABELS)}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Source"
+            options={optionsOf(masters?.lead_sources ?? [])}
+            value={source}
+            onChange={(v) => { setSource(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Assigned"
+            allLabel="Everyone"
+            options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={assigned}
+            onChange={(v) => { setAssigned(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <button
             type="button"
             onClick={() => { setDueOnly((d) => !d); setPage(1) }}
@@ -432,9 +446,9 @@ export default function CrmLeadsPage() {
                 try {
                   const blob = await crm.exports.leadsCsv({
                     search: applied || undefined,
-                    status: status || undefined,
-                    source: source || undefined,
-                    member: assigned || undefined,
+                    status: listParam(status),
+                    source: listParam(source),
+                    member: listParam(assigned),
                     date_from: from || undefined,
                     date_to: to || undefined,
                     follow_up_from: fuFrom || undefined,

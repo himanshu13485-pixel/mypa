@@ -11,6 +11,7 @@ use App\Models\Crm\SalaryRecord;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\AppIdService;
+use App\Support\QueryList;
 use App\Support\TextCase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -49,10 +50,11 @@ class EmployeeController extends Controller
         }
 
         // One leader's team: through the org chart or the Team Workspace.
-        if ($reportsTo = $request->query('reports_to')) {
+        // Several leaders ticked is everybody under any of them.
+        if ($reportsTo = QueryList::of($request, 'reports_to')) {
             $query->where(fn ($q) => $q
-                ->whereHas('manager', fn ($m) => $m->where('uuid', $reportsTo))
-                ->orWhereHas('leaders', fn ($m) => $m->where('uuid', $reportsTo)));
+                ->whereHas('manager', fn ($m) => $m->whereIn('uuid', $reportsTo))
+                ->orWhereHas('leaders', fn ($m) => $m->whereIn('uuid', $reportsTo)));
         }
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {
@@ -63,11 +65,11 @@ class EmployeeController extends Controller
                         ->orWhere('email', 'like', "%{$search}%"));
             });
         }
-        if ($role = $request->query('crm_role')) {
-            $query->where('crm_role', $role);
+        if ($roles = QueryList::of($request, 'crm_role')) {
+            $query->whereIn('crm_role', $roles);
         }
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
 
         // The newest joiner first — they are the one being set up.

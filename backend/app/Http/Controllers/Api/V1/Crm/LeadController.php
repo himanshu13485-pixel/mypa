@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Crm;
 
+use App\Support\QueryList;
 use App\Http\Controllers\Controller;
 use App\Models\Crm\ActivityLog;
 use App\Models\Crm\Client;
@@ -46,20 +47,21 @@ class LeadController extends Controller
         if ($no = $request->query('lead_no')) {
             $query->where('lead_no', (int) $no);
         }
-        if ($status = $request->query('lead_status')) {
-            $query->where('lead_status', $status);
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'lead_status')) {
+            $query->whereIn('lead_status', $statuses);
         }
-        if ($type = $request->query('lead_type')) {
-            $query->where('lead_type', $type);
+        if ($types = QueryList::of($request, 'lead_type')) {
+            $query->whereIn('lead_type', $types);
         }
-        if ($source = $request->query('source')) {
-            $query->where('source', $source);
+        if ($sources = QueryList::of($request, 'source')) {
+            $query->whereIn('source', $sources);
         }
-        if ($subject = $request->query('subject')) {
-            $query->where('subject', $subject);
+        if ($subjects = QueryList::of($request, 'subject')) {
+            $query->whereIn('subject', $subjects);
         }
-        if ($assigned = $request->query('assigned_to')) {
-            $query->whereHas('assignedMember', fn ($m) => $m->where('uuid', $assigned));
+        if ($assigned = QueryList::of($request, 'assigned_to')) {
+            $query->whereHas('assignedMember', fn ($m) => $m->whereIn('uuid', $assigned));
         }
         if ($from = $request->query('date_from')) {
             $query->whereDate('created_at', '>=', $from);
@@ -742,8 +744,8 @@ class LeadController extends Controller
         if ($no = $request->query('lead_no')) {
             $query->where('changes->lead_no', (int) $no);
         }
-        if ($by = $request->query('member')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $by));
+        if ($by = QueryList::of($request, 'member')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $by));
         }
         if ($from = $request->query('date_from')) {
             $query->whereDate('created_at', '>=', $from);

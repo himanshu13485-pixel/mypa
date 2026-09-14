@@ -6,8 +6,10 @@ import { clsx } from 'clsx'
 import { crm, crmCan, CRM_PUNCH_STATUS_LABELS, type CrmMe, type CrmPunchRow } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
-import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Pager, Spinner } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom } from '../../lib/multiFilter'
 
 const STATUS_COLORS: Record<string, string> = {
   present: CHART_COLORS[0],
@@ -75,8 +77,9 @@ export default function CrmPunchPage() {
   const todayDate = new Date().toLocaleDateString('en-CA')
   const [dateFrom, setDateFrom] = useState(todayDate)
   const [dateTo, setDateTo] = useState(todayDate)
-  const [member, setMember] = useState('')
-  const [status, setStatus] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [member, setMember] = useState<string[] | null>(null)
+  const [status, setStatus] = useState<string[] | null>(null)
   const [page, setPage] = useState(1)
 
   const { data: today } = useQuery({ queryKey: ['crm', 'punch', 'today'], queryFn: crm.punch.today })
@@ -87,8 +90,8 @@ export default function CrmPunchPage() {
       crm.punch.list({
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
-        member: member || undefined,
-        status: status || undefined,
+        member: listParam(member),
+        status: listParam(status),
         page,
       }),
   })
@@ -208,16 +211,23 @@ export default function CrmPunchPage() {
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} aria-label="From" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} aria-label="To" />
           {teamView && (
-            <Select value={member} onChange={(e) => { setMember(e.target.value); setPage(1) }}>
-              <option value="">Everyone</option>
-              {masters?.members.filter((m) => (m.crm_role ?? 'employee') !== 'admin')
-                .map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-            </Select>
+            <MultiSelect
+              label="Employee"
+              allLabel="Everyone"
+              options={(masters?.members ?? []).filter((m) => (m.crm_role ?? 'employee') !== 'admin')
+                .map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+              value={member}
+              onChange={(v) => { setMember(v); setPage(1) }}
+              className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+            />
           )}
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-            <option value="">All statuses</option>
-            {Object.entries(CRM_PUNCH_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </Select>
+          <MultiSelect
+            label="Status"
+            options={optionsFrom(CRM_PUNCH_STATUS_LABELS)}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
         </div>
 
         {isLoading ? (

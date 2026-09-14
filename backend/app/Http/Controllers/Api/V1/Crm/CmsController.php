@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1\Crm;
 use App\Http\Controllers\Controller;
 use App\Models\Crm\CmsPost;
 use App\Models\Crm\Member;
+use App\Support\QueryList;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -30,8 +31,8 @@ class CmsController extends Controller
                 ->where(fn ($q) => $q->whereNull('publish_on')->orWhereDate('publish_on', '<=', now()))
                 ->where(fn ($q) => $q->whereNull('expires_on')->orWhereDate('expires_on', '>=', now()));
         }
-        if ($kind = $request->query('kind')) {
-            $query->where('kind', $kind);
+        if ($kinds = QueryList::of($request, 'kind')) {
+            $query->whereIn('kind', $kinds);
         }
 
         $posts = $query->orderByDesc('is_pinned')->orderByDesc('id')->paginate(20);

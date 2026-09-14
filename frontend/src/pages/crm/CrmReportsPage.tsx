@@ -5,6 +5,8 @@ import { ScopeToggle, useTeamHead } from './ScopeToggle'
 import { crm, CRM_LEAD_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
 import { Button, Card, Select, Spinner } from '../../components/ui'
 import { CHART_COLORS, ColumnChart, DonutChart, HBarChart, Legend } from './charts'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 const inr = (v: number) => '₹' + Math.round(v).toLocaleString('en-IN')
 
@@ -30,11 +32,11 @@ export default function CrmReportsPage() {
   // The same two ledgers as everywhere money is shown.
   const teamHead = useTeamHead()
   const [scope, setScope] = useState<'mine' | 'team'>('mine')
-  const [salesperson, setSalesperson] = useState('')
+  const [salesperson, setSalesperson] = useState<string[] | null>(null)
   const effectiveScope = teamHead ? scope : 'team'
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'reports', months, effectiveScope, salesperson, range?.from ?? '', range?.to ?? ''],
-    queryFn: () => crm.reports.overview(months, effectiveScope, effectiveScope === 'team' ? salesperson : undefined, range),
+    queryFn: () => crm.reports.overview(months, effectiveScope, effectiveScope === 'team' ? listParam(salesperson) : undefined, range),
   })
 
   const exportCsv = () => {
@@ -102,15 +104,16 @@ export default function CrmReportsPage() {
         </div>
       </div>
 
-      <ScopeToggle scope={scope} onChange={(next) => { setScope(next); setSalesperson('') }} show={teamHead} />
+      <ScopeToggle scope={scope} onChange={(next) => { setScope(next); setSalesperson(null) }} show={teamHead} />
 
       {effectiveScope === 'team' && (data?.salespeople?.length ?? 0) > 1 && (
-        <Select value={salesperson} onChange={(e) => setSalesperson(e.target.value)} className="w-full sm:max-w-xs">
-          <option value="">All salespeople</option>
-          {data!.salespeople!.map((m) => (
-            <option key={m.uuid} value={m.uuid}>{m.name}{m.is_me ? ' (you)' : ''}</option>
-          ))}
-        </Select>
+        <MultiSelect
+          label="Salesperson"
+          options={data!.salespeople!.map((m) => ({ value: m.uuid, label: m.name + (m.is_me ? ' (you)' : '') }))}
+          value={salesperson}
+          onChange={setSalesperson}
+          className="w-full sm:max-w-xs"
+        />
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Crm;
 
+use App\Support\QueryList;
 use App\Http\Controllers\Controller;
 use App\Models\Crm\ActivityLog;
 use App\Models\Crm\BankAccount;
@@ -125,26 +126,40 @@ class InvoiceController extends Controller
                     ->orWhereHas('client', fn ($c) => $c->where('company_name', 'like', "%{$search}%"));
             });
         }
-        if ($status = $request->query('payment_status')) {
-            $query->where('payment_status', $status);
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'payment_status')) {
+            $query->whereIn('payment_status', $statuses);
         }
-        if ($dispatch = $request->query('dispatch_status')) {
-            $query->where('dispatch_status', $dispatch);
+        if ($dispatches = QueryList::of($request, 'dispatch_status')) {
+            $query->whereIn('dispatch_status', $dispatches);
         }
         // GST-wise: documents carrying any GST, none, IGST ones, or the
         // CGST+SGST pair — the splits an accountant actually filters by.
-        if ($gst = $request->query('gst')) {
-            match ($gst) {
-                'with' => $query->whereRaw('(cgst + sgst + igst) > 0'),
-                'without' => $query->whereRaw('(cgst + sgst + igst) <= 0'),
-                'igst' => $query->where('igst', '>', 0),
-                'cgst_sgst' => $query->where(fn ($w) => $w->where('cgst', '>', 0)->orWhere('sgst', '>', 0)),
-                default => null,
-            };
+        if ($gst = QueryList::of($request, 'gst')) {
+            // Several ticked: a document matching any of them.
+            $query->where(function ($any) use ($gst) {
+                foreach ($gst as $option) {
+                    match ($option) {
+                        'with' => $any->orWhereRaw('(cgst + sgst + igst) > 0'),
+                        'without' => $any->orWhereRaw('(cgst + sgst + igst) <= 0'),
+                        'igst' => $any->orWhere('igst', '>', 0),
+                        'cgst_sgst' => $any->orWhere(fn ($w) => $w->where('cgst', '>', 0)->orWhere('sgst', '>', 0)),
+                        default => $any->orWhereRaw('1 = 0'),
+                    };
+                }
+            });
         }
         // TDS-wise: where the client deducted, and where they did not.
-        if ($tds = $request->query('tds')) {
-            $tds === 'with' ? $query->where('tds', '>', 0) : $query->where('tds', '<=', 0);
+        if ($tds = QueryList::of($request, 'tds')) {
+            $with = in_array('with', $tds, true);
+            $without = in_array('without', $tds, true);
+            if ($with && ! $without) {
+                $query->where('tds', '>', 0);
+            } elseif ($without && ! $with) {
+                $query->where('tds', '<=', 0);
+            } elseif (! $with && ! $without) {
+                $query->whereRaw('1 = 0');
+            }
         }
         // Due-amount-wise: what is still owed, optionally within a band.
         $balanceSql = '(total - coalesce((select sum(amount) from crm_invoice_payments'
@@ -158,8 +173,9 @@ class InvoiceController extends Controller
         if (($dueMax = $request->query('due_max')) !== null && $dueMax !== '') {
             $query->whereRaw($balanceSql . ' <= (? + 0)', [(float) $dueMax]);
         }
-        if ($company = $request->query('issuing_company_id')) {
-            $query->where('issuing_company_id', $company);
+        // Three companies out of four, not one at a time.
+        if ($companies = QueryList::ids($request, 'issuing_company_id')) {
+            $query->whereIn('issuing_company_id', $companies);
         }
         if ($client = $request->query('client')) {
             $query->whereHas('client', fn ($c) => $c->where('uuid', $client));
@@ -220,8 +236,8 @@ class InvoiceController extends Controller
 
         // One person's rows out of the combined view. The window is already
         // applied, so this can only narrow, never reach.
-        if ($salesperson = $request->query('salesperson')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $salesperson));
+        if ($people = QueryList::of($request, 'salesperson')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $people));
         }
 
         // The consolidated figures for exactly what the filters selected —
@@ -957,11 +973,15 @@ class InvoiceController extends Controller
             ->where('subject_type', (new Invoice)->getMorphClass())
             ->whereIn('subject_id', (clone $documents)->select('id'));
 
-        if ($action = $request->query('action')) {
-            $query->where('action', $action);
+        // The filter's options come from before any filter: ticking two
+        // actions must not shrink the list of boxes down to those two.
+        $recorded = (clone $query)->distinct()->orderBy('action')->pluck('action')->values();
+
+        if ($actions = QueryList::of($request, 'action')) {
+            $query->whereIn('action', $actions);
         }
-        if ($by = $request->query('member')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $by));
+        if ($people = QueryList::of($request, 'member')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $people));
         }
         if ($from = $request->query('date_from')) {
             $query->whereDate('created_at', '>=', $from);
@@ -988,7 +1008,7 @@ class InvoiceController extends Controller
                 ->map(fn ($g, $day) => ['day' => $day, 'count' => $g->count()])
                 ->sortBy('day')->values()->take(-30)->values(),
             // The actions this org has actually recorded — the filter's options.
-            'actions' => $counted->pluck('action')->unique()->sort()->values(),
+            'actions' => $recorded,
         ];
 
         $logs = $query->latest()->latest('id')->paginate(50);

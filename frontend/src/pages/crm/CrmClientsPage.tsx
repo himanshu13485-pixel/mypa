@@ -10,6 +10,8 @@ import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select
 import { PhoneLink } from '../../components/ContactLink'
 import { codeCase, companyCase, emailCase, nameCase } from './textCase'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
 
 const TITLES = ['Mr.', 'Mrs.', 'Miss', 'Ms.', 'Dr.']
 
@@ -25,7 +27,9 @@ export default function CrmClientsPage() {
   const { toast, toastError } = useToast()
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
-  const [status, setStatus] = useState('active')
+  // Checkbox filter: null is everything ticked, the default.
+  const [status, setStatus] = useState<string[] | null>(null)
+  const [category, setCategory] = useState<string[] | null>(null)
   const [page, setPage] = useState(1)
   const [editing, setEditing] = useState<CrmClient | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -45,7 +49,7 @@ export default function CrmClientsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'clients', applied, status, page],
-    queryFn: () => crm.clients.list({ search: applied || undefined, status: status || undefined, page }),
+    queryFn: () => crm.clients.list({ search: applied || undefined, status: listParam(status), category: listParam(category), page }),
   })
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data: me } = useQuery(crmMeQuery())
@@ -234,11 +238,20 @@ export default function CrmClientsPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Company, person, GST, city…" className="w-full pl-9" />
           </div>
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-            <option value="">All</option>
-          </Select>
+          <MultiSelect
+            label="Status"
+            options={optionsFrom({ active: 'Active', inactive: 'Inactive' })}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Category"
+            options={optionsOf(masters?.client_categories ?? [])}
+            value={category}
+            onChange={(v) => { setCategory(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Button type="submit" variant="secondary" size="sm">Search</Button>
         </form>
 

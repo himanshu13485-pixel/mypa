@@ -8,6 +8,7 @@ use App\Models\Crm\Invoice;
 use App\Models\Crm\Member;
 use App\Models\Crm\RecurringInvoice;
 use App\Services\Crm\RecurringInvoiceGenerator;
+use App\Support\QueryList;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -42,11 +43,12 @@ class RecurringInvoiceController extends Controller
                 ->orWhere('created_by', $request->user()->id));
         }
 
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
-        if ($client = $request->query('client')) {
-            $query->whereHas('client', fn ($c) => $c->where('uuid', $client));
+        if ($clients = QueryList::of($request, 'client')) {
+            $query->whereHas('client', fn ($c) => $c->whereIn('uuid', $clients));
         }
 
         $all = (clone $query)->get(['id', 'status', 'next_run_on']);

@@ -10,6 +10,7 @@ use App\Models\Crm\Organization;
 use App\Models\Role;
 use App\Models\User;
 use App\Notifications\CrmNotification;
+use App\Support\QueryList;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -388,11 +389,16 @@ class CustomFieldController extends Controller
              * this queue, and an approved row carrying an amendment that only
              * showed under the "approved" filter would be work nobody sees.
              */
-            ->when($request->query('status'), fn ($q, $s) => $s === 'pending'
-                ? $q->where(fn ($w) => $w->where('status', 'pending')->orWhereNotNull('pending'))
-                : $q->where('status', $s)->whereNull('pending'))
-            ->when($request->query('organization'), fn ($q, $o) => $q
-                ->whereHas('organization', fn ($org) => $org->where('uuid', $o)))
+            ->when(QueryList::of($request, 'status'), fn ($q, $statuses) => $q->where(function ($any) use ($statuses) {
+                // Several ticked is any of them; each keeps its own meaning.
+                foreach ($statuses as $s) {
+                    $s === 'pending'
+                        ? $any->orWhere(fn ($w) => $w->where('status', 'pending')->orWhereNotNull('pending'))
+                        : $any->orWhere(fn ($w) => $w->where('status', $s)->whereNull('pending'));
+                }
+            }))
+            ->when(QueryList::of($request, 'organization'), fn ($q, $o) => $q
+                ->whereHas('organization', fn ($org) => $org->whereIn('uuid', $o)))
             ->when($request->query('entity'), fn ($q, $e) => $q->where('entity', $e))
             ->orderByRaw("case when pending is not null then 0 when status = 'pending' then 0 else 1 end")
             ->orderByDesc('id')

@@ -8,6 +8,7 @@ use App\Models\Crm\Invoice;
 use App\Models\Crm\Member;
 use App\Models\Crm\PaymentReminder;
 use App\Services\Crm\ReminderComposer;
+use App\Support\QueryList;
 use App\Support\TextCase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -47,15 +48,15 @@ class PaymentReminderController extends Controller
             ->whereIn('payment_status', ['due', 'partial']);
 
         // One salesperson's dues out of the ledger.
-        if ($member = $request->query('member')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $member));
+        if ($people = QueryList::of($request, 'member')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $people));
         }
         if ($search = trim((string) $request->query('search'))) {
             $query->where(fn ($q) => $q->where('number', 'like', "%{$search}%")
                 ->orWhereHas('client', fn ($c) => $c->where('company_name', 'like', "%{$search}%")));
         }
-        if ($company = $request->query('issuing_company_id')) {
-            $query->where('issuing_company_id', $company);
+        if ($companies = QueryList::ids($request, 'issuing_company_id')) {
+            $query->whereIn('issuing_company_id', $companies);
         }
         if ($client = $request->query('client')) {
             $query->whereHas('client', fn ($c) => $c->where('uuid', $client));

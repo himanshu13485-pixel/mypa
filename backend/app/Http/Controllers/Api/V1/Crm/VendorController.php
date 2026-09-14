@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Crm\ActivityLog;
 use App\Models\Crm\Expense;
 use App\Models\Crm\Vendor;
+use App\Support\QueryList;
 use App\Support\TextCase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,11 +33,12 @@ class VendorController extends Controller
 
         $query = Vendor::where('organization_id', $org->id);
 
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
-        if ($category = $request->query('category')) {
-            $query->where('category', $category);
+        if ($categories = QueryList::of($request, 'category')) {
+            $query->whereIn('category', $categories);
         }
         if ($search = trim((string) $request->query('search'))) {
             $query->where(function ($q) use ($search) {

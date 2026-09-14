@@ -743,6 +743,47 @@ export default function MessagesPage() {
     setSearch('')
   }, [selected?.uuid])
 
+  /*
+   * Each conversation keeps its own unsent text.
+   *
+   * The box used to hold one draft for the whole page, so a half-typed
+   * message followed you into every other chat. Now the text is filed under
+   * the conversation it was typed in: open another chat and its own draft
+   * comes back, return and yours is still there - until it is sent. Kept in
+   * the browser, per account, so a refresh does not lose it either. An edit
+   * of an already-sent message is never filed as a draft.
+   */
+  const draftsKey = `netvork-chat-drafts:${useAuthStore((s) => s.user?.uuid ?? 'me')}`
+  const draftStore = useRef<{ key: string; all: Record<string, string> } | null>(null)
+  const readDrafts = () => {
+    if (!draftStore.current || draftStore.current.key !== draftsKey) {
+      let all: Record<string, string> = {}
+      try { all = JSON.parse(localStorage.getItem(draftsKey) ?? '{}') ?? {} } catch { all = {} }
+      draftStore.current = { key: draftsKey, all }
+    }
+    return draftStore.current.all
+  }
+  const draftOwner = useRef<string | null | undefined>(undefined)
+
+  useEffect(() => {
+    const uuid = selected?.uuid ?? null
+    if (draftOwner.current === uuid) return
+    draftOwner.current = uuid
+    // An edit belongs to the chat it was started in.
+    setEditing(null)
+    setDraft(uuid ? readDrafts()[uuid] ?? '' : '')
+  }, [selected?.uuid]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const uuid = draftOwner.current
+    if (!uuid || editing) return
+    const all = readDrafts()
+    if (draft === (all[uuid] ?? '')) return
+    if (draft) all[uuid] = draft
+    else delete all[uuid]
+    try { localStorage.setItem(draftsKey, JSON.stringify(all)) } catch { /* a private window keeps it for the visit */ }
+  }, [draft, editing]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const invalidateMessages = () => {
     queryClient.invalidateQueries({ queryKey: ['messages', selected?.uuid] })
     queryClient.invalidateQueries({ queryKey: ['conversations'] })

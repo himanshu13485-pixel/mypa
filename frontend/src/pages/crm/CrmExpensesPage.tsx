@@ -10,6 +10,19 @@ import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select
 import { CHART_COLORS, ColumnChart, DonutChart } from './charts'
 import { StatusChip } from './CrmVendorsPage'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsOf } from '../../lib/multiFilter'
+
+const PAY_STATES = [
+  { value: 'unpaid', label: 'Unpaid' },
+  { value: 'part', label: 'Part paid' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'overdue', label: 'Overdue' },
+]
+const GST_STATES = [
+  { value: '1', label: 'GST claimed' },
+  { value: '0', label: 'GST not claimed' },
+]
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -36,11 +49,12 @@ export default function CrmExpensesPage() {
   const { toast, toastError } = useToast()
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
-  const [category, setCategory] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [category, setCategory] = useState<string[] | null>(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [gstFilter, setGstFilter] = useState('')
-  const [payFilter, setPayFilter] = useState('')
+  const [gstFilter, setGstFilter] = useState<string[] | null>(null)
+  const [payFilter, setPayFilter] = useState<string[] | null>(null)
   const [paying, setPaying] = useState<CrmExpense | null>(null)
   const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
@@ -57,11 +71,11 @@ export default function CrmExpensesPage() {
     queryFn: () =>
       crm.expenses.list({
         search: applied || undefined,
-        category: category || undefined,
+        category: listParam(category),
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
-        gst_claimed: gstFilter === '' ? undefined : gstFilter,
-        payment_status: payFilter || undefined,
+        gst_claimed: listParam(gstFilter),
+        payment_status: listParam(payFilter),
         page,
       }),
   })
@@ -267,22 +281,27 @@ export default function CrmExpensesPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Vendor, description, GSTIN…" className="w-full pl-9" />
           </div>
-          <Select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1) }}>
-            <option value="">All categories</option>
-            {masters?.expense_categories.map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
-          <Select value={payFilter} onChange={(e) => { setPayFilter(e.target.value); setPage(1) }}>
-            <option value="">Payment: all</option>
-            <option value="unpaid">Unpaid</option>
-            <option value="part">Part paid</option>
-            <option value="paid">Paid</option>
-            <option value="overdue">Overdue</option>
-          </Select>
-          <Select value={gstFilter} onChange={(e) => { setGstFilter(e.target.value); setPage(1) }}>
-            <option value="">GST: all</option>
-            <option value="1">GST claimed</option>
-            <option value="0">GST not claimed</option>
-          </Select>
+          <MultiSelect
+            label="Category"
+            options={optionsOf(masters?.expense_categories ?? [])}
+            value={category}
+            onChange={(v) => { setCategory(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Payment"
+            options={PAY_STATES}
+            value={payFilter}
+            onChange={(v) => { setPayFilter(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="GST"
+            options={GST_STATES}
+            value={gstFilter}
+            onChange={(v) => { setGstFilter(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} aria-label="From" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} aria-label="To" />
           <Button type="submit" variant="secondary" size="sm">Search</Button>

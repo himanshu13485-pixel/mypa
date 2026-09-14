@@ -12,6 +12,7 @@ use App\Models\Crm\Leave;
 use App\Models\Crm\Member;
 use App\Models\Crm\Task;
 use App\Notifications\CrmNotification;
+use App\Support\QueryList;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Notification;
@@ -47,11 +48,12 @@ class ApprovalController extends Controller
             $query->where('requested_by', $me->id);
         }
 
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
-        if ($type = $request->query('type')) {
-            $query->where('type', $type);
+        if ($types = QueryList::of($request, 'type')) {
+            $query->whereIn('type', $types);
         }
         if ($from = $request->query('date_from')) {
             $query->whereDate('approval_date', '>=', $from);
@@ -361,11 +363,11 @@ class ApprovalController extends Controller
         if (! $me->holdsNamed('approvals.manage_all')) {
             $query->where('requested_by', $me->id);
         }
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
 
-        $rows = $query->orderByRaw("case status when 'pending' then 0 else 1 end")->orderByDesc('id')->paginate(25);
+        $rows =$query->orderByRaw("case status when 'pending' then 0 else 1 end")->orderByDesc('id')->paginate(25);
         $rows->getCollection()->transform(fn ($r) => $this->serializeUpdate($r));
 
         return response()->json($rows);

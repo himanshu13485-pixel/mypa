@@ -6,8 +6,10 @@ import { clsx } from 'clsx'
 import { crm } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
-import { Button, Card, EmptyState, Pager, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Pager, Spinner } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -26,12 +28,13 @@ const STATUS_STYLES: Record<string, string> = {
 export default function CrmRecurringPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [status, setStatus] = useState('')
+  // Checkbox filter: null is every schedule, the default.
+  const [status, setStatus] = useState<string[] | null>(null)
   const [page, setPage] = useState(1)
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'recurring', status, page],
-    queryFn: () => crm.recurring.list({ status: status || undefined, page }),
+    queryFn: () => crm.recurring.list({ status: listParam(status), page }),
   })
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['crm', 'recurring'] })
@@ -78,13 +81,18 @@ export default function CrmRecurringPage() {
 
       <Card>
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-            <option value="">All schedules</option>
-            <option value="active">Active</option>
-            <option value="paused">Paused</option>
-            <option value="completed">Completed</option>
-            <option value="cancelled">Cancelled</option>
-          </Select>
+          <MultiSelect
+            label="Status"
+            options={[
+              { value: 'active', label: 'Active' },
+              { value: 'paused', label: 'Paused' },
+              { value: 'completed', label: 'Completed' },
+              { value: 'cancelled', label: 'Cancelled' },
+            ]}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
         </div>
 
         {isLoading ? (

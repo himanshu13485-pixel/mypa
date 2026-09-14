@@ -6,6 +6,8 @@ import { crm, type CrmCmsPost } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom } from '../../lib/multiFilter'
 
 const KIND_LABELS: Record<string, string> = {
   announcement: 'Announcement', policy: 'Policy', holiday: 'Holiday', news: 'News',
@@ -22,7 +24,8 @@ export default function CrmCmsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
   const [page, setPage] = useState(1)
-  const [kind, setKind] = useState('')
+  // Checkbox filter: null is every kind ticked, the default.
+  const [kind, setKind] = useState<string[] | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmCmsPost | null>(null)
   const [form, setForm] = useState({ title: '', body: '', kind: 'announcement', is_pinned: false, status: 'published', publish_on: '', expires_on: '' })
@@ -30,7 +33,8 @@ export default function CrmCmsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'cms', page, kind],
-    queryFn: () => crm.cms.list(page, kind || undefined),
+    // Comma-separated: this call takes one string, and the server reads either.
+    queryFn: () => crm.cms.list(page, listParam(kind)),
   })
 
   const manages = data?.manages ?? false
@@ -79,10 +83,13 @@ export default function CrmCmsPage() {
           <p className="text-sm text-slate-500">Announcements, policies and holidays for the whole team.</p>
         </div>
         <div className="flex gap-2">
-          <Select value={kind} onChange={(e) => { setKind(e.target.value); setPage(1) }}>
-            <option value="">All kinds</option>
-            {Object.entries(KIND_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </Select>
+          <MultiSelect
+            label="Kind"
+            options={optionsFrom(KIND_LABELS)}
+            value={kind}
+            onChange={(v) => { setKind(v); setPage(1) }}
+            className="min-w-0 flex-1 sm:flex-none sm:min-w-[11rem]"
+          />
           {manages && <Button onClick={openCreate}><Plus className="size-4" /> New post</Button>}
         </div>
       </div>

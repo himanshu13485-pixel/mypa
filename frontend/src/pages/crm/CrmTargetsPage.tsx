@@ -9,6 +9,8 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Select, Spinner } from '../../components/ui'
 import { CHART_COLORS, DonutChart, GrowthChart, HBarChart } from './charts'
 import { ScopeToggle, useTeamHead } from './ScopeToggle'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -323,7 +325,7 @@ function GrowthMap() {
   const teamHead = useTeamHead()
   const [scope, setScope] = useState<'mine' | 'team'>('mine')
   const [period, setPeriod] = useState<CrmGrowthPeriod>('month')
-  const [salesperson, setSalesperson] = useState('')
+  const [salesperson, setSalesperson] = useState<string[] | null>(null)
   const [compare, setCompare] = useState<'previous' | 'last_year'>('previous')
   const effectiveScope = teamHead ? scope : 'team'
 
@@ -332,7 +334,7 @@ function GrowthMap() {
     queryFn: () => crm.targets.growth({
       period,
       scope: effectiveScope,
-      salesperson: effectiveScope === 'team' ? salesperson || undefined : undefined,
+      salesperson: effectiveScope === 'team' ? listParam(salesperson) : undefined,
     }),
   })
 
@@ -366,15 +368,16 @@ function GrowthMap() {
         </div>
       </div>
 
-      <ScopeToggle scope={scope} onChange={(next) => { setScope(next); setSalesperson('') }} show={teamHead} />
+      <ScopeToggle scope={scope} onChange={(next) => { setScope(next); setSalesperson(null) }} show={teamHead} />
 
       {effectiveScope === 'team' && (data?.salespeople?.length ?? 0) > 1 && (
-        <Select value={salesperson} onChange={(e) => setSalesperson(e.target.value)} className="w-full sm:max-w-xs">
-          <option value="">All salespeople</option>
-          {data!.salespeople!.map((m) => (
-            <option key={m.uuid} value={m.uuid}>{m.name}{m.is_me ? ' (you)' : ''}</option>
-          ))}
-        </Select>
+        <MultiSelect
+          label="Salesperson"
+          options={data!.salespeople!.map((m) => ({ value: m.uuid, label: m.name + (m.is_me ? ' (you)' : '') }))}
+          value={salesperson}
+          onChange={setSalesperson}
+          className="w-full sm:max-w-xs"
+        />
       )}
 
       {isLoading || !data ? (

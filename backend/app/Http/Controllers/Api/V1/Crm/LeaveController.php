@@ -8,6 +8,7 @@ use App\Models\Crm\Leave;
 use App\Models\Crm\Member;
 use App\Notifications\CrmNotification;
 use App\Services\Crm\LeaveAccount;
+use App\Support\QueryList;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Database\Eloquent\Builder;
@@ -31,14 +32,15 @@ class LeaveController extends Controller
     {
         $query = $this->scoped($request)->with(['member.user:id,name', 'decider.user:id,name']);
 
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        // Checkbox filters: any of the values ticked, inside the reader's window.
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
-        if ($category = $request->query('category')) {
-            $query->where('category', $category);
+        if ($categories = QueryList::of($request, 'category')) {
+            $query->whereIn('category', $categories);
         }
-        if ($member = $request->query('member')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $member));
+        if ($members = QueryList::of($request, 'member')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $members));
         }
         if ($from = $request->query('date_from')) {
             $query->whereDate('date_from', '>=', $from);
@@ -55,10 +57,17 @@ class LeaveController extends Controller
          * pre-applied means applied on a day strictly before the first day
          * of leave, and everything else is after the fact.
          */
-        if ($timing = $request->query('timing')) {
-            $timing === 'pre'
-                ? $query->whereRaw('date(created_at) < date(date_from)')
-                : $query->whereRaw('date(created_at) >= date(date_from)');
+        // Both ticked is no filter at all; neither is nothing.
+        if ($timing = QueryList::of($request, 'timing')) {
+            $pre = in_array('pre', $timing, true);
+            $post = in_array('post', $timing, true);
+            if ($pre && ! $post) {
+                $query->whereRaw('date(created_at) < date(date_from)');
+            } elseif ($post && ! $pre) {
+                $query->whereRaw('date(created_at) >= date(date_from)');
+            } elseif (! $pre && ! $post) {
+                $query->whereRaw('1 = 0');
+            }
         }
 
         // Chart feed over the whole filtered range.
@@ -249,17 +258,17 @@ class LeaveController extends Controller
             ->where('subject_type', (new Leave)->getMorphClass())
             ->whereIn('subject_id', $this->scoped($request)->select('crm_leaves.id'));
 
-        if ($action = $request->query('action')) {
-            $query->where('action', $action);
+        if ($actions = QueryList::of($request, 'action')) {
+            $query->whereIn('action', $actions);
         }
         // Two different people to filter by, and the log is read for both:
         // who decided, and whose leave it was.
-        if ($by = $request->query('member')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $by));
+        if ($by = QueryList::of($request, 'member')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $by));
         }
-        if ($of = $request->query('employee')) {
+        if ($of = QueryList::of($request, 'employee')) {
             $query->whereIn('subject_id', $this->scoped($request)
-                ->whereHas('member', fn ($m) => $m->where('uuid', $of))
+                ->whereHas('member', fn ($m) => $m->whereIn('uuid', $of))
                 ->select('crm_leaves.id'));
         }
         if ($from = $request->query('date_from')) {

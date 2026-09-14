@@ -4,10 +4,14 @@ import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm } from '../../api/crm'
-import { Button, Card, EmptyState, Input, Label, Pager, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Label, Pager, Spinner } from '../../components/ui'
 import { ErrorPill } from './CrmComplaintsPage'
 import { HBarChart } from './charts'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, onlyOne, optionsFrom, optionsOf } from '../../lib/multiFilter'
+
+const FILTER_CLASS = 'min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]'
 
 /**
  * The Complaint Log: every complaint that has been settled, and how it was
@@ -19,15 +23,26 @@ export default function CrmComplaintLogPage() {
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
   const [filters, setFilters] = useState<Record<string, string>>({})
+  // Checkbox filters, by param: missing or null is everything ticked.
+  const [picks, setPicks] = useState<Record<string, string[] | null>>({})
   const [page, setPage] = useState(1)
 
   const { data: options } = useQuery({ queryKey: ['crm', 'complaint-options'], queryFn: crm.complaints.options })
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'complaint-log', applied, filters, page],
+    queryKey: ['crm', 'complaint-log', applied, filters, picks, page],
     // Closed, however it ended — that is what makes this the log.
-    queryFn: () => crm.complaints.log({ ...filters, search: applied || undefined, page }),
+    queryFn: () => crm.complaints.log({
+      ...filters,
+      ...Object.fromEntries(Object.entries(picks).map(([k, v]) => [k, listParam(v ?? null)])),
+      search: applied || undefined,
+      page,
+    }),
   })
 
+  const setPick = (key: string, value: string[] | null) => {
+    setPicks((p) => ({ ...p, [key]: value }))
+    setPage(1)
+  }
   const setFilter = (key: string, value: string) => {
     setFilters((f) => ({ ...f, [key]: value }))
     setPage(1)
@@ -78,10 +93,10 @@ export default function CrmComplaintLogPage() {
               {data.summary.by_error_type.filter((e) => e.count > 0).map((e) => (
                 <button
                   key={e.key}
-                  onClick={() => setFilter('final_error_type', filters.final_error_type === e.key ? '' : e.key)}
+                  onClick={() => setPick('final_error_type', onlyOne(picks.final_error_type ?? null) === e.key ? null : [e.key])}
                   className={clsx(
                     'flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm transition',
-                    filters.final_error_type === e.key
+                    onlyOne(picks.final_error_type ?? null) === e.key
                       ? 'border-indigo-400 bg-indigo-50 dark:border-indigo-500 dark:bg-indigo-500/10'
                       : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60',
                   )}
@@ -132,29 +147,42 @@ export default function CrmComplaintLogPage() {
             <Label>Closed to</Label>
             <Input type="date" value={filters.closed_to ?? ''} onChange={(e) => setFilter('closed_to', e.target.value)} />
           </div>
-          <Select value={filters.status ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
-            <option value="">However it ended</option>
-            <option value="closed_satisfied">With satisfaction</option>
-            <option value="closed_dissatisfied">With dissatisfaction</option>
-          </Select>
-          <Select value={filters.final_error_type ?? ''} onChange={(e) => setFilter('final_error_type', e.target.value)}>
-            <option value="">Any error type</option>
-            {options && Object.entries(options.error_types).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </Select>
-          <Select value={filters.error_member ?? ''} onChange={(e) => setFilter('error_member', e.target.value)}>
-            <option value="">Any error owner</option>
-            {options?.members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
-          <Select value={filters.subject ?? ''} onChange={(e) => setFilter('subject', e.target.value)}>
-            <option value="">Any subject</option>
-            {options?.subjects.map((s) => <option key={s} value={s}>{s}</option>)}
-          </Select>
+          {/* Checkbox filters: everything ticked by default. */}
+          <MultiSelect
+            label="Ended"
+            options={optionsFrom({ closed_satisfied: 'With satisfaction', closed_dissatisfied: 'With dissatisfaction' })}
+            value={picks.status ?? null}
+            onChange={(v) => setPick('status', v)}
+            className={FILTER_CLASS}
+          />
+          <MultiSelect
+            label="Error"
+            options={optionsFrom(options?.error_types ?? {})}
+            value={picks.final_error_type ?? null}
+            onChange={(v) => setPick('final_error_type', v)}
+            className={FILTER_CLASS}
+          />
+          <MultiSelect
+            label="Error owner"
+            allLabel="Everyone"
+            options={(options?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={picks.error_member ?? null}
+            onChange={(v) => setPick('error_member', v)}
+            className={FILTER_CLASS}
+          />
+          <MultiSelect
+            label="Subject"
+            options={optionsOf(options?.subjects ?? [])}
+            value={picks.subject ?? null}
+            onChange={(v) => setPick('subject', v)}
+            className={FILTER_CLASS}
+          />
           <Button type="submit" variant="secondary" size="sm">Search</Button>
           <Button
             type="button"
             variant="secondary"
             size="sm"
-            onClick={() => { setFilters({}); setSearch(''); setApplied(''); setPage(1) }}
+            onClick={() => { setFilters({}); setPicks({}); setSearch(''); setApplied(''); setPage(1) }}
           >
             Clear
           </Button>

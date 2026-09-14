@@ -11,6 +11,7 @@ use App\Models\Crm\Document;
 use App\Models\Crm\Invoice;
 use App\Models\Crm\Member;
 use App\Notifications\CrmNotification;
+use App\Support\QueryList;
 use App\Support\TextCase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -93,7 +94,13 @@ class ComplaintController extends Controller
      */
     public function log(Request $request): JsonResponse
     {
-        $request->merge(['status' => 'closed']);
+        // Closed, however it ended - or only the closed endings ticked. A
+        // tick that is not a closed state cannot reach past the log.
+        $asked = QueryList::of($request, 'status');
+        $closed = array_values(array_filter($asked ?? [], fn (string $s) => str_starts_with($s, 'closed')));
+        // On the query string itself: merge() writes to the JSON body when the
+        // request is JSON, where the filters never look.
+        $request->query->set('status', $asked === null ? 'closed' : ($closed ?: ['__none__']));
 
         return $this->index($request);
     }
@@ -593,7 +600,8 @@ class ComplaintController extends Controller
             $query->whereDate('in_progress_at', '<=', $to);
         }
 
-        // People, each named by their member uuid.
+        // People, each named by their member uuid - any of those ticked. An
+        // unknown uuid matches nobody rather than widening the list.
         foreach ([
             'user' => 'raised_by_member_id',
             'allocated_by' => 'allocated_by_member_id',
@@ -601,41 +609,37 @@ class ComplaintController extends Controller
             'key_responsible' => 'key_responsible_member_id',
             'error_member' => 'final_error_member_id',
         ] as $param => $column) {
-            if ($uuid = $request->query($param)) {
-                $member = Member::where('organization_id', $orgId)->where('uuid', $uuid)->first();
-                $query->where($column, $member?->id ?? 0);
+            if ($uuids = QueryList::of($request, $param)) {
+                $ids = Member::where('organization_id', $orgId)->whereIn('uuid', $uuids)->pluck('id')->all();
+                $query->whereIn($column, $ids ?: [0]);
             }
         }
 
-        // The company's own words.
-        foreach (['source', 'subject', 'mode'] as $param) {
-            if ($value = $request->query($param)) {
-                $query->where($param, $value);
+        // The company's own words, and the fixed vocabularies.
+        foreach (['source', 'subject', 'mode', 'complaint_type', 'final_error_type', 'priority'] as $param) {
+            if ($values = QueryList::of($request, $param)) {
+                $query->whereIn($param, $values);
             }
         }
-        if ($type = $request->query('complaint_type')) {
-            $query->where('complaint_type', $type);
-        }
-        if ($status = $request->query('status')) {
-            // "Overdue" is a reading of the clock, not a stored state.
-            if ($status === 'overdue') {
-                $query->where('status', 'not like', 'closed%')
-                    ->whereNotNull('due_at')
-                    ->where('due_at', '<', now());
-            } elseif ($status === 'open') {
-                $query->where('status', 'not like', 'closed%');
-            } elseif ($status === 'closed') {
-                // The log: everything settled, however it ended.
-                $query->where('status', 'like', 'closed%');
-            } else {
-                $query->where('status', $status);
-            }
-        }
-        if ($error = $request->query('final_error_type')) {
-            $query->where('final_error_type', $error);
-        }
-        if ($priority = $request->query('priority')) {
-            $query->where('priority', $priority);
+        if ($statuses = QueryList::of($request, 'status')) {
+            // Several ticks widen: a complaint shows if any of them fits.
+            $query->where(function ($any) use ($statuses) {
+                foreach ($statuses as $status) {
+                    // "Overdue" is a reading of the clock, not a stored state.
+                    if ($status === 'overdue') {
+                        $any->orWhere(fn ($q) => $q->where('status', 'not like', 'closed%')
+                            ->whereNotNull('due_at')
+                            ->where('due_at', '<', now()));
+                    } elseif ($status === 'open') {
+                        $any->orWhere('status', 'not like', 'closed%');
+                    } elseif ($status === 'closed') {
+                        // The log: everything settled, however it ended.
+                        $any->orWhere('status', 'like', 'closed%');
+                    } else {
+                        $any->orWhere('status', $status);
+                    }
+                }
+            });
         }
 
         // The contact block, each field on its own, as the old screen had it.

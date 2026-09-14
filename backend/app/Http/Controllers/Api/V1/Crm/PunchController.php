@@ -7,6 +7,7 @@ use App\Models\Crm\ActivityLog;
 use App\Models\Crm\Member;
 use App\Models\Crm\Punch;
 use App\Services\Crm\AttendanceCalendar;
+use App\Support\QueryList;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -206,8 +207,9 @@ class PunchController extends Controller
         }
 
         $members = $this->visibleMembers($request);
-        if ($picked = $request->query('member')) {
-            $members = $members->where('uuid', $picked)->values();
+        // Narrowed within who this reader may see, never widened.
+        if ($picked = QueryList::of($request, 'member')) {
+            $members = $members->whereIn('uuid', $picked)->values();
         }
 
         $calendar = new AttendanceCalendar($org);
@@ -217,10 +219,12 @@ class PunchController extends Controller
         // Days outside anyone's employment are not days at all.
         $rows = $rows->where('counts', true)->values();
 
-        if ($status = $request->query('status')) {
-            $rows = $status === 'holiday'
-                ? $rows->whereIn('status', ['holiday', 'week_off', 'sunday'])->values()
-                : $rows->where('status', $status)->values();
+        // "Holiday" still gathers every kind of day off, whatever else is ticked.
+        if ($statuses = QueryList::of($request, 'status')) {
+            if (in_array('holiday', $statuses, true)) {
+                $statuses = array_merge($statuses, ['week_off', 'sunday']);
+            }
+            $rows = $rows->whereIn('status', $statuses)->values();
         }
 
         // Newest first, as a report is read.

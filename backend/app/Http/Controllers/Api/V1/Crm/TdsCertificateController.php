@@ -9,6 +9,7 @@ use App\Models\Crm\Member;
 use App\Models\Crm\PaymentReminder;
 use App\Services\Crm\CompanyMailer;
 use App\Services\Crm\TdsCertificateComposer;
+use App\Support\QueryList;
 use App\Support\TextCase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,8 +56,8 @@ class TdsCertificateController extends Controller
         } elseif ($request->query('state') !== 'all') {
             $query->whereNull('tds_certificate_at');
         }
-        if ($member = $request->query('member')) {
-            $query->whereHas('member', fn ($m) => $m->where('uuid', $member));
+        if ($people = QueryList::of($request, 'member')) {
+            $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $people));
         }
         if ($client = $request->query('client')) {
             $query->whereHas('client', fn ($c) => $c->where('uuid', $client));

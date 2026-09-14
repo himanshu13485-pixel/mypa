@@ -6,6 +6,8 @@ import { crm, crmMeQuery, type CrmAsset } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
 
 const STATUS_STYLE: Record<CrmAsset['status'], string> = {
   in_stock: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
@@ -25,9 +27,10 @@ export default function CrmAssetsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 
-  const [status, setStatus] = useState('')
-  const [holder, setHolder] = useState('')
-  const [category, setCategory] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [status, setStatus] = useState<string[] | null>(null)
+  const [holder, setHolder] = useState<string[] | null>(null)
+  const [category, setCategory] = useState<string[] | null>(null)
   const [search, setSearch] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [editing, setEditing] = useState<CrmAsset | null>(null)
@@ -37,7 +40,12 @@ export default function CrmAssetsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'assets', status, category, search, holder],
-    queryFn: () => crm.assets.list({ status: status || undefined, category: category || undefined, search: search || undefined, member: holder || undefined }),
+    queryFn: () => crm.assets.list({
+      status: listParam(status),
+      category: listParam(category),
+      search: search || undefined,
+      member: listParam(holder),
+    }),
   })
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data: me } = useQuery(crmMeQuery())
@@ -81,26 +89,35 @@ export default function CrmAssetsPage() {
 
       <Card>
         <div className="mb-3 flex flex-wrap gap-2">
-          <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">Any status</option>
-            <option value="in_stock">In stock</option>
-            <option value="allocated">Allocated</option>
-            <option value="damaged">Damaged</option>
-          </Select>
-          <Select value={category} onChange={(e) => setCategory(e.target.value)}>
-            <option value="">Any category</option>
-            {(data?.categories ?? []).map((c) => <option key={c} value={c}>{c}</option>)}
-          </Select>
+          {/* Checkbox filters: everything ticked by default; untick what you do not want. */}
+          <MultiSelect
+            label="Status"
+            options={optionsFrom(STATUS_LABEL)}
+            value={status}
+            onChange={setStatus}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Category"
+            options={optionsOf(data?.categories ?? [])}
+            value={category}
+            onChange={setCategory}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           {/* Person-wise: managers pick anyone; a Team Workspace leader
               their own people. */}
           {(manages || !!me?.has_team) && (
-            <Select value={holder} onChange={(e) => setHolder(e.target.value)} title="Held by">
-              <option value="">Any holder</option>
-              {(masters?.members ?? [])
+            <MultiSelect
+              label="Held by"
+              allLabel="Anyone"
+              options={(masters?.members ?? [])
                 .filter((m) => (m.crm_role ?? 'employee') !== 'admin')
                 .filter((m) => manages || (me?.member?.team_member_uuids ?? []).includes(m.uuid))
-                .map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-            </Select>
+                .map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+              value={holder}
+              onChange={setHolder}
+              className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+            />
           )}
           <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name / model / serial…" />
         </div>

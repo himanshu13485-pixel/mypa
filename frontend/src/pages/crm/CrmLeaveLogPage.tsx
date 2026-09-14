@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, type CrmLeaveLogEntry } from '../../api/crm'
-import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Pager, Spinner } from '../../components/ui'
 import { CHART_COLORS, ColumnChart, HBarChart } from './charts'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 /**
  * The Leave Log: every request, and what became of it.
@@ -64,9 +66,10 @@ const describe = (action: string) =>
 export default function CrmLeaveLogPage() {
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
-  const [action, setAction] = useState('')
-  const [employee, setEmployee] = useState('')
-  const [member, setMember] = useState('')
+  // Checkbox filters: null is everything ticked, the default.
+  const [action, setAction] = useState<string[] | null>(null)
+  const [employee, setEmployee] = useState<string[] | null>(null)
+  const [member, setMember] = useState<string[] | null>(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [page, setPage] = useState(1)
@@ -77,9 +80,9 @@ export default function CrmLeaveLogPage() {
     queryFn: () =>
       crm.leaves.log({
         search: applied || undefined,
-        action: action || undefined,
-        employee: employee || undefined,
-        member: member || undefined,
+        action: listParam(action),
+        employee: listParam(employee),
+        member: listParam(member),
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
         page,
@@ -166,22 +169,31 @@ export default function CrmLeaveLogPage() {
             />
           </div>
           {/* Two different people, and the log is read for both. */}
-          <Select value={employee} onChange={(e) => { setEmployee(e.target.value); setPage(1) }} aria-label="Whose leave" className="w-44">
-            <option value="">Anyone&rsquo;s leave</option>
-            {masters?.members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
-          <Select value={member} onChange={(e) => { setMember(e.target.value); setPage(1) }} aria-label="Who acted" className="w-48">
-            <option value="">Acted on by anyone</option>
-            {masters?.members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
+          <MultiSelect
+            label="Whose leave"
+            allLabel="Anyone"
+            options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={employee}
+            onChange={(v) => { setEmployee(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Acted by"
+            allLabel="Anyone"
+            options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={member}
+            onChange={(v) => { setMember(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           {/* Offered from what this org has actually recorded, so the filter
               never promises a result that cannot exist. */}
-          <Select value={action} onChange={(e) => { setAction(e.target.value); setPage(1) }} aria-label="What happened" className="w-44">
-            <option value="">Anything</option>
-            {(summary?.actions ?? []).map((a) => (
-              <option key={a} value={a}>{describe(a).label}</option>
-            ))}
-          </Select>
+          <MultiSelect
+            label="What happened"
+            options={(summary?.actions ?? []).map((a) => ({ value: a, label: describe(a).label }))}
+            value={action}
+            onChange={(v) => { setAction(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} aria-label="From" className="w-40" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} aria-label="To" className="w-40" />
           <Button type="submit" variant="secondary" size="sm">Search</Button>

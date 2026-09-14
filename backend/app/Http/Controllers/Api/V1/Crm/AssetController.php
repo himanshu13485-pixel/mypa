@@ -7,6 +7,7 @@ use App\Models\Crm\ActivityLog;
 use App\Models\Crm\Asset;
 use App\Models\Crm\AssetEvent;
 use App\Models\Crm\Member;
+use App\Support\QueryList;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -45,14 +46,15 @@ class AssetController extends Controller
                 : $query->where('allocated_to_member_id', $me->id);
         }
 
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
-        if ($category = $request->query('category')) {
-            $query->where('category', $category);
+        if ($categories = QueryList::of($request, 'category')) {
+            $query->whereIn('category', $categories);
         }
-        if ($memberUuid = $request->query('member')) {
-            $query->whereHas('holder', fn ($m) => $m->where('uuid', $memberUuid));
+        if ($holders = QueryList::of($request, 'member')) {
+            $query->whereHas('holder', fn ($m) => $m->whereIn('uuid', $holders));
         }
         if ($search = trim((string) $request->query('search'))) {
             $query->where(fn ($q) => $q->where('name', 'like', "%{$search}%")

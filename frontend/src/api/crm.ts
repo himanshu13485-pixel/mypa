@@ -1162,6 +1162,8 @@ export interface CrmLeaveAccount {
   adjusted: number
   /** Absent days the account paid for when salaries were made. */
   absence_covered: number
+  /** Leave taken past the balance, cut from salary as days without pay. */
+  salary_cut?: number
   balance: number
   on_probation: boolean
   probation_ends_on: string | null
@@ -1453,6 +1455,10 @@ export interface CrmSalarySlip {
   lop_days: string | null
   /** Absent days paid from the leave balance instead of cut from salary. */
   leave_covered_days?: number
+  /** Leave taken past the balance that month, cut as days without pay. */
+  leave_overdrawn_days?: number
+  /** Days the attendance showed at work; null when nothing was recorded. */
+  present_days?: number | null
   /** The slip's whole story, line by line. */
   earnings: CrmPayLine[]
   deduction_lines: CrmPayLine[]
@@ -2139,7 +2145,7 @@ export const crm = {
       .then((r) => r.data.data),
 
   employees: {
-    list: (params: { search?: string; crm_role?: string; status?: string; reports_to?: string; page?: number }) =>
+    list: (params: { search?: string; crm_role?: string | string[]; status?: string | string[]; reports_to?: string | string[]; page?: number }) =>
       api.get<Paginated<CrmEmployee>>('/crm/employees', { params }).then((r) => r.data),
     /**
      * One set of rights for everybody, rather than twenty answers to the same
@@ -2213,7 +2219,7 @@ export const crm = {
   },
 
   clients: {
-    list: (params: { search?: string; status?: string; page?: number }) =>
+    list: (params: { search?: string; status?: string | string[]; category?: string | string[]; assigned_to?: string | string[]; page?: number }) =>
       api.get<Paginated<CrmClient>>('/crm/clients', { params }).then((r) => r.data),
     options: (search?: string) =>
       api.get<{ data: Pick<CrmClient, 'uuid' | 'company_name' | 'contact_person' | 'city' | 'gst_no' | 'category' | 'address' | 'state' | 'email' | 'mobile'>[] }>('/crm/clients/options', { params: { search } }).then((r) => r.data.data),
@@ -2230,7 +2236,7 @@ export const crm = {
   },
 
   leads: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmLead> & { totals: { count: number; amount: string; closed_amount: string } }>('/crm/leads', { params }).then((r) => r.data),
     get: (uuid: string) => api.get<{ data: CrmLead }>(`/crm/leads/${uuid}`).then((r) => r.data.data),
     create: (payload: Record<string, unknown>) =>
@@ -2278,7 +2284,7 @@ export const crm = {
       api.post<{ message: string; data: CrmLead }>(`/crm/leads/${uuid}/share`, { member_uuids: memberUuids }).then((r) => r.data),
     convert: (uuid: string) =>
       api.post<{ message: string; data: { client_uuid: string } }>(`/crm/leads/${uuid}/convert`).then((r) => r.data),
-    log: (params: Record<string, string | number | undefined>) =>
+    log: (params: ListParams) =>
       api.get<Paginated<CrmLeadLogEntry>>('/crm/lead-log', { params }).then((r) => r.data),
   },
 
@@ -2291,7 +2297,7 @@ export const crm = {
       period: CrmGrowthPeriod
       points?: number
       scope?: 'mine' | 'team'
-      salesperson?: string
+      salesperson?: string | string[]
     }) =>
       api.get<{ data: CrmGrowthResponse }>('/crm/targets/growth', { params })
         .then((r) => r.data.data),
@@ -2317,12 +2323,12 @@ export const crm = {
   },
 
   dwr: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmDwrRow>>('/crm/dwr', { params }).then((r) => r.data),
     get: (uuid: string) => api.get<{ data: CrmDwrRow }>(`/crm/dwr/${uuid}`).then((r) => r.data.data),
     submit: (payload: Record<string, unknown>) =>
       api.post<{ message: string; data: CrmDwrRow }>('/crm/dwr', payload).then((r) => r.data),
-    stats: (params: Record<string, string | undefined>) =>
+    stats: (params: ListParams) =>
       api.get<{ data: CrmDwrStats }>('/crm/dwr/stats', { params }).then((r) => r.data.data),
     myKpis: () => api.get<{ data: CrmKpiAssignment[] }>('/crm/dwr/my-kpis').then((r) => r.data.data),
     /** Todays figures from the ledgers, offered as editable starting values. */
@@ -2348,7 +2354,7 @@ export const crm = {
     punchIn: (where?: { latitude: number; longitude: number }) =>
       api.post<{ message: string; data: CrmPunchRow }>('/crm/punch/in', where ?? {}).then((r) => r.data),
     punchOut: () => api.post<{ message: string; data: CrmPunchRow }>('/crm/punch/out').then((r) => r.data),
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmPunchRow> & { summary: CrmPunchSummary }>('/crm/punch', { params }).then((r) => r.data),
     /**
      * Rule on a day. A day nobody punched has no id, so it is named by the
@@ -2420,7 +2426,7 @@ export const crm = {
   },
 
   commissions: {
-    list: (params: Record<string, string | number | undefined> = {}) =>
+    list: (params: ListParams = {}) =>
       api.get<Paginated<CrmCommission> & { summary: { count: number; total: number; this_month: number } }>(
         '/crm/commissions', { params },
       ).then((r) => r.data),
@@ -2430,7 +2436,7 @@ export const crm = {
   },
 
   recurring: {
-    list: (params: { status?: string; client?: string; page?: number } = {}) =>
+    list: (params: { status?: string | string[]; client?: string | string[]; page?: number } = {}) =>
       api.get<Paginated<CrmRecurringInvoice> & {
         summary: { active: number; paused: number; due_this_week: number }
       }>('/crm/recurring', { params }).then((r) => r.data),
@@ -2443,7 +2449,7 @@ export const crm = {
   },
 
   payments: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmPaymentEntry> & { summary: CrmPaymentSummary }>('/crm/payments', { params }).then((r) => r.data),
     settings: () => api.get<{ data: CrmPaymentSettings }>('/crm/masters/payment-settings').then((r) => r.data.data),
     gateway: () => api.get<{ data: CrmGatewaySettings }>('/crm/masters/payment-gateway').then((r) => r.data.data),
@@ -2467,7 +2473,7 @@ export const crm = {
       api.post<{ message: string }>(`/crm/payments/${uuid}/settle`, charge ?? {}).then((r) => r.data),
     reclaim: (uuid: string, payload: { invoice_uuid: string; reason?: string }) =>
       api.post<{ message: string }>(`/crm/payments/${uuid}/reclaim`, payload).then((r) => r.data),
-    outstanding: (params: Record<string, string | number | undefined> = {}) =>
+    outstanding: (params: ListParams = {}) =>
       api.get<{ data: CrmOutstandingRow[]; summary: CrmOutstandingSummary }>('/crm/payments/outstanding', { params })
         .then((r) => r.data),
     reminders: (invoiceUuid: string) =>
@@ -2486,7 +2492,7 @@ export const crm = {
   },
 
   expenses: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmExpense> & { summary: CrmExpenseSummary }>('/crm/expenses', { params }).then((r) => r.data),
     create: (payload: Record<string, unknown>) => api.post('/crm/expenses', payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/expenses/${uuid}`, payload).then((r) => r.data),
@@ -2507,7 +2513,7 @@ export const crm = {
   },
 
   complaints: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmComplaint> & { summary: CrmComplaintSummary }>('/crm/complaints', { params })
         .then((r) => r.data),
     /**
@@ -2517,7 +2523,7 @@ export const crm = {
      * right that only hid the menu entry would restrict nothing: the same
      * records would still answer through the list.
      */
-    log: (params: Record<string, string | number | undefined>) =>
+    log: (params: ListParams) =>
       api.get<Paginated<CrmComplaint> & { summary: CrmComplaintSummary }>('/crm/complaint-log', { params })
         .then((r) => r.data),
     options: () =>
@@ -2560,7 +2566,7 @@ export const crm = {
   },
 
   vendors: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmVendor> & { summary: CrmVendorSummary; categories: string[] }>('/crm/vendors', { params })
         .then((r) => r.data),
     options: () =>
@@ -2616,7 +2622,7 @@ export const crm = {
   },
 
   salary: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<CrmSalaryResponse>('/crm/salary', { params }).then((r) => r.data),
     generate: (year: number, month: number, refreshPending = false) =>
       api.post<{ message: string }>('/crm/salary/generate', { year, month, refresh_pending: refreshPending })
@@ -2627,7 +2633,7 @@ export const crm = {
     pdf: (uuid: string) =>
       api.get(`/crm/salary/${uuid}/pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
     /** The detailed salary register as Excel - everyone, or `member`. */
-    exportExcel: (params: Record<string, string | number | undefined>) =>
+    exportExcel: (params: ListParams) =>
       api.get('/crm/salary/export', { params, responseType: 'blob' }).then((r) => r.data as Blob),
     /** Recompute one pending slip from the calendar as it stands now. */
     recalculate: (uuid: string) =>
@@ -2639,7 +2645,7 @@ export const crm = {
   },
 
   leaves: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmLeave> & { summary: CrmLeaveSummary }>('/crm/leaves', { params }).then((r) => r.data),
     create: (payload: Record<string, unknown>) => api.post<{ message: string }>('/crm/leaves', payload).then((r) => r.data),
     decide: (uuid: string, status: 'approved' | 'rejected', note?: string) =>
@@ -2649,13 +2655,13 @@ export const crm = {
     remove: (uuid: string) =>
       api.delete<{ message: string }>(`/crm/leaves/${uuid}/permanent`).then((r) => r.data),
     /** The Leave Log — its own right, so its own screen. */
-    log: (params: Record<string, string | number | undefined>) =>
+    log: (params: ListParams) =>
       api.get<Paginated<CrmLeaveLogEntry> & { summary: CrmLeaveLogSummary }>('/crm/leave-log', { params })
         .then((r) => r.data),
   },
 
   tasks: {
-    list: (params: Record<string, string | number | boolean | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmTask> & { summary: CrmTaskSummary }>('/crm/tasks', { params }).then((r) => r.data),
     get: (uuid: string) => api.get<{ data: CrmTask }>(`/crm/tasks/${uuid}`).then((r) => r.data.data),
     create: (payload: Record<string, unknown>) => api.post('/crm/tasks', payload).then((r) => r.data),
@@ -2735,9 +2741,9 @@ export const crm = {
         .then((r) => r.data),
   },
 
-  /** Offline Employees: paid outside the payroll, counted in the P&L. Company Admin only. */
+  /** Offline Employees: paid outside the payroll, with structures and payslips; counted in the P&L. Company Admin only. */
   offlineEmployees: {
-    list: (params: { search?: string; status?: string } = {}) =>
+    list: (params: ListParams = {}) =>
       api.get<{ data: CrmOfflineEmployee[]; totals: { active: number; monthly: number } }>('/crm/offline-employees', { params })
         .then((r) => r.data),
     create: (payload: CrmOfflineEmployeeInput) =>
@@ -2746,18 +2752,27 @@ export const crm = {
       api.put<{ message: string; data: CrmOfflineEmployee }>(`/crm/offline-employees/${uuid}`, payload).then((r) => r.data),
     remove: (uuid: string) =>
       api.delete<{ message: string }>(`/crm/offline-employees/${uuid}`).then((r) => r.data),
-    salaries: (params: { month_from: string; month_to: string; search?: string; employee?: string }) =>
-      api.get<{ data: CrmOfflineSalary[]; totals: { count: number; amount: number; by_month: { month: string; amount: number; count: number }[] } }>(
-        '/crm/offline-salaries', { params },
-      ).then((r) => r.data),
+    salaries: (params: ListParams) =>
+      api.get<{ data: CrmOfflineSalary[]; totals: CrmOfflineSalaryTotals }>('/crm/offline-salaries', { params })
+        .then((r) => r.data),
     generate: (year: number, month: number) =>
       api.post<{ message: string; created: number }>('/crm/offline-salaries/generate', { year, month }).then((r) => r.data),
-    addSalary: (payload: { offline_employee_uuid: string; year: number; month: number; amount: number; paid_on?: string | null; note?: string | null }) =>
+    addSalary: (payload: Record<string, unknown>) =>
       api.post<{ message: string }>('/crm/offline-salaries', payload).then((r) => r.data),
-    updateSalary: (uuid: string, payload: { amount?: number; paid_on?: string | null; note?: string | null }) =>
+    updateSalary: (uuid: string, payload: Record<string, unknown>) =>
       api.put<{ message: string }>(`/crm/offline-salaries/${uuid}`, payload).then((r) => r.data),
     removeSalary: (uuid: string) =>
       api.delete<{ message: string }>(`/crm/offline-salaries/${uuid}`).then((r) => r.data),
+    /** Pay several slips in one act. */
+    markPaid: (uuids: string[], paidOn?: string | null, paymentMode?: string | null) =>
+      api.post<{ message: string }>('/crm/offline-salaries/mark-paid', { uuids, paid_on: paidOn ?? null, payment_mode: paymentMode ?? null })
+        .then((r) => r.data),
+    /** The payslip as a PDF. */
+    pdf: (uuid: string) =>
+      api.get(`/crm/offline-salaries/${uuid}/pdf`, { responseType: 'blob' }).then((r) => r.data as Blob),
+    /** The register as Excel, in the screen's filters. */
+    exportExcel: (params: ListParams) =>
+      api.get('/crm/offline-salaries/export', { params, responseType: 'blob' }).then((r) => r.data as Blob),
   },
 
   /** CRM Theme: your own look and birthday words, and the company's defaults. */
@@ -2789,7 +2804,7 @@ export const crm = {
 
   /** The other thing a client owes: the certificate for tax they deducted. */
   tds: {
-    list: (params: Record<string, string | undefined> = {}) =>
+    list: (params: ListParams = {}) =>
       api.get<{ data: CrmTdsRow[]; totals: { count: number; tds: number; pending: number } }>(
         '/crm/tds-certificates', { params },
       ).then((r) => r.data),
@@ -2824,7 +2839,7 @@ export const crm = {
       api.get<{ data: { approval_types: string[] } }>('/crm/masters/approval-types').then((r) => r.data.data),
     saveTypes: (types: string[]) =>
       api.put<{ message: string }>('/crm/masters/approval-types', { approval_types: types }).then((r) => r.data),
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmApproval> & { summary: CrmApprovalSummary; inbox: CrmApprovalInbox }>('/crm/approvals', { params }).then((r) => r.data),
     create: (payload: Record<string, unknown>) => api.post('/crm/approvals', payload).then((r) => r.data),
     /** Delete for good - the Company Admin's. */
@@ -2850,7 +2865,7 @@ export const crm = {
   },
 
   cms: {
-    list: (page?: number, kind?: string) =>
+    list: (page?: number, kind?: string | string[]) =>
       api.get<Paginated<CrmCmsPost> & { manages: boolean }>('/crm/cms', { params: { page, kind } }).then((r) => r.data),
     create: (payload: Record<string, unknown>) => api.post('/crm/cms', payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/cms/${uuid}`, payload).then((r) => r.data),
@@ -2897,7 +2912,7 @@ export const crm = {
   },
 
   fieldRequests: {
-    list: (params: { status?: string; organization?: string; entity?: string }) =>
+    list: (params: { status?: string | string[]; organization?: string | string[]; entity?: string }) =>
       api.get<Paginated<CrmCustomField> & {
         pending_count: number
         organizations: { uuid: string; name: string }[]
@@ -2907,19 +2922,19 @@ export const crm = {
   },
 
   reports: {
-    overview: (months?: number, scope?: 'mine' | 'team', salesperson?: string, range?: { from: string; to: string }) =>
+    overview: (months?: number, scope?: 'mine' | 'team', salesperson?: string | string[], range?: { from: string; to: string }) =>
       api.get<{ data: CrmReportOverview }>('/crm/reports/overview', {
         params: {
           months, scope, salesperson: salesperson || undefined,
           date_from: range?.from || undefined, date_to: range?.to || undefined,
         },
       }).then((r) => r.data.data),
-    userLog: (params: Record<string, string | number | undefined>) =>
+    userLog: (params: ListParams) =>
       api.get<Paginated<CrmUserLogEntry> & { daily: { date: string; count: number }[] }>('/crm/user-log', { params }).then((r) => r.data),
   },
 
   invoices: {
-    list: (params: Record<string, string | number | undefined>) =>
+    list: (params: ListParams) =>
       api.get<Paginated<CrmInvoiceRow> & {
         totals: {
           count: number
@@ -2952,7 +2967,7 @@ export const crm = {
       ).then((r) => r.data),
     convert: (uuid: string) =>
       api.post<{ message: string; data: { uuid: string; number: string } }>(`/crm/invoices/${uuid}/convert`).then((r) => r.data),
-    log: (params: Record<string, string | number | undefined>) =>
+    log: (params: ListParams) =>
       api.get<Paginated<CrmInvoiceLogEntry> & { summary: CrmInvoiceLogSummary; kind: string }>(
         '/crm/invoice-log', { params },
       ).then((r) => r.data),
@@ -2999,22 +3014,22 @@ export const crm = {
 
   /** Accounting exports — Admin + the Subadmin named with exports.excel. */
   exports: {
-    invoicesCsv: (params: Record<string, string | undefined>) =>
+    invoicesCsv: (params: ListParams) =>
       api.get('/crm/exports/invoices', { params, responseType: 'blob' }).then((r) => r.data as Blob),
-    paymentsCsv: (params: Record<string, string | undefined>) =>
+    paymentsCsv: (params: ListParams) =>
       api.get('/crm/exports/payments', { params, responseType: 'blob' }).then((r) => r.data as Blob),
     /**
      * The whole pipeline. The Company Admin's alone — not the exports.excel
      * grant, which is about the accounting book; this file is every lead with
      * a name, a mobile and an address on it.
      */
-    leadsCsv: (params: Record<string, string | undefined>) =>
+    leadsCsv: (params: ListParams) =>
       api.get('/crm/exports/leads', { params, responseType: 'blob' }).then((r) => r.data as Blob),
   },
 
   /** The Office Assets register. */
   assets: {
-    list: (params: Record<string, string | undefined>) =>
+    list: (params: ListParams) =>
       api.get<{ data: CrmAsset[]; summary: { total: number; in_stock: number; allocated: number; damaged: number }
         categories: string[]; manages: boolean; can_delete: boolean }>('/crm/assets', { params }).then((r) => r.data),
     mine: () => api.get<{ data: CrmAsset[] }>('/crm/assets/mine').then((r) => r.data.data),
@@ -3057,7 +3072,7 @@ export const crm = {
   },
 
   /** Churn, the industry way — active, new, repeat, churned, not-renewed. */
-  churn: (months = 12, member?: string) =>
+  churn: (months = 12, member?: string | string[]) =>
     api.get<{ data: CrmChurnReport }>('/crm/churn', { params: { months, member } }).then((r) => r.data.data),
 
   masterData: {
@@ -3339,15 +3354,25 @@ export function crmMeQuery() {
   }
 }
 
-/** Somebody paid outside the payroll: no account, no seat, no salary structure. */
+/** Somebody paid outside the payroll: no account or seat, but a salary structure and payslips. */
 export interface CrmOfflineEmployee {
   uuid: string
   employee_code: string
   name: string
+  designation: string | null
+  joined_on: string | null
+  /** Gross a month - the sum of the structure's earnings. */
   monthly_amount: number
+  monthly_deductions: number
+  monthly_net: number
+  structure: { earnings: CrmPayLine[]; deductions: CrmPayLine[] }
+  bank_name: string | null
+  account_holder: string | null
+  account_no: string | null
+  ifsc: string | null
   status: 'active' | 'inactive'
   note: string | null
-  /** How many monthly records they have, and the latest month ('YYYY-MM'). */
+  /** How many slips they have, and the latest month ('YYYY-MM'). */
   records: number
   last_month: string | null
 }
@@ -3355,18 +3380,56 @@ export interface CrmOfflineEmployee {
 export interface CrmOfflineEmployeeInput {
   employee_code: string
   name: string
-  monthly_amount: number
+  designation?: string | null
+  joined_on?: string | null
+  monthly_amount?: number | null
+  structure?: { earnings: { label: string; amount: number }[]; deductions: { label: string; amount: number }[] } | null
+  bank_name?: string | null
+  account_holder?: string | null
+  account_no?: string | null
+  ifsc?: string | null
   status: 'active' | 'inactive'
   note: string | null
 }
 
-/** One month's payment to an offline employee. */
+/** One month's slip for an offline employee. `net` (and `amount`) is what the P&L counts. */
 export interface CrmOfflineSalary {
   uuid: string
   year: number
   month: number
+  month_days: number
+  payable_days: number
+  lop_days: number
+  earnings: CrmPayLine[]
+  deduction_lines: CrmPayLine[]
+  gross: number
+  additions: number
+  addition_note: string | null
+  deductions: number
+  other_deductions: number
+  other_deduction_note: string | null
+  net: number
   amount: number
+  status: 'pending' | 'paid'
   paid_on: string | null
+  payment_mode: string | null
   note: string | null
-  employee: { uuid: string; employee_code: string; name: string } | null
+  employee: { uuid: string; employee_code: string; name: string; designation: string | null } | null
 }
+
+export interface CrmOfflineSalaryTotals {
+  count: number
+  gross: number
+  additions: number
+  deductions: number
+  amount: number
+  paid: number
+  pending: number
+  by_month: { month: string; amount: number; count: number }[]
+}
+
+/**
+ * Query parameters for a list screen. A checkbox filter sends an array
+ * (`key[]=a&key[]=b`); everything else is one plain value.
+ */
+export type ListParams = Record<string, string | number | boolean | string[] | null | undefined>

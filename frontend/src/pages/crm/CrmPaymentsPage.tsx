@@ -9,6 +9,8 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
 import { CHART_COLORS, ColumnChart, DonutChart } from './charts'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam } from '../../lib/multiFilter'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -48,12 +50,12 @@ export default function CrmPaymentsPage() {
     params.get('tab') === 'outstanding' ? 'outstanding' : 'inbox',
   )
   const [bucket, setBucket] = useState('')
-  // One person's money out of either ledger.
-  const [owedMember, setOwedMember] = useState('')
-  const [inboxMember, setInboxMember] = useState('')
+  // Whose money, out of either ledger. Checkbox filters: null is everyone.
+  const [owedMember, setOwedMember] = useState<string[] | null>(null)
+  const [inboxMember, setInboxMember] = useState<string[] | null>(null)
   const [owedSearch, setOwedSearch] = useState(params.get('invoice') ?? '')
   const [chasing, setChasing] = useState<CrmOutstandingRow | null>(null)
-  const [status, setStatus] = useState('')
+  const [status, setStatus] = useState<string[] | null>(null)
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
   const [dateFrom, setDateFrom] = useState('')
@@ -85,15 +87,16 @@ export default function CrmPaymentsPage() {
 
   const { data: owed, isLoading: owedLoading } = useQuery({
     queryKey: ['crm', 'outstanding', bucket, owedSearch, owedMember],
-    queryFn: () => crm.payments.outstanding({ bucket: bucket || undefined, search: owedSearch || undefined, member: owedMember || undefined }),
+    // This call's params take plain strings, so the people go comma-separated.
+    queryFn: () => crm.payments.outstanding({ bucket: bucket || undefined, search: owedSearch || undefined, member: listParam(owedMember) }),
     enabled: tab === 'outstanding',
   })
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'payments', status, applied, dateFrom, dateTo, inboxMember, page],
     queryFn: () =>
       crm.payments.list({
-        status: status || undefined,
-        member: inboxMember || undefined,
+        status: listParam(status),
+        member: listParam(inboxMember),
         search: applied || undefined,
         date_from: dateFrom || undefined,
         date_to: dateTo || undefined,
@@ -334,16 +337,22 @@ export default function CrmPaymentsPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Details, reference, invoice…" className="w-full pl-9" />
           </div>
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-            <option value="">All</option>
-            <option value="unclaimed">Unclaimed</option>
-            <option value="claimed">Claimed</option>
-          </Select>
-          <Select value={inboxMember} onChange={(e) => { setInboxMember(e.target.value); setPage(1) }} title="Whose money">
-            <option value="">Any salesperson</option>
-            {(masters?.members ?? []).filter((m) => (m.crm_role ?? 'employee') !== 'admin')
-              .map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
+          <MultiSelect
+            label="Status"
+            options={[{ value: 'unclaimed', label: 'Unclaimed' }, { value: 'claimed', label: 'Claimed' }]}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          <MultiSelect
+            label="Salesperson"
+            allLabel="Everyone"
+            options={(masters?.members ?? []).filter((m) => (m.crm_role ?? 'employee') !== 'admin')
+              .map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={inboxMember}
+            onChange={(v) => { setInboxMember(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setPage(1) }} aria-label="From" />
           <Input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setPage(1) }} aria-label="To" />
           <Button type="submit" variant="secondary" size="sm">Search</Button>
@@ -691,8 +700,8 @@ function OutstandingLedger({ data, isLoading, bucket, onBucket, member, onMember
   isLoading: boolean
   bucket: string
   onBucket: (value: string) => void
-  member: string
-  onMember: (value: string) => void
+  member: string[] | null
+  onMember: (value: string[] | null) => void
   members: { uuid: string; name: string | null }[]
   search: string
   onSearch: (value: string) => void
@@ -739,10 +748,14 @@ function OutstandingLedger({ data, isLoading, bucket, onBucket, member, onMember
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="Invoice or client…" className="w-full pl-9" />
           </div>
-          <Select value={member} onChange={(e) => onMember(e.target.value)} title="Whose dues">
-            <option value="">Any salesperson</option>
-            {members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-          </Select>
+          <MultiSelect
+            label="Salesperson"
+            allLabel="Everyone"
+            options={members.map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={member}
+            onChange={onMember}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <Select value={bucket} onChange={(e) => onBucket(e.target.value)}>
             <option value="">Everything owed</option>
             <option value="due_today">Due for follow-up</option>

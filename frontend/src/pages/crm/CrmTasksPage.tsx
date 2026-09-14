@@ -11,6 +11,8 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
 import { CHART_COLORS, DonutChart } from './charts'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, optionsFrom } from '../../lib/multiFilter'
 
 const STATUS_LABELS: Record<string, string> = {
   open: 'Open', in_progress: 'In progress', submitted: 'Awaiting approval', done: 'Done', reopened: 'Sent back',
@@ -59,9 +61,13 @@ export default function CrmTasksPage() {
   const { toast, toastError } = useToast()
   const [params, setParams] = useSearchParams()
 
-  const [status, setStatus] = useState(params.get('status') ?? '')
-  const [member, setMember] = useState('')
-  const [kind, setKind] = useState('')
+  // Checkbox filters: null is everything ticked. A link can still name one status.
+  const [status, setStatus] = useState<string[] | null>(() => {
+    const linked = params.get('status')
+    return linked ? [linked] : null
+  })
+  const [member, setMember] = useState<string[] | null>(null)
+  const [kind, setKind] = useState<string[] | null>(null)
   const [mine, setMine] = useState(false)
   const [search, setSearch] = useState('')
   const [query, setQuery] = useState('')
@@ -77,9 +83,9 @@ export default function CrmTasksPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'tasks', status, member, kind, mine, query, page],
     queryFn: () => crm.tasks.list({
-      status: status || undefined,
-      member: member || undefined,
-      kind: kind || undefined,
+      status: listParam(status),
+      member: listParam(member),
+      kind: listParam(kind),
       mine: mine || undefined,
       search: query || undefined,
       page,
@@ -231,21 +237,31 @@ export default function CrmTasksPage() {
             <input type="checkbox" checked={mine} onChange={(e) => { setMine(e.target.checked); setPage(1) }} />
             Only mine
           </label>
-          <Select value={kind} onChange={(e) => { setKind(e.target.value); setPage(1) }}>
-            <option value="">Tasks and pendencies</option>
-            <option value="task">Tasks only</option>
-            <option value="pendency">Pendencies only</option>
-          </Select>
+          {/* Checkbox filters: everything ticked by default; untick what you do not want. */}
+          <MultiSelect
+            label="Kind"
+            options={optionsFrom({ task: 'Tasks', pendency: 'Pendencies' })}
+            value={kind}
+            onChange={(v) => { setKind(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           {manages && (
-            <Select value={member} onChange={(e) => { setMember(e.target.value); setPage(1) }}>
-              <option value="">Everyone</option>
-              {masters?.members.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-            </Select>
+            <MultiSelect
+              label="Assigned"
+              allLabel="Everyone"
+              options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+              value={member}
+              onChange={(v) => { setMember(v); setPage(1) }}
+              className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+            />
           )}
-          <Select value={status} onChange={(e) => { setStatus(e.target.value); setPage(1) }}>
-            <option value="">All statuses</option>
-            {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </Select>
+          <MultiSelect
+            label="Status"
+            options={optionsFrom(STATUS_LABELS)}
+            value={status}
+            onChange={(v) => { setStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <div className="flex items-center gap-1">
             <Input
               className="w-44"

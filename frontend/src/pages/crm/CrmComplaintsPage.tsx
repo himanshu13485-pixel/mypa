@@ -11,6 +11,10 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
+import { MultiSelect } from '../../components/MultiSelect'
+import { listParam, onlyOne, optionsFrom, optionsOf } from '../../lib/multiFilter'
+
+const FILTER_CLASS = 'min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]'
 
 const EMPTY = {
   complained_on: new Date().toISOString().slice(0, 10),
@@ -70,6 +74,8 @@ export default function CrmComplaintsPage() {
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
   const [filters, setFilters] = useState<Record<string, string>>({})
+  // Checkbox filters, by param: missing or null is everything ticked.
+  const [picks, setPicks] = useState<Record<string, string[] | null>>({})
   const [advanced, setAdvanced] = useState(false)
   const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
@@ -78,8 +84,13 @@ export default function CrmComplaintsPage() {
 
   const { data: options } = useQuery({ queryKey: ['crm', 'complaint-options'], queryFn: crm.complaints.options })
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'complaints', applied, filters, page],
-    queryFn: () => crm.complaints.list({ ...filters, search: applied || undefined, page }),
+    queryKey: ['crm', 'complaints', applied, filters, picks, page],
+    queryFn: () => crm.complaints.list({
+      ...filters,
+      ...Object.fromEntries(Object.entries(picks).map(([k, v]) => [k, listParam(v ?? null)])),
+      search: applied || undefined,
+      page,
+    }),
   })
   // Only the clients this member can already reach. The list is a page
   // long, so the box narrows it rather than pretending to hold everyone.
@@ -90,6 +101,10 @@ export default function CrmComplaintsPage() {
     enabled: showForm,
   })
 
+  const setPick = (key: string, value: string[] | null) => {
+    setPicks((p) => ({ ...p, [key]: value }))
+    setPage(1)
+  }
   const setFilter = (key: string, value: string) => {
     setFilters((f) => ({ ...f, [key]: value }))
     setPage(1)
@@ -132,7 +147,7 @@ export default function CrmComplaintsPage() {
           <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Complaints</h1>
           <p className="text-sm text-slate-500">
             Client issues and the office&rsquo;s own working-out of them, in one record.
-            {data && <> · {data.summary.count} shown{filters.status === 'open' ? ', open only' : ''}</>}
+            {data && <> · {data.summary.count} shown{onlyOne(picks.status ?? null) === 'open' ? ', open only' : ''}</>}
           </p>
         </div>
         {canCreate && <Button onClick={() => { setError(null); setShowForm(true) }}><Plus className="size-4" /> Log complaint</Button>}
@@ -165,10 +180,10 @@ export default function CrmComplaintsPage() {
             {data.summary.by_error_type.filter((e) => e.count > 0).map((e) => (
               <button
                 key={e.key}
-                onClick={() => setFilter('final_error_type', filters.final_error_type === e.key ? '' : e.key)}
+                onClick={() => setPick('final_error_type', onlyOne(picks.final_error_type ?? null) === e.key ? null : [e.key])}
                 className={clsx(
                   'flex items-center gap-2 rounded-xl border px-3 py-1.5 text-sm transition',
-                  filters.final_error_type === e.key
+                  onlyOne(picks.final_error_type ?? null) === e.key
                     ? 'border-indigo-400 bg-indigo-50 dark:border-indigo-500 dark:bg-indigo-500/10'
                     : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60',
                 )}
@@ -190,23 +205,38 @@ export default function CrmComplaintsPage() {
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="CMS no., company, subject, mobile…" className="w-full pl-9" />
           </div>
-          <Select value={filters.status ?? ''} onChange={(e) => setFilter('status', e.target.value)}>
-            <option value="">All complaints</option>
-            <option value="open">Still open</option>
-            <option value="overdue">Overdue</option>
-            <option value="closed">Closed (however it ended)</option>
-            {options && Object.entries(options.statuses).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </Select>
-          <Select value={filters.subject ?? ''} onChange={(e) => setFilter('subject', e.target.value)}>
-            <option value="">Any subject</option>
-            {options?.subjects.map((s) => <option key={s} value={s}>{s}</option>)}
-          </Select>
-          <Select value={filters.allocated_to ?? ''} onChange={(e) => setFilter('allocated_to', e.target.value)}>
-            <option value="">Anyone&rsquo;s desk</option>
-            {options?.members.map((m) => (
-              <option key={m.uuid} value={m.uuid}>{m.name}{m.allocated ? ` (${m.allocated})` : ''}</option>
-            ))}
-          </Select>
+          {/* Checkbox filters: everything ticked by default. Status ticks widen -
+              "Overdue" plus "Closed" shows either. */}
+          <MultiSelect
+            label="Status"
+            options={[
+              { value: 'open', label: 'Still open' },
+              { value: 'overdue', label: 'Overdue' },
+              { value: 'closed', label: 'Closed (however it ended)' },
+              ...optionsFrom(options?.statuses ?? {}),
+            ]}
+            value={picks.status ?? null}
+            onChange={(v) => setPick('status', v)}
+            className={FILTER_CLASS}
+          />
+          <MultiSelect
+            label="Subject"
+            options={optionsOf(options?.subjects ?? [])}
+            value={picks.subject ?? null}
+            onChange={(v) => setPick('subject', v)}
+            className={FILTER_CLASS}
+          />
+          <MultiSelect
+            label="Desk"
+            allLabel="Everyone"
+            options={(options?.members ?? []).map((m) => ({
+              value: m.uuid,
+              label: `${m.name ?? '—'}${m.allocated ? ` (${m.allocated})` : ''}`,
+            }))}
+            value={picks.allocated_to ?? null}
+            onChange={(v) => setPick('allocated_to', v)}
+            className={FILTER_CLASS}
+          />
           <Button type="submit" variant="secondary" size="sm">Search</Button>
           <button
             type="button"
@@ -253,10 +283,14 @@ export default function CrmComplaintsPage() {
             ] as const).map(([key, label, list]) => (
               <div key={key}>
                 <Label>{label}</Label>
-                <Select value={filters[key] ?? ''} onChange={(e) => setFilter(key, e.target.value)} className="w-full">
-                  <option value="">Anyone</option>
-                  {list.map((m) => <option key={m.uuid} value={m.uuid}>{m.name}</option>)}
-                </Select>
+                <MultiSelect
+                  label="Who"
+                  allLabel="Everyone"
+                  options={list.map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+                  value={picks[key] ?? null}
+                  onChange={(v) => setPick(key, v)}
+                  className="w-full"
+                />
               </div>
             ))}
             {([
@@ -266,21 +300,27 @@ export default function CrmComplaintsPage() {
             ] as const).map(([key, label, list]) => (
               <div key={key}>
                 <Label>{label}</Label>
-                <Select value={filters[key] ?? ''} onChange={(e) => setFilter(key, e.target.value)} className="w-full">
-                  <option value="">Any</option>
-                  {list.map((v) => <option key={v} value={v}>{v}</option>)}
-                </Select>
+                <MultiSelect
+                  label={label}
+                  options={optionsOf([...list])}
+                  value={picks[key] ?? null}
+                  onChange={(v) => setPick(key, v)}
+                  className="w-full"
+                />
               </div>
             ))}
             <div>
               <Label>Final error type</Label>
-              <Select value={filters.final_error_type ?? ''} onChange={(e) => setFilter('final_error_type', e.target.value)} className="w-full">
-                <option value="">Any</option>
-                {options && Object.entries(options.error_types).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </Select>
+              <MultiSelect
+                label="Error"
+                options={optionsFrom(options?.error_types ?? {})}
+                value={picks.final_error_type ?? null}
+                onChange={(v) => setPick('final_error_type', v)}
+                className="w-full"
+              />
             </div>
             <div className="flex items-end">
-              <Button variant="secondary" size="sm" onClick={() => { setFilters({}); setSearch(''); setApplied(''); setPage(1) }}>
+              <Button variant="secondary" size="sm" onClick={() => { setFilters({}); setPicks({}); setSearch(''); setApplied(''); setPage(1) }}>
                 Clear all
               </Button>
             </div>

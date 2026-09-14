@@ -47,12 +47,17 @@ class LeaveAccount
         return $this->total($rows);
     }
 
-    /** Credits and adjustments in; leave, covered absences and pay-outs out. */
+    /**
+     * Credits and adjustments in; leave, covered absences and pay-outs out.
+     * Leave taken past the balance and cut from a salary comes back in: the
+     * salary has already paid for it, so the next month must not again.
+     */
     private function total($rows): float
     {
         return round(
             $rows->where('kind', 'credit')->sum('days')
             + $rows->where('kind', 'adjust')->sum('days')
+            + $rows->where('kind', 'overdraft')->sum('days')
             - $rows->where('kind', 'debit')->sum('days')
             - $rows->where('kind', 'absence')->sum('days')
             - $rows->where('kind', 'encash')->sum('days'),
@@ -78,6 +83,8 @@ class LeaveAccount
             'adjusted' => round($rows->where('kind', 'adjust')->sum('days'), 2),
             // Absent and unpaid days the account paid for when salaries were made.
             'absence_covered' => round($rows->where('kind', 'absence')->sum('days'), 2),
+            // Leave taken past the balance, cut from salary as days without pay.
+            'salary_cut' => round($rows->where('kind', 'overdraft')->sum('days'), 2),
             'balance' => $this->balance($member, $year),
             'on_probation' => $member->onProbation((int) $policy['probation_days']),
             'probation_ends_on' => $endsOn?->toDateString(),
@@ -227,6 +234,69 @@ class LeaveAccount
         ]);
 
         return (float) $covered;
+    }
+
+    /**
+     * Leave taken past the balance in a month is not paid: it is cut from
+     * that month's salary.
+     *
+     * If the account is below zero at the end of the month, the days it went
+     * under - no more than the leave deducted by hand that month, so a debt
+     * carried in from an earlier month is never charged twice - become days
+     * without pay, and a ledger row brings the balance back up by the same.
+     * An earlier run of the month is put back first.
+     *
+     * @return float the days cut from the salary
+     */
+    public function settleOverdraft(Member $member, Carbon $month, ?int $byUserId = null): float
+    {
+        $this->releaseOverdraft($member, $month);
+
+        $start = $month->copy()->startOfMonth();
+        $end = $month->copy()->endOfMonth();
+        $year = $this->financialYear($end);
+        $rows = LeaveLedger::where('member_id', $member->id)
+            ->where('financial_year', $year)
+            ->whereDate('effective_on', '<=', $end->toDateString())
+            ->get();
+
+        $held = $this->total($rows);
+        if ($held >= 0) {
+            return 0.0;
+        }
+
+        $takenThisMonth = abs((float) $rows
+            ->where('kind', 'adjust')
+            ->filter(fn ($r) => (float) $r->days < 0 && $r->effective_on->betweenIncluded($start, $end))
+            ->sum('days'));
+
+        $cut = floor(min(-$held, $takenThisMonth) * 2) / 2;
+        if ($cut <= 0) {
+            return 0.0;
+        }
+
+        LeaveLedger::create([
+            'organization_id' => $this->org->id,
+            'member_id' => $member->id,
+            'financial_year' => $year,
+            'kind' => 'overdraft',
+            'days' => $cut,
+            'effective_on' => $end->toDateString(),
+            'period' => $month->format('Y-m'),
+            'note' => $cut . ' leave day(s) beyond the balance in ' . $month->format('F Y') . ', cut from salary',
+            'created_by' => $byUserId,
+        ]);
+
+        return (float) $cut;
+    }
+
+    /** Give a month's salary cut back to the account - its slip was deleted or rebuilt. */
+    public function releaseOverdraft(Member $member, Carbon $month): void
+    {
+        LeaveLedger::where('member_id', $member->id)
+            ->where('kind', 'overdraft')
+            ->where('period', $month->format('Y-m'))
+            ->delete();
     }
 
     /** Give a month's covered absences back - its slip was deleted or rebuilt. */

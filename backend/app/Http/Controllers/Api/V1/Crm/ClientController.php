@@ -9,6 +9,7 @@ use App\Models\Crm\CustomField;
 use App\Models\Crm\ClientAccessRequest;
 use App\Models\Crm\Member;
 use App\Notifications\CrmNotification;
+use App\Support\QueryList;
 use App\Support\TextCase;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -39,11 +40,15 @@ class ClientController extends Controller
         if ($search = trim((string) $request->query('search'))) {
             $query->matching($search);
         }
-        if ($status = $request->query('status')) {
-            $query->where('status', $status);
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
         }
-        if ($assigned = $request->query('assigned_to')) {
-            $query->whereHas('assignedMember', fn ($m) => $m->where('uuid', $assigned));
+        if ($categories = QueryList::of($request, 'category')) {
+            $query->whereIn('category', $categories);
+        }
+        if ($assigned = QueryList::of($request, 'assigned_to')) {
+            $query->whereHas('assignedMember', fn ($m) => $m->whereIn('uuid', $assigned));
         }
 
         // The one just added, first. Alphabetical order buried it wherever
