@@ -258,6 +258,48 @@ class ApprovalController extends Controller
         return response()->json(['message' => 'Request ' . $data['status'] . '.', 'data' => $this->serialize($approval->fresh()->load(['requester.user:id,name', 'decider.user:id,name']))]);
     }
 
+    /**
+     * Delete an approval request for good - a mistake, or a trial.
+     *
+     * The Company Admin's alone. A claim already paid back through a salary
+     * slip is refused: deleting it would leave the slip holding money no
+     * request explains. Delete or rebuild that slip first, which releases it.
+     */
+    public function destroy(Request $request, string $uuid): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        abort_unless($me->crm_role === 'admin', 403, 'Only the Company Admin can delete an approval request.');
+
+        $approval = Approval::with(['requester.user:id,name', 'reimbursedSlip'])
+            ->where('organization_id', $org->id)
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        $number = 'APR-' . str_pad((string) $approval->id, 6, '0', STR_PAD_LEFT);
+
+        if ($slip = $approval->reimbursedSlip) {
+            abort(422, $number . ' was paid back on the '
+                . \Carbon\Carbon::create($slip->year, $slip->month, 1)->format('F Y')
+                . ' salary slip. Delete or rebuild that slip first.');
+        }
+
+        ActivityLog::record($me, $org->id, 'approval.deleted', $org, array_filter([
+            'approval_no' => $number,
+            'type' => $approval->type,
+            'requested_by' => $approval->requester?->user?->name,
+            'amount' => (float) $approval->amount ?: null,
+            'date' => $approval->approval_date?->toDateString(),
+            'status' => $approval->status,
+        ]));
+
+        $approval->delete();
+
+        return response()->json(['message' => $number . ' deleted.']);
+    }
+
     // ---- Invoice update requests -------------------------------------------
 
     public function requestInvoiceUpdate(Request $request, string $invoiceUuid): JsonResponse
@@ -414,6 +456,8 @@ class ApprovalController extends Controller
     {
         return [
             'uuid' => $a->uuid,
+            // The id people quote: APR-000123.
+            'approval_no' => 'APR-' . str_pad((string) $a->id, 6, '0', STR_PAD_LEFT),
             'type' => $a->type,
             'scope' => $a->scope,
             'approval_date' => $a->approval_date->toDateString(),

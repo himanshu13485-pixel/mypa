@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarOff, Check, Plus, X } from 'lucide-react'
+import { CalendarOff, Check, Plus, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmCan, type CrmMe } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -79,6 +79,14 @@ export default function CrmLeavesPage() {
   const cancelMutation = useMutation({
     mutationFn: (uuid: string) => crm.leaves.cancel(uuid),
     onSuccess: refresh,
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  // A leave made by mistake or for a trial: the Company Admin removes it.
+  const isAdmin = me?.member?.crm_role === 'admin'
+  const removeMutation = useMutation({
+    mutationFn: (uuid: string) => crm.leaves.remove(uuid),
+    onSuccess: (res) => { refresh(); toast(res.message, 'success') },
     onError: (err) => toastError(errorMessage(err)),
   })
 
@@ -195,6 +203,7 @@ export default function CrmLeavesPage() {
                   <tr key={l.uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
                     {decides && <td className="py-2.5 pr-3 font-medium">{l.member?.name ?? '—'}</td>}
                     <td className="py-2.5 pr-3">
+                      {l.leave_no && <div className="text-[10px] font-medium text-emerald-600">{l.leave_no}</div>}
                       {l.category}
                       <div className="text-xs text-slate-400">
                         {DURATION_LABELS[l.duration]}
@@ -245,6 +254,22 @@ export default function CrmLeavesPage() {
                       )}
                       {l.status === 'pending' && l.member?.uuid === me?.member?.uuid && (
                         <Button size="sm" variant="ghost" onClick={() => cancelMutation.mutate(l.uuid)}>Withdraw</Button>
+                      )}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          disabled={removeMutation.isPending}
+                          onClick={() => {
+                            if (confirm(`Delete ${l.leave_no ?? 'this leave'} for good? Any days it took go back to the leave account.`)) {
+                              removeMutation.mutate(l.uuid)
+                            }
+                          }}
+                          aria-label={`Delete ${l.leave_no ?? 'leave'}`}
+                          title="Delete for good"
+                          className="ml-1 rounded p-1.5 align-middle text-slate-400 hover:text-red-500 disabled:opacity-50"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
                       )}
                     </td>
                   </tr>

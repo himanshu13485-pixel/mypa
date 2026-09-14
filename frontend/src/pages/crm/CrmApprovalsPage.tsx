@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarOff, Check, CheckSquare, ClipboardCheck, FileDiff, Plus, Users, X, Search } from 'lucide-react'
+import { CalendarOff, Check, CheckSquare, ClipboardCheck, FileDiff, Plus, Search, Trash2, Users, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmCan, type CrmMe } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -81,6 +81,14 @@ export default function CrmApprovalsPage() {
       return crm.approvals.decide(uuid, verdict, note)
     },
     onSuccess: refresh,
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  // A request made by mistake or for a trial: the Company Admin removes it.
+  const isAdmin = me?.member?.crm_role === 'admin'
+  const removeMutation = useMutation({
+    mutationFn: (uuid: string) => crm.approvals.remove(uuid),
+    onSuccess: (res) => { refresh(); toast(res.message, 'success') },
     onError: (err) => toastError(errorMessage(err)),
   })
 
@@ -216,7 +224,10 @@ export default function CrmApprovalsPage() {
                   <tbody>
                     {data.data.map((a) => (
                       <tr key={a.uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
-                        <td className="whitespace-nowrap py-2.5 pr-3">{a.approval_date}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3">
+                          {a.approval_date}
+                          {a.approval_no && <div className="text-[10px] font-medium text-emerald-600">{a.approval_no}</div>}
+                        </td>
                         <td className="py-2.5 pr-3">{a.type}</td>
                         <td className="max-w-[240px] truncate py-2.5 pr-3 text-slate-500" title={a.details ?? ''}>{a.details ?? '—'}</td>
                         <td className="py-2.5 pr-3">
@@ -247,16 +258,32 @@ export default function CrmApprovalsPage() {
                           </span>
                         </td>
                         <td className="py-2.5 text-right">
-                          {a.status === 'pending' && decides && (
-                            <div className="flex justify-end gap-1">
-                              <Button size="sm" onClick={() => decideMutation.mutate({ uuid: a.uuid, verdict: 'approved' })}>
-                                <Check className="size-3.5" />
-                              </Button>
-                              <Button size="sm" variant="secondary" onClick={() => decideMutation.mutate({ uuid: a.uuid, verdict: 'rejected' })}>
-                                <X className="size-3.5" />
-                              </Button>
-                            </div>
-                          )}
+                          <div className="flex justify-end gap-1">
+                            {a.status === 'pending' && decides && (
+                              <>
+                                <Button size="sm" onClick={() => decideMutation.mutate({ uuid: a.uuid, verdict: 'approved' })}>
+                                  <Check className="size-3.5" />
+                                </Button>
+                                <Button size="sm" variant="secondary" onClick={() => decideMutation.mutate({ uuid: a.uuid, verdict: 'rejected' })}>
+                                  <X className="size-3.5" />
+                                </Button>
+                              </>
+                            )}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                disabled={removeMutation.isPending}
+                                onClick={() => {
+                                  if (confirm(`Delete ${a.approval_no ?? 'this request'} for good?`)) removeMutation.mutate(a.uuid)
+                                }}
+                                aria-label={`Delete ${a.approval_no ?? 'request'}`}
+                                title="Delete for good"
+                                className="rounded p-1.5 text-slate-400 hover:text-red-500 disabled:opacity-50"
+                              >
+                                <Trash2 className="size-4" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

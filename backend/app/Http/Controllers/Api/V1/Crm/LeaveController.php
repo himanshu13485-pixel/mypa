@@ -340,6 +340,45 @@ class LeaveController extends Controller
         return response()->json(['summary' => $summary] + $logs->toArray());
     }
 
+    /**
+     * Delete a leave for good - one made by mistake, or for a trial.
+     *
+     * The Company Admin's alone. Withdrawing keeps the request on the record;
+     * this removes it, and with it the days it took from the leave account
+     * (the ledger rows go with the leave). What was deleted is written to the
+     * company's activity log, since the leave itself is no longer there to
+     * point at.
+     */
+    public function destroy(Request $request, string $uuid): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        abort_unless($me->crm_role === 'admin', 403, 'Only the Company Admin can delete a leave.');
+
+        $leave = Leave::with('member.user:id,name')
+            ->where('organization_id', $org->id)
+            ->where('uuid', $uuid)
+            ->firstOrFail();
+
+        $number = 'LV-' . str_pad((string) $leave->id, 6, '0', STR_PAD_LEFT);
+
+        ActivityLog::record($me, $org->id, 'leave.deleted', $org, array_filter([
+            'leave_no' => $number,
+            'employee' => $leave->member?->user?->name,
+            'category' => $leave->category,
+            'dates' => $leave->date_from->toDateString()
+                . ($leave->date_to->ne($leave->date_from) ? ' to ' . $leave->date_to->toDateString() : ''),
+            'days' => (float) $leave->days,
+            'status' => $leave->status,
+        ]));
+
+        $leave->delete();
+
+        return response()->json(['message' => $number . ' deleted.']);
+    }
+
     /** The requester withdraws a pending request. */
     public function cancel(Request $request, string $uuid): JsonResponse
     {
@@ -410,6 +449,8 @@ class LeaveController extends Controller
     {
         return [
             'uuid' => $l->uuid,
+            // The id people quote: LV-000123.
+            'leave_no' => 'LV-' . str_pad((string) $l->id, 6, '0', STR_PAD_LEFT),
             'member' => $l->member ? ['uuid' => $l->member->uuid, 'name' => $l->member->user?->name] : null,
             'category' => $l->category,
             'duration' => $l->duration,

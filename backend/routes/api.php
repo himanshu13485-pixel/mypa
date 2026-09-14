@@ -1176,6 +1176,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::get('/leaves', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'index']);
                 Route::post('/leaves', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'store']);
                 Route::delete('/leaves/{uuid}', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'cancel']);
+                // Gone for good - the Company Admin's, checked inside.
+                Route::delete('/leaves/{uuid}/permanent', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'destroy']);
             });
             // Deciding: the Admin, a Subadmin named with leaves.manage_all, or
             // an employee with the leaves module - asked in the controller,
@@ -1216,6 +1218,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // What this member may point a request at.
                 Route::get('/approvals/options', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'options']);
                 Route::post('/approvals', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'store']);
+                // Gone for good - the Company Admin's, checked inside.
+                Route::delete('/approvals/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'destroy']);
                 Route::get('/invoice-updates', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'invoiceUpdates']);
                 Route::post('/invoices/{invoiceUuid}/update-request', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'requestInvoiceUpdate']);
             });

@@ -1665,6 +1665,8 @@ export interface CrmCompensation {
 }
 
 export interface CrmLeave {
+  /** LV-000123: the id people quote. */
+  leave_no?: string
   /** Asked for before its first day ('pre'), or on/after it ('post'). */
   applied_timing?: 'pre' | 'post'
   uuid: string
@@ -1918,6 +1920,8 @@ export interface CrmTdsReminderRow {
 
 export interface CrmApproval {
   uuid: string
+  /** APR-000123: the id people quote. */
+  approval_no?: string
   type: string
   /** invoice = about a document or client; general = the office's own money. */
   scope?: 'invoice' | 'general'
@@ -2612,6 +2616,9 @@ export const crm = {
     decide: (uuid: string, status: 'approved' | 'rejected', note?: string) =>
       api.post(`/crm/leaves/${uuid}/decide`, { status, note: note || null }).then((r) => r.data),
     cancel: (uuid: string) => api.delete(`/crm/leaves/${uuid}`).then((r) => r.data),
+    /** Delete for good - the Company Admin's. */
+    remove: (uuid: string) =>
+      api.delete<{ message: string }>(`/crm/leaves/${uuid}/permanent`).then((r) => r.data),
     /** The Leave Log — its own right, so its own screen. */
     log: (params: Record<string, string | number | undefined>) =>
       api.get<Paginated<CrmLeaveLogEntry> & { summary: CrmLeaveLogSummary }>('/crm/leave-log', { params })
@@ -2766,6 +2773,9 @@ export const crm = {
     list: (params: Record<string, string | number | undefined>) =>
       api.get<Paginated<CrmApproval> & { summary: CrmApprovalSummary; inbox: CrmApprovalInbox }>('/crm/approvals', { params }).then((r) => r.data),
     create: (payload: Record<string, unknown>) => api.post('/crm/approvals', payload).then((r) => r.data),
+    /** Delete for good - the Company Admin's. */
+    remove: (uuid: string) =>
+      api.delete<{ message: string }>(`/crm/approvals/${uuid}`).then((r) => r.data),
     decide: (uuid: string, status: 'approved' | 'rejected', note?: string) =>
       api.post(`/crm/approvals/${uuid}/decide`, { status, note: note || null }).then((r) => r.data),
     invoiceUpdates: (params: Record<string, string | number | undefined>) =>
