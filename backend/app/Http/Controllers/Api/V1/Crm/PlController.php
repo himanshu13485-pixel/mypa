@@ -246,6 +246,14 @@ class PlController extends Controller
             if ($payroll > 0) {
                 $expenseLines[] = ['label' => 'Salaries (CTC)', 'amount' => round($payroll, 2), 'source' => 'payroll'];
             }
+
+            // People paid outside the payroll, under their own head.
+            $offline = (float) \App\Models\Crm\OfflineSalary::where('organization_id', $org->id)
+                ->where('year', $month->year)->where('month', $month->month)
+                ->sum('amount');
+            if ($offline > 0) {
+                $expenseLines[] = ['label' => 'Offline Salary', 'amount' => round($offline, 2), 'source' => 'offline_payroll'];
+            }
         }
 
         // The hand-entered lines, either side.

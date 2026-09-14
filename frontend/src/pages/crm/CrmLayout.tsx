@@ -14,6 +14,7 @@ import NotificationBell from '../../components/NotificationBell'
 import { MenuAlertToggle } from '../../components/MenuAlertToggle'
 import { useQuery } from '@tanstack/react-query'
 import {
+  Contact,
   ArrowLeft,
   ArrowLeftRight,
   Award,
@@ -137,6 +138,8 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Commissions', section: 'commissions', icon: HandCoins, to: '/crm/commissions', module: 'commissions' },
     { label: 'Incentives', icon: TrendingUp, to: '/crm/incentives' },
     { label: 'Salary', section: 'salary', icon: Wallet, to: '/crm/salary' },
+    // People paid outside the payroll, counted in the P&L. Company Admin only.
+    { label: 'Offline Employees', icon: Contact, to: '/crm/offline-employees', adminOnly: true },
     { label: 'P&L', icon: Scale, to: '/crm/pl', adminOnly: true },
   ]},
   { label: 'Manage', items: [

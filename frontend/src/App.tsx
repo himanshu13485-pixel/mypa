@@ -99,6 +99,7 @@ const CrmTdsCertificatesPage = lazyRoute('CrmTdsCertificatesPage', () => import(
 const CrmSpamReportsPage = lazyRoute('CrmSpamReportsPage', () => import('./pages/crm/CrmSpamReportsPage'))
 const CrmBirthdaysPage = lazyRoute('CrmBirthdaysPage', () => import('./pages/crm/CrmBirthdaysPage'))
 const CrmThemePage = lazyRoute('CrmThemePage', () => import('./pages/crm/CrmThemePage'))
+const CrmOfflineEmployeesPage = lazyRoute('CrmOfflineEmployeesPage', () => import('./pages/crm/CrmOfflineEmployeesPage'))
 const CrmRecurringPage = lazyRoute('CrmRecurringPage', () => import('./pages/crm/CrmRecurringPage'))
 const CrmCommissionsPage = lazyRoute('CrmCommissionsPage', () => import('./pages/crm/CrmCommissionsPage'))
 const CrmInvoiceFormPage = lazyRoute('CrmInvoiceFormPage', () => import('./pages/crm/CrmInvoiceFormPage'))
@@ -160,6 +161,7 @@ const crmScreens = (
     <Route path="spam-reports" element={<CrmSpamReportsPage />} />
     <Route path="birthdays" element={<CrmBirthdaysPage />} />
     <Route path="theme" element={<CrmThemePage />} />
+    <Route path="offline-employees" element={<CrmOfflineEmployeesPage />} />
     <Route path="recurring" element={<CrmRecurringPage />} />
     <Route path="commissions" element={<CrmCommissionsPage />} />
     <Route path="invoices/new" element={<CrmInvoiceFormPage />} />

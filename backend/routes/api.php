@@ -1142,6 +1142,20 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // The P&L: the Admin's page alone (gate inside).
             Route::get('/pl', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'index'])->middleware('crm.member');
             Route::get('/pl/export', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'export'])->middleware('crm.member');
+            // Offline Employees: paid outside the payroll, counted in the P&L.
+            // The Company Admin's alone, checked inside.
+            Route::middleware('crm.member')->group(function () {
+                $offline = \App\Http\Controllers\Api\V1\Crm\OfflineEmployeeController::class;
+                Route::get('/offline-employees', [$offline, 'index']);
+                Route::post('/offline-employees', [$offline, 'store']);
+                Route::put('/offline-employees/{uuid}', [$offline, 'update']);
+                Route::delete('/offline-employees/{uuid}', [$offline, 'destroy']);
+                Route::get('/offline-salaries', [$offline, 'salaries']);
+                Route::post('/offline-salaries/generate', [$offline, 'generate']);
+                Route::post('/offline-salaries', [$offline, 'storeSalary']);
+                Route::put('/offline-salaries/{uuid}', [$offline, 'updateSalary']);
+                Route::delete('/offline-salaries/{uuid}', [$offline, 'destroySalary']);
+            });
             Route::get('/pl/config', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'config'])->middleware('crm.member');
             Route::put('/pl/config', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'saveConfig'])->middleware('crm.member');
             Route::post('/pl/lines', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'storeLine'])->middleware('crm.member');

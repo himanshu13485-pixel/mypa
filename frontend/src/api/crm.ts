@@ -2706,6 +2706,31 @@ export const crm = {
         .then((r) => r.data),
   },
 
+  /** Offline Employees: paid outside the payroll, counted in the P&L. Company Admin only. */
+  offlineEmployees: {
+    list: (params: { search?: string; status?: string } = {}) =>
+      api.get<{ data: CrmOfflineEmployee[]; totals: { active: number; monthly: number } }>('/crm/offline-employees', { params })
+        .then((r) => r.data),
+    create: (payload: CrmOfflineEmployeeInput) =>
+      api.post<{ message: string; data: CrmOfflineEmployee }>('/crm/offline-employees', payload).then((r) => r.data),
+    update: (uuid: string, payload: CrmOfflineEmployeeInput) =>
+      api.put<{ message: string; data: CrmOfflineEmployee }>(`/crm/offline-employees/${uuid}`, payload).then((r) => r.data),
+    remove: (uuid: string) =>
+      api.delete<{ message: string }>(`/crm/offline-employees/${uuid}`).then((r) => r.data),
+    salaries: (params: { month_from: string; month_to: string; search?: string; employee?: string }) =>
+      api.get<{ data: CrmOfflineSalary[]; totals: { count: number; amount: number; by_month: { month: string; amount: number; count: number }[] } }>(
+        '/crm/offline-salaries', { params },
+      ).then((r) => r.data),
+    generate: (year: number, month: number) =>
+      api.post<{ message: string; created: number }>('/crm/offline-salaries/generate', { year, month }).then((r) => r.data),
+    addSalary: (payload: { offline_employee_uuid: string; year: number; month: number; amount: number; paid_on?: string | null; note?: string | null }) =>
+      api.post<{ message: string }>('/crm/offline-salaries', payload).then((r) => r.data),
+    updateSalary: (uuid: string, payload: { amount?: number; paid_on?: string | null; note?: string | null }) =>
+      api.put<{ message: string }>(`/crm/offline-salaries/${uuid}`, payload).then((r) => r.data),
+    removeSalary: (uuid: string) =>
+      api.delete<{ message: string }>(`/crm/offline-salaries/${uuid}`).then((r) => r.data),
+  },
+
   /** CRM Theme: your own look and birthday words, and the company's defaults. */
   appearance: {
     get: () =>
@@ -3283,4 +3308,36 @@ export function crmMeQuery() {
     queryKey: ['crm', 'me', companyIn(window.location.pathname)] as const,
     queryFn: crm.me,
   }
+}
+
+/** Somebody paid outside the payroll: no account, no seat, no salary structure. */
+export interface CrmOfflineEmployee {
+  uuid: string
+  employee_code: string
+  name: string
+  monthly_amount: number
+  status: 'active' | 'inactive'
+  note: string | null
+  /** How many monthly records they have, and the latest month ('YYYY-MM'). */
+  records: number
+  last_month: string | null
+}
+
+export interface CrmOfflineEmployeeInput {
+  employee_code: string
+  name: string
+  monthly_amount: number
+  status: 'active' | 'inactive'
+  note: string | null
+}
+
+/** One month's payment to an offline employee. */
+export interface CrmOfflineSalary {
+  uuid: string
+  year: number
+  month: number
+  amount: number
+  paid_on: string | null
+  note: string | null
+  employee: { uuid: string; employee_code: string; name: string } | null
 }
