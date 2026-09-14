@@ -373,7 +373,7 @@ class ApprovalController extends Controller
         $isManager = in_array($me->crm_role, ['admin', 'subadmin'], true);
 
         return [
-            'leaves' => ($isManager || $me->can('leaves', 'edit'))
+            'leaves' => $me->decidesLeave()
                 ? Leave::where('organization_id', $org->id)->where('status', 'pending')->count()
                 : null,
             'tasks' => ($isManager || $me->can('tasks', 'edit'))

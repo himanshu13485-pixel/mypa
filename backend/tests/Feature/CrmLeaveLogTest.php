@@ -373,4 +373,31 @@ class CrmLeaveLogTest extends TestCase
 
         $this->assertSame('approved', Leave::where('uuid', $uuid)->first()->status);
     }
+
+    public function test_a_subadmin_sees_only_their_own_leave_until_the_admin_names_them(): void
+    {
+        [$priyanshu, $priyanshuMember] = $this->member('subadmin', 'Priyanshu');
+        [$manisha] = $this->member('subadmin', 'Manisha');
+        [$riya] = $this->member('employee', 'Riya');
+
+        $riyaLeave = $this->request($riya)->json('data.uuid');
+        $ownLeave = $this->request($priyanshu, ['date_from' => '2026-10-05', 'date_to' => '2026-10-05'])->json('data.uuid');
+
+        // By default: their own request only, and nothing to decide.
+        $this->assertSame(1, $this->as($priyanshu)->getJson('/api/v1/crm/leaves')->assertOk()->json('total'));
+        $this->as($priyanshu)->postJson("/api/v1/crm/leaves/{$riyaLeave}/decide", ['status' => 'approved'])->assertForbidden();
+        $this->assertFalse($this->as($priyanshu)->getJson('/api/v1/crm/me')->json('data.member.can_decide_leaves'));
+
+        // The Admin names Priyanshu: everybody's, and his own too.
+        $priyanshuMember->update(['capabilities' => ['leaves.manage_all']]);
+
+        $this->assertSame(2, $this->as($priyanshu)->getJson('/api/v1/crm/leaves')->json('total'));
+        $this->as($priyanshu)->postJson("/api/v1/crm/leaves/{$riyaLeave}/decide", ['status' => 'approved'])->assertOk();
+        $this->as($priyanshu)->postJson("/api/v1/crm/leaves/{$ownLeave}/decide", ['status' => 'approved'])->assertOk();
+        $this->assertSame('approved', Leave::where('uuid', $ownLeave)->first()->status);
+        $this->assertTrue($this->as($priyanshu)->getJson('/api/v1/crm/me')->json('data.member.decides_own_leave'));
+
+        // Manisha, not named, still sees only her own - which is none.
+        $this->assertSame(0, $this->as($manisha)->getJson('/api/v1/crm/leaves')->json('total'));
+    }
 }

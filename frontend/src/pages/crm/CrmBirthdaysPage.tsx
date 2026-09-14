@@ -10,7 +10,8 @@ import { Avatar } from '../../lib/avatars'
 import { BIRTHDAY_REPLY_BUILT_IN } from '../../lib/backgrounds'
 
 /** Somebody's name in a template that says {name}. */
-const fill = (template: string, name: string | null | undefined) => template.replaceAll('{name}', name ?? 'you')
+const fill = (template: string | null | undefined, name: string | null | undefined) =>
+  (template ?? '').replaceAll('{name}', name ?? 'you')
 
 const EMOJI = ['🎂', '🎉', '🎈', '🎁', '🥳', '✨', '❤️']
 

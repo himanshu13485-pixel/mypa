@@ -89,6 +89,10 @@ export interface CrmMe {
     can_set_rights?: boolean
     /** Sees everybody's pay: the Company Admin, or named with salary.view_all. */
     can_view_salaries?: boolean
+    /** May approve or reject leave: the Admin, a named Subadmin, or HR with the module. */
+    can_decide_leaves?: boolean
+    /** Holds the company-wide leave grant, so may decide their own request too. */
+    decides_own_leave?: boolean
     /** Set when this session is itself a borrowed one. */
     impersonating?: { level: 'crm_read' | 'crm' | 'account' } | null
   } | null

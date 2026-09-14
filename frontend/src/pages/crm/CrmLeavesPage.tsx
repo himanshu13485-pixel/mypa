@@ -24,7 +24,9 @@ const DURATION_LABELS: Record<string, string> = { full: 'Full day', half: 'Half 
 
 export default function CrmLeavesPage() {
   const { me } = useOutletContext<{ me: CrmMe | undefined }>()
-  const decides = crmCan(me, 'leaves', 'edit')
+  // The server's answer: a Subadmin decides leave only when the Admin named them.
+  const decides = me?.member?.can_decide_leaves ?? crmCan(me, 'leaves', 'edit')
+  const decidesOwn = !!me?.member?.decides_own_leave
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 
@@ -231,7 +233,7 @@ export default function CrmLeavesPage() {
                       </span>
                     </td>
                     <td className="py-2.5 text-right">
-                      {l.status === 'pending' && decides && l.member?.uuid !== me?.member?.uuid && (
+                      {l.status === 'pending' && decides && (l.member?.uuid !== me?.member?.uuid || decidesOwn) && (
                         <div className="flex justify-end gap-1">
                           <Button size="sm" onClick={() => decideMutation.mutate({ uuid: l.uuid, verdict: 'approved' })}>
                             <Check className="size-3.5" /> Approve

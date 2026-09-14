@@ -184,7 +184,11 @@ const badgeColors: Record<string, string> = {
   declined: 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
 }
 
-export function Badge({ value, className }: { value: string; className?: string }) {
+export function Badge({ value, className }: { value: string | null | undefined; className?: string }) {
+  // A record with no status draws no badge, rather than taking the screen
+  // down with it - the Call Logs page did exactly that on one such row.
+  if (!value) return null
+
   return (
     <span
       className={clsx(

@@ -143,6 +143,9 @@ class Member extends Model
         // anything. The Admin holds it by the job; a Subadmin holds it only
         // where the Admin ticked their name, and then only over employees.
         'employees.rights' => ['group' => 'Employees', 'label' => 'Set an employee’s module rights and special permissions — never another Subadmin’s, and never their own'],
+        // Held by name for a Subadmin: without it they see their own leave
+        // (and their team's), with it everybody's - their own included.
+        'leaves.manage_all' => ['group' => 'HR', 'label' => 'See and decide every employee’s leave — including their own'],
         'hr.policy_edit' => ['group' => 'HR', 'label' => 'Edit the HR Policy (timings, late rule, statutory rates)'],
         'letters.download' => ['group' => 'HR', 'label' => 'Download their own HR letters (offer, appointment, promotion…)'],
     ];
@@ -416,6 +419,41 @@ class Member extends Model
 
         return $this->crm_role === 'admin'
             || in_array('salary.view_all', (array) ($this->capabilities ?? []), true);
+    }
+
+    /**
+     * Leave, company-wide: the Company Admin by the job, or somebody the
+     * Admin named with leaves.manage_all. The one grant that also lets a
+     * person decide their own request.
+     */
+    public function managesAllLeaves(): bool
+    {
+        if ($this->status !== 'active') {
+            return false;
+        }
+
+        return $this->crm_role === 'admin'
+            || in_array('leaves.manage_all', (array) ($this->capabilities ?? []), true);
+    }
+
+    /**
+     * Whose leave this member reads: everybody's, or only their own team's.
+     *
+     * A Subadmin does not see the company's leave by being a Subadmin - the
+     * Admin names them. An employee the Admin gave the leaves module (the
+     * HR person) keeps reading it the way they always have.
+     */
+    public function seesAllLeaves(): bool
+    {
+        return $this->managesAllLeaves()
+            || ($this->crm_role !== 'subadmin' && $this->can('leaves', 'view'));
+    }
+
+    /** May this member approve or reject leave at all? */
+    public function decidesLeave(): bool
+    {
+        return $this->managesAllLeaves()
+            || ($this->crm_role !== 'subadmin' && $this->can('leaves', 'edit'));
     }
 
     /** Whether the screen offers the rights editor at all. */

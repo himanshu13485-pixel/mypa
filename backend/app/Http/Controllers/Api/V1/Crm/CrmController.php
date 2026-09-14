@@ -219,8 +219,9 @@ class CrmController extends Controller
         $me = $request->attributes->get('crm_member');
 
         $sections = [
-            'leaves' => $me->can('leaves', 'edit')
-                ? \App\Models\Crm\Leave::where('organization_id', $org->id)->where('status', 'pending')->where('member_id', '!=', $me->id)->count()
+            'leaves' => $me->decidesLeave()
+                ? \App\Models\Crm\Leave::where('organization_id', $org->id)->where('status', 'pending')
+                    ->when(! $me->managesAllLeaves(), fn ($q) => $q->where('member_id', '!=', $me->id))->count()
                 : null,
             'tasks' => $me->can('tasks', 'edit')
                 ? \App\Models\Crm\Task::where('organization_id', $org->id)->where('status', 'submitted')->count()
@@ -332,7 +333,7 @@ class CrmController extends Controller
         }
 
         // Authority side: what waits on an approver's pen.
-        if ($manages || $me->can('leaves', 'edit')) {
+        if ($me->decidesLeave()) {
             $badges['leaves'] = Leave::where('organization_id', $org->id)
                 ->where('status', 'pending')->count();
         }
@@ -642,6 +643,9 @@ class CrmController extends Controller
                     && in_array('exports.excel', (array) ($member->capabilities ?? []), true)),
             // Other people's pay: the Admin, or named with salary.view_all.
             'can_view_salaries' => $member->seesAllPay(),
+            // Leave: who may decide, and whether their own request too.
+            'can_decide_leaves' => $member->decidesLeave(),
+            'decides_own_leave' => $member->managesAllLeaves(),
             // Who they may hand work to: a manager may pick anyone, so the
             // list is null; anyone else moves work inside their own team.
             'team_member_uuids' => in_array($member->crm_role, ['admin', 'subadmin'], true)

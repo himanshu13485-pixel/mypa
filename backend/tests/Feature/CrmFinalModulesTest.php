@@ -73,13 +73,14 @@ class CrmFinalModulesTest extends TestCase
         $this->actingAs($this->employeeUser)->postJson("/api/v1/crm/leaves/{$uuid}/decide", ['status' => 'approved'])
             ->assertForbidden();
 
-        // …the admin can, but not on their own requests.
+        // …the admin can - their own requests included, which the company-wide
+        // leave grant allows and the Admin holds by the job.
         $own = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/leaves', [
             'category' => 'Casual Leave', 'duration' => 'full',
             'date_from' => '2026-09-05', 'date_to' => '2026-09-05',
         ])->json('data.uuid');
         $this->actingAs($this->adminUser)->postJson("/api/v1/crm/leaves/{$own}/decide", ['status' => 'approved'])
-            ->assertStatus(422);
+            ->assertOk();
 
         $this->actingAs($this->adminUser)->postJson("/api/v1/crm/leaves/{$uuid}/decide", [
             'status' => 'approved', 'note' => 'Get well soon',

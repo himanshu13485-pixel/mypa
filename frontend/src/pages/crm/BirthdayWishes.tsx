@@ -12,7 +12,8 @@ import { Avatar } from '../../lib/avatars'
 const LATER_KEY = 'crm-birthday-wish-later'
 
 /** Somebody's name in a template that says {name}. */
-const fill = (template: string, name: string | null | undefined) => template.replaceAll('{name}', name ?? 'you')
+const fill = (template: string | null | undefined, name: string | null | undefined) =>
+  (template ?? '').replaceAll('{name}', name ?? 'you')
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches

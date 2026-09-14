@@ -1177,8 +1177,11 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::post('/leaves', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'store']);
                 Route::delete('/leaves/{uuid}', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'cancel']);
             });
+            // Deciding: the Admin, a Subadmin named with leaves.manage_all, or
+            // an employee with the leaves module - asked in the controller,
+            // because a named Subadmin holds no module tick for it.
             Route::post('/leaves/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'decide'])
-                ->middleware('crm.member:leaves,edit');
+                ->middleware('crm.member');
             // The Leave Log — its own sidebar entry, so its own right, which
             // the controller asks about itself.
             Route::get('/leave-log', [\App\Http\Controllers\Api\V1\Crm\LeaveController::class, 'log'])

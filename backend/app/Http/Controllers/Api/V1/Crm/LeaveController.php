@@ -121,7 +121,7 @@ class LeaveController extends Controller
         }
 
         Notification::send(
-            Member::deciders($org->id, 'leaves', $me->id),
+            $this->deciders($org->id, $me),
             new CrmNotification(
                 'crm_leave',
                 ($me->user?->name ?? 'Someone') . ' requested ' . $days . ' day(s) ' . $data['category']
@@ -157,12 +157,20 @@ class LeaveController extends Controller
     {
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
+        abort_unless(
+            $me->decidesLeave(),
+            403,
+            'Deciding leave is the Company Admin’s, and the people the Admin has named.',
+        );
+
         $leave = $this->scoped($request)->where('uuid', $uuid)->firstOrFail();
 
         if ($leave->status !== 'pending') {
             abort(422, 'This request was already decided.');
         }
-        if ($leave->member_id === $me->id) {
+        // Your own leave only with the company-wide grant - the Admin's, or
+        // somebody the Admin named with it.
+        if ($leave->member_id === $me->id && ! $me->managesAllLeaves()) {
             abort(422, 'You cannot decide your own leave request.');
         }
 
@@ -366,6 +374,21 @@ class LeaveController extends Controller
         return response()->json(['message' => 'Leave request withdrawn.']);
     }
 
+    /** Who is asked to decide a new request: the people who may. */
+    private function deciders(int $orgId, Member $asker)
+    {
+        return Member::with('user')
+            ->where('organization_id', $orgId)
+            ->where('status', 'active')
+            ->where('is_oversight', false)
+            ->whereKeyNot($asker->id)
+            ->get()
+            ->filter(fn (Member $m) => $m->decidesLeave())
+            ->pluck('user')
+            ->filter()
+            ->values();
+    }
+
     private function scoped(Request $request): Builder
     {
         $org = $request->attributes->get('crm_org');
@@ -374,7 +397,7 @@ class LeaveController extends Controller
 
         $query = Leave::where('organization_id', $org->id);
 
-        $seesAll = in_array($me->crm_role, ['admin', 'subadmin'], true) || $me->can('leaves', 'view');
+        $seesAll = $me->seesAllLeaves();
         if (! $seesAll) {
             // Team Heads see their subtree's requests, not just their own.
             $query->whereIn('member_id', $me->teamMemberIds());
