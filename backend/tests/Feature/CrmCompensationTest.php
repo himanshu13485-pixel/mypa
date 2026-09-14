@@ -878,6 +878,54 @@ class CrmCompensationTest extends TestCase
         $this->assertNotContains($direct->fresh()->payment_no, [$id, $second->fresh()->payment_no]);
     }
 
+    public function test_only_the_admin_and_the_subadmin_they_name_see_everyones_salary(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-02-05'));
+        $this->structure($this->seller);
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/salary/generate', ['year' => 2026, 'month' => 2])->assertOk();
+        $slip = SalarySlip::where('member_id', $this->seller->id)->firstOrFail();
+
+        $subadmin = function (string $email) {
+            $user = $this->makeUser($email);
+            $member = Member::create([
+                'organization_id' => $this->org->id, 'user_id' => $user->id, 'crm_role' => 'subadmin',
+                'status' => 'active', 'rights' => ['employees' => ['view']],
+            ]);
+
+            return [$user, $member];
+        };
+        [$priyanshuUser, $priyanshu] = $subadmin('priyanshu@acme.test');
+        [$manishaUser] = $subadmin('manisha@acme.test');
+
+        // A Subadmin, by default, sees only their own pay.
+        $list = $this->actingAs($manishaUser)->getJson('/api/v1/crm/salary?year=2026&month=2')->assertOk();
+        $this->assertFalse($list->json('manages'));
+        $this->assertCount(0, $list->json('data'));
+        $this->actingAs($manishaUser)->get('/api/v1/crm/salary/' . $slip->uuid . '/pdf')->assertForbidden();
+        $this->actingAs($manishaUser)->getJson('/api/v1/crm/employees/' . $this->seller->uuid . '/compensation')->assertForbidden();
+        $this->actingAs($manishaUser)->getJson('/api/v1/crm/incentives?member=' . $this->seller->uuid)->assertForbidden();
+        $this->actingAs($manishaUser)->putJson('/api/v1/crm/salary/' . $slip->uuid, ['additions' => 5000])->assertForbidden();
+        $this->actingAs($manishaUser)->getJson('/api/v1/crm/employees/' . $this->seller->uuid)
+            ->assertOk()
+            ->assertJsonPath('data.pay_hidden', true)
+            ->assertJsonPath('data.salary_records', []);
+        $this->assertFalse($this->actingAs($manishaUser)->getJson('/api/v1/crm/me')->json('data.member.can_view_salaries'));
+
+        // The Admin names Priyanshu: now he sees everybody's.
+        $priyanshu->update(['capabilities' => ['salary.view_all']]);
+
+        $list = $this->actingAs($priyanshuUser)->getJson('/api/v1/crm/salary?year=2026&month=2')->assertOk();
+        $this->assertTrue($list->json('manages'));
+        $this->assertCount(1, $list->json('data'));
+        $this->actingAs($priyanshuUser)->get('/api/v1/crm/salary/' . $slip->uuid . '/pdf')->assertOk();
+        $this->actingAs($priyanshuUser)->getJson('/api/v1/crm/employees/' . $this->seller->uuid . '/compensation')->assertOk();
+        $this->actingAs($priyanshuUser)->getJson('/api/v1/crm/incentives?member=' . $this->seller->uuid)->assertOk();
+        $this->assertTrue($this->actingAs($priyanshuUser)->getJson('/api/v1/crm/me')->json('data.member.can_view_salaries'));
+
+        // And Manisha still does not.
+        $this->assertCount(0, $this->actingAs($manishaUser)->getJson('/api/v1/crm/salary?year=2026&month=2')->json('data'));
+    }
+
     private function sheetXml(string $bytes): string
     {
         $tmp = tempnam(sys_get_temp_dir(), 'xlsx');

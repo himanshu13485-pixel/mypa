@@ -105,7 +105,7 @@ export default function CrmEmployeeFormPage() {
    * own field below, which only an Admin is shown and only an Admin's payload
    * is allowed to carry.
    */
-  const NAMED_GRANTS = ['exports.excel', 'salary.export', 'reports.view', 'hr.policy_edit', 'employees.rights']
+  const NAMED_GRANTS = ['exports.excel', 'salary.view_all', 'salary.export', 'reports.view', 'hr.policy_edit', 'employees.rights']
 
   // The register flow's first step: everyone signs up on Netvork the normal
   // way; the company fetches that account and fills only the employment side.
@@ -1109,7 +1109,10 @@ export default function CrmEmployeeFormPage() {
       {editing && existing && manages && <KpiAssignmentCard uuid={uuid!} />}
       {/* The CTC structure, incentive plan and loans — the terms every
           payroll run computes from. */}
-      {editing && existing && manages && <CrmCompensationCard memberUuid={uuid!} />}
+      {/* Another person's pay: the Admin, or someone named with the salary right. */}
+      {editing && existing && manages && (me?.member?.can_view_salaries || existing.uuid === me?.member?.uuid) && (
+        <CrmCompensationCard memberUuid={uuid!} />
+      )}
       {editing && existing && manages && <SalaryCard uuid={uuid!} existing={existing} />}
       {editing && existing && manages && <DocumentsCard uuid={uuid!} existing={existing} />}
       {editing && existing && manages && <LettersCard existing={existing} />}
@@ -1486,11 +1489,17 @@ function SalaryCard({ uuid, existing }: { uuid: string; existing: CrmEmployeeFul
           <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Salary history</h2>
           <p className="mt-0.5 text-xs text-slate-400">Every revision with the date it takes effect.</p>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => setShow(true)}>
-          <Plus className="size-3.5" /> Revision
-        </Button>
+        {!existing.pay_hidden && (
+          <Button size="sm" variant="secondary" onClick={() => setShow(true)}>
+            <Plus className="size-3.5" /> Revision
+          </Button>
+        )}
       </div>
-      {existing.salary_records.length === 0 ? (
+      {existing.pay_hidden ? (
+        <p className="mt-3 text-sm text-slate-400">
+          Salary is shown only to the Company Admin and the people the Admin named with the salary right.
+        </p>
+      ) : existing.salary_records.length === 0 ? (
         <p className="mt-3 text-sm text-slate-400">No salary recorded yet.</p>
       ) : (
         <table className="mt-3 w-full text-sm">

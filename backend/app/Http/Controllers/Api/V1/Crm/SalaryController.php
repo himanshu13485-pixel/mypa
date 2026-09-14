@@ -34,10 +34,10 @@ class SalaryController extends Controller
         $month = (int) $request->query('month', now()->month);
         abort_unless($month >= 1 && $month <= 12, 422, 'Month must be 1-12.');
 
-        // Salary is an individual matter: only the Admin/Subadmin see the
-        // company run. A Team Workspace leader — or anyone granted salary
-        // rights — still sees ONLY their own slips here.
-        $manages = in_array($me->crm_role, ['admin', 'subadmin'], true);
+        // Salary is an individual matter: the company run is the Admin's,
+        // and the people the Admin named with the salary right. Every other
+        // Subadmin, Team Workspace leader or employee sees their own slips.
+        $manages = $me->seesAllPay();
 
         $query = SalarySlip::with('member.user:id,name')
             ->where('organization_id', $org->id);
@@ -96,6 +96,7 @@ class SalaryController extends Controller
     /** Start the month: one slip per active employee, from their salary record. */
     public function generate(Request $request): JsonResponse
     {
+        $this->guardPay($request);
         $org = $request->attributes->get('crm_org');
         $data = $request->validate([
             'year' => ['required', 'integer', 'min:2000', 'max:2100'],
@@ -251,6 +252,7 @@ class SalaryController extends Controller
 
     public function update(Request $request, string $uuid): JsonResponse
     {
+        $this->guardPay($request);
         $org = $request->attributes->get('crm_org');
         $slip = SalarySlip::where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
 
@@ -320,6 +322,7 @@ class SalaryController extends Controller
      */
     public function markPaid(Request $request): JsonResponse
     {
+        $this->guardPay($request);
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
@@ -378,8 +381,8 @@ class SalaryController extends Controller
         $slip = SalarySlip::with('member.user:id,name')
             ->where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
 
-        // Salary stays individual: own slip, or the Admin/Subadmin.
-        $manages = in_array($me->crm_role, ['admin', 'subadmin'], true);
+        // Salary stays individual: own slip, or somebody with the salary right.
+        $manages = $me->seesAllPay();
         abort_unless($manages || $slip->member_id === $me->id, 403, 'Not your payslip.');
 
         $monthName = \Carbon\Carbon::create($slip->year, $slip->month, 1)->format('F Y');
@@ -415,6 +418,7 @@ class SalaryController extends Controller
      */
     public function recalculate(Request $request, string $uuid): JsonResponse
     {
+        $this->guardPay($request);
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
@@ -525,6 +529,7 @@ class SalaryController extends Controller
 
     public function destroy(Request $request, string $uuid): JsonResponse
     {
+        $this->guardPay($request);
         $org = $request->attributes->get('crm_org');
         $slip = SalarySlip::where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
 
@@ -560,6 +565,22 @@ class SalaryController extends Controller
         // Claims this slip paid back are owed again until another slip pays them.
         \App\Models\Crm\Approval::where('reimbursed_slip_id', $slip->id)->update(['reimbursed_slip_id' => null]);
         $slip->delete();
+    }
+
+    /**
+     * Running the payroll means seeing everybody's pay, so it needs the same
+     * right as reading it: the Admin, or somebody the Admin named.
+     */
+    private function guardPay(Request $request): void
+    {
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        abort_unless(
+            $me->seesAllPay(),
+            403,
+            'Other people’s salary is the Company Admin’s, and the people the Admin has named with the salary right.',
+        );
     }
 
     /**

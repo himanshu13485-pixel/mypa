@@ -372,6 +372,13 @@ class EmployeeController extends Controller
             $data['personal_hidden'] = true;
         }
 
+        // Pay is narrower still: another person's salary history is for the
+        // Admin and whoever the Admin named with the salary right.
+        if ($member->id !== $me->id && ! $me->seesAllPay()) {
+            $data['salary_records'] = [];
+            $data['pay_hidden'] = true;
+        }
+
         return response()->json(['data' => $data]);
     }
 

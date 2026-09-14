@@ -640,6 +640,8 @@ class CrmController extends Controller
             'can_export' => $member->crm_role === 'admin'
                 || ($member->crm_role === 'subadmin'
                     && in_array('exports.excel', (array) ($member->capabilities ?? []), true)),
+            // Other people's pay: the Admin, or named with salary.view_all.
+            'can_view_salaries' => $member->seesAllPay(),
             // Who they may hand work to: a manager may pick anyone, so the
             // list is null; anyone else moves work inside their own team.
             'team_member_uuids' => in_array($member->crm_role, ['admin', 'subadmin'], true)

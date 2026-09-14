@@ -373,9 +373,9 @@ class CompensationController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
         abort_unless(
-            $member->id === $me->id || in_array($me->crm_role, ['admin', 'subadmin'], true),
+            $member->id === $me->id || $me->seesAllPay(),
             403,
-            'Another person’s compensation is the Admin’s or a Subadmin’s to read.',
+            'Another person’s pay is the Company Admin’s, and the people the Admin named with the salary right.',
         );
 
         return $member;

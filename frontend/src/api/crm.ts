@@ -87,6 +87,8 @@ export interface CrmMe {
      * question that matters here is the one it cannot answer.
      */
     can_set_rights?: boolean
+    /** Sees everybody's pay: the Company Admin, or named with salary.view_all. */
+    can_view_salaries?: boolean
     /** Set when this session is itself a borrowed one. */
     impersonating?: { level: 'crm_read' | 'crm' | 'account' } | null
   } | null
@@ -549,6 +551,8 @@ export interface CrmEmployeeFull extends CrmEmployee {
   documents: { uuid: string; name: string; mime: string | null; size: number; uploaded_at: string }[]
   /** True when the viewer may not read this person's private details. */
   personal_hidden?: boolean
+  /** Salary history withheld: the reader does not hold the salary right. */
+  pay_hidden?: boolean
   /** Team Workspace: who this person handles (Admin/Subadmin decide). */
   team?: { uuid: string; name: string | null }[]
   /** …and whose hands this person is in. */

@@ -130,6 +130,9 @@ class Member extends Model
         'exports.excel' => ['group' => 'Money', 'label' => 'Download invoices & payments as Excel (accounting export)'],
         // Held by name for everybody but the Admin: a salary register is
         // every colleague's pay, line by line.
+        // Held by name for everybody but the Admin: a Subadmin sees their own
+        // salary only, unless the Admin ticks them in here.
+        'salary.view_all' => ['group' => 'Money', 'label' => 'See every employee’s salary — slips, payslips, pay structure and incentive ledger'],
         'salary.export' => ['group' => 'Money', 'label' => 'Download the detailed salary register as Excel (every employee; PF, ESI and welfare fund with employer and employee shares)'],
         // Also held by name: the Reports screen is the Admin's, opened to a
         // Subadmin only when the Admin ticks them in.
@@ -396,6 +399,23 @@ class Member extends Model
         }
 
         return $target->crm_role === 'employee' && $target->id !== $this->id;
+    }
+
+    /**
+     * May this member see other people's pay?
+     *
+     * The Company Admin by the job; anybody else only where the Admin named
+     * them with salary.view_all. Being a Subadmin is not enough - pay is the
+     * one thing a Subadmin sees only their own of, by default.
+     */
+    public function seesAllPay(): bool
+    {
+        if ($this->status !== 'active') {
+            return false;
+        }
+
+        return $this->crm_role === 'admin'
+            || in_array('salary.view_all', (array) ($this->capabilities ?? []), true);
     }
 
     /** Whether the screen offers the rights editor at all. */

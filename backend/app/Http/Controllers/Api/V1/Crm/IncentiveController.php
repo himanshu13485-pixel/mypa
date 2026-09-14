@@ -40,7 +40,7 @@ class IncentiveController extends Controller
         $calc = new IncentiveCalculator($org);
         $plan = $calc->planFor($member, now());
 
-        $manages = in_array($me->crm_role, ['admin', 'subadmin'], true);
+        $manages = $me->seesAllPay();
         $offset = max(0, (int) ($plan?->release_offset_months ?? 1));
 
         // What next month's payroll will bring — the number the employee
@@ -243,8 +243,8 @@ class IncentiveController extends Controller
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
-        abort_unless(in_array($me->crm_role, ['admin', 'subadmin'], true), 403,
-            'Holding an incentive is the Admin’s or a Subadmin’s.');
+        abort_unless($me->seesAllPay(), 403,
+            'Holding an incentive is the Company Admin’s, or someone they named with the salary right.');
 
         $data = $request->validate([
             'member_uuid' => ['required', 'string'],
@@ -318,8 +318,8 @@ class IncentiveController extends Controller
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
-        abort_unless(in_array($me->crm_role, ['admin', 'subadmin'], true), 403,
-            'Holding incentives is the Admin’s or a Subadmin’s.');
+        abort_unless($me->seesAllPay(), 403,
+            'Holding incentives is the Company Admin’s, or someone they named with the salary right.');
 
         $data = $request->validate([
             'member_uuid' => ['required', 'string'],
@@ -387,8 +387,8 @@ class IncentiveController extends Controller
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
-        abort_unless(in_array($me->crm_role, ['admin', 'subadmin'], true), 403,
-            'Releasing an incentive is the Admin’s or a Subadmin’s.');
+        abort_unless($me->seesAllPay(), 403,
+            'Releasing an incentive is the Company Admin’s, or someone they named with the salary right.');
 
         $hold = IncentiveHold::with(['invoice.client:id,company_name', 'member.user:id,name'])
             ->where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
@@ -427,9 +427,9 @@ class IncentiveController extends Controller
         // Earnings stay individual: only the Admin/Subadmin read another
         // person's ledger — a Team Workspace leader sees their own only.
         abort_unless(
-            in_array($me->crm_role, ['admin', 'subadmin'], true),
+            $me->seesAllPay(),
             403,
-            'Another person’s incentive ledger is the Admin’s or a Subadmin’s to read.',
+            'Another person’s incentive ledger is the Company Admin’s, or someone they named with the salary right to read.',
         );
 
         return Member::with('user:id,name')
