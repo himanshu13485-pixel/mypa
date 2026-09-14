@@ -249,7 +249,7 @@ class CrmPaymentSettlementTest extends TestCase
         $this->actingAs($this->clerkUser)->postJson("/api/v1/crm/payments/{$entry}/unclaim")->assertForbidden();
     }
 
-    public function test_a_proposal_can_be_withdrawn_by_whoever_made_it(): void
+    public function test_a_proposal_is_withdrawn_by_the_admin_not_the_clerk(): void
     {
         $invoice = $this->document();
         $entry = $this->logged($this->clerkUser);
@@ -258,7 +258,11 @@ class CrmPaymentSettlementTest extends TestCase
             'invoice_uuid' => $invoice,
         ])->assertOk();
 
-        $this->actingAs($this->clerkUser)->postJson("/api/v1/crm/payments/{$entry}/unclaim")->assertOk();
+        // The clerk proposed it, and still may not take it back.
+        $this->actingAs($this->clerkUser)->postJson("/api/v1/crm/payments/{$entry}/unclaim")->assertForbidden();
+        $this->actingAs($this->clerkUser)->deleteJson("/api/v1/crm/payments/{$entry}")->assertForbidden();
+
+        $this->actingAs($this->adminUser)->postJson("/api/v1/crm/payments/{$entry}/unclaim")->assertOk();
 
         $this->assertSame('unclaimed', PaymentInboxEntry::firstOrFail()->status);
         $this->assertTrue(ActivityLog::where('action', 'payment.claim_withdrawn')->exists());
@@ -367,5 +371,30 @@ class CrmPaymentSettlementTest extends TestCase
         }
 
         $this->assertSame(2, PaymentReminder::count());
+    }
+
+    public function test_a_subadmin_settles_or_withdraws_only_once_the_admin_names_them(): void
+    {
+        $subUser = $this->makeUser('sub@acme.test');
+        $sub = Member::create([
+            'organization_id' => $this->org->id, 'user_id' => $subUser->id, 'crm_role' => 'subadmin', 'status' => 'active',
+            'rights' => ['payments' => ['view', 'create', 'edit', 'delete']],
+        ]);
+
+        $invoice = $this->document();
+        $entry = $this->logged($this->clerkUser);
+        $this->actingAs($this->clerkUser)->postJson("/api/v1/crm/payments/{$entry}/claim", [
+            'invoice_uuid' => $invoice,
+        ])->assertOk();
+
+        // Unnamed, a Subadmin is a clerk here.
+        $this->actingAs($subUser)->postJson("/api/v1/crm/payments/{$entry}/settle")->assertForbidden();
+        $this->actingAs($subUser)->postJson("/api/v1/crm/payments/{$entry}/unclaim")->assertForbidden();
+        $this->assertFalse($this->actingAs($subUser)->getJson('/api/v1/crm/me')->json('data.member.can_settle_payments'));
+
+        $sub->update(['capabilities' => ['payments.settle']]);
+
+        $this->actingAs($subUser)->postJson("/api/v1/crm/payments/{$entry}/unclaim")->assertOk();
+        $this->assertTrue($this->actingAs($subUser)->getJson('/api/v1/crm/me')->json('data.member.can_settle_payments'));
     }
 }

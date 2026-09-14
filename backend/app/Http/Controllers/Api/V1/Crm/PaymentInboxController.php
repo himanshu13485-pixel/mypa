@@ -128,6 +128,11 @@ class PaymentInboxController extends Controller
     public function destroy(Request $request, string $uuid): JsonResponse
     {
         $entry = $this->find($request, $uuid);
+        abort_unless(
+            $request->attributes->get('crm_member')?->holdsNamed('payments.settle'),
+            403,
+            'Deleting a payment is the Company Admin’s, or a Subadmin they name.',
+        );
         if ($entry->status === 'claimed') {
             abort(422, 'Unclaim this payment before deleting it.');
         }
@@ -251,8 +256,8 @@ class PaymentInboxController extends Controller
         $me = $request->attributes->get('crm_member');
         $entry = $this->find($request, $uuid);
 
-        if (! $me->allows('payments.settle')) {
-            abort(403, 'Settling a payment is the Company Admin’s, or an employee they grant it to.');
+        if (! $me->holdsNamed('payments.settle')) {
+            abort(403, 'Settling a payment is the Company Admin’s, or a Subadmin they name.');
         }
         if ($entry->status !== 'pending') {
             abort(422, $entry->status === 'claimed'
@@ -284,8 +289,8 @@ class PaymentInboxController extends Controller
         $me = $request->attributes->get('crm_member');
         $entry = $this->find($request, $uuid);
 
-        if (! $me->allows('payments.settle')) {
-            abort(403, 'Moving a settled payment is the Company Admin’s, or an employee they grant it to.');
+        if (! $me->holdsNamed('payments.settle')) {
+            abort(403, 'Moving a settled payment is the Company Admin’s, or a Subadmin they name.');
         }
         if (! in_array($entry->status, ['claimed', 'pending'], true)) {
             abort(422, 'This payment is not matched to anything yet.');
@@ -357,8 +362,12 @@ class PaymentInboxController extends Controller
         if (! in_array($entry->status, ['claimed', 'pending'], true)) {
             abort(422, 'This payment is not claimed.');
         }
-        if ($entry->status === 'claimed' && ! $me->allows('payments.settle')) {
-            abort(403, 'Undoing a settled payment is the Company Admin’s, or an employee they grant it to.');
+        // Withdrawing a proposed match, or undoing a settled one: both are
+        // the Admin's, or a Subadmin's the Admin named.
+        if (! $me->holdsNamed('payments.settle')) {
+            abort(403, $entry->status === 'claimed'
+                ? 'Undoing a settled payment is the Company Admin’s, or a Subadmin they name.'
+                : 'Withdrawing a match is the Company Admin’s, or a Subadmin they name.');
         }
 
         $invoice = $entry->claimedInvoice;
@@ -431,7 +440,8 @@ class PaymentInboxController extends Controller
 
     private function isManager(?Member $member): bool
     {
-        return $member !== null && in_array($member->crm_role, ['admin', 'subadmin'], true);
+        // Settling without a second pair of eyes is for somebody named with it.
+        return $member !== null && $member->holdsNamed('payments.settle');
     }
 
     private function money(PaymentInboxEntry $entry): string

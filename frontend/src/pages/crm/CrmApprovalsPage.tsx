@@ -15,8 +15,10 @@ const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN
 
 export default function CrmApprovalsPage() {
   const { me } = useOutletContext<{ me: CrmMe | undefined }>()
-  const decides = crmCan(me, 'approvals', 'edit')
-  const decidesInvoices = crmCan(me, 'invoices', 'edit')
+  // The server's answer: the Admin, or a Subadmin the Admin named. A module
+  // tick lets somebody raise requests, never decide other people's.
+  const decides = me?.member?.can_decide_approvals ?? crmCan(me, 'approvals', 'edit')
+  const decidesInvoices = me?.member?.can_decide_approvals ?? crmCan(me, 'invoices', 'edit')
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 

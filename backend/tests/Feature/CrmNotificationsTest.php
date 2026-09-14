@@ -42,11 +42,11 @@ class CrmNotificationsTest extends TestCase
         $this->adminMember = Member::create([
             'organization_id' => $this->org->id, 'user_id' => $this->adminUser->id, 'crm_role' => 'admin',
         ]);
-        // HR: an employee who was granted leave-deciding rights — the
-        // "SubAdmin / Team Head by rights" model.
+        // HR: a Subadmin the Admin named to decide everybody's leave.
         $this->hrMember = Member::create([
-            'organization_id' => $this->org->id, 'user_id' => $this->hrUser->id, 'crm_role' => 'employee',
+            'organization_id' => $this->org->id, 'user_id' => $this->hrUser->id, 'crm_role' => 'subadmin',
             'rights' => ['leaves' => ['view', 'edit']],
+            'capabilities' => ['leaves.manage_all'],
         ]);
         $this->employeeMember = Member::create([
             'organization_id' => $this->org->id, 'user_id' => $this->employeeUser->id, 'crm_role' => 'employee',

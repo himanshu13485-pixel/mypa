@@ -62,8 +62,10 @@ export default function CrmPaymentsPage() {
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data: me } = useQuery(crmMeQuery())
-  // Settling and correcting belong to the Company Admin and Subadmin.
-  const isManager = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
+  // Settling and correcting - change, undo, withdraw, delete - belong to the
+  // Company Admin and the Subadmins the Admin named. Anybody may match.
+  const isManager = me?.member?.can_settle_payments
+    ?? (me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin')
   const settleMutation = useMutation({
     mutationFn: ({ uuid, charge, note }: { uuid: string; charge?: number; note?: string }) =>
       crm.payments.settle(uuid, charge ? { charge_amount: charge, charge_note: note ?? null } : undefined),
@@ -357,9 +359,11 @@ export default function CrmPaymentsPage() {
                           <Button size="sm" onClick={() => { setMoving(false); setClaiming(e) }}>
                             <Link2 className="size-3.5" /> Match
                           </Button>
-                          <button onClick={() => { if (confirm('Delete this payment entry?')) deleteMutation.mutate(e.uuid) }} aria-label="Delete" className="rounded p-1.5 text-slate-400 hover:text-red-500">
-                            <Trash2 className="size-4" />
-                          </button>
+                          {isManager && (
+                            <button onClick={() => { if (confirm('Delete this payment entry?')) deleteMutation.mutate(e.uuid) }} aria-label="Delete" className="rounded p-1.5 text-slate-400 hover:text-red-500">
+                              <Trash2 className="size-4" />
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <div className="flex flex-wrap justify-end gap-1">
@@ -374,7 +378,7 @@ export default function CrmPaymentsPage() {
                               <ArrowRightLeft className="size-3.5" /> Change
                             </Button>
                           )}
-                          {(isManager || e.status === 'pending') && (
+                          {isManager && (
                             <Button
                               size="sm"
                               variant="secondary"

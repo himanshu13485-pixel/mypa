@@ -105,7 +105,10 @@ export default function CrmEmployeeFormPage() {
    * own field below, which only an Admin is shown and only an Admin's payload
    * is allowed to carry.
    */
-  const NAMED_GRANTS = ['exports.excel', 'salary.view_all', 'salary.export', 'leaves.manage_all', 'reports.view', 'hr.policy_edit', 'employees.rights']
+  const NAMED_GRANTS = ['exports.excel', 'salary.view_all', 'salary.export', 'leaves.manage_all', 'approvals.manage_all', 'payments.settle', 'reports.view', 'hr.policy_edit', 'employees.rights']
+  // Decision rights a Subadmin holds by name and an employee never does -
+  // offering the tick on an employee's screen would be a box that does nothing.
+  const SUBADMIN_ONLY = ['leaves.manage_all', 'approvals.manage_all', 'payments.settle']
 
   // The register flow's first step: everyone signs up on Netvork the normal
   // way; the company fetches that account and fills only the employment side.
@@ -1077,7 +1080,7 @@ export default function CrmEmployeeFormPage() {
           <div className="mt-3 space-y-4">
             {Object.entries(
               (masters.capabilities ?? [])
-                .filter((cap) => form.crm_role !== 'subadmin' || NAMED_GRANTS.includes(cap.key))
+                .filter((cap) => (form.crm_role === 'subadmin' ? NAMED_GRANTS.includes(cap.key) : !SUBADMIN_ONLY.includes(cap.key)))
                 .reduce<Record<string, typeof masters.capabilities>>((groups, cap) => {
                 groups[cap.group] = [...(groups[cap.group] ?? []), cap]
                 return groups

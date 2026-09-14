@@ -646,6 +646,9 @@ class CrmController extends Controller
             // Leave: who may decide, and whether their own request too.
             'can_decide_leaves' => $member->decidesLeave(),
             'decides_own_leave' => $member->managesAllLeaves(),
+            // Approvals and invoice updates, and the company's money.
+            'can_decide_approvals' => $member->holdsNamed('approvals.manage_all'),
+            'can_settle_payments' => $member->holdsNamed('payments.settle'),
             // Who they may hand work to: a manager may pick anyone, so the
             // list is null; anyone else moves work inside their own team.
             'team_member_uuids' => in_array($member->crm_role, ['admin', 'subadmin'], true)

@@ -93,6 +93,10 @@ export interface CrmMe {
     can_decide_leaves?: boolean
     /** Holds the company-wide leave grant, so may decide their own request too. */
     decides_own_leave?: boolean
+    /** Decides approvals and invoice updates: the Admin, or a named Subadmin. */
+    can_decide_approvals?: boolean
+    /** Settles, changes, undoes, withdraws and deletes payments: the Admin, or a named Subadmin. */
+    can_settle_payments?: boolean
     /** Set when this session is itself a borrowed one. */
     impersonating?: { level: 'crm_read' | 'crm' | 'account' } | null
   } | null

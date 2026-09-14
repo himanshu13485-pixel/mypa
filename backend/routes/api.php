@@ -1219,10 +1219,12 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::get('/invoice-updates', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'invoiceUpdates']);
                 Route::post('/invoices/{invoiceUuid}/update-request', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'requestInvoiceUpdate']);
             });
+            // Deciding: the Admin, or a Subadmin named with approvals.manage_all -
+            // asked in the controller, because no module tick grants it.
             Route::post('/approvals/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'decide'])
-                ->middleware('crm.member:approvals,edit');
+                ->middleware('crm.member');
             Route::post('/invoice-updates/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\ApprovalController::class, 'decideInvoiceUpdate'])
-                ->middleware('crm.member:invoices,edit');
+                ->middleware('crm.member');
 
             // Newsletters
             Route::get('/newsletters', [\App\Http\Controllers\Api\V1\Crm\NewsletterController::class, 'index'])

@@ -42,7 +42,8 @@ class ApprovalController extends Controller
             ->where('organization_id', $org->id);
 
         // Non-deciders see their own requests only.
-        if (! (in_array($me->crm_role, ['admin', 'subadmin'], true) || $me->can('approvals', 'view'))) {
+        // Everybody's requests: the Admin, or a Subadmin named with the right.
+        if (! $me->holdsNamed('approvals.manage_all')) {
             $query->where('requested_by', $me->id);
         }
 
@@ -131,7 +132,16 @@ class ApprovalController extends Controller
         ]);
 
         Notification::send(
-            Member::deciders($org->id, 'approvals', $me->id),
+            Member::with('user')
+                ->where('organization_id', $org->id)
+                ->where('status', 'active')
+                ->where('is_oversight', false)
+                ->whereKeyNot($me->id)
+                ->get()
+                ->filter(fn (Member $m) => $m->holdsNamed('approvals.manage_all'))
+                ->pluck('user')
+                ->filter()
+                ->values(),
             new CrmNotification(
                 'crm_approval',
                 ($me->user?->name ?? 'Someone') . ' requested approval: ' . $approval->type
@@ -207,6 +217,12 @@ class ApprovalController extends Controller
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
+
+        abort_unless(
+            $me->holdsNamed('approvals.manage_all'),
+            403,
+            'Deciding approvals is the Company Admin’s, and the Subadmins the Admin has named.',
+        );
 
         $approval = Approval::where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
         if ($approval->status !== 'pending') {
@@ -300,7 +316,7 @@ class ApprovalController extends Controller
         $query = InvoiceUpdateRequest::with(['invoice:id,uuid,number', 'requester.user:id,name', 'decider.user:id,name'])
             ->where('organization_id', $org->id);
 
-        if (! (in_array($me->crm_role, ['admin', 'subadmin'], true) || $me->can('invoices', 'edit'))) {
+        if (! $me->holdsNamed('approvals.manage_all')) {
             $query->where('requested_by', $me->id);
         }
         if ($status = $request->query('status')) {
@@ -318,6 +334,12 @@ class ApprovalController extends Controller
         $org = $request->attributes->get('crm_org');
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
+
+        abort_unless(
+            $me->holdsNamed('approvals.manage_all'),
+            403,
+            'Deciding invoice updates is the Company Admin’s, and the Subadmins the Admin has named.',
+        );
 
         $req = InvoiceUpdateRequest::with('invoice')
             ->where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
@@ -379,7 +401,7 @@ class ApprovalController extends Controller
             'tasks' => ($isManager || $me->can('tasks', 'edit'))
                 ? Task::where('organization_id', $org->id)->where('status', 'submitted')->count()
                 : null,
-            'invoice_updates' => ($isManager || $me->can('invoices', 'edit'))
+            'invoice_updates' => $me->holdsNamed('approvals.manage_all')
                 ? InvoiceUpdateRequest::where('organization_id', $org->id)->where('status', 'pending')->count()
                 : null,
             'client_access' => ($isManager || $me->can('clients', 'edit'))

@@ -357,7 +357,10 @@ class CrmLeaveLogTest extends TestCase
     {
         // The first half of what an Admin needs: hand the module right to a
         // named employee and they can decide somebody else's request.
-        [$manager, $managerMember] = $this->member('employee', 'Sana');
+        // An employee with the leaves module still decides nothing for others;
+        // a Subadmin decides once the Admin names them.
+        [$clerk] = $this->member('employee', 'Satish', ['leaves' => ['view', 'edit']]);
+        [$manager, $managerMember] = $this->member('subadmin', 'Sana', ['leaves' => ['view', 'edit']]);
         [$riya] = $this->member('employee', 'Riya');
         $uuid = $this->request($riya)->json('data.uuid');
 
@@ -365,7 +368,11 @@ class CrmLeaveLogTest extends TestCase
             ->postJson("/api/v1/crm/leaves/{$uuid}/decide", ['status' => 'approved'])
             ->assertForbidden();
 
-        $managerMember->update(['rights' => ['leaves' => ['view', 'edit']]]);
+        $this->as($clerk)
+            ->postJson("/api/v1/crm/leaves/{$uuid}/decide", ['status' => 'approved'])
+            ->assertForbidden();
+
+        $managerMember->update(['capabilities' => ['leaves.manage_all']]);
 
         $this->as($manager)
             ->postJson("/api/v1/crm/leaves/{$uuid}/decide", ['status' => 'approved'])
