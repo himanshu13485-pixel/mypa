@@ -21,6 +21,11 @@ class Invoice extends Model
     protected $table = 'crm_invoices';
 
     public const KINDS = ['proforma', 'invoice'];
+
+
+    /** The columns rupeeRate() reads, for a query that selects only what it needs. */
+    public const RUPEE_COLUMNS = ['total', 'currency', 'fx_currency', 'fx_rate', 'total_fx'];
+
     public const PAYMENT_STATUSES = ['due', 'partial', 'paid', 'refunded', 'credit_note', 'bad_debt'];
     public const DISPATCH_STATUSES = ['pending', 'partial', 'dispatched', 'in_process'];
     public const STATUSES = ['draft', 'final', 'cancelled'];
@@ -34,6 +39,40 @@ class Invoice extends Model
         'fx_rate', 'subtotal_fx', 'total_fx', 'payment_status', 'dispatch_status',
         'status', 'notes', 'custom_fields', 'converted_from_id', 'created_by', 'updated_by',
     ];
+
+    /**
+     * Rupees for one unit of this document's currency, as frozen on it.
+     *
+     * The one rule every rupee total is built with — the reports, the
+     * dashboard, the charts on the invoice list — and the rule the P&L has
+     * always used: a rupee document is itself, and anything else counts at
+     * the INR equivalent stored when it was saved. Never today's rate, so a
+     * month already reported does not move when the dollar does.
+     *
+     * A foreign document saved while no rate could be fetched has no stored
+     * equivalent, and counts at face value — as it does in the P&L — rather
+     * than vanishing from every total it belongs in.
+     */
+    public function rupeeRate(): float
+    {
+        if (strtoupper((string) ($this->currency ?: 'INR')) === 'INR') {
+            return 1.0;
+        }
+        if (strtoupper((string) $this->fx_currency) === 'INR' && (float) $this->fx_rate > 0) {
+            return (float) $this->fx_rate;
+        }
+        if ((float) $this->total > 0 && (float) $this->total_fx > 0) {
+            return (float) $this->total_fx / (float) $this->total;
+        }
+
+        return 1.0;
+    }
+
+    /** An amount written in this document's currency, in rupees. */
+    public function inRupees(mixed $amount): float
+    {
+        return round((float) $amount * $this->rupeeRate(), 2);
+    }
 
     protected function casts(): array
     {
