@@ -193,6 +193,12 @@ export default function CrmInvoiceFormPage() {
   const [items, setItems] = useState<ItemRow[]>([{ ...EMPTY_ITEM }])
   // Money lines, keyed by this company's own line keys: a rate, or a figure.
   const [taxes, setTaxes] = useState<Record<string, { rate: string; amount: string }>>({})
+  /*
+   * No tax on this document. Every tax line goes grey and counts for nothing
+   * — including a standing rate the company set — and the server holds the
+   * same line. Discounts and TDS are not tax charged, and stay available.
+   */
+  const [noTax, setNoTax] = useState(false)
   // The document's own extra fields (DCW).
   const [docValues, setDocValues] = useState<Record<string, string | boolean>>({})
 
@@ -273,6 +279,9 @@ export default function CrmInvoiceFormPage() {
       line.key,
       { rate: line.rate !== null ? String(Number(line.rate)) : '', amount: line.rate !== null ? '' : String(line.amount) },
     ])))
+    // Reopened with no tax on it, it stays that way: without this the
+    // company's standing rates would fill in and put tax on it on save.
+    setNoTax((existing.tax_lines ?? []).filter((line) => line.kind === 'tax').every((line) => Number(line.amount) === 0))
     setDocValues(Object.fromEntries(
       Object.entries(existing.custom_fields ?? {}).map(([k, v]) => [k, typeof v === 'boolean' ? v : String(v)]),
     ))
@@ -343,12 +352,20 @@ export default function CrmInvoiceFormPage() {
    * The server holds the same rule, so a rate left in a box that has since
    * greyed out is dropped from the document rather than charged.
    */
-  const blockedTaxes = useMemo(
+  const gstBlocked = useMemo(
     () => new Set(unavailableTaxes(
       masters?.issuing_companies.find((c) => String(c.id) === head.issuing_company_id)?.state_code,
       clientGst,
     )),
     [masters, head.issuing_company_id, clientGst],
+  )
+  // Every line that is off: the GST half that does not apply, and every tax
+  // line at all when the document carries none.
+  const blockedTaxes = useMemo(
+    () => (noTax
+      ? new Set([...gstBlocked, ...taxSetup.filter((line) => line.kind === 'tax').map((line) => line.key)])
+      : gstBlocked),
+    [noTax, gstBlocked, taxSetup],
   )
 
   const totals = useMemo(() => {
@@ -541,6 +558,7 @@ export default function CrmInvoiceFormPage() {
         other_tax: head.other_tax ? Number(head.other_tax) : 0,
         tds: head.tds ? Number(head.tds) : 0,
         // The company's own money lines; the server works the figures out.
+        no_tax: noTax,
         tax_lines: taxSetup.map((line) => {
           const entry = blockedTaxes.has(line.key) ? { rate: '', amount: '' } : taxes[line.key] ?? { rate: '', amount: '' }
           return {
@@ -890,11 +908,25 @@ export default function CrmInvoiceFormPage() {
           {/* Why one of the pair is grey. Said in terms of the document —
               where the client is — rather than as a rule about state codes,
               which is not what the person filling this in is thinking of. */}
-          {blockedTaxes.size > 0 && (
+          {!noTax && gstBlocked.size > 0 && (
             <p className="mt-1 text-xs text-slate-400">
-              {blockedTaxes.has('igst')
+              {gstBlocked.has('igst')
                 ? 'This client is in the same state as the issuing company, so CGST and SGST apply. IGST is off.'
                 : 'This client is in another state, so IGST applies. CGST and SGST are off.'}
+            </p>
+          )}
+          <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={noTax}
+              onChange={(e) => setNoTax(e.target.checked)}
+              className="size-4 accent-emerald-600"
+            />
+            No tax on this document
+          </label>
+          {noTax && (
+            <p className="mt-1 text-xs text-slate-400">
+              Tax lines are left off, even where this company normally requires them. Discounts and TDS still apply.
             </p>
           )}
           <div className="mt-3 space-y-2">

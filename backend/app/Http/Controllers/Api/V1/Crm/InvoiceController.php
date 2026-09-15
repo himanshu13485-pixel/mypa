@@ -1141,6 +1141,9 @@ class InvoiceController extends Controller
             'tds_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             // A company's own money lines, when the form sends them.
             'tax_lines' => ['nullable', 'array', 'max:30'],
+            // This document carries no tax at all, whatever the company's
+            // standing rates or its "must carry tax" rule say.
+            'no_tax' => ['nullable', 'boolean'],
             'tax_lines.*.key' => ['required', 'string', 'max:64'],
             'tax_lines.*.rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'tax_lines.*.amount' => ['nullable', 'numeric'],
@@ -1178,7 +1181,7 @@ class InvoiceController extends Controller
 
         $kept = $this->wordsAlreadyOn($existing);
         $items = $this->applyWorkOrderFields($request, $orgId, $data['items'], $kept['lines']);
-        unset($data['items'], $data['tax_lines']);
+        unset($data['items'], $data['tax_lines'], $data['no_tax']);
         $data = $this->applyDocumentFields($request, $orgId, $data, $kept['document']);
 
         if (! $updating || $request->filled('client_uuid')) {
@@ -1244,7 +1247,10 @@ class InvoiceController extends Controller
         // off, plus any they added — so the arithmetic reads the setup.
         [$taxLines, $sums] = $this->computeTaxes($request, $orgId, $data, $subtotal, $company, $client);
         // Asked of the lines themselves, now that they exist.
-        $this->requireTax($company, $client, $taxLines);
+        // A document marked as carrying no tax has answered the question.
+        if (! $request->boolean('no_tax')) {
+            $this->requireTax($company, $client, $taxLines);
+        }
         $data['total'] = $sums['total'];
         if ($subtotalFx > 0) {
             $data['subtotal_fx'] = round($subtotalFx, 2);
@@ -1645,6 +1651,22 @@ class InvoiceController extends Controller
          * rate on every document, quietly, whichever side the client was on.
          */
         $blocked = array_flip(Gst::unavailableTaxes($company?->state_code, $client?->gst_no));
+
+        /*
+         * No tax on this document: every tax line is nil.
+         *
+         * Enforced here and not only on the form, for the same reason as the
+         * GST pair above — a standing rate sits behind each tax line and would
+         * be charged by anything that reached the arithmetic. Discounts and
+         * deductions such as TDS are not tax charged, and are left alone.
+         */
+        if ($request->boolean('no_tax')) {
+            foreach ($setup as $line) {
+                if ($line['kind'] === 'tax') {
+                    $blocked[$line['key']] = true;
+                }
+            }
+        }
 
         // Two ways in: the company's own lines, or the plain cgst/sgst/… of
         // the standard setup, which is what every older client still sends.

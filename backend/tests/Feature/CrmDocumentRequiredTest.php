@@ -311,6 +311,57 @@ class CrmDocumentRequiredTest extends TestCase
             ->assertJsonPath('data.issuing_companies.0.tax_required', true);
     }
 
+    // ---- no tax at all, by choice ----------------------------------------------
+
+    public function test_a_document_can_be_raised_with_no_tax_where_the_company_requires_it(): void
+    {
+        // The rule is the company's default; a document marked as carrying no
+        // tax — an exempt supply, an export under bond — has answered it.
+        $this->requireTax();
+
+        $uuid = $this->raise(['no_tax' => true])->assertCreated()->json('data.uuid');
+
+        $this->assertEquals(10000, (float) \App\Models\Crm\Invoice::where('uuid', $uuid)->value('total'));
+    }
+
+    public function test_no_tax_means_none_even_with_a_rate_sent_or_standing(): void
+    {
+        CustomField::create([
+            'organization_id' => $this->org->id,
+            'entity' => 'tax', 'key' => 'sgst', 'label' => 'SGST',
+            'type' => 'number', 'is_builtin' => true, 'status' => 'approved',
+            'default_rate' => 9,
+        ]);
+
+        $uuid = $this->raise(['no_tax' => true, 'cgst_rate' => 9, 'igst_rate' => 18])
+            ->assertCreated()->json('data.uuid');
+
+        $invoice = \App\Models\Crm\Invoice::where('uuid', $uuid)->firstOrFail();
+        $this->assertEquals(0, (float) $invoice->cgst);
+        $this->assertEquals(0, (float) $invoice->sgst);
+        $this->assertEquals(0, (float) $invoice->igst);
+        $this->assertEquals(10000, (float) $invoice->total);
+    }
+
+    public function test_no_tax_leaves_discounts_and_tds_alone(): void
+    {
+        // Neither is tax charged: 10% off ₹10,000, then 1% TDS on the ₹9,000.
+        $uuid = $this->raise(['no_tax' => true, 'discount_rate' => 10, 'tds_rate' => 1, 'cgst_rate' => 9])
+            ->assertCreated()->json('data.uuid');
+
+        $invoice = \App\Models\Crm\Invoice::where('uuid', $uuid)->firstOrFail();
+        $this->assertEquals(1000, (float) $invoice->discount);
+        $this->assertEquals(90, (float) $invoice->tds);
+        $this->assertEquals(8910, (float) $invoice->total);
+    }
+
+    public function test_without_the_choice_the_rule_still_holds(): void
+    {
+        $this->requireTax();
+
+        $this->raise(['no_tax' => false])->assertStatus(422)->assertJsonValidationErrors('cgst');
+    }
+
     // ---- a line can name more than one ---------------------------------------
 
     public function test_a_line_can_carry_several_memberships_and_plans(): void
