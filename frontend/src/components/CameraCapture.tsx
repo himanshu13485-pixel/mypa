@@ -3,6 +3,37 @@ import { createPortal } from 'react-dom'
 import { Camera, Check, RefreshCw, RotateCcw, X } from 'lucide-react'
 import { hasMultipleCameras, openMedia } from '../lib/devices'
 
+const stamp = () => new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
+
+/**
+ * A picture drawn upright into plain pixels and saved as JPEG.
+ *
+ * A phone's camera app does not rotate the pixels when the phone is turned:
+ * it writes them sideways and adds a note (EXIF orientation) saying which way
+ * is up. Whether that note is read depends on whatever shows the file next -
+ * one viewer turns it round, another shows it on its side. Drawing it through
+ * createImageBitmap with the note applied, and saving the result, leaves a
+ * picture that is simply the right way up everywhere.
+ *
+ * Anything that goes wrong returns the original file untouched: a photo on
+ * its side is better than no photo.
+ */
+async function upright(file: File): Promise<File> {
+  if (!file.type.startsWith('image/') || typeof createImageBitmap !== 'function') return file
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+    const canvas = document.createElement('canvas')
+    canvas.width = bitmap.width
+    canvas.height = bitmap.height
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0)
+    bitmap.close()
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9))
+    return blob ? new File([blob], `photo-${stamp()}.jpg`, { type: 'image/jpeg' }) : file
+  } catch {
+    return file
+  }
+}
+
 /**
  * Take a photo right here and put it on the message - the WhatsApp camera.
  *
@@ -98,6 +129,12 @@ export function CameraCapture({ onCapture, onClose }: {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  // A front-camera picture is kept the way its preview looked. The preview
+  // is a mirror, like any selfie screen; saving the un-mirrored frame made
+  // the photo come out flipped side to side from what the person had just
+  // lined up - which is also how WhatsApp keeps a selfie.
+  const mirrored = facing === 'user'
+
   const capture = () => {
     const video = videoRef.current
     if (!video || !video.videoWidth) return
@@ -107,14 +144,15 @@ export function CameraCapture({ onCapture, onClose }: {
     canvas.height = video.videoHeight
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    // The preview of the front camera is a mirror, the way a selfie screen
-    // is; the photo itself is not, so writing in it reads the right way round.
+    if (mirrored) {
+      ctx.translate(canvas.width, 0)
+      ctx.scale(-1, 1)
+    }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
     canvas.toBlob((blob) => {
       if (!blob) return
-      const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
-      const file = new File([blob], `photo-${stamp}.jpg`, { type: 'image/jpeg' })
+      const file = new File([blob], `photo-${stamp()}.jpg`, { type: 'image/jpeg' })
       stop()
       setShot({ file, url: URL.createObjectURL(blob) })
     }, 'image/jpeg', 0.9)
@@ -158,7 +196,7 @@ export function CameraCapture({ onCapture, onClose }: {
             playsInline
             muted
             autoPlay
-            className={`max-h-full max-w-full object-contain ${facing === 'user' ? '-scale-x-100' : ''}`}
+            className={`max-h-full max-w-full object-contain ${mirrored ? '-scale-x-100' : ''}`}
           />
         )}
 
@@ -212,17 +250,18 @@ export function CameraCapture({ onCapture, onClose }: {
         )}
       </div>
 
-      {/* The phone's own camera, when this page cannot open one. */}
+      {/* The phone's own camera, when this page cannot open one - its photo
+          turned the right way up before it goes on the message. */}
       <input
         ref={fallbackRef}
         type="file"
         accept="image/*"
         capture="environment"
         className="hidden"
-        onChange={(e) => {
+        onChange={async (e) => {
           const file = e.target.files?.[0]
           e.target.value = ''
-          if (file) onCapture(file)
+          if (file) onCapture(await upright(file))
         }}
       />
     </div>,
