@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Archive, ArrowDown, Bell, BellOff, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Eraser, Flag, Forward, Megaphone, Mic, MoreVertical, Palette, Paperclip, Pencil, Phone, Pin, Plus,
+  Archive, ArrowDown, Bell, BellOff, Camera, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Eraser, Flag, Forward, Megaphone, Mic, MoreVertical, Palette, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
   Smile, Square, Trash2, Video, X,
 } from 'lucide-react'
@@ -12,6 +12,7 @@ import MessageAttachment from '../components/MessageAttachment'
 import PersonModal from '../components/PersonModal'
 import BroadcastModal from '../components/BroadcastModal'
 import { EmojiPicker } from '../components/EmojiPicker'
+import { CameraCapture } from '../components/CameraCapture'
 import { insertAtCursor } from '../lib/insertAtCursor'
 import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
@@ -1150,6 +1151,7 @@ export default function MessagesPage() {
   }
 
   const [showNewChat, setShowNewChat] = useState(false)
+  const [cameraOpen, setCameraOpen] = useState(false)
   const [showBroadcast, setShowBroadcast] = useState(false)
   const startNewChat = () => setShowNewChat(true)
   const beginChatWith = (identifier: string) => {
@@ -2574,6 +2576,27 @@ export default function MessagesPage() {
                 >
                   <Paperclip className="size-4" />
                 </button>
+                {/* Take a photo here and put it on the message, like WhatsApp:
+                    it waits in the box with any caption until Send. */}
+                <button
+                  type="button"
+                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800"
+                  title="Take a photo"
+                  aria-label="Take a photo"
+                  onClick={() => setCameraOpen(true)}
+                >
+                  <Camera className="size-4" />
+                </button>
+                {cameraOpen && (
+                  <CameraCapture
+                    onClose={() => setCameraOpen(false)}
+                    onCapture={(file) => {
+                      setCameraOpen(false)
+                      stageFiles([file])
+                      requestAnimationFrame(() => draftInputRef.current?.focus())
+                    }}
+                  />
+                )}
                 <input
                   ref={fileRef}
                   type="file"
