@@ -219,19 +219,16 @@ class InvoiceController extends Controller
                 ->where('status', '!=', 'cancelled')
                 ->with('member.user:id,name,email')
                 ->withSum('payments as received', 'amount')
-                ->get(['id', 'member_id', ...Invoice::RUPEE_COLUMNS])
+                ->get(['id', 'member_id', 'total'])
                 ->groupBy('member_id')
                 ->map(fn ($group) => [
                     'uuid' => $group->first()->member?->uuid,
                     'name' => $group->first()->member?->user?->name ?? 'Unassigned',
                     'is_me' => $group->first()->member_id === $me->id,
                     'count' => $group->count(),
-                    // In rupees, so the cards can be ranked against each
-                    // other. What each card shows is by_currency, below.
-                    'total' => round((float) $group->sum(fn ($i) => $i->inRupees($i->total)), 2),
+                    'total' => round((float) $group->sum('total'), 2),
                     // What of it is still owed — sales and dues, side by side.
-                    'due' => round((float) $group->sum(fn ($i) => $i->inRupees(max(0, (float) $i->total - (float) ($i->received ?? 0)))), 2),
-                    'by_currency' => self::perCurrency($group),
+                    'due' => round((float) $group->sum(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))), 2),
                 ])
                 ->sortByDesc('total')
                 ->values();
@@ -248,35 +245,26 @@ class InvoiceController extends Controller
         $live = (clone $query)->where('status', '!=', 'cancelled')
             ->withSum('payments as received', 'amount')
             ->withSum('payments as charges', 'charge_amount')
-            ->get(['id', 'invoice_date', 'subtotal', 'discount', 'cgst', 'sgst', 'igst', 'other_tax', 'tds', ...Invoice::RUPEE_COLUMNS]);
-        $consolidated = self::consolidate($live);
+            ->get(['id', 'invoice_date', 'subtotal', 'discount', 'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'total']);
+        $consolidated = [
+            'basic' => round((float) $live->sum(fn ($i) => (float) $i->subtotal - (float) ($i->discount ?? 0)), 2),
+            'cgst' => round((float) $live->sum('cgst'), 2),
+            'sgst' => round((float) $live->sum('sgst'), 2),
+            'igst' => round((float) $live->sum('igst'), 2),
+            'gst_total' => round((float) $live->sum(fn ($i) => (float) $i->cgst + (float) $i->sgst + (float) $i->igst), 2),
+            'other_tax' => round((float) $live->sum('other_tax'), 2),
+            'tds' => round((float) $live->sum('tds'), 2),
+            'total' => round((float) $live->sum('total'), 2),
+            'received' => round((float) $live->sum(fn ($i) => (float) ($i->received ?? 0)), 2),
+            'charges' => round((float) $live->sum(fn ($i) => (float) ($i->charges ?? 0)), 2),
+            'due' => round((float) $live->sum(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))), 2),
+        ];
 
         $totals = array_filter([
             'count' => (clone $query)->count(),
             'total' => $consolidated['total'],
             'due' => $consolidated['due'],
             'consolidated' => $consolidated,
-            /*
-             * The same foot, once per currency.
-             *
-             * CGST in dollars and CGST in rupees are two figures an
-             * accountant needs apart; the single block above adds them.
-             * Rupees first, since that is the book the company keeps.
-             */
-            'consolidated_by_currency' => $live
-                ->groupBy(fn ($i) => strtoupper((string) ($i->currency ?: 'INR')))
-                ->map(fn ($group, $code) => ['currency' => $code] + self::consolidate($group))
-                ->sortBy(fn ($block) => $block['currency'] === 'INR' ? 0 : 1)
-                ->values(),
-            /*
-             * The same totals, one row per currency.
-             *
-             * Money in two currencies is two figures, never one sum: a
-             * thousand dollars and a thousand rupees are not two thousand of
-             * anything. The single figure above stays for a list that is all
-             * one currency, which is most of them.
-             */
-            'by_currency' => self::perCurrency($live),
             'scope' => $scope,
             'by_salesperson' => $bySalesperson,
             // What the period looks like over time, for the charts. Daily
@@ -865,57 +853,11 @@ class InvoiceController extends Controller
                     ? \Illuminate\Support\Carbon::parse($key)->format('d M')
                     : \Illuminate\Support\Carbon::parse($key . '-01')->format('M Y'),
                 'count' => $group->count(),
-                // A chart has one axis, so one unit: rupees, with a foreign
-                // document at its frozen equivalent and its receipts at the
-                // same rate. Bars of dollars stacked on bars of rupees
-                // compare nothing.
-                'total' => round((float) $group->sum(fn ($i) => $i->inRupees($i->total)), 2),
-                'received' => round((float) $group->sum(fn ($i) => $i->inRupees($i->received ?? 0)), 2),
-                'due' => round((float) $group->sum(fn ($i) => $i->inRupees(max(0, (float) $i->total - (float) ($i->received ?? 0)))), 2),
-            ])
-            ->sortKeys()
-            ->values()
-            ->all();
-    }
-
-    /**
-     * The accountant's figures over a set of documents, each in its own
-     * currency — so a set of one currency is the only honest input.
-     */
-    private static function consolidate($docs): array
-    {
-        return [
-            'basic' => round((float) $docs->sum(fn ($i) => (float) $i->subtotal - (float) ($i->discount ?? 0)), 2),
-            'cgst' => round((float) $docs->sum('cgst'), 2),
-            'sgst' => round((float) $docs->sum('sgst'), 2),
-            'igst' => round((float) $docs->sum('igst'), 2),
-            'gst_total' => round((float) $docs->sum(fn ($i) => (float) $i->cgst + (float) $i->sgst + (float) $i->igst), 2),
-            'other_tax' => round((float) $docs->sum('other_tax'), 2),
-            'tds' => round((float) $docs->sum('tds'), 2),
-            'total' => round((float) $docs->sum('total'), 2),
-            'received' => round((float) $docs->sum(fn ($i) => (float) ($i->received ?? 0)), 2),
-            'charges' => round((float) $docs->sum(fn ($i) => (float) ($i->charges ?? 0)), 2),
-            'due' => round((float) $docs->sum(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))), 2),
-        ];
-    }
-
-    /**
-     * Count, total and due for each currency in a set of documents.
-     *
-     * Money in two currencies is two figures, never one sum: a thousand
-     * dollars and a thousand rupees are not two thousand of anything.
-     */
-    private static function perCurrency($docs): array
-    {
-        return $docs
-            ->groupBy(fn ($i) => strtoupper((string) ($i->currency ?: 'INR')))
-            ->map(fn ($group, $code) => [
-                'currency' => $code,
-                'count' => $group->count(),
                 'total' => round((float) $group->sum('total'), 2),
+                'received' => round((float) $group->sum(fn ($i) => (float) ($i->received ?? 0)), 2),
                 'due' => round((float) $group->sum(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))), 2),
             ])
-            ->sortBy(fn ($row) => $row['currency'] === 'INR' ? 0 : 1)
+            ->sortKeys()
             ->values()
             ->all();
     }
@@ -1122,9 +1064,7 @@ class InvoiceController extends Controller
             'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
             'client_category' => ['nullable', Rule::in(Client::CATEGORIES)],
             'pricing_tier' => ['nullable', Rule::in(['regular', 'low'])],
-            // One of the few a document can be written in; left out, the
-            // document is in the currency its company bills in.
-            'currency' => ['nullable', Rule::in(Invoice::CURRENCIES)],
+            'currency' => ['nullable', 'string', 'size:3'],
             'terms_of_payment' => ['nullable', 'string', 'max:255'],
             'subscription_type' => ['nullable', Rule::in(['online', 'offline', 'both'])],
             'discount' => ['nullable', 'numeric', 'min:0'],
@@ -1253,47 +1193,22 @@ class InvoiceController extends Controller
             $data['total_fx'] = round($subtotalFx, 2);
         }
 
-        /*
-         * The currency the document is written in.
-         *
-         * Chosen on the document, else kept from what it already was, else
-         * the one its company bills in. It used to be the company's alone,
-         * so a rupee company could not raise a dollar invoice for a client
-         * abroad without a second company set up to do nothing else.
-         *
-         * Anything not in rupees carries the universal INR figure beside it —
-         * market rate less the bank-charge margin, frozen at save time — as a
-         * dollar company's documents always have.
-         */
-        $currency = strtoupper((string) ($data['currency'] ?? $existing?->currency ?? ($company?->currency ?: 'INR')));
-
-        /*
-         * Not once money has been taken against it.
-         *
-         * A receipt is recorded in the document's currency, and settling one
-         * in another currency is refused by name. Re-labelling the document
-         * afterwards would turn "$800 received" into "₹800 received" without
-         * touching a figure, which is the same mistake by a different door.
-         */
-        if ($existing && strtoupper((string) ($existing->currency ?: 'INR')) !== $currency
-            && $existing->payments()->exists()) {
-            throw ValidationException::withMessages(['currency' => [
-                'Payments are already recorded against this document in '
-                    . strtoupper((string) ($existing->currency ?: 'INR'))
-                    . ' — its currency can no longer change.',
-            ]]);
-        }
-
-        $data['currency'] = $currency;
-
-        if ($currency !== 'INR') {
-            $rate = (new \App\Services\Crm\FxService($company?->organization ?? $request->attributes->get('crm_org')))
-                ->effectiveRate($currency);
-            if ($rate !== null) {
-                $data['fx_currency'] = 'INR';
-                $data['fx_rate'] = $rate;
-                $data['subtotal_fx'] = round($data['subtotal'] * $rate, 2);
-                $data['total_fx'] = round($data['total'] * $rate, 2);
+        // A foreign-currency issuing company bills in its own currency, and
+        // the document carries the universal INR figure beside it — market
+        // rate less the bank-charge margin, frozen at save time.
+        if (! empty($data['issuing_company_id'])) {
+            $company = IssuingCompany::find($data['issuing_company_id']);
+            $companyCurrency = strtoupper((string) ($company?->currency ?: 'INR'));
+            if ($company && $companyCurrency !== 'INR') {
+                $data['currency'] = $companyCurrency;
+                $rate = (new \App\Services\Crm\FxService($company->organization ?? $request->attributes->get('crm_org')))
+                    ->effectiveRate($companyCurrency);
+                if ($rate !== null) {
+                    $data['fx_currency'] = 'INR';
+                    $data['fx_rate'] = $rate;
+                    $data['subtotal_fx'] = round($data['subtotal'] * $rate, 2);
+                    $data['total_fx'] = round($data['total'] * $rate, 2);
+                }
             }
         }
 

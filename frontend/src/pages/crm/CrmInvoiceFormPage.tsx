@@ -9,7 +9,6 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Select, Spinner, Textarea } from '../../components/ui'
 import { codeCase, companyCase } from './textCase'
 import { unavailableTaxes } from './gst'
-import { money } from '../../lib/money'
 import { crmPath } from '../../lib/crmPath'
 import { KeywordChips } from '../../components/KeywordChips'
 
@@ -30,6 +29,10 @@ const EMPTY_ITEM: ItemRow = {
   membership: '', plan_name: '', description: '', validity_from: '', validity_to: '',
   qty: '1', unit_price: '', amount_fx: '', custom: {},
 }
+
+const inr = (v: number) => '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+
 
 /**
  * Several values in one column, kept as the comma-separated list the server
@@ -183,13 +186,6 @@ export default function CrmInvoiceFormPage() {
     igst_rate: '',
     other_tax_rate: '',
     tds_rate: '',
-    /*
-     * What the document is written in. Blank until a company is picked,
-     * which puts that company's own currency here — a rupee company's
-     * documents start in rupees and a dollar company's in dollars, and either
-     * can be changed for the client who pays in something else.
-     */
-    currency: '',
     fx_currency: '',
     fx_rate: '',
     notes: '',
@@ -303,7 +299,6 @@ export default function CrmInvoiceFormPage() {
       igst_rate: existing.igst_rate ?? '',
       other_tax_rate: existing.other_tax_rate ?? '',
       tds_rate: existing.tds_rate ?? '',
-      currency: existing.currency ?? 'INR',
       fx_currency: existing.fx_currency ?? '',
       fx_rate: existing.fx_rate ?? '',
       notes: existing.notes ?? '',
@@ -562,7 +557,6 @@ export default function CrmInvoiceFormPage() {
               return [f.key, f.type === 'number' ? Number(raw) : raw]
             }))
           : undefined,
-        currency: head.currency || null,
         fx_currency: head.fx_currency || null,
         fx_rate: head.fx_rate ? Number(head.fx_rate) : null,
         notes: head.notes || null,
@@ -629,18 +623,7 @@ export default function CrmInvoiceFormPage() {
         <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <Label>{heading('issuing_company', 'Issuing company')}</Label>
-            <Select
-              value={head.issuing_company_id}
-              onChange={(e) => {
-                const id = e.target.value
-                const company = masters?.issuing_companies.find((c) => String(c.id) === id)
-                // The company's own currency, as the starting point; the
-                // currency box beside it changes it for this document.
-                setHead((h) => ({ ...h, issuing_company_id: id, currency: company?.currency || 'INR' }))
-              }}
-              disabled={editing}
-              className="w-full"
-            >
+            <Select value={head.issuing_company_id} onChange={(e) => setH('issuing_company_id', e.target.value)} disabled={editing} className="w-full">
               <option value="">Select</option>
               {masters?.issuing_companies.filter((c) => c.is_active || String(c.id) === head.issuing_company_id).map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
@@ -648,23 +631,6 @@ export default function CrmInvoiceFormPage() {
             </Select>
             {!editing && masters?.issuing_companies.length === 0 && (
               <p className="mt-1 text-xs text-amber-600">None yet — add one under Billing setup.</p>
-            )}
-          </div>
-          <div>
-            <Label>Currency</Label>
-            <Select
-              value={head.currency || 'INR'}
-              onChange={(e) => setH('currency', e.target.value)}
-              className="w-full"
-            >
-              {(masters?.currencies ?? ['INR']).map((code) => <option key={code} value={code}>{code}</option>)}
-            </Select>
-            {/* Said where it is chosen, because the rupee figure is the one
-                the books keep and nobody should have to go looking for it. */}
-            {(head.currency || 'INR') !== 'INR' && (
-              <p className="mt-1 text-xs text-slate-400">
-                Carries its rupee equivalent at the live rate less your FX margin.
-              </p>
             )}
           </div>
           <div className="relative">
@@ -896,7 +862,7 @@ export default function CrmInvoiceFormPage() {
                     </td>
                   ))}
                   <td className="whitespace-nowrap py-3.5 pr-2 text-right font-medium">
-                    {money((Number(row.qty) || 0) * (Number(row.unit_price) || 0), head.currency || 'INR')}
+                    {inr((Number(row.qty) || 0) * (Number(row.unit_price) || 0))}
                   </td>
                   <td className="py-2 text-right">
                     <button
@@ -919,7 +885,7 @@ export default function CrmInvoiceFormPage() {
           <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Taxes & adjustments</h2>
           <p className="mt-0.5 text-xs text-slate-400">
             Enter a percentage and the amount is worked out for you, or leave % blank and type the amount.
-            Taxes are charged on {money(totals.taxable, head.currency || 'INR')} (subtotal less discounts).
+            Taxes are charged on {inr(totals.taxable)} (subtotal less discounts).
           </p>
           {/* Why one of the pair is grey. Said in terms of the document —
               where the client is — rather than as a rule about state codes,
@@ -962,7 +928,7 @@ export default function CrmInvoiceFormPage() {
                     /* The percentage owns the figure; an editable box here
                        would be a second answer to the same question. */
                     <div className="flex h-[38px] flex-1 items-center justify-end rounded-xl bg-slate-100 px-3 text-sm font-medium tabular-nums text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:ring-slate-700">
-                      {money(totals.amounts[line.key] ?? 0, head.currency || 'INR')}
+                      {inr(totals.amounts[line.key] ?? 0)}
                     </div>
                   ) : (
                     <Input
@@ -1005,7 +971,7 @@ export default function CrmInvoiceFormPage() {
 
         <Card className="flex flex-col justify-center">
           <div className="space-y-1.5 text-sm">
-            <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{money(totals.subtotal, head.currency || 'INR')}</span></div>
+            <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{inr(totals.subtotal)}</span></div>
             {taxSetup.map((line) => {
               const amount = totals.amounts[line.key] ?? 0
               if (amount <= 0) return null
@@ -1020,12 +986,12 @@ export default function CrmInvoiceFormPage() {
                     {line.label}
                     {rate !== '' && <span className="text-slate-400"> @ {rate}%</span>}
                   </span>
-                  <span>{line.kind === 'tax' ? '' : '− '}{money(amount, head.currency || 'INR')}</span>
+                  <span>{line.kind === 'tax' ? '' : '− '}{inr(amount)}</span>
                 </div>
               )
             })}
             <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-900 dark:border-slate-700 dark:text-white">
-              <span>Grand total</span><span>{money(totals.total, head.currency || 'INR')}</span>
+              <span>Grand total</span><span>{inr(totals.total)}</span>
             </div>
           </div>
           <Button

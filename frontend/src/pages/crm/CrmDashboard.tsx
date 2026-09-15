@@ -10,7 +10,6 @@ import { crm, crmMeQuery, CRM_LEAD_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } fr
 import { Card, EmptyState, Spinner , Select } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
 import { crmPath } from '../../lib/crmPath'
-import { money } from '../../lib/money'
 
 const LEAD_STATUS_COLORS: Record<string, string> = {
   unattended: CHART_COLORS[2],
@@ -168,7 +167,7 @@ export default function CrmDashboard() {
                       </td>
                       <td className="max-w-[180px] truncate py-2 pr-3">{i.client ?? '—'}</td>
                       <td className="whitespace-nowrap py-2 pr-3 text-slate-500">{i.invoice_date}</td>
-                      <td className="whitespace-nowrap py-2 pr-3 text-right font-medium">{money(i.total, i.currency)}</td>
+                      <td className="whitespace-nowrap py-2 pr-3 text-right font-medium">{inr(i.total)}</td>
                       <td className="py-2">
                         <span
                           className={clsx(
