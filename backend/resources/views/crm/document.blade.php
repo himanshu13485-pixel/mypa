@@ -354,7 +354,9 @@
     </tr>
   @endforeach
   <tr class="grand"><td>Grand total</td><td class="right">{{ $money($invoice->total) }}</td></tr>
-  @if ($invoice->total_fx)
+  {{-- Not on a document in another currency: the client pays in that
+       currency, and the rupee figure is kept for our books, not theirs. --}}
+  @if ($invoice->total_fx && $currency === 'INR')
     <tr class="xs s400">
       <td>{{ $invoice->fx_currency }} equivalent</td>
       <td class="right">{{ number_format((float) $invoice->total_fx, 2) }}</td>

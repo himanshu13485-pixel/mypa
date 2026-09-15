@@ -525,7 +525,9 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
             <div className="flex justify-between border-t border-slate-200 pt-1.5 text-base font-semibold text-slate-900 dark:border-slate-700 dark:text-white">
               <span>Grand total</span><span>{inr(inv.total)}</span>
             </div>
-            {inv.total_fx && <div className="flex justify-between text-xs text-slate-400"><span>{inv.fx_currency} equivalent</span><span>{Number(inv.total_fx).toLocaleString()}</span></div>}
+            {/* Not on a document in another currency: the client pays in that
+                currency, and its rupee figure is for our books, not theirs. */}
+            {(inv.currency || 'INR') === 'INR' && inv.total_fx && <div className="flex justify-between text-xs text-slate-400"><span>{inv.fx_currency} equivalent</span><span>{Number(inv.total_fx).toLocaleString()}</span></div>}
             {!isProforma && (
               <>
                 <div className="flex justify-between text-emerald-600"><span>Received</span><span>{inr(inv.amount_received || 0)}</span></div>

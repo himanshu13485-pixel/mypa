@@ -493,7 +493,9 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                     <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">{i.invoice_date}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">
                       {money(i.total, i.currency)}
-                      {i.total_fx && <div className="text-[11px] font-normal text-slate-400">{money(i.total_fx, i.fx_currency)}</div>}
+                      {/* A document in another currency is read in that currency; its
+                          rupee figure is kept for the books, not shown. */}
+                      {(i.currency || 'INR') === 'INR' && i.total_fx && <div className="text-[11px] font-normal text-slate-400">{money(i.total_fx, i.fx_currency)}</div>}
                     </td>
                     <td className="py-2.5 pr-3">
                       <span className={clsx(
