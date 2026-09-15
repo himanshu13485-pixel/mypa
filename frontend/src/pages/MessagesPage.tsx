@@ -1668,8 +1668,8 @@ export default function MessagesPage() {
             )}
 
             {/* Header */}
-            <div className={clsx('flex items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800', selecting && 'hidden')}>
-              <div className="flex min-w-0 items-center gap-1.5">
+            <div className={clsx('flex items-center justify-between gap-2 border-b border-slate-200 px-2 py-2.5 dark:border-slate-800 sm:px-4 sm:py-3', selecting && 'hidden')}>
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <button
                   className="tap -ml-2 flex items-center justify-center rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 md:hidden"
                   aria-label="Back to conversations"
@@ -1677,7 +1677,14 @@ export default function MessagesPage() {
                 >
                   <ChevronLeft className="size-5" />
                 </button>
-                <div className="min-w-0">
+                {/* Who this is, at a glance - the list shows a face, so does the chat. */}
+                <Avatar
+                  name={selected.name}
+                  photoPath={selected.type === 'direct' ? selected.other_user?.photo_path : null}
+                  avatar={selected.type === 'direct' ? selected.other_user?.avatar : null}
+                  size={34}
+                />
+                <div className="min-w-0 flex-1">
                   {/* The person you are talking to, tappable. A one-to-one
                       chat header names somebody; it should also be the way
                       to find out who they are. */}
@@ -1690,7 +1697,7 @@ export default function MessagesPage() {
                       {selected.name}
                     </button>
                   ) : (
-                    <p className="text-sm font-semibold">{selected.name}</p>
+                    <p className="truncate text-sm font-semibold">{selected.name}</p>
                   )}
                   {selected.type === 'group' ? (
                     <button
@@ -1962,7 +1969,10 @@ export default function MessagesPage() {
                   }}
                 />
               )}
-              <div className="flex gap-1">
+              <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+                {/* Search and auto-delete live in the ⋮ menu on a phone, so the
+                    name keeps its room instead of shrinking to one letter. */}
+                <div className="hidden items-center gap-1 sm:flex">
                 <Button
                   size="sm"
                   variant={searching ? 'primary' : 'ghost'}
@@ -1983,6 +1993,7 @@ export default function MessagesPage() {
                 >
                   <Clock className="size-4" />
                 </Button>
+                </div>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -2040,6 +2051,18 @@ export default function MessagesPage() {
                     <>
                       <div className="fixed inset-0 z-20" onClick={() => setHeaderMenu(false)} />
                       <div className="absolute right-0 top-10 z-30 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lift dark:border-slate-700 dark:bg-slate-800">
+                        <div className="sm:hidden">
+                          <ChatMenuItem
+                            icon={<Search className="size-3.5" />}
+                            label={searching ? 'Close search' : 'Search this chat'}
+                            onClick={() => { setHeaderMenu(false); setSearching((v) => !v) }}
+                          />
+                          <ChatMenuItem
+                            icon={<Clock className="size-3.5" />}
+                            label={selected.auto_delete_hours ? 'Auto-delete: on' : 'Auto-delete messages'}
+                            onClick={() => { setHeaderMenu(false); setRetentionOpen(true) }}
+                          />
+                        </div>
                         <ChatMenuItem
                           icon={<Pin className="size-3.5" />}
                           label={selected.is_pinned ? 'Unpin chat' : 'Pin to top'}
@@ -2578,7 +2601,7 @@ export default function MessagesPage() {
                 <Textarea
                   ref={draftInputRef}
                   rows={1}
-                  placeholder={editing ? 'Edit your message…' : 'Type a message…'}
+                  placeholder={editing ? 'Edit message…' : 'Message…'}
                   // Grows to six lines, then scrolls. min-w-0 so a long word
                   // cannot push the send button off a narrow screen.
                   className="min-w-0 flex-1 resize-none py-2 leading-5"

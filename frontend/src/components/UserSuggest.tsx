@@ -251,7 +251,11 @@ export function PickUserModal({
     }
   }
 
-  return (
+  // Portalled to <body>, like Modal. Rendered where it was written, a themed
+  // page background (a filter or transform on an ancestor) turns "fixed"
+  // into "fixed inside that box": the dialog was clipped to the narrow chat
+  // list and New appeared to do nothing.
+  return createPortal(
     // z-80: this one is opened *from* the call window (z-60), so at z-50 the
     // call drew straight over the dialog asking who to ring.
     <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 pt-24" onClick={onClose}>
@@ -274,6 +278,7 @@ export function PickUserModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

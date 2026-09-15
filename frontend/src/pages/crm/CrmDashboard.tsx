@@ -99,13 +99,15 @@ export default function CrmDashboard() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {stats.map((s) => (
           <Card key={s.label} className="flex items-start gap-3">
-            <div className="rounded-xl bg-emerald-50 p-2.5 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+            {/* The icon steps aside on a phone: two tiles a row leave no room
+                for it and a lakh-sized amount both, and the amount matters. */}
+            <div className="hidden rounded-xl bg-emerald-50 p-2.5 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 sm:block">
               <s.icon className="size-5" />
             </div>
-            <div className="min-w-0">
-              <div className="truncate text-lg font-semibold text-slate-900 dark:text-white">{s.value}</div>
-              <div className="text-xs font-medium text-slate-600 dark:text-slate-300">{s.label}</div>
-              <div className="truncate text-xs text-slate-400">{s.sub}</div>
+            <div className="min-w-0 flex-1">
+              <div className="break-words text-base font-semibold leading-tight tabular-nums text-slate-900 dark:text-white sm:text-lg">{s.value}</div>
+              <div className="mt-0.5 text-xs font-medium text-slate-600 dark:text-slate-300">{s.label}</div>
+              <div className="break-words text-xs text-slate-400">{s.sub}</div>
             </div>
           </Card>
         ))}

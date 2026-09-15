@@ -81,6 +81,29 @@ class CompanyMailer
     }
 
     /**
+     * Whose name a staff member's mail carries - the company they work for.
+     *
+     * Separate from forStaff() on purpose: which server sends is a question
+     * of mailboxes, and a company with none set up (or one that fails and
+     * falls back to the platform) still writes to its people as itself. Their
+     * approval, their leave, their task: the subject, the heading, the
+     * sign-off say the company, not Netvork. Null for somebody who is nobody's
+     * employee - Netvork's own users hear from Netvork.
+     */
+    public static function brandFor(\App\Models\User $user): ?string
+    {
+        $member = \App\Models\Crm\Member::visible()->with('organization')
+            ->where('user_id', $user->id)
+            ->where('status', 'active')
+            ->get()
+            ->first(fn ($m) => $m->organization?->status === 'active');
+
+        $name = trim((string) $member?->organization?->name);
+
+        return $name !== '' ? $name : null;
+    }
+
+    /**
      * The company's own mailbox, when the mail is not any one company's.
      *
      * A newsletter, a staff notification, a sign-in code: none of them belong

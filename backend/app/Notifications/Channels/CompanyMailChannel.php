@@ -45,6 +45,40 @@ class CompanyMailChannel extends MailChannel
             ? CompanyMailer::forStaff($notifiable)
             : null;
 
+        /*
+         * The company's name on the letter, whichever server carries it.
+         *
+         * The mail layout prints config('app.name') in its heading, its
+         * footer and "Regards," - so a company's approval arrived headed and
+         * signed "Netvork" even when it left from the company's own mailbox.
+         * For the length of this one render the app is the company; restored
+         * straight after, because a queue worker lives on to send the next
+         * notification, which may be nobody's employee's.
+         */
+        $brand = $notifiable instanceof \App\Models\User ? CompanyMailer::brandFor($notifiable) : null;
+
+        return $this->asBrand($brand, function () use ($notifiable, $notification, $message, $company) {
+            return $this->deliver($notifiable, $notification, $message, $company);
+        });
+    }
+
+    private function asBrand(?string $brand, callable $send)
+    {
+        if ($brand === null) {
+            return $send();
+        }
+
+        $previous = config('app.name');
+        config(['app.name' => $brand]);
+        try {
+            return $send();
+        } finally {
+            config(['app.name' => $previous]);
+        }
+    }
+
+    private function deliver($notifiable, Notification $notification, $message, ?array $company)
+    {
         // Nobody's employee, or a company with no mailbox of its own: the
         // platform sends it, exactly as before.
         if (! $company) {

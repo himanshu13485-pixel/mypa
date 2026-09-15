@@ -50,10 +50,22 @@ class CrmNotification extends Notification implements ShouldQueue
         ];
     }
 
+    /**
+     * The company this is about - the one the person works for. CRM mail is
+     * the company writing to its own staff, so it carries the company's name;
+     * Netvork only when there is no company to name.
+     */
+    private function brand(object $notifiable): string
+    {
+        return ($notifiable instanceof \App\Models\User
+            ? \App\Services\Crm\CompanyMailer::brandFor($notifiable)
+            : null) ?? 'Netvork CRM';
+    }
+
     public function toPush(object $notifiable): array
     {
         return [
-            'title' => 'Netvork CRM',
+            'title' => $this->brand($notifiable),
             'body' => $this->message,
             'tag' => $this->kind,
             'url' => $this->actionPath ?? '/crm',
@@ -62,13 +74,16 @@ class CrmNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
+        $brand = $this->brand($notifiable);
+
         $mail = (new MailMessage)
-            ->subject('Netvork CRM — ' . str($this->kind)->replace(['crm_', '_'], ['', ' '])->title())
+            ->subject($brand . ' — ' . str($this->kind)->replace(['crm_', '_'], ['', ' '])->title())
             ->greeting('Hello ' . $notifiable->name . ',')
-            ->line($this->message);
+            ->line($this->message)
+            ->salutation(new \Illuminate\Support\HtmlString('Regards,<br>' . e($brand)));
 
         if ($this->actionPath) {
-            $mail->action('Open Netvork CRM', config('mypa.frontend_url') . $this->actionPath);
+            $mail->action('Open CRM', config('mypa.frontend_url') . $this->actionPath);
         }
 
         return $mail;
