@@ -245,7 +245,7 @@ class InvoiceController extends Controller
         $live = (clone $query)->where('status', '!=', 'cancelled')
             ->withSum('payments as received', 'amount')
             ->withSum('payments as charges', 'charge_amount')
-            ->get(['id', 'invoice_date', 'subtotal', 'discount', 'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'total']);
+            ->get(['id', 'invoice_date', 'currency', 'subtotal', 'discount', 'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'total']);
         $consolidated = [
             'basic' => round((float) $live->sum(fn ($i) => (float) $i->subtotal - (float) ($i->discount ?? 0)), 2),
             'cgst' => round((float) $live->sum('cgst'), 2),
@@ -265,6 +265,24 @@ class InvoiceController extends Controller
             'total' => $consolidated['total'],
             'due' => $consolidated['due'],
             'consolidated' => $consolidated,
+            /*
+             * The same totals, one row per currency.
+             *
+             * Money in two currencies is two figures, never one sum: a
+             * thousand dollars and a thousand rupees are not two thousand of
+             * anything. The single figure above stays for a list that is all
+             * one currency, which is most of them.
+             */
+            'by_currency' => $live
+                ->groupBy(fn ($i) => strtoupper((string) ($i->currency ?: 'INR')))
+                ->map(fn ($group, $code) => [
+                    'currency' => $code,
+                    'count' => $group->count(),
+                    'total' => round((float) $group->sum('total'), 2),
+                    'due' => round((float) $group->sum(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))), 2),
+                ])
+                ->sortByDesc('total')
+                ->values(),
             'scope' => $scope,
             'by_salesperson' => $bySalesperson,
             // What the period looks like over time, for the charts. Daily
@@ -1064,7 +1082,9 @@ class InvoiceController extends Controller
             'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
             'client_category' => ['nullable', Rule::in(Client::CATEGORIES)],
             'pricing_tier' => ['nullable', Rule::in(['regular', 'low'])],
-            'currency' => ['nullable', 'string', 'size:3'],
+            // One of the few a document can be written in; left out, the
+            // document is in the currency its company bills in.
+            'currency' => ['nullable', Rule::in(Invoice::CURRENCIES)],
             'terms_of_payment' => ['nullable', 'string', 'max:255'],
             'subscription_type' => ['nullable', Rule::in(['online', 'offline', 'both'])],
             'discount' => ['nullable', 'numeric', 'min:0'],
@@ -1193,22 +1213,47 @@ class InvoiceController extends Controller
             $data['total_fx'] = round($subtotalFx, 2);
         }
 
-        // A foreign-currency issuing company bills in its own currency, and
-        // the document carries the universal INR figure beside it — market
-        // rate less the bank-charge margin, frozen at save time.
-        if (! empty($data['issuing_company_id'])) {
-            $company = IssuingCompany::find($data['issuing_company_id']);
-            $companyCurrency = strtoupper((string) ($company?->currency ?: 'INR'));
-            if ($company && $companyCurrency !== 'INR') {
-                $data['currency'] = $companyCurrency;
-                $rate = (new \App\Services\Crm\FxService($company->organization ?? $request->attributes->get('crm_org')))
-                    ->effectiveRate($companyCurrency);
-                if ($rate !== null) {
-                    $data['fx_currency'] = 'INR';
-                    $data['fx_rate'] = $rate;
-                    $data['subtotal_fx'] = round($data['subtotal'] * $rate, 2);
-                    $data['total_fx'] = round($data['total'] * $rate, 2);
-                }
+        /*
+         * The currency the document is written in.
+         *
+         * Chosen on the document, else kept from what it already was, else
+         * the one its company bills in. It used to be the company's alone,
+         * so a rupee company could not raise a dollar invoice for a client
+         * abroad without a second company set up to do nothing else.
+         *
+         * Anything not in rupees carries the universal INR figure beside it —
+         * market rate less the bank-charge margin, frozen at save time — as a
+         * dollar company's documents always have.
+         */
+        $currency = strtoupper((string) ($data['currency'] ?? $existing?->currency ?? ($company?->currency ?: 'INR')));
+
+        /*
+         * Not once money has been taken against it.
+         *
+         * A receipt is recorded in the document's currency, and settling one
+         * in another currency is refused by name. Re-labelling the document
+         * afterwards would turn "$800 received" into "₹800 received" without
+         * touching a figure, which is the same mistake by a different door.
+         */
+        if ($existing && strtoupper((string) ($existing->currency ?: 'INR')) !== $currency
+            && $existing->payments()->exists()) {
+            throw ValidationException::withMessages(['currency' => [
+                'Payments are already recorded against this document in '
+                    . strtoupper((string) ($existing->currency ?: 'INR'))
+                    . ' — its currency can no longer change.',
+            ]]);
+        }
+
+        $data['currency'] = $currency;
+
+        if ($currency !== 'INR') {
+            $rate = (new \App\Services\Crm\FxService($company?->organization ?? $request->attributes->get('crm_org')))
+                ->effectiveRate($currency);
+            if ($rate !== null) {
+                $data['fx_currency'] = 'INR';
+                $data['fx_rate'] = $rate;
+                $data['subtotal_fx'] = round($data['subtotal'] * $rate, 2);
+                $data['total_fx'] = round($data['total'] * $rate, 2);
             }
         }
 

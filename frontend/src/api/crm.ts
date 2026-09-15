@@ -392,6 +392,8 @@ export interface CrmMasters {
   invoice_custom_fields: CrmCustomField[]
   invoice_method: CrmWorkOrderColumn[]
   tax_setup: CrmTaxLine[]
+  /** What a proforma or invoice can be written in. */
+  currencies?: string[]
   expense_categories: string[]
   leave_categories: string[]
   approval_types: string[]
@@ -2942,6 +2944,8 @@ export const crm = {
           /** What of it is still owed. */
           due: number
           scope: 'mine' | 'team'
+          /** The same totals one row per currency — two currencies are two figures, never one sum. */
+          by_currency?: { currency: string; count: number; total: number; due: number }[]
           /** Present in the combined view: whose money is whose. */
           by_salesperson?: { uuid: string | null; name: string; is_me: boolean; count: number; total: number; due: number }[]
           /** The consolidated figures for exactly what the filters selected. */

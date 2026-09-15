@@ -21,6 +21,17 @@ class Invoice extends Model
     protected $table = 'crm_invoices';
 
     public const KINDS = ['proforma', 'invoice'];
+
+    /**
+     * The currencies a proforma or invoice can be written in.
+     *
+     * A short list on purpose. Each one is a currency the exchange-rate feed
+     * prices and a client of an Indian company plausibly pays in; a longer
+     * list is mostly entries nobody picks and one somebody picks by mistake.
+     * The same eight a company can bill in, so a document can always be put
+     * in its own company's currency.
+     */
+    public const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD'];
     public const PAYMENT_STATUSES = ['due', 'partial', 'paid', 'refunded', 'credit_note', 'bad_debt'];
     public const DISPATCH_STATUSES = ['pending', 'partial', 'dispatched', 'in_process'];
     public const STATUSES = ['draft', 'final', 'cancelled'];

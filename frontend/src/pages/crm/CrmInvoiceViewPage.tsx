@@ -5,14 +5,13 @@ import { AlarmClock, ArrowLeft, ArrowRightLeft, Ban, Copy, CreditCard, Download,
 import { clsx } from 'clsx'
 import { crm, crmCan, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS, CRM_RECURRING_FREQUENCY_LABELS, validityMonths } from '../../api/crm'
 import { errorMessage } from '../../api/client'
+import { money } from '../../lib/money'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
 import { photoUrl } from '../../lib/avatars'
 import { KeywordChips } from '../../components/KeywordChips'
 import { readsAsKeywords } from '../../lib/keywords'
-
-const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 /** "9.000" reads as 9, "2.500" as 2.5. */
 const trimRate = (v: string) => String(Number(v))
@@ -322,12 +321,12 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
           <CreditCard className="size-4 text-emerald-500" />
           {paidLink ? (
             <span className="text-slate-600 dark:text-slate-300">
-              Paid online on {paidLink.paid_at?.slice(0, 16)} — {inr(paidLink.amount_paid)} through Cashfree.
+              Paid online on {paidLink.paid_at?.slice(0, 16)} — {money(paidLink.amount_paid, inv.currency)} through Cashfree.
             </span>
           ) : (
             <>
               <span className="text-slate-600 dark:text-slate-300">
-                Payment link for {inr(openLink!.amount)}
+                Payment link for {money(openLink!.amount, inv.currency)}
                 {openLink!.expires_at && <span className="text-slate-400"> · expires {openLink!.expires_at.slice(0, 10)}</span>}
               </span>
               <a
@@ -503,8 +502,8 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
                     </td>
                   )}
                   <td className="py-2.5 pr-3 text-right">{Number(it.qty)}</td>
-                  <td className="whitespace-nowrap py-2.5 pr-3 text-right">{inr(it.unit_price)}</td>
-                  <td className="whitespace-nowrap py-2.5 text-right font-medium">{inr(it.amount ?? 0)}</td>
+                  <td className="whitespace-nowrap py-2.5 pr-3 text-right">{money(it.unit_price, inv.currency)}</td>
+                  <td className="whitespace-nowrap py-2.5 text-right font-medium">{money(it.amount ?? 0, inv.currency)}</td>
                 </tr>
               ))}
             </tbody>
@@ -513,23 +512,23 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
 
         <div className="mt-4 flex justify-end">
           <div className="w-full max-w-xs space-y-1 text-sm">
-            <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{inr(inv.subtotal ?? 0)}</span></div>
+            <div className="flex justify-between text-slate-500"><span>Subtotal</span><span>{money(inv.subtotal ?? 0, inv.currency)}</span></div>
             {/* The money lines this document was raised with, in the company's
                 own wording — renaming a line later never rewrites old paper. */}
             {(inv.tax_lines ?? []).filter((line) => Number(line.amount) > 0).map((line) => (
               <div key={line.key} className="flex justify-between text-slate-500">
                 <span>{line.label}{line.rate ? ` @ ${trimRate(line.rate)}%` : ''}</span>
-                <span>{line.kind === 'tax' ? '' : '− '}{inr(line.amount)}</span>
+                <span>{line.kind === 'tax' ? '' : '− '}{money(line.amount, inv.currency)}</span>
               </div>
             ))}
             <div className="flex justify-between border-t border-slate-200 pt-1.5 text-base font-semibold text-slate-900 dark:border-slate-700 dark:text-white">
-              <span>Grand total</span><span>{inr(inv.total)}</span>
+              <span>Grand total</span><span>{money(inv.total, inv.currency)}</span>
             </div>
-            {inv.total_fx && <div className="flex justify-between text-xs text-slate-400"><span>{inv.fx_currency} equivalent</span><span>{Number(inv.total_fx).toLocaleString()}</span></div>}
+            {inv.total_fx && <div className="flex justify-between text-xs text-slate-400"><span>{inv.fx_currency} equivalent</span><span>{money(inv.total_fx, inv.fx_currency)}</span></div>}
             {!isProforma && (
               <>
-                <div className="flex justify-between text-emerald-600"><span>Received</span><span>{inr(inv.amount_received || 0)}</span></div>
-                <div className="flex justify-between font-medium text-red-500"><span>Balance</span><span>{inr(balance)}</span></div>
+                <div className="flex justify-between text-emerald-600"><span>Received</span><span>{money(inv.amount_received || 0, inv.currency)}</span></div>
+                <div className="flex justify-between font-medium text-red-500"><span>Balance</span><span>{money(balance, inv.currency)}</span></div>
               </>
             )}
           </div>
@@ -556,10 +555,10 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
                     <td className="py-1.5 pr-3 text-slate-500">{p.payment_mode ?? '—'}</td>
                     <td className="max-w-[220px] truncate py-1.5 pr-3 text-slate-500">{p.reference_no ?? '—'}</td>
                     <td className="py-1.5 text-right font-medium text-emerald-600">
-                      {inr(p.amount)}
+                      {money(p.amount, inv.currency)}
                       {Number(p.charge_amount) > 0 && (
                         <div className="text-[10px] font-normal text-slate-400">
-                          incl. {p.charge_note ?? 'collection charge'} {inr(p.charge_amount)} — net {inr(p.net_amount)}
+                          incl. {p.charge_note ?? 'collection charge'} {money(p.charge_amount, inv.currency)} — net {money(p.net_amount, inv.currency)}
                         </div>
                       )}
                     </td>
@@ -657,17 +656,17 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
                         {/* The unique payment id a bank statement reconciles by. */}
                         {p.payment_no && <div className="text-[10px] font-medium text-emerald-600">{p.payment_no}</div>}
                       </td>
-                      <td className="whitespace-nowrap py-2 pr-3 text-right font-medium">{inr(p.amount)}</td>
+                      <td className="whitespace-nowrap py-2 pr-3 text-right font-medium">{money(p.amount, inv.currency)}</td>
                       <td className="whitespace-nowrap py-2 pr-3 text-right text-amber-600 dark:text-amber-400">
-                        {Number(p.charge_amount) > 0 ? inr(p.charge_amount) : '—'}
+                        {Number(p.charge_amount) > 0 ? money(p.charge_amount, inv.currency) : '—'}
                         {p.charge_note && <div className="text-[10px] text-slate-400">{p.charge_note}</div>}
                       </td>
-                      <td className="whitespace-nowrap py-2 pr-3 text-right text-slate-500">{inr(p.net_amount)}</td>
+                      <td className="whitespace-nowrap py-2 pr-3 text-right text-slate-500">{money(p.net_amount, inv.currency)}</td>
                       <td className="py-2 pr-3">{p.payment_mode ?? '—'}</td>
                       <td className="py-2 pr-3">{p.bank_account ?? p.drawee_bank ?? '—'}</td>
                       <td className="py-2 pr-3">{p.reference_no ?? '—'}</td>
                       <td className="whitespace-nowrap py-2 text-right">
-                        <ChargeButton uuid={uuid!} payment={p} onDone={refresh} />
+                        <ChargeButton uuid={uuid!} payment={p} currency={inv.currency} onDone={refresh} />
                         <DeletePaymentButton uuid={uuid!} paymentId={p.id} onDone={refresh} />
                       </td>
                     </tr>
@@ -712,7 +711,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
                   : label === 'Total value (with tax)' ? 'font-semibold tabular-nums'
                     : 'tabular-nums text-slate-700 dark:text-slate-200'
               }>
-                {inr(value)}
+                {money(value, inv.currency)}
               </span>
             </div>
           ))}
@@ -722,7 +721,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
       {/* The other thing the client owes: the certificate for the tax
           they deducted. Only on documents where they deducted any. */}
       {Number(inv.tds ?? 0) > 0 && inv.kind === 'invoice' && (
-        <TdsCertificateBox invoiceUuid={inv.uuid} number={inv.number} tds={Number(inv.tds ?? 0)} />
+        <TdsCertificateBox invoiceUuid={inv.uuid} number={inv.number} tds={Number(inv.tds ?? 0)} currency={inv.currency} />
       )}
 
       <InternalNotes invoiceUuid={inv.uuid} />
@@ -737,7 +736,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
       )}
 
       {showPayment && (
-        <PaymentModal uuid={uuid!} balance={balance} onClose={() => setShowPayment(false)} onDone={() => { setShowPayment(false); refresh() }} />
+        <PaymentModal uuid={uuid!} balance={balance} currency={inv.currency} onClose={() => setShowPayment(false)} onDone={() => { setShowPayment(false); refresh() }} />
       )}
       {showChangeRequest && (
         <ChangeRequestModal
@@ -978,7 +977,9 @@ function DeletePaymentButton({ uuid, paymentId, onDone }: { uuid: string; paymen
   )
 }
 
-function PaymentModal({ uuid, balance, onClose, onDone }: { uuid: string; balance: number; onClose: () => void; onDone: () => void }) {
+function PaymentModal({ uuid, balance, currency, onClose, onDone }: {
+  uuid: string; balance: number; currency: string; onClose: () => void; onDone: () => void
+}) {
   const { toastError } = useToast()
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const [form, setForm] = useState({
@@ -1019,7 +1020,7 @@ function PaymentModal({ uuid, balance, onClose, onDone }: { uuid: string; balanc
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Amount the client paid (₹)</Label>
+            <Label>Amount the client paid ({currency})</Label>
             <Input type="number" min="0" step="0.01" value={form.amount} onChange={(e) => set('amount', e.target.value)} className="w-full" />
             <p className="mt-1 text-xs text-slate-400">The gross — this is what settles the invoice.</p>
           </div>
@@ -1047,7 +1048,7 @@ function PaymentModal({ uuid, balance, onClose, onDone }: { uuid: string; balanc
           <div className="col-span-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Gateway / bank charge (₹)</Label>
+                <Label>Gateway / bank charge ({currency})</Label>
                 <Input
                   type="number"
                   min="0"
@@ -1071,8 +1072,8 @@ function PaymentModal({ uuid, balance, onClose, onDone }: { uuid: string; balanc
             <p className="mt-2 text-xs text-slate-500">
               {Number(form.charge_amount) > 0 ? (
                 <>
-                  Client pays <strong>{inr(form.amount || 0)}</strong> · charge{' '}
-                  <strong>{inr(form.charge_amount)}</strong> · <strong>{inr(Number(form.amount || 0) - Number(form.charge_amount))}</strong>{' '}
+                  Client pays <strong>{money(form.amount || 0, currency)}</strong> · charge{' '}
+                  <strong>{money(form.charge_amount, currency)}</strong> · <strong>{money(Number(form.amount || 0) - Number(form.charge_amount), currency)}</strong>{' '}
                   reaches the bank. The invoice is settled in full and the charge is booked as an expense.
                 </>
               ) : (
@@ -1241,7 +1242,9 @@ function RepeatModal({ invoiceUuid, number, onClose, onDone }: {
  * where somebody has the bill open in front of them and can see that the
  * certificate never came.
  */
-function TdsCertificateBox({ invoiceUuid, number, tds }: {
+function TdsCertificateBox({ invoiceUuid, number, tds, currency }: {
+  /** The document's currency, which the deducted figure is in. */
+  currency: string
   invoiceUuid: string
   number: string
   tds: number
@@ -1303,7 +1306,7 @@ function TdsCertificateBox({ invoiceUuid, number, tds }: {
       </div>
 
       <p className="mt-1 text-xs text-slate-500">
-        {inr(tds)} was deducted on {number}.{' '}
+        {money(tds, currency)} was deducted on {number}.{' '}
         {(data?.data.length ?? 0) === 0
           ? 'The client has not been asked for the certificate yet.'
           : `Asked ${data!.data.length} time(s), last on ${data!.data[0].at?.slice(0, 10)} by ${data!.data[0].by}.`}
@@ -1492,7 +1495,9 @@ function InternalNotes({ invoiceUuid }: { invoiceUuid: string }) {
  * day after the money, so a receipt written from a bank line has to be able
  * to learn what it was short by — and the invoice squares up when it does.
  */
-function ChargeButton({ uuid, payment, onDone }: {
+function ChargeButton({ uuid, payment, currency, onDone }: {
+  /** The document's currency; a receipt against it is always in the same one. */
+  currency: string
   uuid: string
   payment: { id: number; amount: string; charge_amount: string; charge_note: string | null }
   onDone: () => void
@@ -1533,11 +1538,11 @@ function ChargeButton({ uuid, payment, onDone }: {
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>Client paid (₹)</Label>
+                <Label>Client paid ({currency})</Label>
                 <Input type="number" min="0" step="0.01" value={gross} onChange={(e) => setGross(e.target.value)} className="w-full" />
               </div>
               <div>
-                <Label>Charge (₹)</Label>
+                <Label>Charge ({currency})</Label>
                 <Input type="number" min="0" step="0.01" value={charge} onChange={(e) => setCharge(e.target.value)} className="w-full" />
               </div>
               <div className="col-span-2">
@@ -1547,7 +1552,7 @@ function ChargeButton({ uuid, payment, onDone }: {
             </div>
             <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/40">
               <span className="text-slate-500">Reaches the bank</span>
-              <span className="float-right font-semibold">{inr(Number(gross || 0) - Number(charge || 0))}</span>
+              <span className="float-right font-semibold">{money(Number(gross || 0) - Number(charge || 0), currency)}</span>
             </div>
             <Button
               className="w-full"

@@ -9,6 +9,7 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
+import { money } from '../../lib/money'
 import { CHART_COLORS, ColumnChart, LineChart } from './charts'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, onlyOne, optionsFrom } from '../../lib/multiFilter'
@@ -154,8 +155,17 @@ export default function CrmInvoicesPage() {
           <p className="text-sm text-slate-500">
             {data ? (
               <>
-                {data.totals.count} documents · {inr(data.totals.total)} total value
-                {data.totals.due > 0 && <> · <span className="font-medium text-red-500">{inr(data.totals.due)} due</span></>}
+                {data.totals.count} documents
+                {/* One figure per currency where the list holds more than
+                    one: a thousand dollars and a thousand rupees are not two
+                    thousand of anything. */}
+                {(data.totals.by_currency ?? [{ currency: 'INR', total: Number(data.totals.total), due: data.totals.due, count: data.totals.count }])
+                  .map((row) => (
+                    <span key={row.currency}>
+                      {' · '}{money(row.total, row.currency)} total value
+                      {row.due > 0 && <> · <span className="font-medium text-red-500">{money(row.due, row.currency)} due</span></>}
+                    </span>
+                  ))}
               </>
             ) : '…'}
             {ownLedger && (
@@ -469,8 +479,8 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">{i.invoice_date}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">
-                      {inr(i.total)}
-                      {i.total_fx && <div className="text-[11px] font-normal text-slate-400">{i.fx_currency} {Number(i.total_fx).toLocaleString()}</div>}
+                      {money(i.total, i.currency)}
+                      {i.total_fx && <div className="text-[11px] font-normal text-slate-400">{money(i.total_fx, i.fx_currency)}</div>}
                     </td>
                     <td className="py-2.5 pr-3">
                       <span className={clsx(

@@ -95,6 +95,8 @@ class CrmController extends Controller
             'invoice_custom_fields' => \App\Models\Crm\CustomField::approvedFor($org->id, 'invoice')->values(),
             'invoice_method' => \App\Models\Crm\CustomField::invoiceMethod($org->id),
             'tax_setup' => \App\Models\Crm\CustomField::taxSetup($org->id),
+            // What a proforma or invoice can be written in.
+            'currencies' => \App\Models\Crm\Invoice::CURRENCIES,
             'expense_categories' => $org->optionList('expense_categories'),
             'leave_categories' => $org->optionList('leave_categories'),
             'approval_types' => $org->optionList('approval_types'),
