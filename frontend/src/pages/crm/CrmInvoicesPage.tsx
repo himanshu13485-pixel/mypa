@@ -16,6 +16,10 @@ import { listParam, onlyOne, optionsFrom } from '../../lib/multiFilter'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
+/** "$300.00 + €120.00" - the foreign money inside a rupee figure, or '' when there is none. */
+const foreignList = (rows: { currency: string; total: number; due: number }[] | undefined, field: 'total' | 'due') =>
+  (rows ?? []).filter((r) => Number(r[field]) > 0).map((r) => money(r[field], r.currency)).join(' + ')
+
 /**
  * The stretches of time a ledger is read in.
  *
@@ -156,16 +160,21 @@ export default function CrmInvoicesPage() {
             {data ? (
               <>
                 {data.totals.count} documents
-                {/* One figure per currency where the list holds more than
-                    one: a thousand dollars and a thousand rupees are not two
-                    thousand of anything. */}
-                {(data.totals.by_currency ?? [{ currency: 'INR', total: Number(data.totals.total), due: data.totals.due, count: data.totals.count }])
-                  .map((row) => (
-                    <span key={row.currency}>
-                      {' · '}{money(row.total, row.currency)} total value
-                      {row.due > 0 && <> · <span className="font-medium text-red-500">{money(row.due, row.currency)} due</span></>}
-                    </span>
-                  ))}
+                {/* One book, in rupees: a foreign document at the INR
+                    equivalent frozen on it. What of it was raised in another
+                    currency is named beside the figure, in that currency. */}
+                {' · '}{money(data.totals.total, 'INR')} total value
+                {foreignList(data.totals.foreign, 'total') && (
+                  <span className="text-slate-400"> (including {foreignList(data.totals.foreign, 'total')})</span>
+                )}
+                {Number(data.totals.due) > 0 && (
+                  <>
+                    {' · '}<span className="font-medium text-red-500">{money(data.totals.due, 'INR')} due</span>
+                    {foreignList(data.totals.foreign, 'due') && (
+                      <span className="text-red-400"> ({foreignList(data.totals.foreign, 'due')} due)</span>
+                    )}
+                  </>
+                )}
               </>
             ) : '…'}
             {ownLedger && (
@@ -230,7 +239,7 @@ export default function CrmInvoicesPage() {
             />
             {/* A chart has one axis, so one unit. Said only where a second
                 currency is actually in the list. */}
-            {(data?.totals.by_currency?.length ?? 0) > 1 && (
+            {(data?.totals.foreign?.length ?? 0) > 0 && (
               <p className="mt-1 text-[11px] text-slate-400">
                 In rupees — documents in other currencies at their INR equivalent.
               </p>
@@ -267,19 +276,21 @@ export default function CrmInvoicesPage() {
                 row.is_me && 'ring-2 ring-emerald-400/60',
                 onlyOne(salespeople) === row.uuid && row.uuid && 'ring-2 ring-sky-400',
               )}>
-                {(row.by_currency ?? [{ currency: 'INR', total: row.total, due: row.due, count: row.count }]).map((c) => (
-                  <div key={c.currency} className="text-lg font-semibold text-slate-900 dark:text-white">{money(c.total, c.currency)}</div>
-                ))}
+                <div className="text-lg font-semibold text-slate-900 dark:text-white">{money(row.total, 'INR')}</div>
+                {foreignList(row.foreign, 'total') && (
+                  <div className="truncate text-[11px] text-slate-400">incl. {foreignList(row.foreign, 'total')}</div>
+                )}
                 <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
                   {row.name}{row.is_me && ' (you)'}
                 </div>
                 <div className="text-xs text-slate-400">
                   {row.count} document{row.count === 1 ? '' : 's'}
-                  {(row.by_currency ?? [{ currency: 'INR', total: row.total, due: row.due, count: row.count }])
-                    .filter((c) => c.due > 0)
-                    .map((c) => (
-                      <span key={c.currency}> · <span className="font-medium text-red-500">{money(c.due, c.currency)} due</span></span>
-                    ))}
+                  {row.due > 0 && (
+                    <>
+                      {' · '}<span className="font-medium text-red-500">{money(row.due, 'INR')} due</span>
+                      {foreignList(row.foreign, 'due') && <span className="text-red-400"> ({foreignList(row.foreign, 'due')})</span>}
+                    </>
+                  )}
                 </div>
               </Card>
             </button>
@@ -541,13 +552,17 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
 
         {/* The consolidated foot: every figure an accountant asks for,
             computed over exactly what the filters selected. */}
-        {data && data.data.length > 0 && (data.totals.consolidated_by_currency
-          ?? (data.totals.consolidated ? [{ currency: 'INR', ...data.totals.consolidated }] : [])
-        ).map((block, _, blocks) => (
-          <div key={block.currency} className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
+        {data && data.data.length > 0 && (data.totals.consolidated ? [data.totals.consolidated] : []).map((block) => (
+          <div key="consolidated" className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Consolidated — filtered documents{blocks.length > 1 && ` · ${block.currency}`}
+              Consolidated — filtered documents · INR
             </p>
+            {foreignList(data.totals.foreign, 'total') && (
+              <p className="mb-1 text-xs text-slate-400">
+                Includes {foreignList(data.totals.foreign, 'total')}, counted at the INR rate fixed on each document
+                {foreignList(data.totals.foreign, 'due') && <> · {foreignList(data.totals.foreign, 'due')} still due</>}.
+              </p>
+            )}
             <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
               {([
                 ['Basic (taxable) value', block.basic],
@@ -569,7 +584,7 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                       : label === 'Total value (with tax)' ? 'font-semibold tabular-nums'
                         : 'tabular-nums text-slate-700 dark:text-slate-200'
                   }>
-                    {money(value, block.currency)}
+                    {money(value, 'INR')}
                   </span>
                 </div>
               ))}

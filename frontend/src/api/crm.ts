@@ -1215,6 +1215,16 @@ export interface CrmPaymentSummary {
   claimed_by_currency?: CrmCurrencyTotal[]
 }
 
+/** Documents in one currency: in that currency, and at their frozen rupee rate. */
+export interface CrmForeignTotal {
+  currency: string
+  count: number
+  total: number
+  due: number
+  total_inr?: number
+  due_inr?: number
+}
+
 export interface CrmCurrencyTotal {
   currency: string
   amount: number
@@ -2943,20 +2953,20 @@ export const crm = {
           due: number
           scope: 'mine' | 'team'
           /** The same totals one row per currency — two currencies are two figures, never one sum. */
-          by_currency?: { currency: string; count: number; total: number; due: number }[]
+          by_currency?: CrmForeignTotal[]
+          /** The foreign-currency documents inside the rupee totals, each in its own currency. */
+          foreign?: CrmForeignTotal[]
           /** Present in the combined view: whose money is whose. */
           by_salesperson?: {
             uuid: string | null; name: string; is_me: boolean; count: number
-            /** In rupees, for ranking the cards; each card shows by_currency. */
+            /** In rupees - foreign documents at the rate frozen on each. */
             total: number; due: number
-            by_currency?: { currency: string; count: number; total: number; due: number }[]
+            by_currency?: CrmForeignTotal[]
+            foreign?: CrmForeignTotal[]
           }[]
           /** The consolidated figures for exactly what the filters selected. */
           consolidated?: { basic: number; cgst: number; sgst: number; igst: number; gst_total: number
             other_tax: number; tds: number; total: number; received: number; charges: number; due: number }
-          /** The same foot once per currency — CGST in dollars and in rupees are two figures. */
-          consolidated_by_currency?: { currency: string; basic: number; cgst: number; sgst: number; igst: number
-            gst_total: number; other_tax: number; tds: number; total: number; received: number; charges: number; due: number }[]
           /** The period broken into buckets - daily up to two months, then monthly. */
           series?: { key: string; label: string; count: number; total: number; received: number; due: number }[]
           period?: { key: string; from: string | null; to: string | null }

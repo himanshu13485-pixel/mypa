@@ -232,6 +232,8 @@ class InvoiceController extends Controller
                     // What of it is still owed — sales and dues, side by side.
                     'due' => round((float) $group->sum(fn ($i) => $i->inRupees(max(0, (float) $i->total - (float) ($i->received ?? 0)))), 2),
                     'by_currency' => self::perCurrency($group),
+                    // The dollars inside the rupee figure, named on the card.
+                    'foreign' => self::foreign($group),
                 ])
                 ->sortByDesc('total')
                 ->values();
@@ -256,18 +258,9 @@ class InvoiceController extends Controller
             'total' => $consolidated['total'],
             'due' => $consolidated['due'],
             'consolidated' => $consolidated,
-            /*
-             * The same foot, once per currency.
-             *
-             * CGST in dollars and CGST in rupees are two figures an
-             * accountant needs apart; the single block above adds them.
-             * Rupees first, since that is the book the company keeps.
-             */
-            'consolidated_by_currency' => $live
-                ->groupBy(fn ($i) => strtoupper((string) ($i->currency ?: 'INR')))
-                ->map(fn ($group, $code) => ['currency' => $code] + self::consolidate($group))
-                ->sortBy(fn ($block) => $block['currency'] === 'INR' ? 0 : 1)
-                ->values(),
+            // What of the rupee totals was raised in another currency, in
+            // that currency - "₹2,90,010 (including $300.00)".
+            'foreign' => $consolidated['foreign'],
             /*
              * The same totals, one row per currency.
              *
@@ -879,24 +872,39 @@ class InvoiceController extends Controller
     }
 
     /**
-     * The accountant's figures over a set of documents, each in its own
-     * currency — so a set of one currency is the only honest input.
+     * The accountant's figures over a set of documents - in rupees.
+     *
+     * The company keeps one book, and it is in rupees: a dollar document
+     * counts at the INR equivalent frozen on it when it was saved (the
+     * market rate less the bank margin), its receipts and taxes at the same
+     * rate. Showing a rupee block and a dollar block side by side left the
+     * one question an accountant asks - what is the total - unanswered.
+     * The foreign money inside it is named separately, in its own currency.
      */
     private static function consolidate($docs): array
     {
+        $inr = fn (callable $pick) => round((float) $docs->sum(fn ($i) => $i->inRupees($pick($i))), 2);
+
         return [
-            'basic' => round((float) $docs->sum(fn ($i) => (float) $i->subtotal - (float) ($i->discount ?? 0)), 2),
-            'cgst' => round((float) $docs->sum('cgst'), 2),
-            'sgst' => round((float) $docs->sum('sgst'), 2),
-            'igst' => round((float) $docs->sum('igst'), 2),
-            'gst_total' => round((float) $docs->sum(fn ($i) => (float) $i->cgst + (float) $i->sgst + (float) $i->igst), 2),
-            'other_tax' => round((float) $docs->sum('other_tax'), 2),
-            'tds' => round((float) $docs->sum('tds'), 2),
-            'total' => round((float) $docs->sum('total'), 2),
-            'received' => round((float) $docs->sum(fn ($i) => (float) ($i->received ?? 0)), 2),
-            'charges' => round((float) $docs->sum(fn ($i) => (float) ($i->charges ?? 0)), 2),
-            'due' => round((float) $docs->sum(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))), 2),
+            'basic' => $inr(fn ($i) => (float) $i->subtotal - (float) ($i->discount ?? 0)),
+            'cgst' => $inr(fn ($i) => (float) $i->cgst),
+            'sgst' => $inr(fn ($i) => (float) $i->sgst),
+            'igst' => $inr(fn ($i) => (float) $i->igst),
+            'gst_total' => $inr(fn ($i) => (float) $i->cgst + (float) $i->sgst + (float) $i->igst),
+            'other_tax' => $inr(fn ($i) => (float) $i->other_tax),
+            'tds' => $inr(fn ($i) => (float) $i->tds),
+            'total' => $inr(fn ($i) => (float) $i->total),
+            'received' => $inr(fn ($i) => (float) ($i->received ?? 0)),
+            'charges' => $inr(fn ($i) => (float) ($i->charges ?? 0)),
+            'due' => $inr(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))),
+            'foreign' => self::foreign($docs),
         ];
+    }
+
+    /** The documents not in rupees, one row per currency, in that currency. */
+    private static function foreign($docs): array
+    {
+        return array_values(array_filter(self::perCurrency($docs), fn ($row) => $row['currency'] !== 'INR'));
     }
 
     /**
@@ -914,6 +922,9 @@ class InvoiceController extends Controller
                 'count' => $group->count(),
                 'total' => round((float) $group->sum('total'), 2),
                 'due' => round((float) $group->sum(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))), 2),
+                // The same, at the rupee rate frozen on each document.
+                'total_inr' => round((float) $group->sum(fn ($i) => $i->inRupees($i->total)), 2),
+                'due_inr' => round((float) $group->sum(fn ($i) => $i->inRupees(max(0, (float) $i->total - (float) ($i->received ?? 0)))), 2),
             ])
             ->sortBy(fn ($row) => $row['currency'] === 'INR' ? 0 : 1)
             ->values()

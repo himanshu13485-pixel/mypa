@@ -11,6 +11,7 @@ import { codeCase, companyCase } from './textCase'
 import { unavailableTaxes } from './gst'
 import { crmPath } from '../../lib/crmPath'
 import { KeywordChips } from '../../components/KeywordChips'
+import { money } from '../../lib/money'
 
 /** One Work Order line. `custom` holds this company's own DCW values. */
 interface ItemRow {
@@ -30,7 +31,6 @@ const EMPTY_ITEM: ItemRow = {
   qty: '1', unit_price: '', amount_fx: '', custom: {},
 }
 
-const inr = (v: number) => '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 
 
@@ -359,6 +359,15 @@ export default function CrmInvoiceFormPage() {
     )),
     [masters, head.issuing_company_id, clientGst],
   )
+  /*
+   * The document's currency is its issuing company's.
+   *
+   * The server has always billed a USD company in dollars, but this form
+   * wrote ₹ in front of every figure - so a $100 work order read as ₹100
+   * right up to the moment it was saved.
+   */
+  const docCurrency = (masters?.issuing_companies.find((c) => String(c.id) === head.issuing_company_id)?.currency || 'INR').toUpperCase()
+  const inr = (v: number) => money(v, docCurrency)
   // Every line that is off: the GST half that does not apply, and every tax
   // line at all when the document carries none.
   const blockedTaxes = useMemo(
@@ -1025,6 +1034,11 @@ export default function CrmInvoiceFormPage() {
             <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-semibold text-slate-900 dark:border-slate-700 dark:text-white">
               <span>Grand total</span><span>{inr(totals.total)}</span>
             </div>
+            {docCurrency !== 'INR' && (
+              <p className="text-xs text-slate-400">
+                Billed in {docCurrency}. The INR equivalent is fixed when this is saved, at today&rsquo;s rate less the bank margin.
+              </p>
+            )}
           </div>
           <Button
             className="mt-4"

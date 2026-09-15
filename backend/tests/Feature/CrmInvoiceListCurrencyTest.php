@@ -122,12 +122,57 @@ class CrmInvoiceListCurrencyTest extends TestCase
         $this->assertEquals(1000 + 202 * 94, $row['total']);
     }
 
-    public function test_the_tax_breakdown_is_given_once_per_currency(): void
+    public function test_the_consolidated_book_is_one_rupee_figure_naming_the_dollars_in_it(): void
     {
-        $blocks = collect($this->totals()['consolidated_by_currency']);
+        $totals = $this->totals();
 
-        $this->assertSame(['INR', 'USD'], $blocks->pluck('currency')->all());
-        $this->assertEquals(202, $blocks[1]['total']);
+        // ₹1,000 plus $202 at the frozen 94.
+        $this->assertEquals(1000 + 202 * 94, $totals['total']);
+        $this->assertEquals(1000 + 202 * 94, $totals['due']);
+        $this->assertEquals(1000 + 202 * 94, $totals['consolidated']['total']);
+        $this->assertArrayNotHasKey('consolidated_by_currency', $totals);
+
+        $foreign = collect($totals['foreign'])->keyBy('currency');
+        $this->assertSame(['USD'], $foreign->keys()->all());
+        $this->assertEquals(202, $foreign['USD']['total']);
+        $this->assertEquals(202 * 94, $foreign['USD']['total_inr']);
+    }
+
+    public function test_a_salesperson_card_names_the_dollars_inside_its_rupees(): void
+    {
+        $row = collect($this->totals()['by_salesperson'])->first();
+
+        $this->assertEquals(1000 + 202 * 94, $row['due']);
+        $this->assertSame('USD', $row['foreign'][0]['currency']);
+        $this->assertEquals(202, $row['foreign'][0]['due']);
+    }
+
+    public function test_a_proforma_for_the_dollar_company_is_in_dollars_too_and_converts_so(): void
+    {
+        $company = Invoice::where('number', 'AG-1')->value('issuing_company_id');
+        $proforma = $this->as()->postJson('/api/v1/crm/invoices', [
+            'kind' => 'proforma',
+            'issuing_company_id' => $company,
+            'client_uuid' => $this->clientUuid,
+            'invoice_date' => now()->toDateString(),
+            'due_date' => now()->addMonth()->toDateString(),
+            'client_category' => 'new',
+            'pricing_tier' => 'regular',
+            'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online',
+            'dispatch_status' => 'pending',
+            'items' => [[
+                'membership' => 'Standard', 'plan_name' => 'Annual listing',
+                'validity_from' => now()->toDateString(), 'validity_to' => now()->addYear()->toDateString(),
+                'qty' => 1, 'unit_price' => 300,
+            ]],
+        ])->assertCreated()->json('data');
+
+        $this->assertSame('USD', $proforma['currency']);
+        $this->assertEquals(300 * 94, (float) $proforma['total_fx']);
+
+        $invoice = $this->as()->postJson('/api/v1/crm/invoices/' . $proforma['uuid'] . '/convert')->assertSuccessful()->json('data');
+        $this->assertSame('USD', Invoice::where('uuid', $invoice['uuid'])->value('currency'));
     }
 
     public function test_the_charts_count_the_dollars_at_their_rupee_value(): void

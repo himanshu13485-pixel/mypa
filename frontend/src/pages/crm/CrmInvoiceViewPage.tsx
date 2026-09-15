@@ -11,8 +11,7 @@ import { crmPath } from '../../lib/crmPath'
 import { photoUrl } from '../../lib/avatars'
 import { KeywordChips } from '../../components/KeywordChips'
 import { readsAsKeywords } from '../../lib/keywords'
-
-const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+import { money } from '../../lib/money'
 
 /** "9.000" reads as 9, "2.500" as 2.5. */
 const trimRate = (v: string) => String(Number(v))
@@ -208,6 +207,9 @@ export default function CrmInvoiceViewPage() {
 
   const isProforma = inv.kind === 'proforma'
   const balance = Number(inv.total) - Number(inv.amount_received || 0)
+  // Every figure in the document's own currency - a USD proforma read as
+  // rupees on this page even though the PDF printed dollars.
+  const inr = (v: number | string) => money(v, inv.currency)
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -528,6 +530,13 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
             {/* Not on a document in another currency: the client pays in that
                 currency, and its rupee figure is for our books, not theirs. */}
             {(inv.currency || 'INR') === 'INR' && inv.total_fx && <div className="flex justify-between text-xs text-slate-400"><span>{inv.fx_currency} equivalent</span><span>{Number(inv.total_fx).toLocaleString()}</span></div>}
+            {/* A foreign document's rupee value, for our books: the rate frozen on it at save. */}
+            {(inv.currency || 'INR') !== 'INR' && inv.fx_currency === 'INR' && inv.total_fx && (
+              <div className="flex justify-between text-xs text-slate-400">
+                <span>INR equivalent{Number(inv.fx_rate) > 0 && ` @ ₹${Number(inv.fx_rate)}`}</span>
+                <span>{money(inv.total_fx, 'INR')}</span>
+              </div>
+            )}
             {!isProforma && (
               <>
                 <div className="flex justify-between text-emerald-600"><span>Received</span><span>{inr(inv.amount_received || 0)}</span></div>
@@ -669,7 +678,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
                       <td className="py-2 pr-3">{p.bank_account ?? p.drawee_bank ?? '—'}</td>
                       <td className="py-2 pr-3">{p.reference_no ?? '—'}</td>
                       <td className="whitespace-nowrap py-2 text-right">
-                        <ChargeButton uuid={uuid!} payment={p} onDone={refresh} />
+                        <ChargeButton uuid={uuid!} payment={p} currency={inv.currency} onDone={refresh} />
                         <DeletePaymentButton uuid={uuid!} paymentId={p.id} onDone={refresh} />
                       </td>
                     </tr>
@@ -724,7 +733,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
       {/* The other thing the client owes: the certificate for the tax
           they deducted. Only on documents where they deducted any. */}
       {Number(inv.tds ?? 0) > 0 && inv.kind === 'invoice' && (
-        <TdsCertificateBox invoiceUuid={inv.uuid} number={inv.number} tds={Number(inv.tds ?? 0)} />
+        <TdsCertificateBox invoiceUuid={inv.uuid} number={inv.number} tds={Number(inv.tds ?? 0)} currency={inv.currency} />
       )}
 
       <InternalNotes invoiceUuid={inv.uuid} />
@@ -739,7 +748,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
       )}
 
       {showPayment && (
-        <PaymentModal uuid={uuid!} balance={balance} onClose={() => setShowPayment(false)} onDone={() => { setShowPayment(false); refresh() }} />
+        <PaymentModal uuid={uuid!} balance={balance} currency={inv.currency} onClose={() => setShowPayment(false)} onDone={() => { setShowPayment(false); refresh() }} />
       )}
       {showChangeRequest && (
         <ChangeRequestModal
@@ -980,7 +989,8 @@ function DeletePaymentButton({ uuid, paymentId, onDone }: { uuid: string; paymen
   )
 }
 
-function PaymentModal({ uuid, balance, onClose, onDone }: { uuid: string; balance: number; onClose: () => void; onDone: () => void }) {
+function PaymentModal({ uuid, balance, currency, onClose, onDone }: { uuid: string; balance: number; currency?: string | null; onClose: () => void; onDone: () => void }) {
+  const inr = (v: number | string) => money(v, currency)
   const { toastError } = useToast()
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const [form, setForm] = useState({
@@ -1243,11 +1253,13 @@ function RepeatModal({ invoiceUuid, number, onClose, onDone }: {
  * where somebody has the bill open in front of them and can see that the
  * certificate never came.
  */
-function TdsCertificateBox({ invoiceUuid, number, tds }: {
+function TdsCertificateBox({ invoiceUuid, number, tds, currency }: {
   invoiceUuid: string
   number: string
   tds: number
+  currency?: string | null
 }) {
+  const inr = (v: number | string) => money(v, currency)
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
   const [composing, setComposing] = useState(false)
@@ -1494,11 +1506,13 @@ function InternalNotes({ invoiceUuid }: { invoiceUuid: string }) {
  * day after the money, so a receipt written from a bank line has to be able
  * to learn what it was short by — and the invoice squares up when it does.
  */
-function ChargeButton({ uuid, payment, onDone }: {
+function ChargeButton({ uuid, payment, currency, onDone }: {
   uuid: string
   payment: { id: number; amount: string; charge_amount: string; charge_note: string | null }
+  currency?: string | null
   onDone: () => void
 }) {
+  const inr = (v: number | string) => money(v, currency)
   const { toast, toastError } = useToast()
   const [open, setOpen] = useState(false)
   const [charge, setCharge] = useState(Number(payment.charge_amount) ? String(Number(payment.charge_amount)) : '')
