@@ -2947,10 +2947,18 @@ export const crm = {
           /** The same totals one row per currency — two currencies are two figures, never one sum. */
           by_currency?: { currency: string; count: number; total: number; due: number }[]
           /** Present in the combined view: whose money is whose. */
-          by_salesperson?: { uuid: string | null; name: string; is_me: boolean; count: number; total: number; due: number }[]
+          by_salesperson?: {
+            uuid: string | null; name: string; is_me: boolean; count: number
+            /** In rupees, for ranking the cards; each card shows by_currency. */
+            total: number; due: number
+            by_currency?: { currency: string; count: number; total: number; due: number }[]
+          }[]
           /** The consolidated figures for exactly what the filters selected. */
           consolidated?: { basic: number; cgst: number; sgst: number; igst: number; gst_total: number
             other_tax: number; tds: number; total: number; received: number; charges: number; due: number }
+          /** The same foot once per currency — CGST in dollars and in rupees are two figures. */
+          consolidated_by_currency?: { currency: string; basic: number; cgst: number; sgst: number; igst: number
+            gst_total: number; other_tax: number; tds: number; total: number; received: number; charges: number; due: number }[]
           /** The period broken into buckets - daily up to two months, then monthly. */
           series?: { key: string; label: string; count: number; total: number; received: number; due: number }[]
           period?: { key: string; from: string | null; to: string | null }

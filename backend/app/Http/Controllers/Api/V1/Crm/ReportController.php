@@ -84,12 +84,22 @@ class ReportController extends Controller
             ->where('kind', 'invoice')->where('status', '!=', 'cancelled')
             ->whereDate('invoice_date', '>=', $start)
             ->whereDate('invoice_date', '<=', $end))
-            ->get(['invoice_date', 'total', 'payment_status', 'client_id', 'member_id']);
-        $received = InvoicePayment::whereHas('invoice', fn ($q) => $sales($q
-            ->where('organization_id', $org->id)->where('status', '!=', 'cancelled')))
+            ->get(['invoice_date', 'total', 'payment_status', 'client_id', 'member_id', 'currency', 'fx_currency', 'fx_rate', 'total_fx']);
+        $received = InvoicePayment::with('invoice:id,' . implode(',', Invoice::RUPEE_COLUMNS))
+            ->whereHas('invoice', fn ($q) => $sales($q
+                ->where('organization_id', $org->id)->where('status', '!=', 'cancelled')))
             ->whereDate('received_at', '>=', $start)
             ->whereDate('received_at', '<=', $end)
-            ->get(['received_at', 'amount']);
+            ->get(['invoice_id', 'received_at', 'amount']);
+
+        /*
+         * Everything below is a rupee figure, so a foreign document counts at
+         * its frozen rupee equivalent — a thousand dollars used to be added in
+         * as a thousand rupees. A receipt is in its document's currency, so
+         * it converts at that document's rate.
+         */
+        $inr = fn ($i) => $i->inRupees($i->total);
+        $paidInr = fn ($p) => $p->invoice ? $p->invoice->inRupees($p->amount) : (float) $p->amount;
         // Money out: expenses and payroll.
         $expenses = Expense::where('organization_id', $org->id)
             ->whereDate('expense_date', '>=', $start)
@@ -102,8 +112,8 @@ class ReportController extends Controller
 
         $monthly = $monthKeys->map(fn ($key) => [
             'month' => $key,
-            'invoiced' => round($invoices->filter(fn ($i) => $i->invoice_date->format('Y-m') === $key)->sum('total'), 2),
-            'received' => round($received->filter(fn ($p) => $p->received_at->format('Y-m') === $key)->sum('amount'), 2),
+            'invoiced' => round($invoices->filter(fn ($i) => $i->invoice_date->format('Y-m') === $key)->sum($inr), 2),
+            'received' => round($received->filter(fn ($p) => $p->received_at->format('Y-m') === $key)->sum($paidInr), 2),
             'expenses' => round($expenses->filter(fn ($e) => $e->expense_date->format('Y-m') === $key)->sum('total_amount'), 2),
             'payroll' => round($payroll->filter(fn ($s) => sprintf('%04d-%02d', $s->year, $s->month) === $key)->sum('net_salary'), 2),
         ])->values();
@@ -113,7 +123,7 @@ class ReportController extends Controller
             ->whereIn('id', $invoices->pluck('client_id')->unique())
             ->pluck('company_name', 'id');
         $topClients = $invoices->groupBy('client_id')
-            ->map(fn ($g, $id) => ['name' => $clientNames[$id] ?? '—', 'amount' => round($g->sum('total'), 2), 'invoices' => $g->count()])
+            ->map(fn ($g, $id) => ['name' => $clientNames[$id] ?? '—', 'amount' => round($g->sum($inr), 2), 'invoices' => $g->count()])
             ->sortByDesc('amount')->take(10)->values();
 
         // Commissions paid to clients out of these sales — money out that
@@ -135,8 +145,8 @@ class ReportController extends Controller
             ->mapWithKeys(fn ($m) => [$m->id => $m->user?->name]);
         $topSalespeople = $invoices->filter(fn ($i) => $i->member_id)
             ->groupBy('member_id')
-            ->map(function ($g, $id) use ($memberNames, $commissionByMember) {
-                $amount = round($g->sum('total'), 2);
+            ->map(function ($g, $id) use ($memberNames, $commissionByMember, $inr) {
+                $amount = round($g->sum($inr), 2);
                 $commission = (float) ($commissionByMember[$id] ?? 0);
 
                 return [
@@ -169,14 +179,14 @@ class ReportController extends Controller
                 : null,
             'monthly' => $monthly,
             'totals' => [
-                'invoiced' => round($invoices->sum('total'), 2),
-                'received' => round($received->sum('amount'), 2),
+                'invoiced' => round($invoices->sum($inr), 2),
+                'received' => round($received->sum($paidInr), 2),
                 'expenses' => round($expenses->sum('total_amount'), 2),
                 'payroll' => round($payroll->sum('net_salary'), 2),
                 'commission' => round($commissions->sum('total_amount'), 2),
             ],
             'invoice_status' => $invoices->groupBy('payment_status')
-                ->map(fn ($g, $s) => ['status' => $s, 'count' => $g->count(), 'amount' => round($g->sum('total'), 2)])
+                ->map(fn ($g, $s) => ['status' => $s, 'count' => $g->count(), 'amount' => round($g->sum($inr), 2)])
                 ->values(),
             'lead_funnel' => $leads->groupBy('lead_status')
                 ->map(fn ($g, $s) => ['status' => $s, 'count' => $g->count()])

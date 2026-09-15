@@ -228,6 +228,13 @@ export default function CrmInvoicesPage() {
               unit="₹"
               height={150}
             />
+            {/* A chart has one axis, so one unit. Said only where a second
+                currency is actually in the list. */}
+            {(data?.totals.by_currency?.length ?? 0) > 1 && (
+              <p className="mt-1 text-[11px] text-slate-400">
+                In rupees — documents in other currencies at their INR equivalent.
+              </p>
+            )}
           </Card>
           <Card>
             <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
@@ -260,13 +267,19 @@ export default function CrmInvoicesPage() {
                 row.is_me && 'ring-2 ring-emerald-400/60',
                 onlyOne(salespeople) === row.uuid && row.uuid && 'ring-2 ring-sky-400',
               )}>
-                <div className="text-lg font-semibold text-slate-900 dark:text-white">{inr(row.total)}</div>
+                {(row.by_currency ?? [{ currency: 'INR', total: row.total, due: row.due, count: row.count }]).map((c) => (
+                  <div key={c.currency} className="text-lg font-semibold text-slate-900 dark:text-white">{money(c.total, c.currency)}</div>
+                ))}
                 <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
                   {row.name}{row.is_me && ' (you)'}
                 </div>
                 <div className="text-xs text-slate-400">
                   {row.count} document{row.count === 1 ? '' : 's'}
-                  {row.due > 0 && <> · <span className="font-medium text-red-500">{inr(row.due)} due</span></>}
+                  {(row.by_currency ?? [{ currency: 'INR', total: row.total, due: row.due, count: row.count }])
+                    .filter((c) => c.due > 0)
+                    .map((c) => (
+                      <span key={c.currency}> · <span className="font-medium text-red-500">{money(c.due, c.currency)} due</span></span>
+                    ))}
                 </div>
               </Card>
             </button>
@@ -526,24 +539,26 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
 
         {/* The consolidated foot: every figure an accountant asks for,
             computed over exactly what the filters selected. */}
-        {data?.totals.consolidated && data.data.length > 0 && (
-          <div className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
+        {data && data.data.length > 0 && (data.totals.consolidated_by_currency
+          ?? (data.totals.consolidated ? [{ currency: 'INR', ...data.totals.consolidated }] : [])
+        ).map((block, _, blocks) => (
+          <div key={block.currency} className="mt-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
             <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-              Consolidated — filtered documents
+              Consolidated — filtered documents{blocks.length > 1 && ` · ${block.currency}`}
             </p>
             <div className="grid gap-x-8 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
               {([
-                ['Basic (taxable) value', data.totals.consolidated.basic],
-                ['CGST', data.totals.consolidated.cgst],
-                ['SGST', data.totals.consolidated.sgst],
-                ['IGST', data.totals.consolidated.igst],
-                ['Total GST', data.totals.consolidated.gst_total],
-                ['Other tax', data.totals.consolidated.other_tax],
-                ['TDS', data.totals.consolidated.tds],
-                ['Total value (with tax)', data.totals.consolidated.total],
-                ['Received', data.totals.consolidated.received],
-                ['Bank / gateway charges', data.totals.consolidated.charges],
-                ['Due amount', data.totals.consolidated.due],
+                ['Basic (taxable) value', block.basic],
+                ['CGST', block.cgst],
+                ['SGST', block.sgst],
+                ['IGST', block.igst],
+                ['Total GST', block.gst_total],
+                ['Other tax', block.other_tax],
+                ['TDS', block.tds],
+                ['Total value (with tax)', block.total],
+                ['Received', block.received],
+                ['Bank / gateway charges', block.charges],
+                ['Due amount', block.due],
               ] as const).map(([label, value]) => (
                 <div key={label} className="flex items-baseline justify-between border-b border-slate-100/70 py-1 text-sm last:border-0 dark:border-slate-800/50">
                   <span className="text-slate-500">{label}</span>
@@ -552,13 +567,13 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                       : label === 'Total value (with tax)' ? 'font-semibold tabular-nums'
                         : 'tabular-nums text-slate-700 dark:text-slate-200'
                   }>
-                    {inr(value)}
+                    {money(value, block.currency)}
                   </span>
                 </div>
               ))}
             </div>
           </div>
-        )}
+        ))}
       </Card>
     </div>
   )

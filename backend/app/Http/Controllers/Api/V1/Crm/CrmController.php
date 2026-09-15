@@ -506,10 +506,17 @@ class CrmController extends Controller
 
         $invoices = $sales(Invoice::where('organization_id', $org->id)->where('status', '!=', 'cancelled'));
 
-        $received = \App\Models\Crm\InvoicePayment::whereHas('invoice', fn ($q) => $sales($q
-            ->where('organization_id', $org->id)->where('status', '!=', 'cancelled')))
+        /*
+         * The dashboard's money is all rupees, so a foreign document counts
+         * at its frozen rupee equivalent — the rule the reports and the P&L
+         * use — and a receipt converts at its own document's rate.
+         */
+        $received = round((float) \App\Models\Crm\InvoicePayment::with('invoice:id,' . implode(',', Invoice::RUPEE_COLUMNS))
+            ->whereHas('invoice', fn ($q) => $sales($q
+                ->where('organization_id', $org->id)->where('status', '!=', 'cancelled')))
             ->where('received_at', '>=', $monthStart)
-            ->sum('amount');
+            ->get(['invoice_id', 'amount'])
+            ->sum(fn ($p) => $p->invoice ? $p->invoice->inRupees($p->amount) : (float) $p->amount), 2);
 
         // Birthdays within the next 7 days, month-boundary safe.
         $birthdays = Member::visible()->with(['user:id,name', 'user.profile:user_id,photo_path,avatar,gender'])
@@ -548,11 +555,16 @@ class CrmController extends Controller
             ],
             'invoices' => [
                 'month_count' => (clone $invoices)->where('kind', 'invoice')->where('invoice_date', '>=', $monthStart)->count(),
-                'month_total' => (clone $invoices)->where('kind', 'invoice')->where('invoice_date', '>=', $monthStart)->sum('total'),
+                'month_total' => round((float) (clone $invoices)->where('kind', 'invoice')->where('invoice_date', '>=', $monthStart)
+                    ->get(['id', ...Invoice::RUPEE_COLUMNS])
+                    ->sum(fn ($i) => $i->inRupees($i->total)), 2),
                 'proforma_open' => (clone $invoices)->where('kind', 'proforma')->whereDoesntHave('convertedTo')->count(),
-                'outstanding' => (clone $invoices)->where('kind', 'invoice')->whereIn('payment_status', ['due', 'partial'])
-                    ->get(['id', 'total'])
-                    ->sum(fn ($i) => (float) $i->total - (float) $i->payments()->sum('amount')),
+                // What is owed, in rupees. One query for what has been
+                // paid rather than one per invoice.
+                'outstanding' => round((float) (clone $invoices)->where('kind', 'invoice')->whereIn('payment_status', ['due', 'partial'])
+                    ->withSum('payments as paid', 'amount')
+                    ->get(['id', ...Invoice::RUPEE_COLUMNS])
+                    ->sum(fn ($i) => $i->inRupees((float) $i->total - (float) ($i->paid ?? 0))), 2),
                 'received_this_month' => $received,
             ],
             'recent_invoices' => (clone $invoices)->with('client:id,uuid,company_name')
@@ -578,11 +590,17 @@ class CrmController extends Controller
                     ->selectRaw('lead_status, count(*) as n')
                     ->groupBy('lead_status')
                     ->pluck('n', 'lead_status'),
+                // Grouped here rather than in SQL, where sum(total) would
+                // add dollars and rupees together.
                 'invoices_by_payment' => (clone $invoices)->where('kind', 'invoice')
-                    ->selectRaw('payment_status, count(*) as n, sum(total) as amount')
+                    ->get(['id', 'payment_status', ...Invoice::RUPEE_COLUMNS])
                     ->groupBy('payment_status')
-                    ->get()
-                    ->map(fn ($r) => ['status' => $r->payment_status, 'count' => (int) $r->n, 'amount' => (float) $r->amount]),
+                    ->map(fn ($g, $status) => [
+                        'status' => $status,
+                        'count' => $g->count(),
+                        'amount' => round((float) $g->sum(fn ($i) => $i->inRupees($i->total)), 2),
+                    ])
+                    ->values(),
             ],
             'today' => $today,
             'scope' => $scope,

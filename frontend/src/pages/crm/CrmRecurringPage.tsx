@@ -10,8 +10,7 @@ import { Button, Card, EmptyState, Pager, Spinner } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam } from '../../lib/multiFilter'
-
-const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+import { money } from '../../lib/money'
 
 const STATUS_STYLES: Record<string, string> = {
   active: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
@@ -130,7 +129,7 @@ export default function CrmRecurringPage() {
                     </td>
                     <td className="max-w-[200px] truncate py-2.5 pr-3">{s.client?.company_name ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">
-                      {s.source ? inr(s.source.total) : '—'}
+                      {s.source ? money(s.source.total, s.source.currency) : '—'}
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3">
                       {s.frequency_label}
