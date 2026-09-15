@@ -1,16 +1,135 @@
 {{--
   A CRM proforma or tax invoice, as a PDF.
 
-  The browser's own print dialog is not available everywhere the CRM runs, so
-  the document is rendered server-side and handed over as a file. The columns
-  follow the company's own Work Order method, exactly as the screen does.
+  The same document the Print button prints from the invoice screen, laid out
+  the same way: the owner preferred that one, so the downloaded file, the View
+  preview and the PDF attached to an e-mailed invoice all follow it now rather
+  than keeping a second layout of their own. What was on the paper is still
+  on the paper; only how it looks has come into line.
+
+  Server-rendered all the same, because the browser's print dialog is not
+  there everywhere the CRM runs — the Android app has none — and an e-mail
+  needs a file. dompdf reads tables rather than flex or grid, so the screen's
+  columns are tables here, sized in the same pixels so the page comes out the
+  size the browser prints it.
+
+  Rendered from more than one place with slightly different data (the invoice
+  screen, the recurring generator, tests), so anything beyond that shared set
+  comes off the invoice itself or has a default below.
 --}}
 @php
     $isProforma = $invoice->kind === 'proforma';
-    $money = fn ($v) => number_format((float) $v, 2);
+    $columns = $columns ?? [];
+    $headings = $headings ?? [];
+    $extraColumns = $extraColumns ?? [];
+    $documentFields = $documentFields ?? [];
+    $moneyLines = $moneyLines ?? [];
+    $currency = strtoupper((string) ($currency ?? 'INR'));
+    $received = (float) ($received ?? 0);
+
+    /*
+     * A figure the way the screen writes it.
+     *
+     * Rupees wear the rupee sign and Indian grouping — 1,00,000.00 — which is
+     * how the Print version reads and how an Indian office reads a rupee
+     * figure. A company that bills in another currency keeps that currency's
+     * code in front, as this document always gave it: the screen writes a
+     * rupee sign on those too, which is wrong, and copying it onto the paper
+     * would put the wrong money on a document a client pays from.
+     */
+    $money = function ($value) use ($currency): string {
+        $n = round((float) $value, 2);
+        $negative = $n < 0;
+        [$whole, $paise] = explode('.', number_format(abs($n), 2, '.', ''));
+
+        if ($currency === 'INR') {
+            $lastThree = substr($whole, -3);
+            $rest = substr($whole, 0, -3);
+            $grouped = $rest !== ''
+                ? preg_replace('/\B(?=(\d{2})+(?!\d))/', ',', $rest) . ',' . $lastThree
+                : $lastThree;
+            $text = '₹' . $grouped . '.' . $paise;
+        } else {
+            $text = $currency . ' ' . number_format(abs($n), 2);
+        }
+
+        return ($negative ? '−' : '') . $text;
+    };
+
     $shown = fn (string $key) => ! ($columns[$key]['hidden'] ?? false);
     $heading = fn (string $key, string $fallback) => $columns[$key]['label'] ?? $fallback;
-    $lineSpan = 3 + ($shown('validity') ? 1 : 0);
+    $docHidden = fn (string $key) => (bool) ($headings[$key]['hidden'] ?? false);
+    $docLabel = fn (string $key, string $fallback) => $headings[$key]['label'] ?? $fallback;
+
+    // The screen's own words for where the money stands.
+    $paymentLabels = [
+        'due' => 'Due', 'partial' => 'Partial paid', 'paid' => 'Fully paid',
+        'refunded' => 'Refunded', 'credit_note' => 'GST credit note', 'bad_debt' => 'Bad debt',
+    ];
+    $paymentColour = match ($invoice->payment_status) {
+        'paid' => '#059669',
+        'due' => '#ef4444',
+        default => '#d97706',
+    };
+
+    /*
+     * A description that is a list reads back as one: "brass, steel, iron"
+     * is three keywords, each in a colour of its own, exactly as the screen
+     * shows it. A separator is what makes it a list — prose with no comma
+     * stays prose. Repeats drop out, keeping the first spelling.
+     */
+    $keywords = function (?string $text): array {
+        $text = (string) $text;
+        if (! preg_match('/[,\n]/', $text)) {
+            return [];
+        }
+        $seen = [];
+        $words = [];
+        foreach (preg_split('/[,\n]/', $text) as $part) {
+            $word = trim($part);
+            $key = mb_strtolower($word);
+            if ($word === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $words[] = $word;
+        }
+
+        return $words;
+    };
+    // The six keyword colours the screen uses — no two alike on one line.
+    $tones = [
+        ['#e0f2fe', '#0369a1'], ['#ede9fe', '#6d28d9'], ['#fef3c7', '#b45309'],
+        ['#ffe4e6', '#be123c'], ['#ecfccb', '#4d7c0f'], ['#cffafe', '#0e7490'],
+    ];
+    $toneFor = function (array $words) use ($tones): array {
+        $used = [];
+        $out = [];
+        foreach ($words as $word) {
+            $pick = crc32(mb_strtolower($word)) % count($tones);
+            for ($step = 0; $step < count($tones) && isset($used[$pick]); $step++) {
+                $pick = ($pick + 1) % count($tones);
+            }
+            $used[$pick] = true;
+            $out[] = $tones[$pick];
+        }
+
+        return $out;
+    };
+
+    // The service span in months, part months counting — the same rule the
+    // incentive spread runs on.
+    $months = function ($from, $to): int {
+        $n = $from->diffInMonths($to);
+        if ($from->copy()->addMonthsNoOverflow($n)->lt($to)) {
+            $n++;
+        }
+
+        return max(1, (int) $n);
+    };
+
+    $qty = fn ($v) => rtrim(rtrim(number_format((float) $v, 2), '0'), '.');
+    $rate = fn ($v) => rtrim(rtrim((string) $v, '0'), '.');
 @endphp
 <!doctype html>
 <html lang="en">
@@ -18,250 +137,270 @@
 <meta charset="utf-8">
 <title>{{ $invoice->number }}</title>
 <style>
+  @page { margin: 36px 40px; }
   /* DejaVu is dompdf's built-in face and the one that carries ₹. */
   * { font-family: DejaVu Sans, sans-serif; }
-  body { color: #0f172a; font-size: 11px; margin: 0; }
-  /*
-   * Everything on this document is printed at full strength.
-   *
-   * The greys these once carried — slate-500 for the labels, slate-400 for
-   * the legal note — are a screen convention: on a backlit panel they read
-   * as secondary, and on paper they read as faint. An office printer with a
-   * tired cartridge finishes the job, and the line nobody could make out was
-   * usually the one saying what the document is.
-   *
-   * The hierarchy is still there, in size, weight and case. It just is not
-   * in the ink.
-   */
-  .muted { color: #0f172a; }
-  .right { text-align: right; }
-  h1 { font-size: 18px; margin: 0 0 2px; }
+  body { color: #0f172a; font-size: 14px; margin: 0; line-height: 1.35; }
   table { width: 100%; border-collapse: collapse; }
-  .head td { vertical-align: top; padding: 0 0 14px; }
-  .parties td { vertical-align: top; padding: 10px 0; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
-  .lines { margin-top: 14px; }
-  .lines th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #0f172a; border-bottom: 1px solid #cbd5e1; padding: 6px 6px 6px 0; }
-  .lines td { padding: 7px 6px 7px 0; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
-  .lines th.num, .lines td.num { text-align: right; padding-right: 0; }
-  .totals { width: 45%; margin-left: 55%; margin-top: 12px; }
-  .totals td { padding: 3px 0; }
-  .totals .grand td { border-top: 1px solid #0f172a; font-weight: bold; font-size: 13px; padding-top: 6px; }
-  .chip { display: inline-block; padding: 1px 7px; border-radius: 8px; background: #f1f5f9; font-size: 10px; }
-  .extras { color: #0f172a; font-size: 10px; margin-top: 2px; }
-  .foot { margin-top: 26px; font-size: 10px; color: #0f172a; }
-  /* Quieter than the footer it follows: it is a statement about the
-     document, not part of it. */
-  .note { margin-top: 18px; text-align: center; font-size: 9px; color: #0f172a; }
-  .sign { margin-top: 34px; text-align: right; font-size: 10px; }
-  /* Capped so a large upload cannot push the signatory line onto a
-     page of its own, and centred in the signing space. */
-  .stamp { padding: 4px 0; }
-  .stamp img { max-height: 76px; max-width: 150px; }
+  td, th { vertical-align: top; }
+
+  /* The screen's greys, which is the look of the Print version. */
+  .s400 { color: #94a3b8; }
+  .s500 { color: #64748b; }
+  .s600 { color: #475569; }
+  .xs { font-size: 12px; }
+  .right { text-align: right; }
+
+  .head td { padding: 0 0 16px; border-bottom: 1px solid #f1f5f9; }
+  .head .company { font-size: 18px; font-weight: bold; color: #0f172a; }
+  .head .kind { font-size: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #334155; }
+  .chip { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 9px; background: #f1f5f9; color: #64748b; font-size: 11px; font-weight: 500; }
+
+  .parties td { padding: 16px 0; border-bottom: 1px solid #f1f5f9; }
+  .label { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
+
+  .lines th { text-align: left; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 8px 12px 8px 0; border-bottom: 1px solid #f1f5f9; }
+  .lines td { padding: 10px 12px 10px 0; border-bottom: 1px solid #f8fafc; }
+  .lines th.num, .lines td.num { text-align: right; }
+  .lines th.last, .lines td.last { padding-right: 0; }
+  .keyword { display: inline-block; margin: 4px 4px 0 0; padding: 2px 8px; border-radius: 9px; font-size: 11px; font-weight: 500; }
+  .nowrap { white-space: nowrap; }
+
+  .totals { width: 100%; }
+  .totals td { padding: 2px 0; }
+  .totals .grand td { border-top: 1px solid #e2e8f0; padding-top: 6px; font-size: 16px; font-weight: 600; color: #0f172a; }
+
+  .payments { margin-top: 20px; }
+  .payments th { text-align: left; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 6px 12px 6px 0; border-bottom: 1px solid #e2e8f0; }
+  .payments td { padding: 6px 12px 6px 0; border-bottom: 1px solid #f8fafc; }
+  .payments .num { text-align: right; padding-right: 0; }
+
+  .notes { margin-top: 16px; padding-top: 12px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #64748b; }
+  .bank { margin-top: 24px; font-size: 12px; color: #475569; }
+  .sign { margin-top: 32px; text-align: right; font-size: 12px; color: #64748b; }
+  /* Capped so a large upload cannot push the signatory line onto a page of
+     its own. */
+  .stamp img { max-height: 76px; max-width: 150px; margin: 4px 0; }
+  .legal { margin-top: 20px; text-align: center; font-size: 11px; color: #64748b; }
 </style>
 </head>
 <body>
 
+{{-- ---- who is billing, and what this is ---------------------------------- --}}
 <table class="head">
   <tr>
     <td>
       @if (!empty($logoPath))
-        <img src="{{ $logoPath }}" alt="" style="max-height:52px; max-width:180px; margin-bottom:4px">
+        <img src="{{ $logoPath }}" alt="" style="max-height:52px; max-width:180px; margin-bottom:6px">
       @elseif (!empty($letterhead))
-        {{-- The paper already has the logo on it. The gap is kept so the rest
-             of the document sits where it does on an ordinary print. --}}
-        <div style="height:52px; margin-bottom:4px"></div>
+        {{-- The paper already carries the logo. Its space is kept so the rest
+             of the page sits where it does on an ordinary print. --}}
+        <div style="height:52px; margin-bottom:6px"></div>
       @endif
-      <h1>{{ $company?->name ?? 'Invoice' }}</h1>
-      @if ($company?->address)<div class="muted">{{ $company->address }}</div>@endif
-      {{-- Same rule as the line below: a PAN with no GSTIN beside it used to
-           print a bullet with nothing before it. --}}
-      @php
-        $reg = array_filter([
-          $company?->gstin ? 'GSTIN: ' . $company->gstin : null,
-          $company?->pan ? 'PAN: ' . $company->pan : null,
-        ]);
-      @endphp
-      @if ($reg)<div class="muted">{{ implode(' · ', $reg) }}</div>@endif
-      {{-- Joined, so a company with an e-mail and no phone does not print a
-           bullet with nothing before it. --}}
+      <div class="company">{{ $company?->name ?? 'Invoice' }}</div>
+      @if ($company?->address)<div class="xs s500" style="margin-top:2px; max-width:320px">{{ $company->address }}</div>@endif
+      @if ($company?->gstin)<div class="xs s500">GSTIN: {{ $company->gstin }}</div>@endif
+      @if ($company?->pan)<div class="xs s500">PAN: {{ $company->pan }}</div>@endif
+      {{-- Joined, and only what has been filled in: a company with an e-mail
+           and no phone gets one line, not a separator with nothing before it. --}}
       @php $reach = array_filter([$company?->phone, $company?->email]); @endphp
-      @if ($reach)<div class="muted">{{ implode(' · ', $reach) }}</div>@endif
+      @if ($reach)<div class="xs s500">{{ implode(' · ', $reach) }}</div>@endif
     </td>
     <td class="right">
-      <div style="font-size:15px; font-weight:bold">{{ $isProforma ? 'PROFORMA INVOICE' : 'TAX INVOICE' }}</div>
-      <div style="font-size:13px">{{ $invoice->number }}</div>
-      <div class="muted">Date: {{ $invoice->invoice_date->format('d M Y') }}</div>
-      @if ($invoice->due_date && ! ($headings['due_date']['hidden'] ?? false))
-        <div class="muted">{{ $headings['due_date']['label'] ?? 'Due' }}: {{ $invoice->due_date->format('d M Y') }}</div>
+      <div class="kind">{{ $isProforma ? 'Proforma invoice' : 'Tax invoice' }}</div>
+      <div style="margin-top:4px"><span class="s400">No: </span><span style="font-weight:500">{{ $invoice->number }}</span></div>
+      <div><span class="s400">Date: </span>{{ $invoice->invoice_date?->toDateString() }}</div>
+      @if ($invoice->due_date && ! $docHidden('due_date'))
+        <div><span class="s400">Due: </span>{{ $invoice->due_date->toDateString() }}</div>
       @endif
-      @foreach ($documentFields as $field)
-        <div class="muted">{{ $field['label'] }}: {{ is_bool($field['value']) ? 'Yes' : $field['value'] }}</div>
-      @endforeach
-      @if ($invoice->recurring_note)<div class="chip" style="margin-top:3px">{{ $invoice->recurring_note }}</div>@endif
-      @if ($invoice->status === 'cancelled')<div style="color:#dc2626; font-weight:bold">CANCELLED</div>@endif
+      @if ($invoice->recurring_note)<div class="chip">{{ $invoice->recurring_note }}</div>@endif
+      {{-- Not on the screen's card, which says so elsewhere on the page. A
+           piece of paper has nowhere else to say it. --}}
+      @if ($invoice->status === 'cancelled')<div style="margin-top:4px; color:#dc2626; font-weight:bold">CANCELLED</div>@endif
     </td>
   </tr>
 </table>
 
+{{-- ---- who is billed, and the terms ----------------------------------------- --}}
 <table class="parties">
   <tr>
-    <td style="width:60%">
-      <div class="muted">Billed to</div>
-      <div style="font-weight:bold">{{ $invoice->client?->company_name }}</div>
-      @if ($invoice->client?->contact_person)
-        <div>{{ trim($invoice->client->title . ' ' . $invoice->client->contact_person) }}</div>
-      @endif
-      {{-- Under the name. Joined so a missing half leaves no stray separator. --}}
+    <td style="width:50%; padding-right:16px">
+      <div class="label">Billed to</div>
+      <div style="margin-top:4px; font-weight:600; color:#1e293b">{{ $invoice->client?->company_name }}</div>
+      @if ($invoice->client?->contact_person)<div class="s500">{{ $invoice->client->contact_person }}</div>@endif
+      {{-- Directly under the name: they belong to the person. Joined so a
+           missing half leaves no stray separator. --}}
       @php $clientReach = array_filter([$invoice->client?->mobile, $invoice->client?->email]); @endphp
-      @if ($clientReach)<div class="muted">{{ implode(' · ', $clientReach) }}</div>@endif
-      @if ($invoice->client?->address)<div class="muted">{{ $invoice->client->address }}</div>@endif
-      <div class="muted">
-        {{ collect([$invoice->client?->city, $invoice->client?->state, $invoice->client?->pincode])->filter()->implode(', ') }}
-      </div>
-      @if ($invoice->client?->gst_no)<div class="muted">GSTIN: {{ $invoice->client->gst_no }}</div>@endif
+      @if ($clientReach)<div class="s500">{{ implode(' · ', $clientReach) }}</div>@endif
+      @php
+          $clientAddress = collect([
+              $invoice->client?->address, $invoice->client?->city,
+              $invoice->client?->state, $invoice->client?->pincode,
+          ])->filter()->implode(', ');
+      @endphp
+      @if ($clientAddress !== '')<div class="s500">{{ $clientAddress }}</div>@endif
+      @if ($invoice->client?->gst_no)<div class="s500">GSTIN: {{ $invoice->client->gst_no }}</div>@endif
     </td>
     <td class="right">
-      @if ($invoice->member?->user && ! ($headings['member']['hidden'] ?? false))
-        <div class="muted">{{ $headings['member']['label'] ?? 'Salesperson' }}: {{ $invoice->member->user->name }}</div>
+      @if ($invoice->member?->user && ! $docHidden('member'))
+        <div><span class="s400">{{ $docLabel('member', 'Salesperson') }}: </span>{{ $invoice->member->user->name }}</div>
       @endif
-      @if ($invoice->terms_of_payment && ! ($headings['terms_of_payment']['hidden'] ?? false))
-        <div class="muted">{{ $headings['terms_of_payment']['label'] ?? 'Terms' }}: {{ $invoice->terms_of_payment }}</div>
+      @if ($invoice->creator?->name)
+        <div><span class="s400">Raised by: </span>{{ $invoice->creator->name }}</div>
       @endif
-      @if (! $isProforma)<div class="chip">{{ ucfirst($invoice->payment_status) }}</div>@endif
+      @if ($invoice->terms_of_payment && ! $docHidden('terms_of_payment'))
+        <div><span class="s400">{{ $docLabel('terms_of_payment', 'Terms') }}: </span>{{ $invoice->terms_of_payment }}</div>
+      @endif
+      @foreach ($documentFields as $field)
+        <div><span class="s400">{{ $field['label'] }}: </span>{{ is_bool($field['value']) ? 'Yes' : $field['value'] }}</div>
+      @endforeach
+      <div>
+        <span class="s400">Payment: </span>
+        <span style="font-weight:500; color:{{ $paymentColour }}">{{ $paymentLabels[$invoice->payment_status] ?? $invoice->payment_status }}</span>
+      </div>
     </td>
   </tr>
 </table>
 
+{{-- ---- the work order ------------------------------------------------------- --}}
 <table class="lines">
   <thead>
     <tr>
       <th style="width:22px">#</th>
       <th>Particulars</th>
-      @if ($shown('validity'))<th style="width:120px">{{ $heading('validity', 'Validity') }}</th>@endif
-      <th class="num" style="width:50px">{{ $heading('qty', 'Qty') }}</th>
-      <th class="num" style="width:80px">{{ $heading('unit_price', 'Rate') }}</th>
-      <th class="num" style="width:90px">Amount</th>
+      @if ($shown('validity'))<th>{{ $heading('validity', 'Validity') }}</th>@endif
+      <th class="num">{{ $heading('qty', 'Qty') }}</th>
+      <th class="num">{{ $heading('unit_price', 'Rate') }}</th>
+      <th class="num last">Amount</th>
     </tr>
   </thead>
   <tbody>
     @foreach ($invoice->items as $i => $item)
       <tr>
-        <td class="muted">{{ $i + 1 }}</td>
+        <td class="s400">{{ $i + 1 }}</td>
         <td>
-          <div style="font-weight:bold">
+          <div style="font-weight:500; color:#1e293b">
             {{ collect([
                 $shown('membership') ? $item->membership : null,
                 $shown('plan_name') ? $item->plan_name : null,
             ])->filter()->implode(' — ') ?: '—' }}
           </div>
           @if ($shown('description') && $item->description)
-            <div class="muted">{{ $item->description }}</div>
+            @php $words = $keywords($item->description); @endphp
+            @if ($words)
+              {{-- A list, read back as one. --}}
+              <div>
+                @foreach ($toneFor($words) as $n => $tone)
+                  <span class="keyword" style="background:{{ $tone[0] }}; color:{{ $tone[1] }}">{{ $words[$n] }}</span>
+                @endforeach
+              </div>
+            @else
+              <div class="xs s500" style="margin-top:2px">{!! nl2br(e($item->description)) !!}</div>
+            @endif
           @endif
-          {{-- The company's own Work Order fields, printed with their line. --}}
-          @php $extras = collect($extraColumns)->map(function ($column) use ($item) {
-              $value = data_get($item->custom_fields, $column['key']);
-              if ($value === null || $value === '' || $value === false) {
-                  return null;
-              }
+          {{-- The company's own Work Order fields, with the line they belong to. --}}
+          @php
+              $extras = collect($extraColumns)->map(function ($column) use ($item) {
+                  $value = data_get($item->custom_fields, $column['key']);
+                  if ($value === null || $value === '' || $value === false) {
+                      return null;
+                  }
 
-              return $column['label'] . ': ' . (is_bool($value) ? 'Yes' : $value);
-          })->filter(); @endphp
+                  return ['label' => $column['label'], 'value' => is_bool($value) ? 'Yes' : $value];
+              })->filter()->values();
+          @endphp
           @if ($extras->isNotEmpty())
-            <div class="extras">{{ $extras->implode('  ·  ') }}</div>
+            <div class="xs s500" style="margin-top:4px">
+              @foreach ($extras as $extra)
+                <span style="margin-right:12px"><span class="s400">{{ $extra['label'] }}:</span> {{ $extra['value'] }}</span>
+              @endforeach
+            </div>
           @endif
         </td>
         @if ($shown('validity'))
-          <td class="muted">
+          <td class="xs s500 nowrap">
             @if ($item->validity_from && $item->validity_to)
-              {{ $item->validity_from->format('d M Y') }} → {{ $item->validity_to->format('d M Y') }}
-              @php
-                  // The service span in months, part months counting — the
-                  // same rule the incentive spread runs on.
-                  $vm = $item->validity_from->diffInMonths($item->validity_to);
-                  if ($item->validity_from->copy()->addMonthsNoOverflow($vm)->lt($item->validity_to)) { $vm++; }
-                  $vm = max(1, $vm);
-              @endphp
-              ({{ $vm }} {{ $vm === 1 ? 'month' : 'months' }})
+              @php $span = $months($item->validity_from, $item->validity_to); @endphp
+              {{ $item->validity_from->toDateString() }} → {{ $item->validity_to->toDateString() }}
+              <span style="color:#059669">({{ $span }} {{ $span === 1 ? 'month' : 'months' }})</span>
             @else
               —
             @endif
           </td>
         @endif
-        <td class="num">{{ rtrim(rtrim(number_format((float) $item->qty, 2), '0'), '.') }}</td>
-        <td class="num">{{ $money($item->unit_price) }}</td>
-        <td class="num">{{ $money($item->amount) }}</td>
+        <td class="num">{{ $qty($item->qty) }}</td>
+        <td class="num nowrap">{{ $money($item->unit_price) }}</td>
+        <td class="num last nowrap" style="font-weight:500">{{ $money($item->amount) }}</td>
       </tr>
     @endforeach
   </tbody>
 </table>
 
+{{-- ---- what it comes to ---------------------------------------------------- --}}
+{{-- Held to the right by an empty cell beside it rather than by margin-left:
+     auto, which dompdf does not honour on a table. --}}
+<table style="margin-top:16px">
+<tr>
+<td></td>
+<td style="width:320px">
 <table class="totals">
-  <tr><td class="muted">Subtotal</td><td class="right">{{ $currency }} {{ $money($invoice->subtotal) }}</td></tr>
+  <tr class="s500"><td>Subtotal</td><td class="right">{{ $money($invoice->subtotal) }}</td></tr>
+  {{-- The money lines this document was raised with, in the company's own
+       wording — renaming a line later never rewrites old paper. --}}
   @foreach ($moneyLines as $line)
-    <tr>
-      <td class="muted">
-        {{ $line['label'] }}
-        @if ($line['rate'] !== null)
-          @ {{ rtrim(rtrim((string) $line['rate'], '0'), '.') }}%
-        @endif
-      </td>
-      <td class="right">{{ $line['sign'] === '-' ? '− ' : '' }}{{ $currency }} {{ $money($line['amount']) }}</td>
+    <tr class="s500">
+      <td>{{ $line['label'] }}@if ($line['rate'] !== null && (float) $line['rate'] > 0) @ {{ $rate($line['rate']) }}%@endif</td>
+      <td class="right">{{ $line['sign'] === '-' ? '− ' : '' }}{{ $money($line['amount']) }}</td>
     </tr>
   @endforeach
-  <tr class="grand"><td>Grand total</td><td class="right">{{ $currency }} {{ $money($invoice->total) }}</td></tr>
+  <tr class="grand"><td>Grand total</td><td class="right">{{ $money($invoice->total) }}</td></tr>
   @if ($invoice->total_fx)
-    <tr>
-      <td class="muted">
-        {{ $invoice->fx_currency }} equivalent
-        @if ($invoice->fx_rate > 0) @ {{ rtrim(rtrim(number_format((float) $invoice->fx_rate, 4, '.', ''), '0'), '.') }} @endif
-      </td>
-      <td class="right">{{ $invoice->fx_currency }} {{ $money($invoice->total_fx) }}</td>
+    <tr class="xs s400">
+      <td>{{ $invoice->fx_currency }} equivalent</td>
+      <td class="right">{{ number_format((float) $invoice->total_fx, 2) }}</td>
     </tr>
   @endif
-  @if (! $isProforma && $received > 0)
-    <tr><td class="muted">Received</td><td class="right">{{ $currency }} {{ $money($received) }}</td></tr>
-    <tr><td class="muted">Balance</td><td class="right">{{ $currency }} {{ $money((float) $invoice->total - $received) }}</td></tr>
+  @if (! $isProforma)
+    <tr style="color:#059669"><td>Received</td><td class="right">{{ $money($received) }}</td></tr>
+    <tr style="color:#ef4444; font-weight:500"><td>Balance</td><td class="right">{{ $money((float) $invoice->total - $received) }}</td></tr>
   @endif
 </table>
+</td>
+</tr>
+</table>
 
-{{-- The consolidated accountant's block lives on the SCREEN view of the
-     document, not on the client-facing paper. --}}
-
-{{-- The money that has already arrived is part of the story the document
-     tells — a client holding this paper should see what was received and
-     what remains, entry by entry. --}}
+{{-- ---- the money already received, entry by entry ---------------------------- --}}
 @if (! $isProforma && $invoice->payments->isNotEmpty())
-  <table class="lines" style="margin-top:18px">
+  <table class="payments">
     <thead>
       <tr>
         <th>Payments received</th>
-        <th style="width:90px">Mode</th>
-        <th style="width:150px">Reference</th>
-        <th class="num" style="width:90px">Amount</th>
+        <th>Mode</th>
+        <th>Reference</th>
+        <th class="num">Amount</th>
       </tr>
     </thead>
     <tbody>
       @foreach ($invoice->payments as $payment)
         <tr>
-          <td class="muted">
-            {{ $payment->received_at->format('d M Y') }}
-            @if ($payment->payment_no)
-              {{-- The unique payment id — the handle a bank statement
-                   reconciles against. --}}
-              <span style="font-size:9px"> · {{ $payment->payment_no }}</span>
-            @endif
-            {{-- The client paid in full; the charge is ours, and saying so
-                 on the document stops anyone reading it as a shortfall. --}}
+          <td class="s500">
+            {{ $payment->received_at?->toDateString() }}
+            {{-- The unique payment id a bank statement reconciles against. --}}
+            @if ($payment->payment_no)<div style="font-size:10px">{{ $payment->payment_no }}</div>@endif
+          </td>
+          <td class="s500">{{ $payment->payment_mode ?? '—' }}</td>
+          <td class="s500">{{ $payment->reference_no ?? '—' }}</td>
+          <td class="num" style="font-weight:500; color:#059669">
+            {{ $money($payment->amount) }}
+            {{-- The client paid in full; the charge is ours, and saying so stops
+                 anyone reading it as a shortfall. --}}
             @if ((float) $payment->charge_amount > 0)
-              <span style="font-size:9px">
-                (incl. {{ $payment->charge_note ?: 'collection charge' }}
-                {{ $money($payment->charge_amount) }} — net {{ $money($payment->netAmount()) }})
-              </span>
+              <div style="font-size:10px; font-weight:normal; color:#94a3b8">
+                incl. {{ $payment->charge_note ?: 'collection charge' }} {{ $money($payment->charge_amount) }}
+                — net {{ $money($payment->netAmount()) }}
+              </div>
             @endif
           </td>
-          <td class="muted">{{ $payment->payment_mode ?? '—' }}</td>
-          <td class="muted">{{ $payment->reference_no ?? '—' }}</td>
-          <td class="num">{{ $money($payment->amount) }}</td>
         </tr>
       @endforeach
     </tbody>
@@ -269,27 +408,28 @@
 @endif
 
 @if ($invoice->notes)
-  <div class="foot"><strong>Notes:</strong> {{ $invoice->notes }}</div>
+  <div class="notes">{!! nl2br(e($invoice->notes)) !!}</div>
 @endif
 
-@if ($bank)
-  <div class="foot">
-    <strong>Bank details:</strong>
+{{-- Where to send the money: above the signatory, read before they stop reading. --}}
+@if (!empty($bank))
+  <div class="bank">
+    <strong>Bank details: </strong>
     {{ collect([$bank->bank_name, $bank->account_no ? 'A/c ' . $bank->account_no : null, $bank->ifsc ? 'IFSC ' . $bank->ifsc : null])->filter()->implode(' · ') }}
   </div>
 @endif
 
 <div class="sign">
-  For {{ $company?->name }}
-  {{-- The stamp sits where a signature goes, over the space rather than
-       beside it, which is where a rubber stamp lands on paper. A company
-       with no stamp keeps the blank space it always had. --}}
+  <div>For {{ $company?->name }}</div>
+  {{-- The stamp sits over the signing space rather than beside it, which is
+       where a rubber stamp lands on paper. A company with no stamp keeps the
+       blank space to sign in. --}}
   @if (!empty($stampPath))
     <div class="stamp"><img src="{{ $stampPath }}" alt=""></div>
   @else
-    <br><br><br>
+    <div style="height:48px"></div>
   @endif
-  Authorised signatory
+  <div>Authorised signatory</div>
 </div>
 
 {{--
@@ -297,15 +437,11 @@
 
   Rule 46 of the CGST Rules requires an invoice to be signed by the supplier,
   and exempts one issued electronically under the Information Technology Act
-  from that — which is what this sentence is asserting. It says "physical"
-  rather than simply "signature" on purpose: the document may well be
-  digitally signed, and claiming it needs no signature at all would be saying
-  something different from what is meant.
-
-  Below the signatory rather than above it, because it explains the absence of
-  a signature and has to be read after somebody notices there isn't one.
+  from that — which is what this sentence asserts. "Physical" rather than
+  simply "signature" on purpose: the document may well be digitally signed.
+  Below the signatory, because it explains the absence of a signature.
 --}}
-<div class="note">
+<div class="legal">
   This is a computer-generated {{ $isProforma ? 'document' : 'invoice' }} and does not require a
   physical signature.
 </div>
