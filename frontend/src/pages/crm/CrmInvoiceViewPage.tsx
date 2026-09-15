@@ -530,9 +530,10 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
             {/* Not on a document in another currency: the client pays in that
                 currency, and its rupee figure is for our books, not theirs. */}
             {(inv.currency || 'INR') === 'INR' && inv.total_fx && <div className="flex justify-between text-xs text-slate-400"><span>{inv.fx_currency} equivalent</span><span>{Number(inv.total_fx).toLocaleString()}</span></div>}
-            {/* A foreign document's rupee value, for our books: the rate frozen on it at save. */}
+            {/* A foreign document's rupee value, for our books: the rate frozen on it at save.
+                Screen only - the client's copy, printed or downloaded, is in their currency alone. */}
             {(inv.currency || 'INR') !== 'INR' && inv.fx_currency === 'INR' && inv.total_fx && (
-              <div className="flex justify-between text-xs text-slate-400">
+              <div className="flex justify-between text-xs text-slate-400 print:hidden">
                 <span>INR equivalent{Number(inv.fx_rate) > 0 && ` @ ₹${Number(inv.fx_rate)}`}</span>
                 <span>{money(inv.total_fx, 'INR')}</span>
               </div>
