@@ -17,8 +17,8 @@ import { listParam, onlyOne, optionsFrom } from '../../lib/multiFilter'
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
 /** "$300.00 + €120.00" - the foreign money inside a rupee figure, or '' when there is none. */
-const foreignList = (rows: { currency: string; total: number; due: number }[] | undefined, field: 'total' | 'due') =>
-  (rows ?? []).filter((r) => Number(r[field]) > 0).map((r) => money(r[field], r.currency)).join(' + ')
+const foreignList = (rows: { currency: string; total: number; due: number; base?: number }[] | undefined, field: 'total' | 'due' | 'base') =>
+  (rows ?? []).filter((r) => Number(r[field] ?? 0) > 0).map((r) => money(r[field] ?? 0, r.currency)).join(' + ')
 
 /**
  * The stretches of time a ledger is read in.
@@ -264,6 +264,20 @@ export default function CrmInvoicesPage() {
       {/* The combined view says whose money is whose, before the rows. */}
       {effectiveScope === 'team' && (data?.totals.by_salesperson?.length ?? 0) > 1 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+          {/* Everybody's sales together, before tax - the figure each card
+              below is a share of. */}
+          <Card className="py-3 ring-2 ring-emerald-400/40">
+            <div className="text-lg font-semibold text-emerald-600 dark:text-emerald-400">
+              {money(data!.totals.consolidated?.basic ?? 0, 'INR')}
+            </div>
+            {foreignList(data!.totals.foreign, 'base') && (
+              <div className="truncate text-[11px] text-slate-400">incl. {foreignList(data!.totals.foreign, 'base')}</div>
+            )}
+            <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">Total sales (base value)</div>
+            <div className="text-xs text-slate-400">
+              {data!.totals.by_salesperson!.length} people · {data!.totals.by_salesperson!.reduce((n, r) => n + r.count, 0)} documents
+            </div>
+          </Card>
           {data!.totals.by_salesperson!.map((row) => (
             <button
               key={row.name}
@@ -276,9 +290,11 @@ export default function CrmInvoicesPage() {
                 row.is_me && 'ring-2 ring-emerald-400/60',
                 onlyOne(salespeople) === row.uuid && row.uuid && 'ring-2 ring-sky-400',
               )}>
-                <div className="text-lg font-semibold text-slate-900 dark:text-white">{money(row.total, 'INR')}</div>
-                {foreignList(row.foreign, 'total') && (
-                  <div className="truncate text-[11px] text-slate-400">incl. {foreignList(row.foreign, 'total')}</div>
+                {/* The sale before tax: what the person sold, not what the
+                    government collects on it. */}
+                <div className="text-lg font-semibold text-slate-900 dark:text-white">{money(row.base ?? row.total, 'INR')}</div>
+                {foreignList(row.foreign, 'base') && (
+                  <div className="truncate text-[11px] text-slate-400">incl. {foreignList(row.foreign, 'base')}</div>
                 )}
                 <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
                   {row.name}{row.is_me && ' (you)'}

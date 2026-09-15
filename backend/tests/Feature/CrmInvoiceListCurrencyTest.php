@@ -143,6 +143,10 @@ class CrmInvoiceListCurrencyTest extends TestCase
         $row = collect($this->totals()['by_salesperson'])->first();
 
         $this->assertEquals(1000 + 202 * 94, $row['due']);
+        // The card leads with the sale before tax, dollars at their frozen rate.
+        $this->assertEquals(1000 + 202 * 94, $row['base']);
+        $this->assertEquals(202, $row['foreign'][0]['base']);
+        $this->assertEquals(1000 + 202 * 94, $this->totals()['consolidated']['basic']);
         $this->assertSame('USD', $row['foreign'][0]['currency']);
         $this->assertEquals(202, $row['foreign'][0]['due']);
     }

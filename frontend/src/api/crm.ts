@@ -1220,6 +1220,8 @@ export interface CrmForeignTotal {
   currency: string
   count: number
   total: number
+  /** Before tax, in this currency. */
+  base?: number
   due: number
   total_inr?: number
   due_inr?: number
@@ -2961,6 +2963,8 @@ export const crm = {
             uuid: string | null; name: string; is_me: boolean; count: number
             /** In rupees - foreign documents at the rate frozen on each. */
             total: number; due: number
+            /** The sale before tax, in rupees. */
+            base?: number
             by_currency?: CrmForeignTotal[]
             foreign?: CrmForeignTotal[]
           }[]

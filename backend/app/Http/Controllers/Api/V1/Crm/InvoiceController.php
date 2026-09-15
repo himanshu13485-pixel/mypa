@@ -219,13 +219,15 @@ class InvoiceController extends Controller
                 ->where('status', '!=', 'cancelled')
                 ->with('member.user:id,name,email')
                 ->withSum('payments as received', 'amount')
-                ->get(['id', 'member_id', ...Invoice::RUPEE_COLUMNS])
+                ->get(['id', 'member_id', 'subtotal', 'discount', ...Invoice::RUPEE_COLUMNS])
                 ->groupBy('member_id')
                 ->map(fn ($group) => [
                     'uuid' => $group->first()->member?->uuid,
                     'name' => $group->first()->member?->user?->name ?? 'Unassigned',
                     'is_me' => $group->first()->member_id === $me->id,
                     'count' => $group->count(),
+                    // What they sold, before tax - the figure a sale is judged by.
+                    'base' => round((float) $group->sum(fn ($i) => $i->inRupees((float) $i->subtotal - (float) ($i->discount ?? 0))), 2),
                     // In rupees, so the cards can be ranked against each
                     // other. What each card shows is by_currency, below.
                     'total' => round((float) $group->sum(fn ($i) => $i->inRupees($i->total)), 2),
@@ -235,7 +237,7 @@ class InvoiceController extends Controller
                     // The dollars inside the rupee figure, named on the card.
                     'foreign' => self::foreign($group),
                 ])
-                ->sortByDesc('total')
+                ->sortByDesc('base')
                 ->values();
         }
 
@@ -921,6 +923,7 @@ class InvoiceController extends Controller
                 'currency' => $code,
                 'count' => $group->count(),
                 'total' => round((float) $group->sum('total'), 2),
+                'base' => round((float) $group->sum(fn ($i) => (float) $i->subtotal - (float) ($i->discount ?? 0)), 2),
                 'due' => round((float) $group->sum(fn ($i) => max(0, (float) $i->total - (float) ($i->received ?? 0))), 2),
                 // The same, at the rupee rate frozen on each document.
                 'total_inr' => round((float) $group->sum(fn ($i) => $i->inRupees($i->total)), 2),
