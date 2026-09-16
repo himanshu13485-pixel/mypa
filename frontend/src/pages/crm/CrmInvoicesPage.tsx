@@ -568,6 +568,15 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                     </td>
                     <td className="max-w-[200px] py-2.5 pr-3">
                       <div className="truncate">{i.client?.company_name ?? '—'}</div>
+                      {/* Who to ring about this document, kept quieter than the
+                          company and truncated inside the same width: the name
+                          is what a chaser needs, but the company is still what
+                          the row is about, and the column cannot grow. */}
+                      {i.client?.contact_person && (
+                        <div className="truncate text-xs text-slate-400" title={i.client.contact_person}>
+                          {i.client.contact_person}
+                        </div>
+                      )}
                       {/* Both words on one wrapping line, so the pair costs
                           the column no width a phone cannot spare. */}
                       <div className="mt-0.5 flex flex-wrap items-center gap-1">
@@ -617,7 +626,18 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                       </span>
                     </td>
                     <td className="py-2.5 pr-3">
-                      <span className="whitespace-nowrap text-xs text-slate-500">
+                      {/* Coloured like the payment pill beside it, because a
+                          row owing goods is read the same way as a row owing
+                          money: green once it has gone, amber while it is in
+                          hand, red while nothing has moved. Anything the list
+                          does not know stays neutral rather than guessing. */}
+                      <span className={clsx(
+                        'whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium',
+                        i.dispatch_status === 'dispatched' && 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
+                        ['in_process', 'partial'].includes(i.dispatch_status) && 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
+                        ['pending', 'due'].includes(i.dispatch_status) && 'bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400',
+                        !['dispatched', 'in_process', 'partial', 'pending', 'due'].includes(i.dispatch_status) && 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+                      )}>
                         {CRM_DISPATCH_STATUS_LABELS[i.dispatch_status] ?? i.dispatch_status}
                       </span>
                     </td>

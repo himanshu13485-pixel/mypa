@@ -283,6 +283,51 @@ export interface CrmPaymentLink {
 export interface CrmPaymentSettings {
   settlement_mode: 'auto' | 'manual'
   reminders: { enabled: boolean; offsets: number[]; stop_after: number }
+  /**
+   * When the office is asked about a dispatch that has not gone out: first
+   * after_days from the document's date, then every repeat_days until it is
+   * marked dispatched or somebody defers it.
+   */
+  dispatch?: { enabled: boolean; after_days: number; repeat_days: number }
+  /**
+   * When the salesperson is nudged about money that has not come in. Their
+   * own sales only, and separate from the letters that go to the client.
+   */
+  payment_chase?: { enabled: boolean; after_days: number; repeat_days: number }
+}
+
+/** An invoice still owed money, as the salesperson's popup sees it. */
+export interface CrmPaymentDue {
+  uuid: string
+  number: string
+  invoice_date: string | null
+  due_date: string | null
+  /** Days past the day it should have been paid; 0 while it is still in time. */
+  overdue_days: number
+  payment_status: string
+  client: string | null
+  contact_person: string | null
+  mobile: string | null
+  issuing_company: string | null
+  total: number
+  received: number
+  balance: number
+  currency: string
+}
+
+/** A document whose goods have not gone out, as the chasing popup sees it. */
+export interface CrmDispatchDue {
+  uuid: string
+  number: string
+  invoice_date: string | null
+  /** How long the client has been waiting, which is what makes one urgent. */
+  waiting_days: number | null
+  dispatch_status: string
+  client: string | null
+  contact_person: string | null
+  salesperson: string | null
+  total: number
+  currency: string
 }
 
 /** An invoice still owed money, as the outstanding ledger sees it. */
@@ -2587,6 +2632,32 @@ export const crm = {
     run: (uuid: string) =>
       api.post<{ message: string; data: { uuid: string; number: string } }>(`/crm/recurring/${uuid}/run`)
         .then((r) => r.data),
+  },
+
+  /** Money still owed on one's own sales, and putting the question off. */
+  paymentChase: {
+    due: () =>
+      api.get<{ data: CrmPaymentDue[]; schedule: { enabled: boolean; after_days: number; repeat_days: number } }>(
+        '/crm/invoices-payment-due',
+      ).then((r) => r.data),
+    /** No date means the company's own rhythm. */
+    defer: (uuid: string, until?: string | null, note?: string | null) =>
+      api.post<{ message: string; until: string }>(`/crm/invoices/${uuid}/payment-reminder`, {
+        until: until ?? null, note: note ?? null,
+      }).then((r) => r.data),
+  },
+
+  /** Dispatches that have not gone out, and putting one off. */
+  dispatch: {
+    due: () =>
+      api.get<{ data: CrmDispatchDue[]; schedule: { enabled: boolean; after_days: number; repeat_days: number } }>(
+        '/crm/invoices-dispatch-due',
+      ).then((r) => r.data),
+    /** No date means the company's own rhythm. */
+    defer: (uuid: string, until?: string | null, note?: string | null) =>
+      api.post<{ message: string; until: string }>(`/crm/invoices/${uuid}/dispatch-reminder`, {
+        until: until ?? null, note: note ?? null,
+      }).then((r) => r.data),
   },
 
   payments: {

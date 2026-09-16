@@ -1008,7 +1008,21 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // The paper copy, rendered server-side (print dialogs are not
                 // available in every browser the CRM runs in).
                 Route::post('/invoices/{uuid}/email', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'email']);
-                Route::get('/invoices/{uuid}/pdf', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'pdf']);
+                // Dispatches that have not gone out, for the popup that chases
+            // them. A dash, not /invoices/dispatch-due, or "dispatch-due"
+            // would be read as somebody's uuid.
+            // Money still owed on one's own sales, for the popup that chases
+            // it. Behind plain membership: a salesperson is always allowed to
+            // be told about their own invoices.
+            Route::get('/invoices-payment-due', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'paymentDue'])
+                ->middleware('crm.member:invoices,view');
+            Route::post('/invoices/{uuid}/payment-reminder', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'deferPayment'])
+                ->middleware('crm.member:invoices,view');
+            Route::get('/invoices-dispatch-due', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'dispatchDue'])
+                ->middleware('crm.member:invoices,view');
+            Route::post('/invoices/{uuid}/dispatch-reminder', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'deferDispatch'])
+                ->middleware('crm.member:invoices,edit');
+            Route::get('/invoices/{uuid}/pdf', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'pdf']);
                 Route::post('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'store']);
                 Route::put('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'update']);
                 Route::post('/invoices/{uuid}/cancel', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'cancel']);

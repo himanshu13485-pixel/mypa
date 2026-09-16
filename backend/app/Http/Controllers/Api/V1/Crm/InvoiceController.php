@@ -333,6 +333,8 @@ class InvoiceController extends Controller
         });
 
         ClientBusinessStatus::restate($org->id, $invoice->client_id);
+        $this->scheduleDispatch($org, $invoice);
+        $invoice->schedulePaymentChase();
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, $invoice->kind . '.created', $invoice, $this->trail($invoice));
 
         return response()->json([
@@ -377,6 +379,7 @@ class InvoiceController extends Controller
         $invoice->refreshPaymentStatus();
         // The date may have moved, which changes who came first.
         ClientBusinessStatus::restate($org->id, $invoice->client_id);
+        $this->scheduleDispatch($org, $invoice);
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, $invoice->kind . '.updated', $invoice, $this->trail($invoice));
 
         return response()->json([
@@ -951,6 +954,227 @@ class InvoiceController extends Controller
             ->sortBy(fn ($row) => $row['currency'] === 'INR' ? 0 : 1)
             ->values()
             ->all();
+    }
+
+    /**
+     * When this document should next ask about its dispatch.
+     *
+     * Set once, on the way in, and left alone afterwards - a document that
+     * has been deferred to Friday must not jump back to Tuesday because
+     * somebody corrected a line on it. Marked dispatched, it goes quiet for
+     * good.
+     */
+    private function scheduleDispatch($org, Invoice $invoice): void
+    {
+        if (! $invoice->awaitingDispatch()) {
+            if ($invoice->dispatch_remind_at || $invoice->dispatch_snoozed_until) {
+                $invoice->forceFill(['dispatch_remind_at' => null, 'dispatch_snoozed_until' => null])->save();
+            }
+
+            return;
+        }
+
+        if ($invoice->dispatch_remind_at !== null) {
+            return;
+        }
+
+        $schedule = $org->dispatchSchedule();
+        $from = $invoice->invoice_date ?? now();
+        $invoice->forceFill([
+            'dispatch_remind_at' => $from->copy()->addDays($schedule['after_days'])->setTime(10, 0),
+        ])->save();
+    }
+
+    /**
+     * The money asking to be chased, for the person whose sale it was.
+     *
+     * The salesperson's own nudge, not the client's letter: those go out from
+     * the reminder schedule and say please. This says "they have not paid
+     * you yet", and it says it to the one person who can ring them about it.
+     * A manager sees the documents that are theirs, like anybody else.
+     */
+    public function paymentDue(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $schedule = $org->paymentChaseSchedule();
+        if (! $schedule['enabled']) {
+            return response()->json(['data' => [], 'schedule' => $schedule]);
+        }
+
+        $due = Invoice::with(['client:id,company_name,contact_person,mobile', 'issuingCompany:id,name'])
+            ->where('organization_id', $org->id)
+            ->where('kind', 'invoice')
+            ->where('status', '!=', 'cancelled')
+            ->whereIn('payment_status', ['due', 'partial'])
+            ->whereNotNull('payment_remind_at')
+            ->where('payment_remind_at', '<=', now())
+            ->where(fn ($q) => $q->whereNull('payment_snoozed_until')->orWhere('payment_snoozed_until', '<=', now()))
+            // Whose sale it was. Older paperwork predates automatic
+            // attribution, so whoever wrote it still stands in.
+            ->where(fn ($q) => $q->where('member_id', $me->id)
+                ->orWhere(fn ($w) => $w->whereNull('member_id')->where('created_by', $me->user_id)))
+            ->withSum('payments as received', 'amount')
+            ->orderBy('due_date')
+            ->limit(50)
+            ->get();
+
+        return response()->json([
+            'data' => $due->map(function (Invoice $i) {
+                $balance = round((float) $i->total - (float) ($i->received ?? 0), 2);
+
+                return [
+                    'uuid' => $i->uuid,
+                    'number' => $i->number,
+                    'invoice_date' => $i->invoice_date?->toDateString(),
+                    'due_date' => $i->due_date?->toDateString(),
+                    // Days past the day it should have been paid, which is
+                    // what makes one of these worth a phone call.
+                    'overdue_days' => $i->due_date && $i->due_date->isPast() ? (int) $i->due_date->diffInDays(now()) : 0,
+                    'payment_status' => $i->payment_status,
+                    'client' => $i->client?->company_name,
+                    'contact_person' => $i->client?->contact_person,
+                    'mobile' => $i->client?->mobile,
+                    'issuing_company' => $i->issuingCompany?->name,
+                    'total' => (float) $i->total,
+                    'received' => round((float) ($i->received ?? 0), 2),
+                    'balance' => $balance,
+                    'currency' => $i->currency ?: 'INR',
+                ];
+            })->values(),
+            'schedule' => $schedule,
+        ]);
+    }
+
+    /**
+     * Put the money question off: to a day the client promised, or by the
+     * company's own rhythm. Deferring is a note of when to ask again, not a
+     * way of never asking.
+     */
+    public function deferPayment(Request $request, string $uuid): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $invoice = $this->find($request, $uuid);
+        $data = $request->validate([
+            'until' => ['nullable', 'date'],
+            'note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $until = ! empty($data['until'])
+            ? \Carbon\Carbon::parse($data['until'])->setTime(10, 0)
+            : now()->addDays($org->paymentChaseSchedule()['repeat_days']);
+        abort_if($until->isPast(), 422, 'Pick a date still to come.');
+
+        $invoice->forceFill(['payment_remind_at' => $until, 'payment_snoozed_until' => null])->save();
+
+        ActivityLog::record($me, $org->id, 'invoice.payment_chase_deferred', $invoice, array_filter([
+            'number' => $invoice->number,
+            'until' => $until->toDateString(),
+            'note' => $data['note'] ?? null,
+        ]));
+
+        return response()->json([
+            'message' => $invoice->number . ' will ask again on ' . $until->format('d M Y') . '.',
+            'until' => $until->toDateTimeString(),
+        ]);
+    }
+
+    /**
+     * The dispatches asking to be seen right now.
+     *
+     * The office's own question rather than the salesperson's: goods that
+     * have not gone out are the desk's to chase, so this is the Company
+     * Admin's and the Subadmins'. Read by the popup, which is why it is not
+     * the invoice list with a filter on it - a list is something you go to,
+     * and the point of this is that it comes to you.
+     */
+    public function dispatchDue(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $schedule = $org->dispatchSchedule();
+        $chases = $schedule['enabled'] && in_array($me->crm_role, ['admin', 'subadmin'], true);
+
+        if (! $chases) {
+            return response()->json(['data' => [], 'schedule' => $schedule]);
+        }
+
+        $due = Invoice::with(['client:id,company_name,contact_person', 'member.user:id,name'])
+            ->where('organization_id', $org->id)
+            ->where('kind', 'invoice')
+            ->where('status', '!=', 'cancelled')
+            ->whereIn('dispatch_status', ['pending', 'partial', 'in_process'])
+            ->whereNotNull('dispatch_remind_at')
+            ->where('dispatch_remind_at', '<=', now())
+            ->where(fn ($q) => $q->whereNull('dispatch_snoozed_until')->orWhere('dispatch_snoozed_until', '<=', now()))
+            ->orderBy('invoice_date')
+            ->limit(50)
+            ->get();
+
+        return response()->json([
+            'data' => $due->map(fn (Invoice $i) => [
+                'uuid' => $i->uuid,
+                'number' => $i->number,
+                'invoice_date' => $i->invoice_date?->toDateString(),
+                // How long the client has been waiting, which is the thing
+                // that makes one of these urgent rather than merely open.
+                'waiting_days' => $i->invoice_date ? (int) $i->invoice_date->diffInDays(now()) : null,
+                'dispatch_status' => $i->dispatch_status,
+                'client' => $i->client?->company_name,
+                'contact_person' => $i->client?->contact_person,
+                'salesperson' => $i->member?->user?->name,
+                'total' => (float) $i->total,
+                'currency' => $i->currency ?: 'INR',
+            ])->values(),
+            'schedule' => $schedule,
+        ]);
+    }
+
+    /**
+     * Put one off: to a date somebody names, or by the company's own rhythm.
+     *
+     * Deferring is not dismissing. A dispatch that cannot go out until the
+     * stock lands should say so and come back then, rather than asking every
+     * morning in between and teaching everybody to ignore it.
+     */
+    public function deferDispatch(Request $request, string $uuid): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+        abort_unless(in_array($me->crm_role, ['admin', 'subadmin'], true), 403,
+            'Chasing a dispatch is the Company Admin’s, and the Subadmins’.');
+
+        $invoice = $this->find($request, $uuid);
+        $data = $request->validate([
+            'until' => ['nullable', 'date'],
+            'note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $until = ! empty($data['until'])
+            ? \Carbon\Carbon::parse($data['until'])->setTime(10, 0)
+            : now()->addDays($org->dispatchSchedule()['repeat_days']);
+        abort_if($until->isPast(), 422, 'Pick a date still to come.');
+
+        $invoice->forceFill(['dispatch_remind_at' => $until, 'dispatch_snoozed_until' => null])->save();
+
+        ActivityLog::record($me, $org->id, 'invoice.dispatch_deferred', $invoice, array_filter([
+            'number' => $invoice->number,
+            'until' => $until->toDateString(),
+            'note' => $data['note'] ?? null,
+        ]));
+
+        return response()->json([
+            'message' => $invoice->number . ' will ask again on ' . $until->format('d M Y') . '.',
+            'until' => $until->toDateTimeString(),
+        ]);
     }
 
     /** One PDF builder for downloads and e-mails alike. */

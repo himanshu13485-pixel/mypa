@@ -4,6 +4,8 @@ import { LeadFollowUpAlerts } from './LeadFollowUpAlerts'
 import { NewLeadAlerts } from './NewLeadAlerts'
 import { ComplaintAlerts } from './ComplaintAlerts'
 import { TaskReminderAlerts } from './TaskReminderAlerts'
+import { DispatchAlerts } from './DispatchAlerts'
+import { PaymentDueAlerts } from './PaymentDueAlerts'
 import { BirthdayVibes } from './BirthdayVibes'
 import { BirthdayWishes } from './BirthdayWishes'
 import { backgroundRule, sidebarStyle } from '../../lib/backgrounds'
@@ -561,6 +563,10 @@ export default function CrmLayout() {
           <NewLeadAlerts me={me} />
           <ComplaintAlerts me={me} />
           <TaskReminderAlerts me={me} />
+          {/* Goods that have not gone out are the office's to chase. */}
+          <DispatchAlerts me={me} />
+          {/* Money owed on one's own sales is the salesperson's to ring about. */}
+          <PaymentDueAlerts me={me} />
           <BirthdayVibes me={me} />
           <BirthdayWishes me={me} />
           <FestivalVibes me={me} />

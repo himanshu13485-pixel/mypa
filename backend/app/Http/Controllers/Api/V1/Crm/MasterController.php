@@ -31,6 +31,8 @@ class MasterController extends Controller
         return response()->json(['data' => [
             'settlement_mode' => $org->settlementMode(),
             'reminders' => $org->reminderSchedule(),
+            'dispatch' => $org->dispatchSchedule(),
+            'payment_chase' => $org->paymentChaseSchedule(),
         ]]);
     }
 
@@ -45,6 +47,16 @@ class MasterController extends Controller
             'reminders.offsets' => ['nullable', 'array', 'max:12'],
             'reminders.offsets.*' => ['integer', 'min:-60', 'max:365'],
             'reminders.stop_after' => ['nullable', 'integer', 'min:1', 'max:20'],
+            // How long the office is given before it is asked about a
+            // dispatch that has not gone out, and how often after that.
+            'dispatch.enabled' => ['nullable', 'boolean'],
+            'dispatch.after_days' => ['nullable', 'integer', 'min:0', 'max:90'],
+            'dispatch.repeat_days' => ['nullable', 'integer', 'min:1', 'max:90'],
+            // The office's own nudge about money owed, to the person whose
+            // sale it was - not the letters that go to the client.
+            'payment_chase.enabled' => ['nullable', 'boolean'],
+            'payment_chase.after_days' => ['nullable', 'integer', 'min:0', 'max:90'],
+            'payment_chase.repeat_days' => ['nullable', 'integer', 'min:1', 'max:90'],
         ]);
 
         $settings = $org->settings ?? [];
@@ -54,6 +66,20 @@ class MasterController extends Controller
             'offsets' => array_values(array_unique($data['reminders']['offsets'] ?? [])),
             'stop_after' => (int) ($data['reminders']['stop_after'] ?? 4),
         ];
+        if (array_key_exists('payment_chase', $data)) {
+            $settings['payment_chase'] = [
+                'enabled' => (bool) ($data['payment_chase']['enabled'] ?? true),
+                'after_days' => (int) ($data['payment_chase']['after_days'] ?? 0),
+                'repeat_days' => (int) ($data['payment_chase']['repeat_days'] ?? 3),
+            ];
+        }
+        if (array_key_exists('dispatch', $data)) {
+            $settings['dispatch'] = [
+                'enabled' => (bool) ($data['dispatch']['enabled'] ?? true),
+                'after_days' => (int) ($data['dispatch']['after_days'] ?? 2),
+                'repeat_days' => (int) ($data['dispatch']['repeat_days'] ?? 2),
+            ];
+        }
         $org->update(['settings' => $settings]);
 
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'settings.payments', $org, [
@@ -64,7 +90,12 @@ class MasterController extends Controller
 
         return response()->json([
             'message' => 'Payment settings saved.',
-            'data' => ['settlement_mode' => $org->settlementMode(), 'reminders' => $org->fresh()->reminderSchedule()],
+            'data' => [
+                'settlement_mode' => $org->settlementMode(),
+                'reminders' => $org->fresh()->reminderSchedule(),
+                'dispatch' => $org->fresh()->dispatchSchedule(),
+                'payment_chase' => $org->fresh()->paymentChaseSchedule(),
+            ],
         ]);
     }
 

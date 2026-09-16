@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, Image as ImageIcon, KeyRound, Landmark, LifeBuoy, ListChecks, Pencil, Plus, Upload, Wallet } from 'lucide-react'
+import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, HandCoins, Image as ImageIcon, KeyRound, Landmark, LifeBuoy, ListChecks, PackageCheck, Pencil, Plus, Upload, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -843,8 +843,10 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
 
 
 /**
- * Two rules about money: what happens when a payment is matched to a
- * document, and when unpaid invoices are chased without anyone typing.
+ * Four rules about a document: what happens when a payment is matched to
+ * one, when an unpaid one is chased without anyone typing, when the office is
+ * asked about goods that have not gone out, and when the salesperson is
+ * nudged about their own sale that has not been paid.
  */
 function PaymentRules() {
   const queryClient = useQueryClient()
@@ -877,6 +879,23 @@ function PaymentRules() {
       offsets: offsets.includes(day) ? offsets.filter((d) => d !== day) : [...offsets, day].sort((a, b) => a - b),
     },
   })
+
+  /*
+   * The server always answers with a dispatch block, so this fallback is for
+   * the moment before the settings land. It must match what the server
+   * assumes for a company that has never saved one - showing "off" while the
+   * office is in fact being chased would switch the chasing off the next
+   * time somebody pressed Save on an unrelated field.
+   */
+  const dispatch = form.dispatch ?? { enabled: true, after_days: 2, repeat_days: 2 }
+  const setDispatch = (patch: Partial<typeof dispatch>) =>
+    setForm({ ...form, dispatch: { ...dispatch, ...patch } })
+
+  /* Same reasoning as the dispatch fallback above, and the same trap: these
+     are the server's own defaults for a company that has never saved one. */
+  const chase = form.payment_chase ?? { enabled: true, after_days: 0, repeat_days: 3 }
+  const setChase = (patch: Partial<typeof chase>) =>
+    setForm({ ...form, payment_chase: { ...chase, ...patch } })
 
   return (
     <Card>
@@ -952,6 +971,96 @@ function PaymentRules() {
                   className="w-24"
                 />
                 <span className="ml-2 text-xs text-slate-400">automatic reminders per invoice</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              checked={dispatch.enabled}
+              onChange={(e) => setDispatch({ enabled: e.target.checked })}
+              className="size-4 accent-emerald-600"
+            />
+            <PackageCheck className="size-4 text-slate-400" /> Chase dispatches
+          </label>
+          <p className="mt-1 pl-6 text-xs text-slate-400">
+            The office is asked about goods that have not gone out: a popup for Admins and Subadmins
+            listing every document still waiting, until it is marked dispatched or somebody puts it off.
+          </p>
+
+          {dispatch.enabled && (
+            <div className="mt-3 space-y-3 pl-6">
+              <div>
+                <Label>Ask after</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={dispatch.after_days}
+                  onChange={(e) => setDispatch({ after_days: Number(e.target.value) || 1 })}
+                  className="w-24"
+                />
+                <span className="ml-2 text-xs text-slate-400">days from the document's date</span>
+              </div>
+              <div>
+                <Label>Ask again every</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={dispatch.repeat_days}
+                  onChange={(e) => setDispatch({ repeat_days: Number(e.target.value) || 1 })}
+                  className="w-24"
+                />
+                <span className="ml-2 text-xs text-slate-400">days, and whenever somebody presses Later</span>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+          <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              checked={chase.enabled}
+              onChange={(e) => setChase({ enabled: e.target.checked })}
+              className="size-4 accent-emerald-600"
+            />
+            <HandCoins className="size-4 text-slate-400" /> Chase unpaid invoices
+          </label>
+          <p className="mt-1 pl-6 text-xs text-slate-400">
+            The salesperson's own nudge about their own sales that have not been paid, not the letters
+            that go to the client: a popup listing them, until the money lands or somebody puts it off.
+          </p>
+
+          {chase.enabled && (
+            <div className="mt-3 space-y-3 pl-6">
+              <div>
+                <Label>Ask after</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  max="365"
+                  value={chase.after_days}
+                  onChange={(e) => setChase({ after_days: Number(e.target.value) || 0 })}
+                  className="w-24"
+                />
+                <span className="ml-2 text-xs text-slate-400">days from the due date</span>
+              </div>
+              <div>
+                <Label>Ask again every</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={chase.repeat_days}
+                  onChange={(e) => setChase({ repeat_days: Number(e.target.value) || 1 })}
+                  className="w-24"
+                />
+                <span className="ml-2 text-xs text-slate-400">days, and whenever somebody presses Later</span>
               </div>
             </div>
           )}

@@ -34,6 +34,8 @@ class Invoice extends Model
         'organization_id', 'kind', 'number', 'issuing_company_id', 'client_id',
         'member_id', 'invoice_date', 'due_date', 'client_category', 'pricing_tier',
         'client_segment', 'client_category_manual',
+        'dispatch_remind_at', 'dispatch_snoozed_until',
+        'payment_remind_at', 'payment_snoozed_until',
         'currency', 'terms_of_payment', 'subscription_type', 'subtotal', 'discount',
         'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'tds_certificate_at', 'tds_certificate_by', 'total', 'fx_currency',
         'discount_rate', 'cgst_rate', 'sgst_rate', 'igst_rate', 'other_tax_rate', 'tds_rate',
@@ -80,6 +82,10 @@ class Invoice extends Model
         return [
             'custom_fields' => 'array',
             'client_category_manual' => 'boolean',
+            'dispatch_remind_at' => 'datetime',
+            'dispatch_snoozed_until' => 'datetime',
+            'payment_remind_at' => 'datetime',
+            'payment_snoozed_until' => 'datetime',
             'invoice_date' => 'date',
             'due_date' => 'date',
             'subtotal' => 'decimal:2',
@@ -201,6 +207,14 @@ class Invoice extends Model
         return $this->hasMany(InvoicePayment::class, 'invoice_id')->orderByDesc('received_at');
     }
 
+    /** Still waiting to go out, so the office can be asked about it. */
+    public function awaitingDispatch(): bool
+    {
+        return $this->kind === 'invoice'
+            && $this->status !== 'cancelled'
+            && in_array($this->dispatch_status, ['pending', 'partial', 'in_process'], true);
+    }
+
     public function convertedFrom(): BelongsTo
     {
         return $this->belongsTo(self::class, 'converted_from_id');
@@ -238,5 +252,43 @@ class Invoice extends Model
             $received + 0.01 < $total => 'partial',
             default => 'paid',
         }]);
+
+        $this->schedulePaymentChase();
+    }
+
+    /**
+     * When this document should next ask the salesperson about its money.
+     *
+     * Settled - or written off, refunded, credited - and it goes quiet for
+     * good. Still owed and never asked, and it starts from the due date plus
+     * whatever grace the company allows. Already carrying a date, it keeps
+     * it: an invoice deferred to the end of the month must not jump back to
+     * today because a part payment landed.
+     */
+    public function schedulePaymentChase(): void
+    {
+        // A document just created carries no payment_status in memory yet -
+        // the database fills it in - and unpaid is what a new invoice is.
+        $owed = $this->kind === 'invoice'
+            && $this->status !== 'cancelled'
+            && in_array($this->payment_status ?: 'due', ['due', 'partial'], true);
+
+        if (! $owed) {
+            if ($this->payment_remind_at || $this->payment_snoozed_until) {
+                $this->forceFill(['payment_remind_at' => null, 'payment_snoozed_until' => null])->save();
+            }
+
+            return;
+        }
+
+        if ($this->payment_remind_at !== null) {
+            return;
+        }
+
+        $schedule = $this->organization?->paymentChaseSchedule() ?? ['after_days' => 0];
+        $from = $this->due_date ?? $this->invoice_date ?? now();
+        $this->forceFill([
+            'payment_remind_at' => $from->copy()->addDays($schedule['after_days'])->setTime(10, 0),
+        ])->save();
     }
 }

@@ -147,6 +147,48 @@ class Organization extends Model
      */
     public const SYSTEM_EXPENSE_CATEGORIES = ['Client Commission', 'Payment Gateway Charges'];
 
+    /**
+     * When to start asking about a document that has not gone out.
+     *
+     * A dispatch nobody chases is a client waiting, so the office is asked
+     * about it - first after `after_days` from the document's date, and again
+     * every `repeat_days` until it is marked dispatched or somebody defers it
+     * to a date of their own.
+     *
+     * @return array{enabled: bool, after_days: int, repeat_days: int}
+     */
+    public function dispatchSchedule(): array
+    {
+        $saved = (array) data_get($this->settings, 'dispatch', []);
+
+        return [
+            'enabled' => (bool) ($saved['enabled'] ?? true),
+            'after_days' => max(0, (int) ($saved['after_days'] ?? 2)),
+            'repeat_days' => max(1, (int) ($saved['repeat_days'] ?? 2)),
+        ];
+    }
+
+    /**
+     * When the salesperson is asked about money that has not come in.
+     *
+     * Separate from the reminders that go to the client: those are letters
+     * the company sends out, this is the office's own nudge to the person
+     * whose sale it was. First on the due date (after_days 0), then every
+     * `repeat_days` until the invoice is settled or somebody defers it.
+     *
+     * @return array{enabled: bool, after_days: int, repeat_days: int}
+     */
+    public function paymentChaseSchedule(): array
+    {
+        $saved = (array) data_get($this->settings, 'payment_chase', []);
+
+        return [
+            'enabled' => (bool) ($saved['enabled'] ?? true),
+            'after_days' => max(0, (int) ($saved['after_days'] ?? 0)),
+            'repeat_days' => max(1, (int) ($saved['repeat_days'] ?? 3)),
+        ];
+    }
+
     /** Option lists the org can customise; defaults mirror the old CRM. */
     public function optionList(string $key): array
     {
