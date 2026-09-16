@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1\Crm;
 
 use App\Http\Controllers\Controller;
+use App\Models\Crm\Client;
 use App\Models\Crm\Invoice;
 use App\Models\Crm\Member;
 use App\Models\Crm\Target;
@@ -11,6 +12,7 @@ use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 /**
  * Monthly sales targets. The manager sets the numbers; achievement comes
@@ -72,12 +74,25 @@ class TargetController extends Controller
 
         // Over a span the target is the sum of those months' own targets, so
         // the two readings can never drift apart.
-        $targets = Target::selectRaw('member_id, sum(target_amount) as target_sum, count(*) as months_set')
+        $targets = Target::selectRaw('member_id, sum(target_amount) as target_sum, sum(client_target) as client_target_sum, count(*) as months_set')
             ->where('organization_id', $org->id)
             ->whereRaw('(year * 12 + month) between ? and ?', [$startCode, $endCode])
             ->groupBy('member_id')
             ->get()
             ->keyBy('member_id');
+
+        /*
+         * Which way a desk is judged, over these months.
+         *
+         * The row a manager saved carries the kind it was set as, so a month
+         * already gone reads the way it was judged at the time. A desk with
+         * no row in the period falls back to the kind the company gives that
+         * person now.
+         */
+        $kinds = Target::where('organization_id', $org->id)
+            ->whereRaw('(year * 12 + month) between ? and ?', [$startCode, $endCode])
+            ->orderBy('year')->orderBy('month')
+            ->pluck('kind', 'member_id');
 
         // A note belongs to a single month; a span has many, so it goes quiet.
         $notes = $span === 1
@@ -86,35 +101,75 @@ class TargetController extends Controller
                 ->pluck('note', 'member_id')
             : collect();
 
-        // One aggregate query for the whole period, split by category, with
-        // the head count of clients actually billed.
-        $achieved = Invoice::selectRaw(
-            "member_id,
-             sum(total) as total_sum,
-             count(*) as invoice_count,
-             count(distinct client_id) as client_count,
-             sum(case when client_category in ('" . implode("','", self::EXISTING) . "') then total else 0 end) as existing_sum"
-        )
-            ->where('organization_id', $org->id)
+        /*
+         * The period's invoices, read in rupees.
+         *
+         * Summed in PHP rather than by the database, because a document in
+         * another currency counts at the INR equivalent frozen on it - the
+         * rule every other money screen keeps. sum(total) in SQL would add a
+         * dollar to a rupee and call the answer two.
+         */
+        $invoices = Invoice::where('organization_id', $org->id)
             ->where('kind', 'invoice')
             ->where('status', '!=', 'cancelled')
             ->whereDate('invoice_date', '>=', $start->toDateString())
             ->whereDate('invoice_date', '<=', $end->toDateString())
             ->whereNotNull('member_id')
-            ->groupBy('member_id')
-            ->get()
-            ->keyBy('member_id');
+            ->get(['member_id', 'client_id', 'client_category', ...Invoice::RUPEE_COLUMNS]);
 
-        $rows = $members->map(function (Member $m) use ($targets, $achieved, $notes) {
+        $achieved = $invoices->groupBy('member_id')->map(fn ($group) => [
+            'total_sum' => round((float) $group->sum(fn ($i) => $i->inRupees($i->total)), 2),
+            'existing_sum' => round((float) $group
+                ->filter(fn ($i) => in_array($i->client_category, self::EXISTING, true))
+                ->sum(fn ($i) => $i->inRupees($i->total)), 2),
+            'invoice_count' => $group->count(),
+            'client_count' => $group->pluck('client_id')->filter()->unique()->count(),
+        ]);
+
+        /*
+         * The clients a desk brought in, for a client-oriented target.
+         *
+         * A client counts to the desk it belongs to, in the month it was
+         * added - not the month it first paid, because bringing the client in
+         * IS the work being judged. New against existing is the client's own
+         * category, the same split the money side uses. A record still
+         * waiting for the Admin's nod is not a client yet.
+         */
+        $built = Client::approved()
+            ->where('organization_id', $org->id)
+            ->whereNotNull('assigned_member_id')
+            ->whereBetween('created_at', [$start, $end])
+            ->get(['id', 'assigned_member_id', 'category'])
+            ->groupBy('assigned_member_id');
+
+        // What those clients have billed inside the period, whoever raised it.
+        $builtIds = $built->flatten(1)->pluck('id')->all();
+        $salesByClient = $builtIds === [] ? collect() : $invoices
+            ->whereIn('client_id', $builtIds)
+            ->groupBy('client_id')
+            ->map(fn ($group) => round((float) $group->sum(fn ($i) => $i->inRupees($i->total)), 2));
+
+        $rows = $members->map(function (Member $m) use ($targets, $achieved, $notes, $kinds, $built, $salesByClient) {
             $target = (float) ($targets[$m->id]->target_sum ?? 0);
-            $total = (float) ($achieved[$m->id]->total_sum ?? 0);
-            $existing = (float) ($achieved[$m->id]->existing_sum ?? 0);
-            $clients = (int) ($achieved[$m->id]->client_count ?? 0);
+            $total = (float) ($achieved[$m->id]['total_sum'] ?? 0);
+            $existing = (float) ($achieved[$m->id]['existing_sum'] ?? 0);
+            $clients = (int) ($achieved[$m->id]['client_count'] ?? 0);
+
+            $kind = in_array($kinds[$m->id] ?? null, Target::KINDS, true)
+                ? $kinds[$m->id]
+                : (in_array($m->target_kind, Target::KINDS, true) ? $m->target_kind : 'sales');
+
+            $mine = $built[$m->id] ?? collect();
+            $builtNew = $mine->reject(fn ($c) => in_array($c->category, self::EXISTING, true))->count();
+            $clientSales = round((float) $mine->sum(fn ($c) => (float) ($salesByClient[$c->id] ?? 0)), 2);
+            $clientTarget = (int) ($targets[$m->id]->client_target_sum ?? 0);
 
             return [
                 'member_uuid' => $m->uuid,
                 'name' => $m->user?->name,
                 'employee_code' => $m->employee_code,
+                // Which table this desk belongs in, and what it is judged by.
+                'kind' => $kind,
                 'target' => round($target, 2),
                 'achieved' => round($total, 2),
                 'achieved_new' => round($total - $existing, 2),
@@ -122,12 +177,21 @@ class TargetController extends Controller
                 'due' => round(max(0, $target - $total), 2),
                 'percent' => $target > 0 ? round($total / $target * 100, 1) : null,
                 'clients' => $clients,
-                'invoices' => (int) ($achieved[$m->id]->invoice_count ?? 0),
+                'invoices' => (int) ($achieved[$m->id]['invoice_count'] ?? 0),
                 // What one client was worth on average to this desk.
                 'per_client' => $clients > 0 ? round($total / $clients, 2) : null,
+                // The client-oriented side: clients brought in against the
+                // number asked for, and what they have billed so far.
+                'client_target' => $clientTarget,
+                'clients_built' => $mine->count(),
+                'clients_built_new' => $builtNew,
+                'clients_built_existing' => $mine->count() - $builtNew,
+                'client_sales' => $clientSales,
+                'clients_due' => max(0, $clientTarget - $mine->count()),
+                'client_percent' => $clientTarget > 0 ? round($mine->count() / $clientTarget * 100, 1) : null,
                 'note' => $notes[$m->id] ?? null,
             ];
-        })->sortByDesc('achieved')->values();
+        })->sortByDesc(fn ($row) => $row['kind'] === 'clients' ? $row['clients_built'] : $row['achieved'])->values();
 
         // A client billed by two salespeople is still one client to the
         // company, so the head count is taken again over the whole floor
@@ -141,9 +205,32 @@ class TargetController extends Controller
             ->distinct()
             ->count('client_id');
 
+        $clientRows = $rows->where('kind', 'clients')->values();
+        $salesRows = $rows->where('kind', 'sales')->values();
+
         return response()->json([
             'data' => $rows,
+            /*
+             * The two floors are counted apart.
+             *
+             * One is judged on the money it bills and the other on the clients
+             * it brings in; a single figure over both would be a number nobody
+             * is measured by.
+             */
+            'client_totals' => [
+                'people' => $clientRows->count(),
+                'client_target' => (int) $clientRows->sum('client_target'),
+                'clients_built' => (int) $clientRows->sum('clients_built'),
+                'clients_built_new' => (int) $clientRows->sum('clients_built_new'),
+                'clients_built_existing' => (int) $clientRows->sum('clients_built_existing'),
+                'clients_due' => (int) $clientRows->sum('clients_due'),
+                'client_sales' => round($clientRows->sum('client_sales'), 2),
+                'percent' => $clientRows->sum('client_target') > 0
+                    ? round($clientRows->sum('clients_built') / $clientRows->sum('client_target') * 100, 1)
+                    : null,
+            ],
             'totals' => [
+                'people' => $salesRows->count(),
                 'target' => $rows->sum('target'),
                 'achieved' => $rows->sum('achieved'),
                 'achieved_new' => $rows->sum('achieved_new'),
@@ -349,6 +436,9 @@ class TargetController extends Controller
             'targets' => ['required', 'array', 'min:1'],
             'targets.*.member_uuid' => ['required', 'string'],
             'targets.*.target_amount' => ['required', 'numeric', 'min:0'],
+            // A client-oriented desk is given a number of clients instead.
+            'targets.*.kind' => ['nullable', Rule::in(Target::KINDS)],
+            'targets.*.client_target' => ['nullable', 'integer', 'min:0', 'max:9999'],
             'targets.*.note' => ['nullable', 'string', 'max:512'],
         ]);
 
@@ -357,6 +447,8 @@ class TargetController extends Controller
                 $member = Member::where('organization_id', $org->id)
                     ->where('uuid', $row['member_uuid'])
                     ->firstOrFail();
+
+                $kind = $row['kind'] ?? ($member->target_kind ?: 'sales');
 
                 Target::updateOrCreate(
                     [
@@ -367,10 +459,18 @@ class TargetController extends Controller
                     ],
                     [
                         'target_amount' => $row['target_amount'],
+                        'kind' => $kind,
+                        'client_target' => (int) ($row['client_target'] ?? 0),
                         'note' => $row['note'] ?? null,
                         'created_by' => $request->user()->id,
                     ],
                 );
+
+                // What this desk is judged on from now on, so next month's
+                // row starts the way this one was set.
+                if ($member->target_kind !== $kind) {
+                    $member->update(['target_kind' => $kind]);
+                }
             }
         });
 
@@ -405,7 +505,12 @@ class TargetController extends Controller
                         'year' => $data['year'],
                         'month' => $data['month'],
                     ],
-                    ['target_amount' => $t->target_amount, 'created_by' => $request->user()->id],
+                    [
+                        'target_amount' => $t->target_amount,
+                        'kind' => $t->kind,
+                        'client_target' => $t->client_target,
+                        'created_by' => $request->user()->id,
+                    ],
                 );
                 if ($created->wasRecentlyCreated) {
                     $copied++;

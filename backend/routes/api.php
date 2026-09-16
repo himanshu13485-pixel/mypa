@@ -843,6 +843,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::middleware('crm.member:clients,view')->group(function () {
                 Route::get('/clients', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'index']);
                 Route::get('/clients/options', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'options']);
+                // Clients held back because their contact details are already
+                // on the books under another company. Before /clients/{uuid},
+                // or "approvals" would be read as somebody's uuid.
+                Route::get('/clients/approvals', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'approvals']);
                 Route::get('/clients/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'show']);
             });
             Route::post('/clients', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'store'])
@@ -851,6 +855,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::get('/client-requests', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'accessRequests'])
                 ->middleware('crm.member');
             Route::post('/client-requests/{uuid}/decide', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'decideAccessRequest'])
+                ->middleware('crm.member:clients,edit');
+            Route::post('/clients/{uuid}/approval', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'decideApproval'])
                 ->middleware('crm.member:clients,edit');
             Route::put('/clients/{uuid}', [\App\Http\Controllers\Api\V1\Crm\ClientController::class, 'update'])
                 ->middleware('crm.member:clients,edit');

@@ -590,6 +590,15 @@ export interface CrmClient {
   is_repeat?: boolean
   repeat_count?: number
   status: 'active' | 'inactive'
+  /**
+   * 'pending' while the Company Admin decides: the contact details are
+   * already on the books under another company name, so somebody has to say
+   * whether this is the same person moving on. A pending client cannot be
+   * billed.
+   */
+  approval_status?: 'approved' | 'pending' | 'rejected'
+  approval_reason?: string | null
+  matched_client?: { uuid: string; company_name: string } | null
   assigned_member: { uuid: string; name: string | null } | null
   shared_with: { uuid: string; name: string | null }[]
   created_at: string | null
@@ -869,6 +878,17 @@ export interface CrmTargetRow {
   member_uuid: string
   name: string | null
   employee_code: string | null
+  /** What this desk is judged on: the money it bills, or the clients it brings in. */
+  kind: 'sales' | 'clients'
+  /** The client-oriented side. Zero on a sales desk. */
+  client_target: number
+  clients_built: number
+  clients_built_new: number
+  clients_built_existing: number
+  /** What the clients they brought in have billed in the period, in rupees. */
+  client_sales: number
+  clients_due: number
+  client_percent: number | null
   target: number
   achieved: number
   achieved_new: number
@@ -881,9 +901,23 @@ export interface CrmTargetRow {
   note: string | null
 }
 
+/** The client-oriented floor, counted apart from the money one. */
+export interface CrmClientTargetTotals {
+  people: number
+  client_target: number
+  clients_built: number
+  clients_built_new: number
+  clients_built_existing: number
+  clients_due: number
+  client_sales: number
+  percent: number | null
+}
+
 export interface CrmTargetsResponse {
   data: CrmTargetRow[]
+  client_totals: CrmClientTargetTotals
   totals: {
+    people: number
     target: number
     achieved: number
     achieved_new: number
@@ -1993,6 +2027,20 @@ export interface CrmApprovalOptions {
   types: string[]
 }
 
+/** A client waiting for the Company Admin, and what it looked like a copy of. */
+export interface CrmClientApproval {
+  uuid: string
+  company_name: string
+  contact_person: string | null
+  email: string | null
+  mobile: string | null
+  added_by: string | null
+  owner: string | null
+  reason: string | null
+  matched_client: { uuid: string; company_name: string; owner: string | null } | null
+  created_at: string | null
+}
+
 export interface CrmApprovalInbox {
   leaves: number | null
   tasks: number | null
@@ -2236,6 +2284,12 @@ export const crm = {
     options: (search?: string) =>
       api.get<{ data: Pick<CrmClient, 'uuid' | 'company_name' | 'contact_person' | 'city' | 'gst_no' | 'category' | 'address' | 'state' | 'email' | 'mobile'>[] }>('/crm/clients/options', { params: { search } }).then((r) => r.data.data),
     get: (uuid: string) => api.get<{ data: CrmClient }>(`/crm/clients/${uuid}`).then((r) => r.data.data),
+    /** Clients held back because their contact is already on the books elsewhere. */
+    approvals: () =>
+      api.get<{ data: CrmClientApproval[]; can_decide: boolean }>('/crm/clients/approvals').then((r) => r.data),
+    decideApproval: (uuid: string, decision: 'approve' | 'reject', note?: string | null) =>
+      api.post<{ message: string }>(`/crm/clients/${uuid}/approval`, { decision, note: note ?? null })
+        .then((r) => r.data),
     create: (payload: Record<string, unknown>) => api.post('/crm/clients', payload).then((r) => r.data),
     update: (uuid: string, payload: Record<string, unknown>) => api.put(`/crm/clients/${uuid}`, payload).then((r) => r.data),
     remove: (uuid: string) => api.delete(`/crm/clients/${uuid}`).then((r) => r.data),
@@ -2313,7 +2367,17 @@ export const crm = {
     }) =>
       api.get<{ data: CrmGrowthResponse }>('/crm/targets/growth', { params })
         .then((r) => r.data.data),
-    save: (year: number, month: number, targets: { member_uuid: string; target_amount: number; note?: string | null }[]) =>
+    save: (
+      year: number,
+      month: number,
+      targets: {
+        member_uuid: string
+        target_amount: number
+        kind?: 'sales' | 'clients'
+        client_target?: number
+        note?: string | null
+      }[],
+    ) =>
       api.post('/crm/targets', { year, month, targets }).then((r) => r.data),
     copyPrevious: (year: number, month: number) =>
       api.post('/crm/targets/copy-previous', { year, month }).then((r) => r.data),

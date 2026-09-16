@@ -180,6 +180,7 @@ class Member extends Model
         'personal_email', 'joined_at', 'probation_days', 'late_waived', 'punch_waived', 'resigned_at', 'is_salesperson', 'incentive_needs_payment', 'pf_no',
         'esi_no', 'pan_no', 'aadhaar_no', 'bank_name', 'bank_account_no',
         'bank_ifsc', 'bank_account_name', 'reporting_to', 'rights', 'note',
+        'target_kind',
     ];
 
     protected function casts(): array

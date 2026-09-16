@@ -3,11 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ReceiptText } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, CRM_CLIENT_CATEGORY_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
+import { money } from '../../lib/money'
 import { Button, Card, Spinner } from '../../components/ui'
 import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { crmPath } from '../../lib/crmPath'
 
-const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined || value === '') return null
@@ -131,7 +131,7 @@ export default function CrmClientDetailPage() {
                     </td>
                     <td className="py-2 pr-3 capitalize">{i.kind}</td>
                     <td className="whitespace-nowrap py-2 pr-3 text-slate-500">{i.invoice_date}</td>
-                    <td className="whitespace-nowrap py-2 pr-3 text-right font-medium">{inr(i.total)}</td>
+                    <td className="whitespace-nowrap py-2 pr-3 text-right font-medium">{money(i.total, i.currency)}</td>
                     <td className="py-2">
                       <span className={clsx(
                         'rounded-full px-2 py-0.5 text-[11px] font-medium',

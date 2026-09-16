@@ -40,15 +40,18 @@ export default function CrmClientsPage() {
   const [transferring, setTransferring] = useState<CrmClient | null>(null)
   const [transferTo, setTransferTo] = useState('')
   const [transferNote, setTransferNote] = useState('')
-  const [tab, setTab] = useState<'clients' | 'requests'>(
-    new URLSearchParams(window.location.search).get('tab') === 'requests' ? 'requests' : 'clients',
-  )
+  const [tab, setTab] = useState<'clients' | 'approvals' | 'requests'>(() => {
+    const asked = new URLSearchParams(window.location.search).get('tab')
+    return asked === 'requests' || asked === 'approvals' ? asked : 'clients'
+  })
   // Dedicated Company Workspace values, keyed by field key.
   const [customValues, setCustomValues] = useState<Record<string, string | boolean>>({})
   const [error, setError] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'clients', applied, status, page],
+    // Category belongs in the key as much as the rest: a filter the key
+    // does not name is a filter the list quietly ignores.
+    queryKey: ['crm', 'clients', applied, status, category, page],
     queryFn: () => crm.clients.list({ search: applied || undefined, status: listParam(status), category: listParam(category), page }),
   })
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
@@ -70,8 +73,21 @@ export default function CrmClientsPage() {
   })
   const pendingRequests = requests?.data.filter((r) => r.status === 'pending').length ?? 0
 
+  /*
+   * Clients saved but held: their email or phone is already on the books under
+   * a different company name, so somebody senior has to say whether the
+   * contact really moved firms. Everyone gets the list: an employee to learn
+   * why their client cannot be billed, the Admin to settle it.
+   */
+  const { data: approvals } = useQuery({
+    queryKey: ['crm', 'client-approvals'],
+    queryFn: () => crm.clients.approvals(),
+  })
+  const heldForApproval = approvals?.data.length ?? 0
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['crm', 'clients'] })
+    queryClient.invalidateQueries({ queryKey: ['crm', 'client-approvals'] })
     queryClient.invalidateQueries({ queryKey: ['crm', 'client-requests'] })
     queryClient.invalidateQueries({ queryKey: ['crm', 'badges'] })
   }
@@ -151,10 +167,13 @@ export default function CrmClientsPage() {
 
   const saveMutation = useMutation({
     mutationFn: () => (editing ? crm.clients.update(editing.uuid, payload()) : crm.clients.create(payload())),
-    onSuccess: (res: { message?: string }) => {
+    onSuccess: (res: { message?: string; needs_approval?: boolean }) => {
       refresh()
       setShowForm(false)
-      toast(res.message ?? 'Saved.', 'success')
+      // A held client is not a plain save, and the server's sentence is the
+      // only place the person is told why it cannot be billed yet, so it goes
+      // through whole rather than being reduced to "Saved.".
+      toast(res.message ?? 'Saved.', res.needs_approval ? 'info' : 'success')
     },
     onError: (err) => setError(errorMessage(err)),
   })
@@ -178,6 +197,20 @@ export default function CrmClientsPage() {
     onSuccess: (res: { message?: string }) => {
       refresh()
       toast(res.message ?? 'Done.', 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const approvalMutation = useMutation({
+    mutationFn: ({ uuid, decision }: { uuid: string; decision: 'approve' | 'reject' }) => {
+      // Turning a colleague's client down owes them a reason: it is the only
+      // thing that tells them whether to fix the record or drop it.
+      const note = decision === 'reject' ? prompt('Why is this client being rejected?') ?? undefined : undefined
+      return crm.clients.decideApproval(uuid, decision, note)
+    },
+    onSuccess: (res) => {
+      refresh()
+      toast(res.message, 'success')
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -207,7 +240,11 @@ export default function CrmClientsPage() {
       </div>
 
       <div className="flex gap-1 rounded-xl bg-slate-100 p-1 text-sm dark:bg-slate-800/60">
-        {([['clients', 'Client list'], ['requests', isManager ? 'Access requests' : 'My requests']] as const).map(([key, label]) => (
+        {([
+          ['clients', 'Client list', 0],
+          ['approvals', approvals?.can_decide ? 'Client approvals' : 'Held for approval', heldForApproval],
+          ['requests', isManager ? 'Access requests' : 'My requests', pendingRequests],
+        ] as const).map(([key, label, waiting]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -219,9 +256,9 @@ export default function CrmClientsPage() {
             )}
           >
             {label}
-            {key === 'requests' && pendingRequests > 0 && (
+            {waiting > 0 && (
               <span className="rounded-full bg-amber-100 px-1.5 text-[11px] font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
-                {pendingRequests}
+                {waiting}
               </span>
             )}
           </button>
@@ -318,6 +355,16 @@ export default function CrmClientsPage() {
                       )}>
                         {c.status === 'active' ? 'Active' : 'Inactive'}
                       </span>
+                      {/* Active and unbillable look identical otherwise, and
+                          the row is where somebody notices. */}
+                      {c.approval_status === 'pending' && (
+                        <div
+                          className="mt-1 inline-flex whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
+                          title={c.approval_reason ?? 'Waiting for a Company Admin or Subadmin to approve it.'}
+                        >
+                          Waiting for approval
+                        </div>
+                      )}
                     </td>
                     <td className="py-2.5 text-right">
                       <button onClick={() => openEdit(c)} aria-label="Edit" className="rounded p-1.5 text-slate-400 hover:text-emerald-600">
@@ -353,6 +400,88 @@ export default function CrmClientsPage() {
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>
+      )}
+
+      {tab === 'approvals' && (
+        <Card>
+          <p className="mb-3 text-sm text-slate-500">
+            {approvals?.can_decide
+              ? 'These clients share an email or phone with a client already on the books under another company name — the contact may have moved firms. Until you approve one, it cannot be billed.'
+              : 'Clients of yours whose email or phone is already on the books under another company name. Your Company Admin or Subadmin decides; until then they cannot be billed.'}
+          </p>
+          {heldForApproval === 0 ? (
+            <EmptyState title="Nothing waiting" hint="Clients held for approval appear here." />
+          ) : (
+            <div className="-mx-4 overflow-x-auto px-4">
+              <table className="w-full min-w-[820px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                    <th className="py-2 pr-3 font-medium">Client</th>
+                    <th className="py-2 pr-3 font-medium">Contact person</th>
+                    <th className="py-2 pr-3 font-medium">Contact</th>
+                    <th className="py-2 pr-3 font-medium">Added by</th>
+                    <th className="py-2 pr-3 font-medium">Already on the books as</th>
+                    <th className="py-2 pr-3 font-medium">Added on</th>
+                    <th className="py-2 font-medium" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {(approvals?.data ?? []).map((a) => (
+                    <tr key={a.uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
+                      <td className="max-w-[220px] py-2.5 pr-3">
+                        <div className="truncate font-medium text-slate-700 dark:text-slate-200">{a.company_name}</div>
+                        {a.owner && <div className="truncate text-xs text-slate-400">with {a.owner}</div>}
+                      </td>
+                      <td className="py-2.5 pr-3">{a.contact_person ?? '—'}</td>
+                      <td className="max-w-[200px] py-2.5 pr-3">
+                        <div className="truncate">{a.email ?? '—'}</div>
+                        <div className="truncate text-xs text-slate-400">{a.mobile ?? '—'}</div>
+                      </td>
+                      <td className="py-2.5 pr-3">{a.added_by ?? '—'}</td>
+                      <td className="max-w-[240px] py-2.5 pr-3">
+                        {a.matched_client ? (
+                          <Link to={crmPath(`/crm/clients/${a.matched_client.uuid}`)} className="block truncate text-emerald-600 hover:underline">
+                            matches {a.matched_client.company_name}
+                            {a.matched_client.owner && ` (with ${a.matched_client.owner})`}
+                          </Link>
+                        ) : (
+                          <span className="text-slate-300 dark:text-slate-600">—</span>
+                        )}
+                        {a.reason && <div className="truncate text-xs text-slate-400" title={a.reason}>{a.reason}</div>}
+                      </td>
+                      <td className="whitespace-nowrap py-2.5 pr-3 text-slate-500">{a.created_at ?? '—'}</td>
+                      <td className="py-2.5 text-right">
+                        {approvals?.can_decide ? (
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              disabled={approvalMutation.isPending}
+                              onClick={() => approvalMutation.mutate({ uuid: a.uuid, decision: 'approve' })}
+                            >
+                              <Check className="size-4" /> Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              disabled={approvalMutation.isPending}
+                              onClick={() => approvalMutation.mutate({ uuid: a.uuid, decision: 'reject' })}
+                            >
+                              <X className="size-4" /> Reject
+                            </Button>
+                          </div>
+                        ) : (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+                            Waiting for approval
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
       )}
 
       {tab === 'requests' && (

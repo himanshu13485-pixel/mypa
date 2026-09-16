@@ -50,6 +50,10 @@ class ClientController extends Controller
         if ($assigned = QueryList::of($request, 'assigned_to')) {
             $query->whereHas('assignedMember', fn ($m) => $m->whereIn('uuid', $assigned));
         }
+        // The records waiting for a nod, on their own.
+        if ($approval = QueryList::of($request, 'approval')) {
+            $query->whereIn('approval_status', $approval);
+        }
 
         // The one just added, first. Alphabetical order buried it wherever
         // its name happened to fall, and looking a particular client up is
@@ -64,6 +68,7 @@ class ClientController extends Controller
     public function options(Request $request): JsonResponse
     {
         $clients = $this->scoped($request)
+            ->approved()
             ->where('status', 'active')
             // The same question the Clients screen asks, so a client found
             // there can be found here.
@@ -96,10 +101,42 @@ class ClientController extends Controller
             ? ($data['assigned_member_id'] ?? $me->id)
             : $me->id;
 
+        /*
+         * The same person, a company the books have never seen.
+         *
+         * A manager adding this has already made the decision; anybody else
+         * gets the record saved and held until a manager says yes, because
+         * the alternative - losing the typing - teaches people to change a
+         * digit until the form gives in.
+         */
+        $match = $this->findContactMatch($org->id, $data);
+        $held = $match && ! $this->isManager($me);
+        if ($match) {
+            $data['matched_client_id'] = $match->id;
+            $data['approval_reason'] = 'Same contact details as ' . $match->company_name;
+        }
+        $data['approval_status'] = $held ? 'pending' : 'approved';
+
         $client = Client::create($data + [
             'organization_id' => $org->id,
             'created_by' => $request->user()->id,
         ]);
+
+        if ($held) {
+            Notification::send(
+                Member::deciders($org->id, 'clients', $me->id),
+                new CrmNotification(
+                    'crm_client_access',
+                    ($me->user?->name ?? 'Someone') . ' added ' . $client->company_name . ', whose contact details match '
+                        . $match->company_name . '. It needs your approval.',
+                    '/crm/clients?tab=approvals',
+                ),
+            );
+            ActivityLog::record($me, $org->id, 'client.approval_requested', $client, [
+                'company_name' => $client->company_name,
+                'matches' => $match->company_name,
+            ]);
+        }
 
         $shared = $this->syncShares($request, $client, $me);
 
@@ -110,8 +147,12 @@ class ClientController extends Controller
         ]));
 
         return response()->json([
-            'message' => 'Client added.' . ($shared ? ' Shared with ' . implode(', ', $shared) . '.' : ''),
+            'message' => $held
+                ? $client->company_name . ' has the same contact details as ' . $match->company_name
+                    . ', so it has gone to your Company Admin for approval. It cannot be billed until then.'
+                : 'Client added.' . ($shared ? ' Shared with ' . implode(', ', $shared) . '.' : ''),
             'data' => $this->serialize($client->load(['assignedMember.user:id,name', 'sharedWith.user:id,name'])),
+            'needs_approval' => $held,
         ], 201);
     }
 
@@ -325,6 +366,98 @@ class ClientController extends Controller
     // ---- Access requests ---------------------------------------------------
 
     /** "Let me in on this client" — pending first. */
+    /**
+     * The clients waiting to be let onto the books.
+     *
+     * Everybody sees their own; a manager sees the floor's, because they are
+     * the ones who decide.
+     */
+    public function approvals(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $rows = Client::with(['assignedMember.user:id,name', 'matchedClient.assignedMember.user:id,name', 'creator:id,name'])
+            ->where('organization_id', $org->id)
+            ->where('approval_status', 'pending')
+            ->when(! $this->isManager($me), fn ($q) => $q->where('assigned_member_id', $me->id))
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (Client $c) => [
+                'uuid' => $c->uuid,
+                'company_name' => $c->company_name,
+                'contact_person' => $c->contact_person,
+                'email' => $c->email,
+                'mobile' => $c->mobile,
+                'added_by' => $c->creator?->name,
+                'owner' => $c->assignedMember?->user?->name,
+                'reason' => $c->approval_reason,
+                'matched_client' => $c->matchedClient ? [
+                    'uuid' => $c->matchedClient->uuid,
+                    'company_name' => $c->matchedClient->company_name,
+                    'owner' => $c->matchedClient->assignedMember?->user?->name,
+                ] : null,
+                'created_at' => $c->created_at?->toDateTimeString(),
+            ])
+            ->values();
+
+        return response()->json(['data' => $rows, 'can_decide' => $this->isManager($me)]);
+    }
+
+    /**
+     * Yes or no to a held client. The Company Admin's, or a Subadmin's.
+     *
+     * A refusal keeps the record rather than deleting it - inactive, and
+     * still saying what it was refused for, so the same name does not come
+     * back next week with nobody able to say why it was turned down.
+     */
+    public function decideApproval(Request $request, string $uuid): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+        abort_unless($this->isManager($me), 403, 'Approving a client is the Company Admin’s, or a Subadmin’s.');
+
+        $data = $request->validate([
+            'decision' => ['required', Rule::in(['approve', 'reject'])],
+            'note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $client = Client::with('assignedMember.user:id,name', 'matchedClient')
+            ->where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
+        abort_unless($client->approval_status === 'pending', 422, 'That client has already been decided.');
+
+        $approved = $data['decision'] === 'approve';
+        $client->update([
+            'approval_status' => $approved ? 'approved' : 'rejected',
+            'status' => $approved ? $client->status : 'inactive',
+            'approval_reason' => ($data['note'] ?? null) ?: $client->approval_reason,
+        ]);
+
+        ActivityLog::record($me, $org->id, $approved ? 'client.approved' : 'client.rejected', $client, array_filter([
+            'company_name' => $client->company_name,
+            'matches' => $client->matchedClient?->company_name,
+            'note' => $data['note'] ?? null,
+        ]));
+
+        if ($owner = $client->assignedMember?->user) {
+            Notification::send($owner, new CrmNotification(
+                'crm_client_access',
+                $client->company_name . ($approved
+                    ? ' was approved — it is on the books now.'
+                    : ' was not approved.' . (($data['note'] ?? null) ? ' ' . $data['note'] : '')),
+                '/crm/clients',
+            ));
+        }
+
+        return response()->json([
+            'message' => $approved
+                ? $client->company_name . ' approved.'
+                : $client->company_name . ' was refused and set inactive.',
+        ]);
+    }
+
     public function accessRequests(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
@@ -442,18 +575,73 @@ class ClientController extends Controller
         return Client::where('organization_id', $org->id)->visibleTo($me);
     }
 
-    /** The same company already on the books — by name, or by GST number. */
+    /**
+     * The same client already on the books.
+     *
+     * The GST number is the same company beyond argument. A name on its own
+     * is not: two firms are called "Sharma Traders" and the books were
+     * refusing the second one. So a shared name counts as the same record
+     * only where the people behind it agree - an e-mail or a phone in common
+     * - or where neither record carries a contact detail to tell them apart.
+     */
     private function findDuplicate(int $orgId, array $data, ?int $ignoreId = null): ?Client
     {
         $key = Client::matchKey($data['company_name'] ?? null);
         $gst = $data['gst_no'] ?? null;
 
+        return $this->neighbours($orgId, $ignoreId)
+            ->first(function (Client $c) use ($key, $gst, $data) {
+                if ($gst && $c->gst_no && strcasecmp($c->gst_no, $gst) === 0) {
+                    return true;
+                }
+                if (Client::matchKey($c->company_name) !== $key) {
+                    return false;
+                }
+
+                return $this->sharesContact($data, $c) || ! $this->hasContact($data) || ! $this->hasContact($c);
+            });
+    }
+
+    /**
+     * A contact the books already know, under a different company name.
+     *
+     * The person left ABC and joined XYZ: same e-mail, same phone, a company
+     * nobody has entered. That is neither a duplicate nor a client being
+     * handed over, so it is not for this desk to decide alone - the record is
+     * added but waits for the Company Admin or a Subadmin.
+     */
+    private function findContactMatch(int $orgId, array $data, ?int $ignoreId = null): ?Client
+    {
+        if (! $this->hasContact($data)) {
+            return null;
+        }
+
+        $key = Client::matchKey($data['company_name'] ?? null);
+
+        return $this->neighbours($orgId, $ignoreId)
+            ->first(fn (Client $c) => Client::matchKey($c->company_name) !== $key && $this->sharesContact($data, $c));
+    }
+
+    /** Every other client of this company, with what it takes to compare them. */
+    private function neighbours(int $orgId, ?int $ignoreId = null)
+    {
         return Client::where('organization_id', $orgId)
             ->when($ignoreId, fn ($q) => $q->whereKeyNot($ignoreId))
             ->with('assignedMember.user:id,name')
-            ->get(['id', 'uuid', 'company_name', 'gst_no', 'assigned_member_id'])
-            ->first(fn (Client $c) => Client::matchKey($c->company_name) === $key
-                || ($gst && $c->gst_no && strcasecmp($c->gst_no, $gst) === 0));
+            ->get(['id', 'uuid', 'company_name', 'gst_no', 'assigned_member_id', 'email',
+                'alternate_email', 'mobile', 'telephone', 'approval_status']);
+    }
+
+    private function hasContact(array|Client $client): bool
+    {
+        return Client::emailsOf($client) !== [] || Client::phonesOf($client) !== [];
+    }
+
+    /** One e-mail or one phone number in common is the same person. */
+    private function sharesContact(array|Client $a, array|Client $b): bool
+    {
+        return array_intersect(Client::emailsOf($a), Client::emailsOf($b)) !== []
+            || array_intersect(Client::phonesOf($a), Client::phonesOf($b)) !== [];
     }
 
     /**
@@ -648,6 +836,12 @@ class ClientController extends Controller
             'is_repeat' => (bool) $c->is_repeat,
             'repeat_count' => (int) $c->repeat_count,
             'status' => $c->status,
+            // Waiting for the Admin, and what it looked like a copy of.
+            'approval_status' => $c->approval_status ?: 'approved',
+            'approval_reason' => $c->approval_reason,
+            'matched_client' => $c->relationLoaded('matchedClient') && $c->matchedClient
+                ? ['uuid' => $c->matchedClient->uuid, 'company_name' => $c->matchedClient->company_name]
+                : null,
             'assigned_member' => $c->assignedMember
                 ? ['uuid' => $c->assignedMember->uuid, 'name' => $c->assignedMember->user?->name]
                 : null,

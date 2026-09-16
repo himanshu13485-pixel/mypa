@@ -3,7 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CopyPlus, Medal, Save, TrendingUp } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmGrowthPeriod, type CrmMe } from '../../api/crm'
+import { crm, type CrmGrowthPeriod, type CrmMe, type CrmTargetRow } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Select, Spinner } from '../../components/ui'
@@ -19,6 +19,18 @@ const inr = (v: number) => '₹' + Math.round(v).toLocaleString('en-IN')
 /** A month as one number, so ranges compare and step without date maths. */
 const code = (y: number, m: number) => y * 12 + m
 const fromCode = (c: number) => ({ year: Math.floor((c - 1) / 12), month: ((c - 1) % 12) + 1 })
+
+/**
+ * A row being typed. Both floors are held at once, so flipping a person from
+ * one to the other never throws away the number the other floor had.
+ */
+type TargetDraft = { kind: 'sales' | 'clients'; target: string; clientTarget: string }
+
+const draftOf = (r: CrmTargetRow): TargetDraft => ({
+  kind: r.kind,
+  target: r.target ? String(r.target) : '',
+  clientTarget: r.client_target ? String(r.client_target) : '',
+})
 
 const PERIODS: { key: CrmGrowthPeriod; label: string }[] = [
   { key: 'month', label: 'Monthly' },
@@ -41,7 +53,7 @@ export default function CrmTargetsPage() {
   // run adds the months' targets and their sales together.
   const [start, setStart] = useState(thisMonth)
   const [end, setEnd] = useState(thisMonth)
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
+  const [drafts, setDrafts] = useState<Record<string, TargetDraft>>({})
   const [dirty, setDirty] = useState(false)
 
   const first = fromCode(Math.min(start, end))
@@ -55,17 +67,35 @@ export default function CrmTargetsPage() {
   // Editable copies of the target numbers, refreshed whenever the period loads.
   useEffect(() => {
     if (!data) return
-    setDrafts(Object.fromEntries(data.data.map((r) => [r.member_uuid, r.target ? String(r.target) : ''])))
+    setDrafts(Object.fromEntries(data.data.map((r) => [r.member_uuid, draftOf(r)])))
     setDirty(false)
   }, [data])
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['crm', 'targets'] })
 
+  // The draft may not have caught up with a just-loaded period, so the row
+  // itself is the fallback.
+  const draftFor = (r: CrmTargetRow) => drafts[r.member_uuid] ?? draftOf(r)
+
+  const editDraft = (r: CrmTargetRow, patch: Partial<TargetDraft>) => {
+    setDrafts((d) => ({ ...d, [r.member_uuid]: { ...(d[r.member_uuid] ?? draftOf(r)), ...patch } }))
+    setDirty(true)
+  }
+
   const saveMutation = useMutation({
     mutationFn: () =>
-      crm.targets.save(first.year, first.month, Object.entries(drafts)
-        .filter(([, v]) => v !== '')
-        .map(([member_uuid, v]) => ({ member_uuid, target_amount: Number(v) || 0 }))),
+      crm.targets.save(first.year, first.month, (data?.data ?? [])
+        .map((r) => ({ row: r, draft: draftFor(r) }))
+        // A blank box means "leave this one alone", but a changed kind is worth
+        // saving on its own.
+        .filter(({ row, draft }) => draft.kind !== row.kind
+          || (draft.kind === 'clients' ? draft.clientTarget : draft.target) !== '')
+        .map(({ row, draft }) => ({
+          member_uuid: row.member_uuid,
+          kind: draft.kind,
+          target_amount: Number(draft.target) || 0,
+          client_target: Number(draft.clientTarget) || 0,
+        }))),
     onSuccess: () => {
       refresh()
       toast('Targets saved.', 'success')
@@ -86,6 +116,13 @@ export default function CrmTargetsPage() {
   const medals = ['text-amber-400', 'text-slate-400', 'text-orange-600']
   const span = data?.months ?? 1
   const editable = data?.editable ?? true
+  // The one gate on every box on the page: a target is typed for a single
+  // month, by someone with the authority to set it.
+  const mayType = canEdit && editable
+
+  // Two different teams judged on two different numbers, so they are read apart.
+  const salesRows = useMemo(() => (data?.data ?? []).filter((r) => r.kind === 'sales'), [data])
+  const clientRows = useMemo(() => (data?.data ?? []).filter((r) => r.kind === 'clients'), [data])
 
   // Whole months, ending with this one — the readings people actually ask for.
   const quickSpans: { label: string; months: number }[] = [
@@ -112,6 +149,56 @@ export default function CrmTargetsPage() {
       </div>
     )
   }
+
+  /** Name, code, and what this person is judged on. Both tables lead with it. */
+  const PersonCell = ({ row }: { row: CrmTargetRow }) => (
+    <td className="py-2.5 pr-3">
+      <div className="font-medium text-slate-800 dark:text-slate-100">{row.name}</div>
+      {row.employee_code && <div className="text-xs text-slate-400">{row.employee_code}</div>}
+      {mayType && (
+        <Select
+          value={draftFor(row).kind}
+          onChange={(e) => editDraft(row, { kind: e.target.value as 'sales' | 'clients' })}
+          className="mt-1 w-28 py-1 text-xs"
+        >
+          <option value="sales">Sales</option>
+          <option value="clients">Clients</option>
+        </Select>
+      )}
+    </td>
+  )
+
+  /** The bar and the number, read the same way on either floor. */
+  const ProgressCell = ({ percent }: { percent: number | null }) => {
+    const pct = percent ?? 0
+    return (
+      <td className="py-2.5">
+        <div className="flex items-center gap-2">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+            <div
+              className={clsx(
+                'h-full rounded-full transition-all',
+                pct >= 100 ? 'bg-emerald-500' : pct >= 60 ? 'bg-amber-400' : 'bg-red-400',
+              )}
+              style={{ width: `${Math.min(100, pct)}%` }}
+            />
+          </div>
+          <span className="w-12 text-right text-xs font-medium tabular-nums text-slate-500">
+            {percent !== null ? `${percent}%` : '—'}
+          </span>
+        </div>
+      </td>
+    )
+  }
+
+  /** The medal goes to the top three who actually put something on the board. */
+  const RankCell = ({ index, scored }: { index: number; scored: boolean }) => (
+    <td className="py-2.5 pr-3">
+      {index < 3 && scored
+        ? <Medal className={clsx('size-4', medals[index])} />
+        : <span className="text-slate-400">{index + 1}</span>}
+    </td>
+  )
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -174,7 +261,7 @@ export default function CrmTargetsPage() {
         )}
       </Card>
 
-      {data && (
+      {data && salesRows.length > 0 && (
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
           {[
             { label: 'Total target', value: inr(data.totals.target) },
@@ -198,12 +285,36 @@ export default function CrmTargetsPage() {
         </div>
       )}
 
-      {data && data.data.length > 0 && (data.totals.achieved > 0 || data.totals.target > 0) && (
+      {data && clientRows.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          {[
+            { label: 'Clients target', value: String(data.client_totals.client_target) },
+            { label: 'Clients built', value: String(data.client_totals.clients_built) },
+            {
+              label: 'New / existing',
+              value: `${data.client_totals.clients_built_new} / ${data.client_totals.clients_built_existing}`,
+            },
+            { label: 'Sales value', value: inr(data.client_totals.client_sales) },
+            { label: 'Still to find', value: String(data.client_totals.clients_due) },
+            {
+              label: 'Of client target',
+              value: data.client_totals.percent === null ? '—' : `${data.client_totals.percent}%`,
+            },
+          ].map((s) => (
+            <Card key={s.label} className="py-3">
+              <div className="text-lg font-semibold text-slate-900 dark:text-white">{s.value}</div>
+              <div className="text-xs text-slate-500">{s.label}</div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {data && salesRows.length > 0 && (data.totals.achieved > 0 || data.totals.target > 0) && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>
             <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Achievement by person</h2>
             <HBarChart
-              data={data.data.filter((r) => r.achieved > 0).map((r) => ({ label: r.name ?? '—', value: r.achieved }))}
+              data={salesRows.filter((r) => r.achieved > 0).map((r) => ({ label: r.name ?? '—', value: r.achieved }))}
               unit=""
             />
           </Card>
@@ -220,96 +331,151 @@ export default function CrmTargetsPage() {
         </div>
       )}
 
-      <Card>
-        {isLoading ? (
+      {data && clientRows.length > 0
+        && (data.client_totals.clients_built > 0 || data.client_totals.client_target > 0) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Clients built by person</h2>
+            <HBarChart
+              data={clientRows.filter((r) => r.clients_built > 0).map((r) => ({ label: r.name ?? '—', value: r.clients_built }))}
+              unit=""
+            />
+          </Card>
+          <Card>
+            <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">New vs existing clients</h2>
+            <DonutChart
+              data={[
+                { label: 'New clients', value: data.client_totals.clients_built_new, color: CHART_COLORS[0] },
+                { label: 'Existing clients', value: data.client_totals.clients_built_existing, color: CHART_COLORS[1] },
+              ]}
+              centerLabel="clients built"
+            />
+          </Card>
+        </div>
+      )}
+
+      {isLoading ? (
+        <Card>
           <div className="flex justify-center py-16"><Spinner /></div>
-        ) : !data || data.data.length === 0 ? (
+        </Card>
+      ) : !data || data.data.length === 0 ? (
+        <Card>
           <EmptyState title="No salespeople for this period" hint="Mark employees as salespeople to give them targets." />
-        ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
-            <table className="w-full min-w-[960px] text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
-                  <th className="py-2 pr-3 font-medium">#</th>
-                  <th className="py-2 pr-3 font-medium">Salesperson</th>
-                  <th className="py-2 pr-3 text-right font-medium">Target</th>
-                  <th className="py-2 pr-3 text-right font-medium">Achieved</th>
-                  <th className="py-2 pr-3 text-right font-medium">New</th>
-                  <th className="py-2 pr-3 text-right font-medium">Existing</th>
-                  <th className="py-2 pr-3 text-right font-medium">Clients</th>
-                  <th className="py-2 pr-3 text-right font-medium">Due</th>
-                  <th className="w-44 py-2 font-medium">Progress</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.data.map((r, i) => {
-                  const pct = r.percent ?? 0
-                  return (
-                    <tr key={r.member_uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
-                      <td className="py-2.5 pr-3">
-                        {i < 3 && r.achieved > 0
-                          ? <Medal className={clsx('size-4', medals[i])} />
-                          : <span className="text-slate-400">{i + 1}</span>}
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="font-medium text-slate-800 dark:text-slate-100">{r.name}</div>
-                        {r.employee_code && <div className="text-xs text-slate-400">{r.employee_code}</div>}
-                      </td>
-                      <td className="whitespace-nowrap py-2.5 pr-3 text-right">
-                        {canEdit && editable ? (
-                          <Input
-                            type="number"
-                            min="0"
-                            value={drafts[r.member_uuid] ?? ''}
-                            onChange={(e) => {
-                              setDrafts((d) => ({ ...d, [r.member_uuid]: e.target.value }))
-                              setDirty(true)
-                            }}
-                            className="w-28 text-right"
-                            placeholder="0"
-                          />
-                        ) : (
-                          <span className="font-medium">{r.target ? inr(r.target) : '—'}</span>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{inr(r.achieved)}</td>
-                      <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.achieved_new ? inr(r.achieved_new) : '—'}</td>
-                      <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.achieved_existing ? inr(r.achieved_existing) : '—'}</td>
-                      <td className="whitespace-nowrap py-2.5 pr-3 text-right">
-                        {r.clients > 0 ? (
-                          <span
-                            className="font-medium text-slate-700 dark:text-slate-200"
-                            title={`${r.invoices} invoice${r.invoices === 1 ? '' : 's'}${r.per_client ? ` · ${inr(r.per_client)} per client` : ''}`}
-                          >
-                            {r.clients}
-                          </span>
-                        ) : <span className="text-slate-400">—</span>}
-                      </td>
-                      <td className="whitespace-nowrap py-2.5 pr-3 text-right text-red-500">{r.due ? inr(r.due) : '—'}</td>
-                      <td className="py-2.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                            <div
-                              className={clsx(
-                                'h-full rounded-full transition-all',
-                                pct >= 100 ? 'bg-emerald-500' : pct >= 60 ? 'bg-amber-400' : 'bg-red-400',
-                              )}
-                              style={{ width: `${Math.min(100, pct)}%` }}
-                            />
-                          </div>
-                          <span className="w-12 text-right text-xs font-medium tabular-nums text-slate-500">
-                            {r.percent !== null ? `${r.percent}%` : '—'}
-                          </span>
-                        </div>
-                      </td>
+        </Card>
+      ) : (
+        <>
+          {salesRows.length > 0 && (
+            <Card>
+              <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Sales targets</h2>
+              <div className="-mx-4 overflow-x-auto px-4">
+                <table className="w-full min-w-[960px] text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                      <th className="py-2 pr-3 font-medium">#</th>
+                      <th className="py-2 pr-3 font-medium">Salesperson</th>
+                      <th className="py-2 pr-3 text-right font-medium">Target</th>
+                      <th className="py-2 pr-3 text-right font-medium">Achieved</th>
+                      <th className="py-2 pr-3 text-right font-medium">New</th>
+                      <th className="py-2 pr-3 text-right font-medium">Existing</th>
+                      <th className="py-2 pr-3 text-right font-medium">Clients</th>
+                      <th className="py-2 pr-3 text-right font-medium">Due</th>
+                      <th className="w-44 py-2 font-medium">Progress</th>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
+                  </thead>
+                  <tbody>
+                    {salesRows.map((r, i) => (
+                      <tr key={r.member_uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
+                        <RankCell index={i} scored={r.achieved > 0} />
+                        <PersonCell row={r} />
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right">
+                          {mayType ? (
+                            <Input
+                              type="number"
+                              min="0"
+                              value={draftFor(r).target}
+                              onChange={(e) => editDraft(r, { target: e.target.value })}
+                              className="w-28 text-right"
+                              placeholder="0"
+                            />
+                          ) : (
+                            <span className="font-medium">{r.target ? inr(r.target) : '—'}</span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{inr(r.achieved)}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.achieved_new ? inr(r.achieved_new) : '—'}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.achieved_existing ? inr(r.achieved_existing) : '—'}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right">
+                          {r.clients > 0 ? (
+                            <span
+                              className="font-medium text-slate-700 dark:text-slate-200"
+                              title={`${r.invoices} invoice${r.invoices === 1 ? '' : 's'}${r.per_client ? ` · ${inr(r.per_client)} per client` : ''}`}
+                            >
+                              {r.clients}
+                            </span>
+                          ) : <span className="text-slate-400">—</span>}
+                        </td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-red-500">{r.due ? inr(r.due) : '—'}</td>
+                        <ProgressCell percent={r.percent} />
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+
+          {clientRows.length > 0 && (
+            <Card>
+              <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Client targets</h2>
+              <div className="-mx-4 overflow-x-auto px-4">
+                <table className="w-full min-w-[960px] text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+                      <th className="py-2 pr-3 font-medium">#</th>
+                      <th className="py-2 pr-3 font-medium">Salesperson</th>
+                      <th className="py-2 pr-3 text-right font-medium">Target (clients)</th>
+                      <th className="py-2 pr-3 text-right font-medium">Built</th>
+                      <th className="py-2 pr-3 text-right font-medium">New</th>
+                      <th className="py-2 pr-3 text-right font-medium">Existing</th>
+                      <th className="py-2 pr-3 text-right font-medium">Sales value</th>
+                      <th className="py-2 pr-3 text-right font-medium">Due</th>
+                      <th className="w-44 py-2 font-medium">Progress</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientRows.map((r, i) => (
+                      <tr key={r.member_uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
+                        <RankCell index={i} scored={r.clients_built > 0} />
+                        <PersonCell row={r} />
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right">
+                          {mayType ? (
+                            <Input
+                              type="number"
+                              min="0"
+                              value={draftFor(r).clientTarget}
+                              onChange={(e) => editDraft(r, { clientTarget: e.target.value })}
+                              className="w-28 text-right"
+                              placeholder="0"
+                            />
+                          ) : (
+                            <span className="font-medium">{r.client_target || '—'}</span>
+                          )}
+                        </td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{r.clients_built}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.clients_built_new || '—'}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.clients_built_existing || '—'}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.client_sales ? inr(r.client_sales) : '—'}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-red-500">{r.clients_due || '—'}</td>
+                        <ProgressCell percent={r.client_percent} />
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </>
+      )}
 
       <GrowthMap />
     </div>

@@ -26,7 +26,45 @@ class Client extends Model
         'email', 'alternate_email', 'website', 'gst_no', 'pan_no', 'category',
         'is_repeat', 'repeat_count',
         'assigned_member_id', 'status', 'notes', 'custom_fields', 'created_by',
+        'approval_status', 'approval_reason', 'matched_client_id',
     ];
+
+    /**
+     * On the books for real - not a record waiting for the Admin to say yes.
+     *
+     * A client added with a contact the company already knows under another
+     * company name sits at 'pending' until somebody decides; until then it
+     * cannot be billed.
+     */
+    public function scopeApproved(Builder $query): Builder
+    {
+        return $query->where('approval_status', '!=', 'pending');
+    }
+
+    /** The e-mails on this record, lowercased, for "is this the same person?". */
+    public static function emailsOf(array|self $client): array
+    {
+        $read = fn (string $f) => trim(mb_strtolower((string) (is_array($client) ? ($client[$f] ?? '') : ($client->{$f} ?? ''))));
+
+        return array_values(array_filter([$read('email'), $read('alternate_email')]));
+    }
+
+    /**
+     * The phone numbers on this record, as the last ten digits.
+     *
+     * "+91 93103 25393" and "9310325393" are one number, and a country code
+     * or a spacing habit must not decide whether two records are one person.
+     */
+    public static function phonesOf(array|self $client): array
+    {
+        $read = function (string $f) use ($client) {
+            $raw = preg_replace('/\D/', '', (string) (is_array($client) ? ($client[$f] ?? '') : ($client->{$f} ?? '')));
+
+            return strlen((string) $raw) >= 7 ? substr((string) $raw, -10) : '';
+        };
+
+        return array_values(array_filter([$read('mobile'), $read('telephone')]));
+    }
 
     /**
      * Every way somebody might look for a client.
@@ -99,6 +137,12 @@ class Client extends Model
         return $this->belongsToMany(Member::class, 'crm_client_shares', 'client_id', 'member_id')
             ->withPivot('shared_by')
             ->withTimestamps();
+    }
+
+    /** The client whose contact details this one matched, when it needed a nod. */
+    public function matchedClient(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'matched_client_id');
     }
 
     public function accessRequests(): HasMany
