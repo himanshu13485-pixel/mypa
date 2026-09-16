@@ -66,6 +66,9 @@ class InvoiceConverter
             return $invoice;
         });
 
+        // The tax invoice joins that client's ledger, so it is read again.
+        ClientBusinessStatus::restate($proforma->organization_id, $invoice->client_id);
+
         $trail = [
             'number' => $proforma->number,
             'client' => $proforma->client?->company_name,

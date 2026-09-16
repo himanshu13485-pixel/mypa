@@ -90,6 +90,30 @@ class CrmClientStatusAndSegmentTest extends TestCase
         $this->assertSame('existing', $proforma['client_category']);
     }
 
+    public function test_a_backdated_document_takes_its_place_at_the_front(): void
+    {
+        $later = $this->raise($this->clientUuid, ['invoice_date' => '2026-09-10'])->assertCreated()->json('data');
+        $this->assertSame('new', $later['client_category']);
+
+        // Paperwork caught up with later: this one came first all along.
+        $earlier = $this->raise($this->clientUuid, ['invoice_date' => '2026-08-01'])->assertCreated()->json('data');
+
+        $this->assertSame('new', Invoice::where('uuid', $earlier['uuid'])->value('client_category'));
+        $this->assertSame('existing', Invoice::where('uuid', $later['uuid'])->value('client_category'));
+    }
+
+    public function test_a_sale_called_off_never_happened(): void
+    {
+        $first = $this->raise($this->clientUuid)->assertCreated()->json('data');
+        $second = $this->raise($this->clientUuid)->assertCreated()->json('data');
+        $this->assertSame('existing', Invoice::where('uuid', $second['uuid'])->value('client_category'));
+
+        $this->as()->postJson('/api/v1/crm/invoices/' . $first['uuid'] . '/cancel')->assertOk();
+
+        // With the first one cancelled, the one that stands is the first.
+        $this->assertSame('new', Invoice::where('uuid', $second['uuid'])->value('client_category'));
+    }
+
     public function test_the_kind_of_business_comes_from_the_companys_own_list(): void
     {
         $this->assertSame(

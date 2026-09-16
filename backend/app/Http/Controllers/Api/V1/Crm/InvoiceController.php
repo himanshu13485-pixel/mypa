@@ -12,6 +12,7 @@ use App\Models\Crm\Invoice;
 use App\Models\Crm\InvoicePayment;
 use App\Models\Crm\IssuingCompany;
 use App\Models\Crm\Member;
+use App\Services\Crm\ClientBusinessStatus;
 use App\Models\Crm\PaymentInboxEntry;
 use App\Services\Crm\GatewayCharge;
 use App\Services\Crm\InvoiceConverter;
@@ -331,6 +332,7 @@ class InvoiceController extends Controller
             return $invoice;
         });
 
+        ClientBusinessStatus::restate($org->id, $invoice->client_id);
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, $invoice->kind . '.created', $invoice, $this->trail($invoice));
 
         return response()->json([
@@ -373,6 +375,8 @@ class InvoiceController extends Controller
         });
 
         $invoice->refreshPaymentStatus();
+        // The date may have moved, which changes who came first.
+        ClientBusinessStatus::restate($org->id, $invoice->client_id);
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, $invoice->kind . '.updated', $invoice, $this->trail($invoice));
 
         return response()->json([
@@ -391,6 +395,8 @@ class InvoiceController extends Controller
         }
 
         $invoice->update(['status' => 'cancelled', 'updated_by' => $request->user()->id]);
+        // A sale called off never happened, so the next document is the first.
+        ClientBusinessStatus::restate($invoice->organization_id, $invoice->client_id);
         ActivityLog::record($request->attributes->get('crm_member'), $invoice->organization_id, $invoice->kind . '.cancelled', $invoice, $this->trail($invoice));
 
         return response()->json(['message' => $invoice->number . ' cancelled.']);
@@ -422,7 +428,10 @@ class InvoiceController extends Controller
         $label = $invoice->number;
         ActivityLog::record($request->attributes->get('crm_member'), $invoice->organization_id,
             $invoice->kind . '.deleted', $invoice, $this->trail($invoice));
+        $clientId = $invoice->client_id;
+        $orgId = $invoice->organization_id;
         $invoice->delete();
+        ClientBusinessStatus::restate($orgId, $clientId);
 
         return response()->json(['message' => $label . ' deleted.']);
     }
@@ -1295,12 +1304,14 @@ class InvoiceController extends Controller
          */
         $clientId = $data['client_id'] ?? $existing?->client_id;
         if ($clientId) {
-            $earlier = Invoice::where('organization_id', $orgId)
+            // A first guess, so the row is never saved blank; the whole of
+            // this client's paperwork is restated once the save lands - see
+            // ClientBusinessStatus.
+            $data['client_category'] = Invoice::where('organization_id', $orgId)
                 ->where('client_id', $clientId)
                 ->where('status', '!=', 'cancelled')
-                ->when($existing?->id, fn ($q, $id) => $q->whereKeyNot($id))
-                ->exists();
-            $data['client_category'] = $earlier ? 'existing' : 'new';
+                ->when($existing?->id, fn ($q, $mine) => $q->whereKeyNot($mine))
+                ->exists() ? 'existing' : 'new';
         }
 
         // What kind of business it is, out of the company's own list.
