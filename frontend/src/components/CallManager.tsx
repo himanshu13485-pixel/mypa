@@ -374,31 +374,62 @@ export function CallProvider({ children }: { children: ReactNode }) {
     setElapsed(0)
   }, [])
 
+  /*
+   * The camera/microphone request currently in the air.
+   *
+   * localStreamRef can only answer once getUserMedia has come back, so two
+   * callers arriving inside that window each opened the camera - the
+   * NotReadableError race the comments here describe, where the second
+   * request finds the device held by the first and the call dies before it
+   * starts. That used to take an unlucky coincidence; now that the media and
+   * the server request are asked for at the same moment it would be the
+   * ordinary case. A second caller waits on the first caller's promise
+   * instead of opening anything of its own.
+   */
+  const openingStreamRef = useRef<Promise<MediaStream> | null>(null)
+
   /** Grab mic/camera once per call; shared by all peer connections. */
-  const ensureLocalStream = useCallback(async (type: 'audio' | 'video') => {
-    if (localStreamRef.current) return localStreamRef.current
-    let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true },
-        video: type === 'video'
-          ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
-          : false,
-      })
-    } catch (err) {
-      if (type === 'video') {
-        // Camera busy elsewhere: continue the call audio-only.
-        console.warn('[call] camera unavailable, audio-only fallback', err)
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-        setCameraOff(true)
-      } else {
-        throw err
+  const ensureLocalStream = useCallback((type: 'audio' | 'video') => {
+    if (localStreamRef.current) return Promise.resolve(localStreamRef.current)
+    if (openingStreamRef.current) return openingStreamRef.current
+
+    const open = async () => {
+      let stream: MediaStream
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: { echoCancellation: true, noiseSuppression: true },
+          video: type === 'video'
+            ? { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } }
+            : false,
+        })
+      } catch (err) {
+        if (type === 'video') {
+          // Camera busy elsewhere: continue the call audio-only.
+          console.warn('[call] camera unavailable, audio-only fallback', err)
+          stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+          setCameraOff(true)
+        } else {
+          throw err
+        }
       }
+      localStreamRef.current = stream
+      cameraTrackRef.current = stream.getVideoTracks()[0] ?? null
+      showSelf(stream)
+
+      return stream
     }
-    localStreamRef.current = stream
-    cameraTrackRef.current = stream.getVideoTracks()[0] ?? null
-    showSelf(stream)
-    return stream
+
+    const opening = open()
+    openingStreamRef.current = opening
+    /* Cleared however it settles, and only while it is still the one on
+       record, so a refusal cannot wedge every later attempt behind a promise
+       that has already failed. */
+    const settled = () => {
+      if (openingStreamRef.current === opening) openingStreamRef.current = null
+    }
+    void opening.then(settled, settled)
+
+    return opening
   }, [showSelf])
 
   /**
@@ -510,7 +541,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const startCall = useCallback(
     async (conversationUuid: string, type: 'audio' | 'video', peerName: string) => {
       if (callRef.current) return
+      /*
+       * The camera and the server have nothing to say to each other, so they
+       * are asked together rather than one behind the other: the media used
+       * to wait on a round trip it did not need, and that round trip is the
+       * slowest part of getting a call on screen. Declared out here so the
+       * failure path below can still reach it.
+       */
+      let media: Promise<MediaStream> | undefined
       try {
+        media = ensureLocalStream(type)
+        // Handled, so that a failure on the server side does not leave this
+        // one rejecting into nothing while it is still in the air.
+        void media.catch(() => undefined)
         const call = await calls.initiate(conversationUuid, type)
         setActiveCall({
           uuid: call.uuid,
@@ -520,8 +563,12 @@ export function CallProvider({ children }: { children: ReactNode }) {
           isGroup: !!call.is_group,
           status: 'ringing',
         })
-        await ensureLocalStream(type)
+        await media
       } catch (err) {
+        // The camera may still have been opening when the request failed, and
+        // cleanup can only close what it can see - so let it finish first
+        // rather than leave a camera light on behind a call that never was.
+        await media?.catch(() => undefined)
         cleanup()
         alert(err instanceof Error && 'response' in err
           ? ((err as { response?: { data?: { message?: string } } }).response?.data?.message ?? 'Could not start the call.')
@@ -544,12 +591,19 @@ export function CallProvider({ children }: { children: ReactNode }) {
       isGroup: false, // corrected below from the respond payload
       status: 'connecting',
     })
+    // Both started here, neither waiting on the other; see startCall.
+    let media: Promise<MediaStream> | undefined
     try {
-      await ensureLocalStream(signal.call_type)
+      media = ensureLocalStream(signal.call_type)
+      void media.catch(() => undefined)
       const info = await calls.respond(signal.call_uuid, 'accept')
       setActiveCall((c) =>
         c ? { ...c, isGroup: !!info.is_group, peerName: info.group_name ?? c.peerName } : c,
       )
+      /* The accept still goes before any offer, and the offers still go after
+         the tracks exist: overlapping the two requests changes when the media
+         is asked for, not the order the handshake happens in. */
+      await media
 
       // Joiner sends an offer to everyone already in the call.
       const joined = info.joined_peers ?? [{ uuid: signal.from_uuid, name: signal.from_name ?? 'Caller' }]
@@ -560,6 +614,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         await calls.signal(signal.call_uuid, 'offer', { sdp: offer.sdp, type: offer.type }, peer.uuid)
       }
     } catch {
+      await media?.catch(() => undefined)
       cleanup()
     }
   }, [incoming, ensureLocalStream, createPeer, cleanup])
@@ -572,10 +627,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const joinCall = useCallback(async (uuid: string, type: 'audio' | 'video', label: string) => {
     if (callRef.current) return
     setActiveCall({ uuid, type, direction: 'incoming', peerName: label, isGroup: false, status: 'connecting' })
+    // Both started here, neither waiting on the other; see startCall.
+    let media: Promise<MediaStream> | undefined
     try {
-      await ensureLocalStream(type)
+      media = ensureLocalStream(type)
+      void media.catch(() => undefined)
       const info = await calls.respond(uuid, 'accept')
       setActiveCall((c) => (c ? { ...c, isGroup: !!info.is_group, peerName: info.group_name ?? label } : c))
+      // Accept first, then the tracks, then the offers - unchanged.
+      await media
 
       for (const peer of info.joined_peers ?? []) {
         const pc = await createPeer(uuid, peer.uuid, peer.name, type)
@@ -584,6 +644,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
         await calls.signal(uuid, 'offer', { sdp: offer.sdp, type: offer.type }, peer.uuid)
       }
     } catch (err) {
+      await media?.catch(() => undefined)
       cleanup()
       toastError(errorMessage(err))
     }

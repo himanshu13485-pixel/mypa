@@ -28,7 +28,7 @@ import { useCalls } from '../components/CallManager'
 import { useToast } from '../components/Toast'
 import { usePrompt } from '../components/Prompt'
 import { Badge, Button, EmptyState, Input, Modal, SkeletonList, SkeletonMessages, Textarea } from '../components/ui'
-import type { ChatMessage, ConversationItem } from '../types'
+import type { ChatMessage, ConversationItem, Paginated } from '../types'
 import { Avatar } from '../lib/avatars'
 import { PresenceDot, PresenceInline } from '../components/PresenceDot'
 import { lastSeenLabel, resolvePresence, usePresenceMap } from '../lib/presence'
@@ -372,6 +372,18 @@ function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => vo
  * server remains the one that actually decides.
  */
 const MAX_UPLOAD_MB = 25
+
+/**
+ * The mark on a bubble that is on its way but not yet acknowledged.
+ *
+ * Carried in the uuid rather than in a field of its own, because the uuid is
+ * the one thing the whole optimistic path turns on. A temporary id cannot
+ * collide with a server one, so "is this the copy I am still waiting for"
+ * and "have I already got the real thing" are the same question, asked of
+ * the same field, and there is no second piece of state to keep in step.
+ */
+const SENDING_PREFIX = 'sending:'
+const isSending = (m: ChatMessage) => m.uuid.startsWith(SENDING_PREFIX)
 
 export default function MessagesPage() {
   const queryClient = useQueryClient()
@@ -790,16 +802,144 @@ export default function MessagesPage() {
     queryClient.invalidateQueries({ queryKey: ['conversations'] })
   }
 
+  /** Whose bubble the optimistic one is, until the server says it properly. */
+  const me = useAuthStore((s) => s.user)
+
+  /**
+   * Move one chat to the top of its own block, in the cache.
+   *
+   * Sending used to refetch the whole conversation list, which is a GET for
+   * a result already known: the row carries no preview and no time, so the
+   * only thing a send changes about it is where it sits. The server orders
+   * pinned chats first and everything else by its last message, so an
+   * unpinned chat goes to the head of the unpinned block and a pinned one
+   * does not move at all - its pin is holding it, and a message does not
+   * touch that. Both lists are patched, archived and not, because a chat
+   * written to may be sitting in either.
+   */
+  const touchConversation = (uuid: string, at: string) => {
+    queryClient.setQueriesData<Paginated<ConversationItem> & { archived_count: number }>(
+      { queryKey: ['conversations'] },
+      (list) => {
+        if (!list) return list
+
+        const index = list.data.findIndex((c) => c.uuid === uuid)
+        if (index < 0) return list
+
+        const moved = { ...list.data[index], last_message_at: at }
+        if (moved.is_pinned) {
+          return { ...list, data: list.data.map((c, i) => (i === index ? moved : c)) }
+        }
+
+        const rest = list.data.filter((_, i) => i !== index)
+        const firstUnpinned = rest.findIndex((c) => !c.is_pinned)
+        rest.splice(firstUnpinned < 0 ? rest.length : firstUnpinned, 0, moved)
+
+        return { ...list, data: rest }
+      },
+    )
+  }
+
+  /**
+   * A message on screen the instant it is sent.
+   *
+   * It used to wait for a POST and then a GET behind it, which is two round
+   * trips to show somebody words they have already typed. Now a temporary
+   * bubble goes into the thread's cache immediately and the server's copy
+   * takes its place when it lands.
+   *
+   * Why that cannot end up saying the same thing twice: a bubble is
+   * identified by its uuid and by nothing else. The temporary one is removed
+   * by that uuid, and the real one is only appended if no message already
+   * carries its uuid - so the copy the POST returns and the copy a refetch
+   * behind it brought back are the same bubble whichever arrives first, and
+   * the websocket path, which refetches the thread rather than appending to
+   * it, cannot add a second either.
+   *
+   * Text only, and only in an unsearched thread. A file is still sent the
+   * old way: a bubble that says "sent" while the upload is a tenth of the
+   * way through would be a lie. A searched thread is a filtered list, and a
+   * message dropped into it may well not belong there.
+   */
   const sendMutation = useMutation({
     mutationFn: (payload: FormData | Record<string, unknown>) => chat.send(selected!.uuid, payload),
-    onSuccess: () => {
+    onMutate: async (payload) => {
+      const uuid = selected?.uuid
+      if (!uuid || query || payload instanceof FormData) return undefined
+
+      const key = ['messages', uuid, query]
+      // Kept so a refusal can hand back exactly what was in the box.
+      const restore = { draft, replyTo }
+      /* The box empties first and waits for nothing - that is the whole
+         point of this, and everything below is about the thread rather than
+         about what was typed. */
       setDraft('')
-      setPending([])
       setMention(null)
       setReplyTo(null)
-      invalidateMessages()
+
+      /* A refetch already in the air would land after the bubble and wipe it,
+         and cancelling one puts the thread back as it was a tick later - so
+         the bubble goes in once that has happened, never before. */
+      await queryClient.cancelQueries({ queryKey: key })
+
+      const previous = queryClient.getQueryData<ChatMessage[]>(key)
+      const temp: ChatMessage = {
+        uuid: `${SENDING_PREFIX}${Date.now()}`,
+        type: 'text',
+        body: String(payload.body ?? ''),
+        is_deleted: false,
+        is_own: true,
+        sender: me ? { uuid: me.uuid, name: me.name } : null,
+        reply_to: replyTo
+          ? { uuid: replyTo.uuid, body: replyTo.body, sender_name: replyTo.sender?.name }
+          : null,
+        attachments: [],
+        reactions: [],
+        created_at: new Date().toISOString(),
+      }
+
+      queryClient.setQueryData<ChatMessage[]>(key, (list) => [...(list ?? []), temp])
+
+      return { key, previous, temp, restore }
     },
-    onError: (err) => toastError(errorMessage(err)),
+    onSuccess: (created, _payload, context) => {
+      if (!context) {
+        // The file and search paths, exactly as they were.
+        setDraft('')
+        setPending([])
+        setMention(null)
+        setReplyTo(null)
+        invalidateMessages()
+
+        return
+      }
+
+      /*
+       * The real message in the temporary one's place. Nothing is cleared
+       * here - the box was emptied on the way out, and whatever has been
+       * typed into it since belongs to the next message, not this one.
+       */
+      queryClient.setQueryData<ChatMessage[]>(context.key, (list) => {
+        const rest = (list ?? []).filter((m) => m.uuid !== context.temp.uuid)
+
+        return rest.some((m) => m.uuid === created.uuid) ? rest : [...rest, created]
+      })
+      touchConversation(context.key[1], created.created_at)
+    },
+    onError: (err, _payload, context) => {
+      if (context) {
+        // Back to the thread as it was - or, if it had never been fetched,
+        // simply without the bubble: handing setQueryData an undefined is a
+        // no-op, which would leave it on screen for good.
+        queryClient.setQueryData<ChatMessage[]>(context.key, (list) => (
+          context.previous ?? (list ?? []).filter((m) => m.uuid !== context.temp.uuid)
+        ))
+        // Nothing typed is lost: the words go back in the box they left.
+        setDraft(context.restore.draft)
+        setReplyTo(context.restore.replyTo)
+      }
+      toastError(errorMessage(err))
+    },
   })
 
   /*
@@ -2231,9 +2371,14 @@ export default function MessagesPage() {
                       onClick={selecting
                         ? (e) => { e.preventDefault(); setSelection(toggleSelected(selection, m.uuid)) }
                         : undefined}
-                      {...(noHover && !m.is_deleted && !selecting
-                        ? bindLongPress(() => { setActionsFor(m.uuid); setReactFor(null) })
-                        : {})}
+                      {...(
+                        // Not while it is still on its way: every one of those
+                        // actions names the message by a uuid the server has
+                        // never heard of, so all any of them could do is fail.
+                        noHover && !m.is_deleted && !selecting && !isSending(m)
+                          ? bindLongPress(() => { setActionsFor(m.uuid); setReactFor(null) })
+                          : {}
+                      )}
                     >
                       {/* A message outlives the account that sent it, so the
                           name can be missing. Saying so is better than a line
@@ -2283,9 +2428,14 @@ export default function MessagesPage() {
                         {m.edited_at && 'edited · '}
                         {timeLabel(m.created_at)}
                         {m.is_own && !m.is_deleted && (
-                          m.read_by_others
-                            ? <CheckCheck className="size-3" aria-label="Read" />
-                            : <Check className="size-3 opacity-70" aria-label="Sent" />
+                          /* On its way, gone, read: the same corner of the
+                             bubble answers all three, so the clock is simply
+                             the state before the first tick. */
+                          isSending(m)
+                            ? <Clock className="size-3 opacity-70" aria-label="Sending" />
+                            : m.read_by_others
+                              ? <CheckCheck className="size-3" aria-label="Read" />
+                              : <Check className="size-3 opacity-70" aria-label="Sent" />
                         )}
                       </p>
                     </div>
@@ -2332,7 +2482,7 @@ export default function MessagesPage() {
                       * gesture, and a gesture nobody is told about is not
                       * much better than no gesture at all.
                       */}
-                    {!m.is_deleted && noHover && (
+                    {!m.is_deleted && !isSending(m) && noHover && (
                       <button
                         type="button"
                         data-msg-actions
@@ -2357,7 +2507,7 @@ export default function MessagesPage() {
                       * band where neither was hovered, the strip vanished
                       * mid-reach, and the actions were uncatchable.
                       */}
-                    {!m.is_deleted && !noHover && (
+                    {!m.is_deleted && !isSending(m) && !noHover && (
                       <div
                         data-msg-actions
                         className={clsx(
