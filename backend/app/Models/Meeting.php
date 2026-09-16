@@ -21,6 +21,15 @@ class Meeting extends Model
     /** Presence grace: a participant silent for this long is treated as gone. */
     public const PRESENCE_TIMEOUT_SECONDS = 45;
 
+    /**
+     * What the Share-my-screen button calls a session when nobody named it.
+     *
+     * Here rather than only in the client because the sweep has to recognise
+     * it: this title means "not named", and every other title means somebody
+     * cared enough to type one.
+     */
+    public const SCREEN_TITLE = 'Screen share';
+
     protected $fillable = [
         'host_id', 'code', 'title', 'type', 'is_screen', 'requires_approval', 'passcode', 'is_locked',
         'spotlight_uuid', 'status', 'scheduled_at', 'reminded_at', 'started_at', 'ended_at',
@@ -133,7 +142,16 @@ class Meeting extends Model
         return $query->where('status', 'scheduled')
             ->whereNull('scheduled_at')
             ->whereNull('started_at')
-            ->whereNull('title')
+            /*
+             * A title somebody chose is a reason to keep the row. "Screen
+             * share" is not chosen - it is what the button writes on every
+             * one of them, so a share that was started and then thought
+             * better of (the picker cancelled, the tab closed) left a row
+             * reading "Not Started" that nothing could ever clear, and the
+             * Screen list slowly became a log of every press of the button.
+             */
+            ->where(fn ($q) => $q->whereNull('title')
+                ->orWhere(fn ($screen) => $screen->where('is_screen', true)->where('title', self::SCREEN_TITLE)))
             ->whereNull('passcode')
             ->where('created_at', '<', $before)
             ->whereDoesntHave('participants');

@@ -1,7 +1,7 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
 import { disconnectEcho } from '../lib/echo'
-import { clearGuestPass, readGuestPass } from '../lib/guestPass'
+import { clearGuestPass, guestRequestPath, readGuestPass } from '../lib/guestPass'
 import { readDeviceTokens } from '../lib/deviceTrust'
 
 export const api = axios.create({
@@ -41,9 +41,10 @@ api.interceptors.request.use((config) => {
    * are rewritten — a guest pass must not be attached to anything else.
    */
   const pass = readGuestPass()
-  if (pass && config.url?.startsWith(`/meetings/${pass.code}`)) {
+  const asGuest = guestRequestPath(config.url, pass)
+  if (pass && asGuest) {
     config.headers.Authorization = `Bearer ${pass.token}`
-    config.url = `/guest${config.url}`
+    config.url = asGuest
     return config
   }
 

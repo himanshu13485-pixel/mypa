@@ -288,6 +288,52 @@ export function ScreenShareProvider({ children }: { children: ReactNode }) {
     closeSession()
   }, [closeSession])
 
+  /**
+   * Presence ping, the thing that tells the server this session is alive.
+   *
+   * Without one the room was reaped: the server drops anyone silent for 45
+   * seconds and ends a room with nobody left in it, which it did while the
+   * host's screen was still being captured and sent. The share went on, the
+   * bar went on saying so, and the session read "Ended" in the list - and
+   * anybody opening the link was told the meeting was over.
+   *
+   * The room has beaten like this all along; a screen session simply never
+   * did, because sharing was built as a page and the page never grew one.
+   *
+   * It belongs here rather than on the session page for the same reason the
+   * capture does: a host who walks off to Tasks is still sharing, and a pulse
+   * that stopped when the page unmounted would reap the very session this
+   * provider exists to keep alive.
+   */
+  useEffect(() => {
+    if (phase !== 'live' || !code) return
+    let stop = false
+
+    const tick = async () => {
+      try {
+        const hb = await meetingsApi.heartbeat(code)
+        if (stop) return
+        // Ended elsewhere - the host closing it from another tab, or a plan's
+        // time limit. Stop the capture rather than sending to nobody.
+        if (hb.status === 'ended') {
+          teardown()
+          joinedRef.current = false
+          setPhase('ended')
+        }
+      } catch {
+        /* One missed beat is a hiccup; the grace window covers three. */
+      }
+    }
+
+    void tick()
+    const timer = window.setInterval(tick, 15_000)
+
+    return () => {
+      stop = true
+      window.clearInterval(timer)
+    }
+  }, [phase, code, teardown])
+
   const newPeer = useCallback(async (peerUuid: string) => {
     const existing = pcsRef.current.get(peerUuid)
     if (existing) return existing

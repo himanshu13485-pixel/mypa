@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { guestRouteFor, type GuestPass } from './guestPass'
+import { guestRequestPath, guestRouteFor, type GuestPass } from './guestPass'
 
 /**
  * One invite link, for everybody.
@@ -75,5 +75,36 @@ describe('guestRouteFor', () => {
     expect(guestRouteFor('/meetings/room/abc-defg-hi0', null)).toBe('/join/abc-defg-hi0')
     // Lowercased before matching a pass, so the two can never disagree.
     expect(guestRouteFor('/meetings/room/ABC-DEFG-HIJ', pass())).toBe('/guest/room/abc-defg-hij')
+  })
+})
+
+/**
+ * A pass opens one meeting's doors and nothing else.
+ *
+ * The door it was asked for at is not one of them: that request is how the
+ * pass comes to exist, and it has no guest twin to be pointed at.
+ */
+describe('guestRequestPath', () => {
+  it('points the room\u2019s own calls at the guest twins', () => {
+    expect(guestRequestPath('/meetings/abc-defg-hij/join', pass())).toBe('/guest/meetings/abc-defg-hij/join')
+    expect(guestRequestPath('/meetings/abc-defg-hij/heartbeat', pass())).toBe('/guest/meetings/abc-defg-hij/heartbeat')
+    expect(guestRequestPath('/meetings/abc-defg-hij', pass())).toBe('/guest/meetings/abc-defg-hij')
+  })
+
+  it('leaves the door alone \u2014 rewriting it is a 404 in the guest\u2019s face', () => {
+    // The reported bug: holding a pass and asking for another one (an expired
+    // half hour, or the same link opened twice) rewrote the way in.
+    expect(guestRequestPath('/meetings/abc-defg-hij/guest', pass())).toBeNull()
+  })
+
+  it('will not attach a pass to another meeting, or to the rest of the app', () => {
+    expect(guestRequestPath('/meetings/zzz-yyyy-xxx/join', pass())).toBeNull()
+    expect(guestRequestPath('/messages', pass())).toBeNull()
+    expect(guestRequestPath('/tasks', pass())).toBeNull()
+  })
+
+  it('does nothing at all without a pass', () => {
+    expect(guestRequestPath('/meetings/abc-defg-hij/join', null)).toBeNull()
+    expect(guestRequestPath(undefined, pass())).toBeNull()
   })
 })

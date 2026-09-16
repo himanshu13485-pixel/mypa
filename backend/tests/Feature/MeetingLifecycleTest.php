@@ -117,6 +117,34 @@ class MeetingLifecycleTest extends TestCase
         $this->assertDatabaseMissing('meetings', ['id' => $meeting->id]);
     }
 
+    public function test_a_screen_share_nobody_ever_shared_clears_itself_out_too(): void
+    {
+        // Start sharing, change your mind at the browser's picker: a row that
+        // reads "Not Started" for ever, with its own default title.
+        $share = $this->make(['is_screen' => true, 'title' => Meeting::SCREEN_TITLE]);
+        $share->forceFill(['created_at' => now()->subDays(2)])->saveQuietly();
+
+        $this->artisan(ReapStaleMeetings::class)->assertSuccessful();
+
+        $this->assertDatabaseMissing('meetings', ['id' => $share->id]);
+    }
+
+    public function test_a_share_that_was_named_or_opened_to_guests_is_kept(): void
+    {
+        $old = now()->subDays(30);
+
+        $named = $this->make(['is_screen' => true, 'title' => 'Handover to Priyanshu']);
+        $guests = $this->make(['is_screen' => true, 'title' => Meeting::SCREEN_TITLE, 'passcode' => 'watch12']);
+        foreach ([$named, $guests] as $meeting) {
+            $meeting->forceFill(['created_at' => $old])->saveQuietly();
+        }
+
+        $this->artisan(ReapStaleMeetings::class)->assertSuccessful();
+
+        $this->assertDatabaseHas('meetings', ['id' => $named->id]);
+        $this->assertDatabaseHas('meetings', ['id' => $guests->id]);
+    }
+
     public function test_a_fresh_one_is_left_alone(): void
     {
         // Somebody may be in the lobby right now.

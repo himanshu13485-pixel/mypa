@@ -67,6 +67,32 @@ const SCREEN_SESSION = /^\/screen\/session\/([a-z0-9]{3}-[a-z0-9]{4}-[a-z0-9]{3}
  * invite regularly reaches people with no account who are not about to make
  * one. Returns null for any other path, meaning "not my business".
  */
+/**
+ * Which requests a guest pass may be attached to, and where they then point.
+ *
+ * A guest has no account, so the room's ordinary calls are swapped for the
+ * narrow /guest twins the server keeps for them. Two things decide it: the
+ * path must belong to the one meeting the pass was issued for, and it must
+ * not be the door.
+ *
+ * The door - /meetings/<code>/guest - is how the pass is asked for in the
+ * first place, and it has no twin. Rewriting it produced
+ * /guest/meetings/<code>/guest, a path that exists nowhere, and the person
+ * holding the invite was shown "the route could not be found". It only
+ * happened to somebody who already had a pass for that code: an expired one,
+ * or a second go at the same link, which is to say exactly the people trying
+ * hardest to get in.
+ *
+ * Returns the path to use, or null to leave the request alone.
+ */
+export function guestRequestPath(url: string | undefined, pass: GuestPass | null): string | null {
+  if (!url || !pass) return null
+  if (!url.startsWith(`/meetings/${pass.code}`)) return null
+  if (url === `/meetings/${pass.code}/guest`) return null
+
+  return `/guest${url}`
+}
+
 export function guestRouteFor(pathname: string, pass: GuestPass | null): string | null {
   const room = pathname.match(MEETING_ROOM)
   const screen = room ? null : pathname.match(SCREEN_SESSION)
