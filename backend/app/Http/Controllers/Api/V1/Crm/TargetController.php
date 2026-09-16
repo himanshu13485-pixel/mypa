@@ -137,30 +137,21 @@ class TargetController extends Controller
         });
 
         /*
-         * The clients a desk brought in, for a client-oriented target.
+         * How many clients a desk has in all, for the client-oriented board.
          *
-         * A client counts to the desk it belongs to, in the month it was
-         * added - not the month it first paid, because bringing the client in
-         * IS the work being judged. New against existing is the client's own
-         * category, the same split the money side uses. A record still
-         * waiting for the Admin's nod is not a client yet.
+         * Not what the target measures - that is this month's new business -
+         * but the figure somebody wants beside their name: the portfolio they
+         * have built since they started. A record still waiting for the
+         * Admin's nod is not a client yet.
          */
-        $built = Client::approved()
+        $portfolio = Client::approved()
             ->where('organization_id', $org->id)
             ->whereNotNull('assigned_member_id')
-            ->whereBetween('created_at', [$start, $end])
-            ->get(['id', 'assigned_member_id', 'category'])
-            ->groupBy('assigned_member_id');
+            ->selectRaw('assigned_member_id, count(*) as held')
+            ->groupBy('assigned_member_id')
+            ->pluck('held', 'assigned_member_id');
 
-        // What those clients have billed inside the period, whoever raised
-        // it - the taxable value, like the money side.
-        $builtIds = $built->flatten(1)->pluck('id')->all();
-        $salesByClient = $builtIds === [] ? collect() : $invoices
-            ->whereIn('client_id', $builtIds)
-            ->groupBy('client_id')
-            ->map(fn ($group) => round((float) $group->sum(fn ($i) => self::baseOf($i)), 2));
-
-        $rows = $members->map(function (Member $m) use ($targets, $achieved, $notes, $kinds, $built, $salesByClient) {
+        $rows = $members->map(function (Member $m) use ($targets, $achieved, $notes, $kinds, $portfolio) {
             $target = (float) ($targets[$m->id]->target_sum ?? 0);
             $total = (float) ($achieved[$m->id]['base_sum'] ?? 0);
             $existing = (float) ($achieved[$m->id]['base_existing'] ?? 0);
@@ -170,11 +161,17 @@ class TargetController extends Controller
                 ? $kinds[$m->id]
                 : (in_array($m->target_kind, Target::KINDS, true) ? $m->target_kind : 'sales');
 
-            $mine = $built[$m->id] ?? collect();
-            $newlyBuilt = $mine->reject(fn ($c) => in_array($c->category, self::EXISTING, true));
-            $builtNew = $newlyBuilt->count();
-            $sales = fn ($rows) => round((float) $rows->sum(fn ($c) => (float) ($salesByClient[$c->id] ?? 0)), 2);
-            $clientSales = $sales($mine);
+            /*
+             * A client target is a number of NEW clients for the month.
+             *
+             * Which is the same ledger the money side reads: a client closed
+             * is a client billed, and the document says whether that was new
+             * business or a client coming back. Counting records created
+             * instead made a desk's whole portfolio look like one month's
+             * work the day it was set up.
+             */
+            $newClients = (int) ($achieved[$m->id]['client_new'] ?? 0);
+            $existingClients = (int) ($achieved[$m->id]['client_existing'] ?? 0);
             $clientTarget = (int) ($targets[$m->id]->client_target_sum ?? 0);
 
             return [
@@ -206,20 +203,20 @@ class TargetController extends Controller
                 'invoices' => (int) ($achieved[$m->id]['invoice_count'] ?? 0),
                 // What one client was worth on average to this desk.
                 'per_client' => $clients > 0 ? round($total / $clients, 2) : null,
-                // The client-oriented side: clients brought in against the
-                // number asked for, and what they have billed so far.
+                // The client-oriented side: new clients against the number
+                // asked for, with the month's whole head count beside it.
                 'client_target' => $clientTarget,
-                'clients_built' => $mine->count(),
-                'clients_built_new' => $builtNew,
-                'clients_built_existing' => $mine->count() - $builtNew,
-                'client_sales' => $clientSales,
-                'client_sales_new' => $sales($newlyBuilt),
-                'client_sales_existing' => round($clientSales - $sales($newlyBuilt), 2),
-                'clients_due' => max(0, $clientTarget - $mine->count()),
-                'client_percent' => $clientTarget > 0 ? round($mine->count() / $clientTarget * 100, 1) : null,
+                'clients_closed' => $clients,
+                'client_sales' => round($total, 2),
+                'client_sales_new' => round($total - $existing, 2),
+                'client_sales_existing' => round($existing, 2),
+                'clients_due' => max(0, $clientTarget - $newClients),
+                'client_percent' => $clientTarget > 0 ? round($newClients / $clientTarget * 100, 1) : null,
+                // The portfolio behind the month: everything on this desk.
+                'clients_total' => (int) ($portfolio[$m->id] ?? 0),
                 'note' => $notes[$m->id] ?? null,
             ];
-        })->sortByDesc(fn ($row) => $row['kind'] === 'clients' ? $row['clients_built'] : $row['achieved'])->values();
+        })->sortByDesc(fn ($row) => $row['kind'] === 'clients' ? $row['clients_new'] : $row['achieved'])->values();
 
         // A client billed by two salespeople is still one client to the
         // company, so the head count is taken again over the whole floor
@@ -248,15 +245,16 @@ class TargetController extends Controller
             'client_totals' => [
                 'people' => $clientRows->count(),
                 'client_target' => (int) $clientRows->sum('client_target'),
-                'clients_built' => (int) $clientRows->sum('clients_built'),
-                'clients_built_new' => (int) $clientRows->sum('clients_built_new'),
-                'clients_built_existing' => (int) $clientRows->sum('clients_built_existing'),
+                'clients_new' => (int) $clientRows->sum('clients_new'),
+                'clients_existing' => (int) $clientRows->sum('clients_existing'),
+                'clients_closed' => (int) $clientRows->sum('clients_closed'),
                 'clients_due' => (int) $clientRows->sum('clients_due'),
+                'clients_total' => (int) $clientRows->sum('clients_total'),
                 'client_sales' => round($clientRows->sum('client_sales'), 2),
                 'client_sales_new' => round($clientRows->sum('client_sales_new'), 2),
                 'client_sales_existing' => round($clientRows->sum('client_sales_existing'), 2),
                 'percent' => $clientRows->sum('client_target') > 0
-                    ? round($clientRows->sum('clients_built') / $clientRows->sum('client_target') * 100, 1)
+                    ? round($clientRows->sum('clients_new') / $clientRows->sum('client_target') * 100, 1)
                     : null,
             ],
             'totals' => [
@@ -477,11 +475,8 @@ class TargetController extends Controller
                 ->withSum('payments as received', 'amount')
                 ->get(['id', 'client_id', 'client_category', 'subtotal', 'discount', ...Invoice::RUPEE_COLUMNS]);
 
-            $built = Client::approved()
-                ->where('organization_id', $org->id)
-                ->where('assigned_member_id', $me->id)
-                ->whereBetween('created_at', [$start, $end])
-                ->get(['id', 'category']);
+            $isNew = fn ($i) => ! in_array($i->client_category, self::EXISTING, true);
+            $heads = fn ($rows) => $rows->pluck('client_id')->filter()->unique()->count();
 
             $achieved = round((float) $invoices->sum(fn ($i) => self::baseOf($i)), 2);
             $clientTarget = (int) ($target?->client_target ?? 0);
@@ -498,16 +493,20 @@ class TargetController extends Controller
                 'pending_target' => round(max(0, $amount - $achieved), 2),
                 'payment_due' => round((float) $invoices->sum(fn ($i) => self::dueOf($i)), 2),
                 'percent' => $amount > 0 ? round($achieved / $amount * 100, 1) : null,
-                'clients' => $invoices->pluck('client_id')->filter()->unique()->count(),
+                'clients' => $heads($invoices),
                 'client_target' => $clientTarget,
-                'clients_built' => $built->count(),
-                'clients_built_new' => $built->reject(fn ($c) => in_array($c->category, self::EXISTING, true))->count(),
-                'client_percent' => $clientTarget > 0 ? round($built->count() / $clientTarget * 100, 1) : null,
+                // A client target is this month's new clients; the rest of
+                // the month's head count rides beside it.
+                'clients_new' => $heads($invoices->filter($isNew)),
+                'clients_existing' => $heads($invoices->reject($isNew)),
+                'client_percent' => $clientTarget > 0
+                    ? round($heads($invoices->filter($isNew)) / $clientTarget * 100, 1)
+                    : null,
             ];
         })->values();
 
         $current = $rows->last();
-        $best = $rows->sortByDesc(fn ($r) => $r['kind'] === 'clients' ? $r['clients_built'] : $r['achieved'])->first();
+        $best = $rows->sortByDesc(fn ($r) => $r['kind'] === 'clients' ? $r['clients_new'] : $r['achieved'])->first();
 
         return response()->json(['data' => [
             // Nothing asked of this desk in four months: the strip stays away.
@@ -515,7 +514,7 @@ class TargetController extends Controller
             'kind' => $current['kind'],
             'months' => $rows,
             'current' => $current,
-            'best' => $best && ($best['achieved'] > 0 || $best['clients_built'] > 0) ? $best['label'] : null,
+            'best' => $best && ($best['achieved'] > 0 || $best['clients_new'] > 0) ? $best['label'] : null,
         ]]);
     }
 

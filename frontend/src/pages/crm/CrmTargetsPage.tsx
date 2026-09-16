@@ -159,25 +159,33 @@ export default function CrmTargetsPage() {
   }
 
   /** Name, code, and what this person is judged on. Both tables lead with it. */
-  const PersonCell = ({ row }: { row: CrmTargetRow }) => (
-    <td className={clsx(STICKY_PERSON, 'py-2.5 pr-3')}>
-      <div className="font-medium text-slate-800 dark:text-slate-100">{row.name}</div>
-      {row.employee_code && <div className="text-xs text-slate-400">{row.employee_code}</div>}
-      {mayType && (
-        <Select
-          value={draftFor(row).kind}
-          onChange={(e) => editDraft(row, { kind: e.target.value as 'sales' | 'clients' })}
-          // Fixed width rather than full: the cell is sized by the longest
-          // name in the column, and a dropdown that follows it would be a
-          // different size on every row.
-          className="mt-1.5 min-h-[38px] w-24 py-1 text-xs sm:w-28"
-        >
-          <option value="sales">Sales</option>
-          <option value="clients">Clients</option>
-        </Select>
-      )}
-    </td>
-  )
+  const PersonCell = ({ row }: { row: CrmTargetRow }) => {
+    // The portfolio all time rides beside the employee code, quietly, because
+    // it is the desk's standing and not the thing the month is judged on.
+    const meta = [
+      row.employee_code,
+      row.kind === 'clients' && row.clients_total > 0 ? `${row.clients_total} clients in all` : null,
+    ].filter(Boolean)
+    return (
+      <td className={clsx(STICKY_PERSON, 'py-2.5 pr-3')}>
+        <div className="font-medium text-slate-800 dark:text-slate-100">{row.name}</div>
+        {meta.length > 0 && <div className="text-xs text-slate-400">{meta.join(' · ')}</div>}
+        {mayType && (
+          <Select
+            value={draftFor(row).kind}
+            onChange={(e) => editDraft(row, { kind: e.target.value as 'sales' | 'clients' })}
+            // Fixed width rather than full: the cell is sized by the longest
+            // name in the column, and a dropdown that follows it would be a
+            // different size on every row.
+            className="mt-1.5 min-h-[38px] w-24 py-1 text-xs sm:w-28"
+          >
+            <option value="sales">Sales</option>
+            <option value="clients">Clients</option>
+          </Select>
+        )}
+      </td>
+    )
+  }
 
   /** The bar and the number, read the same way on either floor. */
   const ProgressCell = ({ percent }: { percent: number | null }) => {
@@ -307,24 +315,31 @@ export default function CrmTargetsPage() {
       )}
 
       {data && clientRows.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {[
-            { label: 'Clients target', value: String(data.client_totals.client_target) },
-            { label: 'Clients built', value: String(data.client_totals.clients_built) },
+            // The target is a head count of NEW clients, so the new figure is
+            // what stands next to it; the rest of the month rides behind.
+            { label: 'Clients target', value: String(data.client_totals.client_target), hint: 'new clients only' },
+            { label: 'New clients', value: String(data.client_totals.clients_new), hint: 'what the target is measured on' },
+            { label: 'Existing clients', value: String(data.client_totals.clients_existing) },
             {
-              label: 'New / existing',
-              value: `${data.client_totals.clients_built_new} / ${data.client_totals.clients_built_existing}`,
+              label: 'Total clients closed',
+              value: String(data.client_totals.clients_closed),
+              hint: `${data.client_totals.clients_new} new · ${data.client_totals.clients_existing} existing`,
             },
+            { label: 'Pending clients', value: String(data.client_totals.clients_due), hint: 'new clients still wanted' },
             {
               label: 'Sales value',
               value: inr(data.client_totals.client_sales),
               hint: `from new ${inr(data.client_totals.client_sales_new)} · from existing ${inr(data.client_totals.client_sales_existing)}`,
             },
-            { label: 'Pending clients', value: String(data.client_totals.clients_due) },
             {
               label: 'Of client target',
               value: data.client_totals.percent === null ? '—' : `${data.client_totals.percent}%`,
             },
+            // The whole portfolio, all time. It is the desk's standing, never
+            // the month's score, so it is named apart from the target.
+            { label: 'Clients in all', value: String(data.client_totals.clients_total), hint: 'portfolio, all time' },
           ].map((s) => (
             <Card key={s.label} className="py-3">
               <div className="text-lg font-semibold text-slate-900 dark:text-white">{s.value}</div>
@@ -358,23 +373,26 @@ export default function CrmTargetsPage() {
       )}
 
       {data && clientRows.length > 0
-        && (data.client_totals.clients_built > 0 || data.client_totals.client_target > 0) && (
+        && (data.client_totals.clients_closed > 0 || data.client_totals.client_target > 0) && (
         <div className="grid gap-4 lg:grid-cols-2">
           <Card>
-            <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Clients built by person</h2>
+            <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">New clients by person</h2>
             <HBarChart
-              data={clientRows.filter((r) => r.clients_built > 0).map((r) => ({ label: r.name ?? '—', value: r.clients_built }))}
+              data={clientRows.filter((r) => r.clients_new > 0).map((r) => ({ label: r.name ?? '—', value: r.clients_new }))}
               unit=""
             />
+            <p className="mt-2 text-[11px] text-slate-500">
+              The target counts new clients only, so this plots the new ones.
+            </p>
           </Card>
           <Card>
             <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">New vs existing clients</h2>
             <DonutChart
               data={[
-                { label: 'New clients', value: data.client_totals.clients_built_new, color: CHART_COLORS[0] },
-                { label: 'Existing clients', value: data.client_totals.clients_built_existing, color: CHART_COLORS[1] },
+                { label: 'New clients', value: data.client_totals.clients_new, color: CHART_COLORS[0] },
+                { label: 'Existing clients', value: data.client_totals.clients_existing, color: CHART_COLORS[1] },
               ]}
-              centerLabel="clients built"
+              centerLabel="clients closed"
             />
           </Card>
         </div>
@@ -480,24 +498,29 @@ export default function CrmTargetsPage() {
                     <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                       <th className="py-2 pr-3 font-medium">#</th>
                       <th className={clsx(STICKY_PERSON, 'py-2 pr-3 font-medium')}>Salesperson</th>
-                      <th className="py-2 pr-3 text-right font-medium">Target (clients)</th>
-                      <th className="py-2 pr-3 text-right font-medium">Built</th>
-                      <th className="py-2 pr-3 text-right font-medium">New</th>
-                      <th className="py-2 pr-3 text-right font-medium">Existing</th>
+                      <th
+                        className="py-2 pr-3 text-right font-medium"
+                        title="How many NEW clients this desk is asked to bring in this month."
+                      >
+                        Target (new clients)
+                      </th>
+                      <th className="py-2 pr-3 text-right font-medium" title="New clients closed this month: what the target is measured on.">New</th>
+                      <th className="py-2 pr-3 text-right font-medium" title="Clients closed this month who were already on the books.">Existing</th>
+                      <th className="py-2 pr-3 text-right font-medium" title="The month's whole head count: new and existing together.">Total closed</th>
                       <th
                         className="py-2 pr-3 text-right font-medium"
                         title="The taxable value these clients have billed in the period, before tax."
                       >
                         Sales value
                       </th>
-                      <th className="py-2 pr-3 text-right font-medium" title="Clients still to find to meet the target.">Pending clients</th>
+                      <th className="py-2 pr-3 text-right font-medium" title="New clients still to find to meet the target.">Pending clients</th>
                       <th className="w-44 py-2 font-medium">Progress</th>
                     </tr>
                   </thead>
                   <tbody>
                     {clientRows.map((r, i) => (
                       <tr key={r.member_uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
-                        <RankCell index={i} scored={r.clients_built > 0} />
+                        <RankCell index={i} scored={r.clients_new > 0} />
                         <PersonCell row={r} />
                         <td className="whitespace-nowrap py-2.5 pr-3 text-right">
                           {mayType ? (
@@ -513,9 +536,10 @@ export default function CrmTargetsPage() {
                             <span className="font-medium">{r.client_target || '—'}</span>
                           )}
                         </td>
-                        <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{r.clients_built}</td>
-                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.clients_built_new || '—'}</td>
-                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.clients_built_existing || '—'}</td>
+                        {/* New leads the row: it alone is weighed against the target. */}
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{r.clients_new}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.clients_existing || '—'}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.clients_closed || '—'}</td>
                         <td className="whitespace-nowrap py-2.5 pr-3 text-right">
                           {r.client_sales ? (
                             <>
@@ -526,7 +550,7 @@ export default function CrmTargetsPage() {
                             </>
                           ) : <span className="text-slate-400">—</span>}
                         </td>
-                        {/* Clients still to find. Work left, so it reads like the sales floor's. */}
+                        {/* New clients still to find. Work left, so it reads like the sales floor's. */}
                         <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium text-slate-600 dark:text-slate-300">
                           {r.clients_due || '—'}
                         </td>
@@ -537,7 +561,9 @@ export default function CrmTargetsPage() {
                 </table>
               </div>
               <p className="mt-2 text-[11px] text-slate-500">
-                Sales value is taxable value, before tax, billed by the clients this person brought in.
+                The target counts new clients only, so progress is New against Target. Total closed is the
+                month&rsquo;s whole head count, and the figure under each name is the portfolio built all time.
+                Sales value is taxable value, before tax, billed by those clients.
               </p>
             </Card>
           )}

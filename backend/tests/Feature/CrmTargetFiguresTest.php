@@ -157,7 +157,11 @@ class CrmTargetFiguresTest extends TestCase
         $row = $this->row();
 
         $this->assertSame('clients', $row['kind']);
-        $this->assertSame(2, $row['clients_built']);
+        $this->assertSame(1, $row['clients_new']);
+        $this->assertSame(1, $row['clients_existing']);
+        $this->assertSame(2, $row['clients_closed']);
+        // Four clients still wanted, since only the new one counts.
+        $this->assertSame(4, $row['clients_due']);
         $this->assertEquals(5000, $row['client_sales']);
         $this->assertEquals(3000, $row['client_sales_new']);
         $this->assertEquals(2000, $row['client_sales_existing']);

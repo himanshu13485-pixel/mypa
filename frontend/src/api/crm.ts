@@ -886,11 +886,16 @@ export interface CrmTargetRow {
   employee_code: string | null
   /** What this desk is judged on: the money it bills, or the clients it brings in. */
   kind: 'sales' | 'clients'
-  /** The client-oriented side. Zero on a sales desk. */
+  /**
+   * The client-oriented side. Zero on a sales desk.
+   *
+   * The target is a number of NEW clients for the month; clients_new above
+   * is what it is measured against, and clients_closed is the month's whole
+   * head count. clients_total is the portfolio behind it, all time.
+   */
   client_target: number
-  clients_built: number
-  clients_built_new: number
-  clients_built_existing: number
+  clients_closed: number
+  clients_total: number
   /** What the clients they brought in have billed in the period, before tax. */
   client_sales: number
   client_sales_new: number
@@ -920,9 +925,10 @@ export interface CrmTargetRow {
 export interface CrmClientTargetTotals {
   people: number
   client_target: number
-  clients_built: number
-  clients_built_new: number
-  clients_built_existing: number
+  clients_new: number
+  clients_existing: number
+  clients_closed: number
+  clients_total: number
   clients_due: number
   client_sales: number
   client_sales_new: number
@@ -971,8 +977,9 @@ export interface CrmMyTargetMonth {
   percent: number | null
   clients: number
   client_target: number
-  clients_built: number
-  clients_built_new: number
+  /** A client target is this month's new clients. */
+  clients_new: number
+  clients_existing: number
   client_percent: number | null
 }
 

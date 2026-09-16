@@ -106,9 +106,9 @@ class CrmClientTargetsTest extends TestCase
         return collect($board['data'])->firstWhere('member_uuid', $member->uuid);
     }
 
-    public function test_a_client_target_counts_clients_brought_in_not_money_billed(): void
+    public function test_a_client_target_counts_the_new_clients_closed_this_month(): void
     {
-        // Ten clients asked of one desk; money asked of the other.
+        // Ten new clients asked of one desk; money asked of the other.
         $this->actingAs($this->adminUser)->postJson('/api/v1/crm/targets', [
             'year' => now()->year, 'month' => now()->month,
             'targets' => [
@@ -117,12 +117,13 @@ class CrmClientTargetsTest extends TestCase
             ],
         ])->assertOk();
 
-        // Eight brought in: five new, three that had dealt with the firm before.
+        // Eight closed this month: five new, three that had dealt with the
+        // firm before. Only the five count towards the target.
         foreach (range(1, 5) as $i) {
             $this->bill($this->hunter, $this->client($this->hunter, 'New Co ' . $i, 'new'), 1000);
         }
         foreach (range(1, 3) as $i) {
-            $this->client($this->hunter, 'Old Co ' . $i, 'existing');
+            $this->bill($this->hunter, $this->client($this->hunter, 'Old Co ' . $i, 'existing'), 500);
         }
         // The other desk's own sale, which must not leak into the client count.
         $this->bill($this->seller, $this->client($this->seller, 'Seller Co', 'new'), 60000);
@@ -132,22 +133,27 @@ class CrmClientTargetsTest extends TestCase
 
         $this->assertSame('clients', $hunter['kind']);
         $this->assertSame(10, $hunter['client_target']);
-        $this->assertSame(8, $hunter['clients_built']);
-        $this->assertSame(5, $hunter['clients_built_new']);
-        $this->assertSame(3, $hunter['clients_built_existing']);
-        $this->assertSame(2, $hunter['clients_due']);
-        $this->assertEquals(80.0, $hunter['client_percent']);
-        // What those clients have billed - five invoices of 1,000.
-        $this->assertEquals(5000, $hunter['client_sales']);
+        // The target is the new ones; the whole month's head count rides beside it.
+        $this->assertSame(5, $hunter['clients_new']);
+        $this->assertSame(3, $hunter['clients_existing']);
+        $this->assertSame(8, $hunter['clients_closed']);
+        $this->assertSame(5, $hunter['clients_due']);
+        $this->assertEquals(50.0, $hunter['client_percent']);
+        // Five of 1,000 and three of 500.
+        $this->assertEquals(6500, $hunter['client_sales']);
+        $this->assertEquals(5000, $hunter['client_sales_new']);
+        $this->assertEquals(1500, $hunter['client_sales_existing']);
+        // And the portfolio behind the month: everything on that desk.
+        $this->assertSame(8, $hunter['clients_total']);
 
         $seller = $this->rowFor($board, $this->seller);
         $this->assertSame('sales', $seller['kind']);
         $this->assertEquals(60000, $seller['achieved']);
-        $this->assertSame(1, $seller['clients_built']);
 
         // The two floors are totalled apart.
         $this->assertSame(10, $board['client_totals']['client_target']);
-        $this->assertSame(8, $board['client_totals']['clients_built']);
+        $this->assertSame(5, $board['client_totals']['clients_new']);
+        $this->assertSame(8, $board['client_totals']['clients_closed']);
         $this->assertSame(1, $board['client_totals']['people']);
         $this->assertEquals(100000, $board['totals']['target']);
         $this->assertSame(1, $board['totals']['people']);
@@ -175,7 +181,7 @@ class CrmClientTargetsTest extends TestCase
         $this->assertSame(4, $copied->client_target);
     }
 
-    public function test_a_client_still_waiting_for_approval_is_not_counted_yet(): void
+    public function test_a_client_still_waiting_for_approval_is_not_on_the_desk_yet(): void
     {
         $this->actingAs($this->adminUser)->postJson('/api/v1/crm/targets', [
             'year' => now()->year, 'month' => now()->month,
@@ -185,6 +191,7 @@ class CrmClientTargetsTest extends TestCase
         $this->client($this->hunter, 'Counted Co', 'new');
         $this->client($this->hunter, 'Held Co', 'new')->update(['approval_status' => 'pending']);
 
-        $this->assertSame(1, $this->rowFor($this->board(), $this->hunter)['clients_built']);
+        // The portfolio counts what is on the books, and a held record is not.
+        $this->assertSame(1, $this->rowFor($this->board(), $this->hunter)['clients_total']);
     }
 }

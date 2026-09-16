@@ -29,18 +29,20 @@ function daysLeftInMonth(): number {
  */
 function encouragement(kind: 'sales' | 'clients', row: CrmMyTargetMonth, daysLeft: number): string {
   if (kind === 'clients') {
-    if (!row.client_target) return 'No client target set for this month yet. Every client you build still counts.'
-    const left = Math.max(0, row.client_target - row.clients_built)
-    const over = row.clients_built - row.client_target
+    // A client target is a count of NEW clients, so the line only ever talks
+    // about the new ones still to bring in.
+    if (!row.client_target) return 'No client target set for this month yet. Every new client you bring in still counts.'
+    const left = Math.max(0, row.client_target - row.clients_new)
+    const over = row.clients_new - row.client_target
     if (left === 0) {
       return over > 0
-        ? `Ahead of target by ${plural(over, 'client', 'clients')}. Lovely work.`
+        ? `Ahead of target by ${plural(over, 'new client', 'new clients')}. Lovely work.`
         : 'Client target met for the month. Everything from here is ahead.'
     }
-    if ((row.client_percent ?? 0) >= 80) return `Nearly there: ${plural(left, 'client', 'clients')} to go.`
-    if (daysLeft >= 10) return `Plenty of month left: ${daysLeft} days to build ${plural(left, 'client', 'clients')}.`
-    if (daysLeft === 0) return `Final day, with ${plural(left, 'client', 'clients')} still to build.`
-    return `${plural(daysLeft, 'day', 'days')} left and ${plural(left, 'client', 'clients')} to go. Every one counts.`
+    if ((row.client_percent ?? 0) >= 80) return `Nearly there: ${plural(left, 'new client', 'new clients')} to go.`
+    if (daysLeft >= 10) return `Plenty of month left: ${daysLeft} days to bring in ${plural(left, 'new client', 'new clients')}.`
+    if (daysLeft === 0) return `Final day, with ${plural(left, 'new client', 'new clients')} still to bring in.`
+    return `${plural(daysLeft, 'day', 'days')} left and ${plural(left, 'new client', 'new clients')} to go. Every one counts.`
   }
 
   if (!row.target) return 'No target set for this month yet. Everything you bill still counts.'
@@ -127,7 +129,7 @@ export default function CrmTargetStrip({ me }: { me: CrmMe | undefined }) {
 
   // The four bars are read against the best of the four, so a good month is
   // visibly the tall one rather than everything sitting at the same height.
-  const valueOf = (m: CrmMyTargetMonth) => (kind === 'clients' ? m.clients_built : m.achieved)
+  const valueOf = (m: CrmMyTargetMonth) => (kind === 'clients' ? m.clients_new : m.achieved)
   const peak = Math.max(...months.map(valueOf), 0)
 
   return (
@@ -172,13 +174,16 @@ export default function CrmTargetStrip({ me }: { me: CrmMe | undefined }) {
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 sm:flex sm:flex-wrap sm:gap-x-6">
               {kind === 'clients' ? (
                 <>
-                  <Figure label="Client target" value={current.client_target ? String(current.client_target) : '—'} />
-                  <Figure label="Built" value={String(current.clients_built)} />
+                  {/* The target is new clients; existing and the whole head
+                      count sit quietly beside it so the month still reads. */}
+                  <Figure label="New client target" value={current.client_target ? String(current.client_target) : '—'} />
+                  <Figure label="New clients" value={String(current.clients_new)} />
                   <Figure
-                    label="Left to build"
-                    value={String(Math.max(0, current.client_target - current.clients_built))}
+                    label="Left to bring in"
+                    value={String(Math.max(0, current.client_target - current.clients_new))}
                   />
-                  <Figure label="New clients" value={String(current.clients_built_new)} quiet />
+                  <Figure label="Existing" value={String(current.clients_existing)} quiet />
+                  <Figure label="Total closed" value={String(current.clients)} quiet />
                   {current.payment_due > 0 && (
                     <Figure label="Payment due" value={inr(current.payment_due)} quiet />
                   )}
@@ -221,7 +226,7 @@ export default function CrmTargetStrip({ me }: { me: CrmMe | undefined }) {
                 return (
                   <div
                     key={m.month}
-                    title={`${m.label} · ${kind === 'clients' ? plural(value, 'client', 'clients') : inr(value)}`}
+                    title={`${m.label} · ${kind === 'clients' ? plural(value, 'new client', 'new clients') : inr(value)}`}
                     className="flex min-w-0 flex-col items-center gap-1"
                   >
                     <div className="flex h-10 w-full items-end justify-center">
