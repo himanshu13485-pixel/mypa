@@ -182,6 +182,13 @@ class Organization extends Model
                 'Client Error', 'Both Error', 'Office Recharge', 'Discount',
                 'Refund Request', 'Other',
             ],
+            /*
+             * What kind of business a document is, beside whether the client
+             * is new: a plain sale, an export, a unit in a special economic
+             * zone. The company can rewrite the list in Billing setup, since
+             * a firm that never exports has no use for two of these.
+             */
+            'client_segments' => ['Regular', 'Global', 'SEZ'],
             'expense_categories' => [
                 'Rent', 'Utilities', 'Office Supplies', 'Pantry', 'Travel',
                 'Marketing', 'Software & Subscriptions', 'Hardware', 'Repairs',

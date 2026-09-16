@@ -384,6 +384,8 @@ export interface CrmMasters {
   designations: string[]
   payment_modes: string[]
   client_categories: string[]
+  /** Regular, Global, SEZ - what kind of business a document is; the company keeps the list. */
+  client_segments: string[]
   client_custom_fields: CrmCustomField[]
   /** This company's own Work Order method, for invoice and proforma lines. */
   work_order_custom_fields: CrmCustomField[]
@@ -652,6 +654,8 @@ export interface CrmInvoiceRow {
   } | null
   /** New business or a client coming back, as the document was raised. */
   client_category?: string | null
+  /** Regular, Global, SEZ - what kind of business it is. */
+  client_segment?: string | null
   issuing_company?: { id: number; name: string; state_code?: string | null } | null
   salesperson?: { uuid: string; name: string | null; email?: string | null } | null
   /** Who raised it, which is not always whose client it is. */
@@ -732,6 +736,7 @@ export interface CrmInvoiceFull extends CrmInvoiceRow {
     stamp_path?: string | null
   } | null
   client_category: string | null
+  client_segment?: string | null
   pricing_tier: string
   terms_of_payment: string | null
   subscription_type: string | null
@@ -3224,6 +3229,14 @@ export const crm = {
     api.get<{ data: CrmChurnReport }>('/crm/churn', { params: { months, member } }).then((r) => r.data.data),
 
   masterData: {
+    /** Regular, Global, SEZ - the words a document's category is chosen from. */
+    clientSegments: () =>
+      api.get<{ data: { client_segments: string[] } }>('/crm/masters/client-segments')
+        .then((r) => r.data.data.client_segments),
+    saveClientSegments: (segments: string[]) =>
+      api.put<{ message: string; data: { client_segments: string[] } }>(
+        '/crm/masters/client-segments', { client_segments: segments },
+      ).then((r) => r.data),
     /** Try a company's mailbox: sign in, send, read, and check its DNS. */
     testMailbox: (payload: {
       check: 'smtp' | 'imap' | 'dns' | 'send'
@@ -3445,6 +3458,15 @@ export function crmCan(me: CrmMe | undefined, module: string, ability = 'view'):
 }
 
 
+/**
+ * Whether a client is new to the company - which the system decides now: the
+ * first document a client is ever given is new business, and every one after
+ * it is repeat business. What KIND of business it is (Regular, Global, SEZ)
+ * is its own field, out of the company's own list.
+ *
+ * The four combined words are kept only so a screen reading a document
+ * raised before the split still has something to print.
+ */
 export const CRM_CLIENT_CATEGORY_LABELS: Record<string, string> = {
   new: 'New',
   existing: 'Existing',
@@ -3452,6 +3474,12 @@ export const CRM_CLIENT_CATEGORY_LABELS: Record<string, string> = {
   global_existing: 'Global - Existing',
   sez_new: 'SEZ - New',
   sez_existing: 'SEZ - Existing',
+}
+
+/** The two a document is filed under from now on. */
+export const CRM_CLIENT_STATUS_LABELS: Record<string, string> = {
+  new: 'New',
+  existing: 'Existing',
 }
 
 export const CRM_LEAD_STATUS_LABELS: Record<string, string> = {

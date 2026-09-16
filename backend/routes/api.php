@@ -1420,6 +1420,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member');
             Route::get('/masters/approval-types', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'approvalTypes'])
                 ->middleware('crm.member:approvals,view');
+            // Regular / Global / SEZ: read by anyone raising a document.
+            Route::get('/masters/client-segments', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'clientSegments'])
+                ->middleware('crm.member');
 
             // Billing masters
             Route::middleware('crm.member:masters,edit')->group(function () {
@@ -1427,6 +1430,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::put('/masters/lead-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveLeadSettings']);
                 Route::put('/masters/lead-options', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveLeadOptions']);
                 Route::put('/masters/approval-types', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveApprovalTypes']);
+                Route::put('/masters/client-segments', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveClientSegments']);
                 Route::put('/masters/complaint-options', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveComplaintOptions']);
                 Route::post('/masters/issuing-companies', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeCompany']);
                 Route::put('/masters/issuing-companies/{id}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'updateCompany']);

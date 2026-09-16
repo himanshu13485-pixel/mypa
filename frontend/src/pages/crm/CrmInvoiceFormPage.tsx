@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Plus, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, crmMeQuery, CRM_CLIENT_CATEGORY_LABELS, CRM_DISPATCH_STATUS_LABELS, validityMonths, type CrmWorkOrderColumn } from '../../api/crm'
+import { crm, crmMeQuery, CRM_CLIENT_STATUS_LABELS, CRM_DISPATCH_STATUS_LABELS, validityMonths, type CrmWorkOrderColumn } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Select, Spinner, Textarea } from '../../components/ui'
@@ -167,7 +167,9 @@ export default function CrmInvoiceFormPage() {
     member_uuid: '',
     invoice_date: new Date().toISOString().slice(0, 10),
     due_date: '',
-    client_category: '',
+    // What kind of business this is, out of the company's own list. Whether
+    // the client is new is not here: the books answer that one.
+    client_segment: '',
     pricing_tier: 'regular',
     terms_of_payment: '',
     subscription_type: '',
@@ -248,10 +250,9 @@ export default function CrmInvoiceFormPage() {
 
   /** Picking one is the only way to attach a client — no guessing from text. */
   const pickClient = (client: {
-    uuid: string; company_name: string; category?: string | null; gst_no?: string | null
+    uuid: string; company_name: string; gst_no?: string | null
   }) => {
     setH('client_uuid', client.uuid)
-    if (client.category) setH('client_category', client.category)
     setClientName(client.company_name)
     setClientGst(client.gst_no ?? '')
     setClientSearch('')
@@ -269,6 +270,19 @@ export default function CrmInvoiceFormPage() {
       }
     }
   }, [clients, head.client_uuid, clientName])
+
+  /*
+   * A new document opens on the first kind of business the company lists.
+   *
+   * The server falls back to the same word when nothing is sent, so leaving
+   * the box blank would file the document under a choice nobody made. Waits
+   * for the list, which is why it is an effect rather than an initial value.
+   */
+  useEffect(() => {
+    if (editing) return
+    const first = masters?.client_segments?.[0]
+    if (first) setHead((h) => (h.client_segment === '' ? { ...h, client_segment: first } : h))
+  }, [editing, masters])
 
   useEffect(() => {
     if (!existing) return
@@ -291,7 +305,7 @@ export default function CrmInvoiceFormPage() {
       member_uuid: existing.salesperson?.uuid ?? '',
       invoice_date: existing.invoice_date,
       due_date: existing.due_date ?? '',
-      client_category: existing.client_category ?? '',
+      client_segment: existing.client_segment ?? '',
       pricing_tier: existing.pricing_tier,
       terms_of_payment: existing.terms_of_payment ?? '',
       subscription_type: existing.subscription_type ?? '',
@@ -555,7 +569,9 @@ export default function CrmInvoiceFormPage() {
         member_uuid: head.member_uuid || null,
         invoice_date: head.invoice_date,
         due_date: head.due_date || null,
-        client_category: head.client_category || null,
+        // Client status is not sent: the server reads it off the client's
+        // earlier documents, so anything the form had to say would be a guess.
+        client_segment: head.client_segment || null,
         pricing_tier: head.pricing_tier,
         terms_of_payment: head.terms_of_payment || null,
         subscription_type: head.subscription_type || null,
@@ -626,6 +642,16 @@ export default function CrmInvoiceFormPage() {
   }
 
   const docLabel = (editing ? existing?.kind : kind) === 'proforma' ? 'proforma invoice' : 'invoice'
+  /*
+   * What the form will not send yet.
+   *
+   * The server takes a missing client category and fills in the first word
+   * on the list, so a document saved with the box empty is filed under a
+   * choice nobody made. Held once and used by both Save buttons, which had
+   * drifted apart on the client.
+   */
+  const incomplete = (!editing && !head.client_uuid)
+    || (shows('client_segment') && head.client_segment === '')
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -638,7 +664,7 @@ export default function CrmInvoiceFormPage() {
             {editing ? `Edit ${existing?.number}` : `New ${docLabel}`}
           </h1>
         </div>
-        <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+        <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending || incomplete}>
           {saveMutation.isPending ? 'Saving…' : editing ? 'Save changes' : `Create ${docLabel}`}
         </Button>
       </div>
@@ -754,12 +780,34 @@ export default function CrmInvoiceFormPage() {
           {shows('client_category') && (
             <div>
               <Label>{heading('client_category', 'Client status')}</Label>
-              <Select value={head.client_category} onChange={(e) => setH('client_category', e.target.value)} className="w-full">
-                <option value="">Select</option>
-                {masters?.client_categories.map((c) => (
-                  <option key={c} value={c}>{CRM_CLIENT_CATEGORY_LABELS[c] ?? c}</option>
-                ))}
-              </Select>
+              {/* Shown, not asked. Whether a client is new is a fact about
+                  the books: the first document they are ever given is new
+                  business and every one after it is repeat. A box to type it
+                  in was only ever a way of contradicting them. */}
+              <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:ring-slate-700">
+                {editing
+                  ? CRM_CLIENT_STATUS_LABELS[existing?.client_category ?? ''] ?? '—'
+                  : head.client_uuid ? 'Decided when this is saved' : 'Decided when you pick a client'}
+              </div>
+              <p className="mt-1 text-xs text-slate-400">
+                Worked out from this client&rsquo;s earlier documents.
+              </p>
+            </div>
+          )}
+          {shows('client_segment') && (
+            <div>
+              {/* The star is put here rather than left to the column method:
+                  the server takes this field as optional and fills a default,
+                  and the business owner wants it chosen on purpose. */}
+              <Label>{heading('client_segment', 'Client category')} *</Label>
+              <OptionSelect
+                value={head.client_segment}
+                options={masters?.client_segments}
+                onChange={(v) => setH('client_segment', v)}
+              />
+              {head.client_segment === '' && (
+                <p className="mt-1 text-xs text-amber-600">Pick a client category.</p>
+              )}
             </div>
           )}
           {shows('pricing_tier') && (
@@ -1043,7 +1091,7 @@ export default function CrmInvoiceFormPage() {
           <Button
             className="mt-4"
             onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending || (!editing && !head.client_uuid)}
+            disabled={saveMutation.isPending || incomplete}
           >
             {saveMutation.isPending ? 'Saving…' : editing ? 'Save changes' : `Create ${docLabel}`}
           </Button>

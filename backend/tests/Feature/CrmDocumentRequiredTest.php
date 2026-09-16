@@ -76,7 +76,6 @@ class CrmDocumentRequiredTest extends TestCase
             'client_uuid' => $this->clientUuid,
             'invoice_date' => '2026-08-20',
             'due_date' => '2026-09-20',
-            'client_category' => 'new',
             'pricing_tier' => 'regular',
             'terms_of_payment' => '100% advance',
             'subscription_type' => 'online',
@@ -106,7 +105,9 @@ class CrmDocumentRequiredTest extends TestCase
     {
         return [
             'due date' => ['due_date'],
-            'client status' => ['client_category'],
+            // Client status is not asked for any more: the books answer it, so a
+            // document arriving without one is filled in rather than refused.
+
             'pricing' => ['pricing_tier'],
             'terms of payment' => ['terms_of_payment'],
             'subscription' => ['subscription_type'],

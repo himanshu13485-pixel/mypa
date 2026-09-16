@@ -5,7 +5,7 @@ import { ArrowRightLeft, Plus, Search, Download, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { ScopeToggle } from './ScopeToggle'
 import {
-  crm, crmCan, crmMeQuery, CRM_CLIENT_CATEGORY_LABELS, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS,
+  crm, crmCan, crmMeQuery, CRM_CLIENT_STATUS_LABELS, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS,
   type CrmInvoiceRow,
 } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -15,7 +15,7 @@ import { crmPath } from '../../lib/crmPath'
 import { money } from '../../lib/money'
 import { CHART_COLORS, ColumnChart, LineChart } from './charts'
 import { MultiSelect } from '../../components/MultiSelect'
-import { listParam, onlyOne, optionsFrom } from '../../lib/multiFilter'
+import { listParam, onlyOne, optionsFrom, optionsOf } from '../../lib/multiFilter'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -31,18 +31,38 @@ const foreignList = (rows: { currency: string; total: number; due: number; base?
  * business is coloured apart from a client coming back, because which of the
  * two a month was made of is the one thing the total at the top cannot say.
  */
-function ClientCategory({ row }: { row: CrmInvoiceRow }) {
+function ClientStatus({ row }: { row: CrmInvoiceRow }) {
   const key = row.client_category
   if (!key) return null
 
   return (
     <span className={clsx(
-      'mt-0.5 inline-flex whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+      'inline-flex whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+      // Still read off the end of the word, so a document migrated from the
+      // old six-word list is coloured by the half of it that survived.
       key.endsWith('new')
         ? 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
         : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
     )}>
-      {CRM_CLIENT_CATEGORY_LABELS[key] ?? key}
+      {CRM_CLIENT_STATUS_LABELS[key] ?? key}
+    </span>
+  )
+}
+
+/**
+ * What kind of business the document is, in the company's own word.
+ *
+ * Outlined rather than filled, and quieter than the status beside it: nearly
+ * every row carries the everyday word (Regular, out of the box), and a second
+ * coloured pill on every line would drown the one that is actually telling
+ * somebody something.
+ */
+function ClientSegment({ row }: { row: CrmInvoiceRow }) {
+  if (!row.client_segment) return null
+
+  return (
+    <span className="inline-flex whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium text-slate-500 ring-1 ring-inset ring-slate-200 dark:text-slate-400 dark:ring-slate-700">
+      {row.client_segment}
     </span>
   )
 }
@@ -84,7 +104,10 @@ export default function CrmInvoicesPage() {
   const [tds, setTds] = useState<string[] | null>(null)
   const [dispatch, setDispatch] = useState<string[] | null>(null)
   // New business against repeat business, the cut a sales review opens with.
-  const [clientCategory, setClientCategory] = useState<string[] | null>(null)
+  const [clientStatus, setClientStatus] = useState<string[] | null>(null)
+  // What KIND of business it is, which is a different question from whether
+  // the client is new - and one only the company's own list can answer.
+  const [clientSegment, setClientSegment] = useState<string[] | null>(null)
   const [dueOnly, setDueOnly] = useState(false)
   const [dueMin, setDueMin] = useState('')
   const [dueMax, setDueMax] = useState('')
@@ -156,7 +179,7 @@ export default function CrmInvoicesPage() {
   const [salespeople, setSalespeople] = useState<string[] | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, clientCategory, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salespeople],
+    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, clientStatus, clientSegment, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salespeople],
     queryFn: () =>
       crm.invoices.list({
         kind,
@@ -167,7 +190,8 @@ export default function CrmInvoicesPage() {
         gst: listParam(gst),
         tds: listParam(tds),
         dispatch_status: listParam(dispatch),
-        client_category: listParam(clientCategory),
+        client_category: listParam(clientStatus),
+        client_segment: listParam(clientSegment),
         due_only: dueOnly ? 1 : undefined,
         due_min: dueMin || undefined,
         due_max: dueMax || undefined,
@@ -372,9 +396,19 @@ export default function CrmInvoicesPage() {
               the invoice form are plainly the same question. */}
           <MultiSelect
             label="Client status"
-            options={optionsFrom(CRM_CLIENT_CATEGORY_LABELS)}
-            value={clientCategory}
-            onChange={(v) => { setClientCategory(v); setPage(1) }}
+            options={optionsFrom(CRM_CLIENT_STATUS_LABELS)}
+            value={clientStatus}
+            onChange={(v) => { setClientStatus(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          {/* Off the company's own list rather than a fixed one, so a company
+              that renamed Regular or added a word of its own can still filter
+              on what its documents actually say. */}
+          <MultiSelect
+            label="Client category"
+            options={optionsOf(masters?.client_segments ?? [])}
+            value={clientSegment}
+            onChange={(v) => { setClientSegment(v); setPage(1) }}
             className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
           />
           {effectiveScope === 'team' && (data?.totals.by_salesperson?.length ?? 0) > 1 && (
@@ -534,7 +568,12 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                     </td>
                     <td className="max-w-[200px] py-2.5 pr-3">
                       <div className="truncate">{i.client?.company_name ?? '—'}</div>
-                      <ClientCategory row={i} />
+                      {/* Both words on one wrapping line, so the pair costs
+                          the column no width a phone cannot spare. */}
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1">
+                        <ClientStatus row={i} />
+                        <ClientSegment row={i} />
+                      </div>
                     </td>
                     {showMembership && (
                       /* Titled as well as truncated: an invoice against three

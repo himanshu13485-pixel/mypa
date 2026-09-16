@@ -135,8 +135,8 @@ class CrmColumnArrangementTest extends TestCase
     {
         $this->as()->putJson('/api/v1/crm/workspace-fields/arrangement', [
             'entity' => 'invoice',
-            'keys' => ['invoice_date', 'due_date', 'notes', 'client_category', 'pricing_tier',
-                'terms_of_payment', 'subscription_type', 'dispatch_status', 'fx'],
+            'keys' => ['invoice_date', 'due_date', 'notes', 'client_category', 'client_segment',
+                'pricing_tier', 'terms_of_payment', 'subscription_type', 'dispatch_status', 'fx'],
         ])->assertOk();
 
         $this->assertSame('notes', $this->order('invoice')[2]);

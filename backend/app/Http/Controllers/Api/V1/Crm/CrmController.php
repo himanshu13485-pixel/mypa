@@ -85,6 +85,7 @@ class CrmController extends Controller
             'designations' => $org->optionList('designations'),
             'payment_modes' => $org->optionList('payment_modes'),
             'client_categories' => Client::CATEGORIES,
+            'client_segments' => $org->optionList('client_segments'),
             // Dedicated Company Workspace: this org's approved extra fields.
             'client_custom_fields' => \App\Models\Crm\CustomField::approvedFor($org->id, 'client')->values(),
             // This company's own Work Order method (the invoice/proforma lines):

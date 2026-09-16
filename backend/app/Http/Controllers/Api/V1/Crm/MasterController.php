@@ -161,6 +161,43 @@ class MasterController extends Controller
      * different things, so the list is theirs — the dropdown on the request
      * form reads it, and requests already filed keep the words they used.
      */
+    /**
+     * What kind of business a document is: Regular, Global, SEZ.
+     *
+     * Read by anybody raising a document, kept by the Admin - a word added
+     * mid-invoice would file the same sale under two different names.
+     */
+    public function clientSegments(Request $request): JsonResponse
+    {
+        return response()->json(['data' => [
+            'client_segments' => $request->attributes->get('crm_org')->optionList('client_segments'),
+        ]]);
+    }
+
+    public function saveClientSegments(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+
+        $data = $request->validate([
+            'client_segments' => ['required', 'array', 'min:1', 'max:30'],
+            'client_segments.*' => ['string', 'max:64'],
+        ]);
+
+        $settings = $org->settings ?? [];
+        $settings['client_segments'] = collect($data['client_segments'])
+            ->map(fn ($v) => trim($v))->filter()->unique()->values()->all();
+        $org->update(['settings' => $settings]);
+
+        ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'settings.client_segments', $org, [
+            'count' => count($settings['client_segments']),
+        ]);
+
+        return response()->json([
+            'message' => 'Client categories saved.',
+            'data' => ['client_segments' => $settings['client_segments']],
+        ]);
+    }
+
     public function approvalTypes(Request $request): JsonResponse
     {
         return response()->json(['data' => [

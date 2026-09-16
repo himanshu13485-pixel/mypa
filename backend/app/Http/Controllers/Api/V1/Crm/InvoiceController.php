@@ -46,6 +46,7 @@ class InvoiceController extends Controller
     private const DOCUMENT_ATTRIBUTES = [
         'due_date' => ['due_date'],
         'client_category' => ['client_category'],
+        'client_segment' => ['client_segment'],
         'pricing_tier' => ['pricing_tier'],
         'terms_of_payment' => ['terms_of_payment'],
         'subscription_type' => ['subscription_type'],
@@ -250,6 +251,10 @@ class InvoiceController extends Controller
         // New business or repeat business, as the document was raised.
         if ($categories = QueryList::of($request, 'client_category')) {
             $query->whereIn('client_category', $categories);
+        }
+        // Regular, Global, SEZ - what kind of business it is.
+        if ($segments = QueryList::of($request, 'client_segment')) {
+            $query->whereIn('client_segment', $segments);
         }
 
         // The consolidated figures for exactly what the filters selected —
@@ -1139,7 +1144,10 @@ class InvoiceController extends Controller
             'member_uuid' => ['nullable', 'string'],
             'invoice_date' => ['required', 'date'],
             'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
-            'client_category' => ['nullable', Rule::in(Client::CATEGORIES)],
+            // Not asked for any more: whether a client is new is a fact about
+            // the books, not an opinion, and it is worked out below.
+            'client_category' => ['nullable', 'string', 'max:32'],
+            'client_segment' => ['nullable', 'string', 'max:64'],
             'pricing_tier' => ['nullable', Rule::in(['regular', 'low'])],
             'currency' => ['nullable', 'string', 'size:3'],
             'terms_of_payment' => ['nullable', 'string', 'max:255'],
@@ -1275,6 +1283,31 @@ class InvoiceController extends Controller
             $data['subtotal_fx'] = round($subtotalFx, 2);
             $data['total_fx'] = round($subtotalFx, 2);
         }
+
+        /*
+         * New business, or a client coming back.
+         *
+         * Read off the books rather than typed: the first document a client
+         * is ever given is new business and every one after it is repeat
+         * business. The person filling the form is in no position to know
+         * which - the client may have been billed by somebody else entirely,
+         * and "New" sat there as the default until somebody noticed.
+         */
+        $clientId = $data['client_id'] ?? $existing?->client_id;
+        if ($clientId) {
+            $earlier = Invoice::where('organization_id', $orgId)
+                ->where('client_id', $clientId)
+                ->where('status', '!=', 'cancelled')
+                ->when($existing?->id, fn ($q, $id) => $q->whereKeyNot($id))
+                ->exists();
+            $data['client_category'] = $earlier ? 'existing' : 'new';
+        }
+
+        // What kind of business it is, out of the company's own list.
+        $segments = $request->attributes->get('crm_org')->optionList('client_segments');
+        $data['client_segment'] = in_array($data['client_segment'] ?? null, $segments, true)
+            ? $data['client_segment']
+            : ($segments[0] ?? 'Regular');
 
         // A foreign-currency issuing company bills in its own currency, and
         // the document carries the universal INR figure beside it — market
@@ -1837,8 +1870,10 @@ class InvoiceController extends Controller
                 // and IGST when the document is edited.
                 'gst_no' => $i->client->gst_no,
             ] : null,
-            // Whether this was new business or a client coming back.
+            // Whether this was new business or a client coming back, and
+            // what kind of business it is.
             'client_category' => $i->client_category,
+            'client_segment' => $i->client_segment,
             'issuing_company' => $i->issuingCompany?->only(['id', 'name', 'state_code']),
             // The e-mail dialog offers the salesperson a copy of what
             // went to their client, so it needs their address too.

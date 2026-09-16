@@ -33,6 +33,7 @@ export default function CrmSettingsPage() {
       <PaymentRules />
       <CashfreeAccount />
       <FxMargin />
+      <ClientCategories />
       <BirthdaySong />
       <FestivalCelebrations />
       <LeadAlertTiming />
@@ -353,6 +354,71 @@ function FxMargin() {
         </div>
         <Button size="sm" variant="secondary" disabled={margin === '' || save.isPending} onClick={() => save.mutate()}>
           {save.isPending ? 'Saving…' : 'Save margin'}
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
+/**
+ * The words a document's client category is chosen from.
+ *
+ * The company's own, because "Regular, Global, SEZ" is one trade's answer and
+ * not everybody's. Whether the client is NEW is deliberately not in this list:
+ * the server decides that from whether the client has ever been invoiced
+ * before, so the two questions can no longer be answered with one word.
+ *
+ * No role check of its own - Billing setup is already behind the masters
+ * right, the same as every other list on this screen.
+ */
+function ClientCategories() {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const [text, setText] = useState<string | null>(null)
+
+  const { data } = useQuery({ queryKey: ['crm', 'client-segments'], queryFn: crm.masterData.clientSegments })
+  if (data && text === null) setText(data.join('\n'))
+
+  const saveMutation = useMutation({
+    mutationFn: () => crm.masterData.saveClientSegments(
+      (text ?? '').split('\n').map((v) => v.trim()).filter(Boolean),
+    ),
+    onSuccess: (res) => {
+      // The invoice form and the Invoices filter both read the list off
+      // masters, so neither can be left offering a word that is gone.
+      queryClient.invalidateQueries({ queryKey: ['crm', 'masters'] })
+      queryClient.invalidateQueries({ queryKey: ['crm', 'client-segments'] })
+      toast(res.message, 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  if (text === null) {
+    return <Card><div className="flex justify-center py-6"><Spinner /></div></Card>
+  }
+
+  return (
+    <Card>
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        <ListChecks className="size-4 text-emerald-500" /> Client categories
+      </h2>
+      <p className="mt-1 text-xs text-slate-400">
+        What every invoice and proforma is filed under, beside whether the client is new — one per line,
+        in the order you want them read.
+      </p>
+      <textarea
+        rows={6}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        className="mt-3 w-full rounded-xl bg-white px-3 py-2 text-sm text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700 sm:max-w-md"
+      />
+      <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+        Taking a word off the list does not change documents already raised under it. They keep it, and go on
+        showing it — the list only decides what the next document may be filed under.
+      </p>
+      <div>
+        <Button className="mt-3" size="sm" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
+          {saveMutation.isPending ? 'Saving…' : 'Save client categories'}
         </Button>
       </div>
     </Card>

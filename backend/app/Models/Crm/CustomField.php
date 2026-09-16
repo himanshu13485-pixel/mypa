@@ -60,7 +60,14 @@ class CustomField extends Model
     public const BUILTIN_INVOICE = [
         'invoice_date' => ['label' => 'Date', 'type' => 'date', 'can' => ['rename'], 'types' => ['date']],
         'due_date' => ['label' => 'Due date', 'type' => 'date', 'can' => ['rename', 'hide'], 'types' => ['date'], 'required' => true],
-        'client_category' => ['label' => 'Client status', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select'], 'required' => true],
+        // Filled by the system, not asked for: the first document a client is
+        // ever given is new business, every one after it is repeat business.
+        'client_category' => ['label' => 'Client status', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select']],
+        // Asked of the person raising the document, and the form insists on
+        // it. Not required by the server: a document arriving without one -
+        // a recurring run, a proforma being converted, anything older than
+        // this field - is Regular business rather than a refusal.
+        'client_segment' => ['label' => 'Client category', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select']],
         'pricing_tier' => ['label' => 'Pricing', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select'], 'required' => true],
         'terms_of_payment' => ['label' => 'Terms of payment', 'type' => 'text', 'can' => ['rename', 'hide', 'type'], 'types' => ['text', 'select'], 'required' => true],
         'subscription_type' => ['label' => 'Subscription', 'type' => 'select', 'can' => ['rename', 'hide'], 'types' => ['select'], 'required' => true],
