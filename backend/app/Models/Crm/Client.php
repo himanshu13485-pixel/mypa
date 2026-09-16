@@ -26,7 +26,7 @@ class Client extends Model
         'email', 'alternate_email', 'website', 'gst_no', 'pan_no', 'category',
         'is_repeat', 'repeat_count',
         'assigned_member_id', 'status', 'notes', 'custom_fields', 'created_by',
-        'approval_status', 'approval_reason', 'matched_client_id',
+        'approval_status', 'approval_reason', 'matched_client_id', 'assigned_by',
     ];
 
     /**
@@ -119,6 +119,12 @@ class Client extends Model
     public function assignedMember(): BelongsTo
     {
         return $this->belongsTo(Member::class, 'assigned_member_id');
+    }
+
+    /** Who put this client on that desk - themselves, for one they added. */
+    public function assignedBy(): BelongsTo
+    {
+        return $this->belongsTo(Member::class, 'assigned_by');
     }
 
     public function creator(): BelongsTo

@@ -16,6 +16,14 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 const inr = (v: number) => '₹' + Math.round(v).toLocaleString('en-IN')
 
+/*
+ * Both target tables carry more columns than a phone has room for, so they
+ * scroll sideways in the wrapper the rest of the CRM uses. The person column
+ * is pinned to the left edge: once a thumb has scrolled across to the money,
+ * a row with no name beside it says nothing at all.
+ */
+const STICKY_PERSON = 'sticky left-0 z-10 border-r border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900'
+
 /** A month as one number, so ranges compare and step without date maths. */
 const code = (y: number, m: number) => y * 12 + m
 const fromCode = (c: number) => ({ year: Math.floor((c - 1) / 12), month: ((c - 1) % 12) + 1 })
@@ -152,14 +160,17 @@ export default function CrmTargetsPage() {
 
   /** Name, code, and what this person is judged on. Both tables lead with it. */
   const PersonCell = ({ row }: { row: CrmTargetRow }) => (
-    <td className="py-2.5 pr-3">
+    <td className={clsx(STICKY_PERSON, 'py-2.5 pr-3')}>
       <div className="font-medium text-slate-800 dark:text-slate-100">{row.name}</div>
       {row.employee_code && <div className="text-xs text-slate-400">{row.employee_code}</div>}
       {mayType && (
         <Select
           value={draftFor(row).kind}
           onChange={(e) => editDraft(row, { kind: e.target.value as 'sales' | 'clients' })}
-          className="mt-1 w-28 py-1 text-xs"
+          // Fixed width rather than full: the cell is sized by the longest
+          // name in the column, and a dropdown that follows it would be a
+          // different size on every row.
+          className="mt-1.5 min-h-[38px] w-24 py-1 text-xs sm:w-28"
         >
           <option value="sales">Sales</option>
           <option value="clients">Clients</option>
@@ -262,31 +273,41 @@ export default function CrmTargetsPage() {
       </Card>
 
       {data && salesRows.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {[
             { label: 'Total target', value: inr(data.totals.target) },
-            { label: 'Achieved', value: inr(data.totals.achieved) },
+            // A target is judged on the sale, so every money figure here is the
+            // taxable value: what the client was charged before tax.
+            { label: 'Achieved', value: inr(data.totals.achieved), hint: 'taxable value' },
             { label: 'New business', value: inr(data.totals.achieved_new) },
             { label: 'Existing business', value: inr(data.totals.achieved_existing) },
-            { label: 'Still due', value: inr(data.totals.due) },
+            { label: 'Pending target', value: inr(data.totals.pending_target), hint: 'still to sell' },
+            {
+              label: 'Payment due',
+              value: inr(data.totals.payment_due),
+              tone: 'text-red-500',
+              hint: 'unpaid, tax included',
+            },
             {
               // Head count, not a sum — one client billed twice is one client.
               label: data.totals.per_client
                 ? `Clients billed · ${inr(data.totals.per_client)} avg`
                 : 'Clients billed',
               value: String(data.totals.clients),
+              hint: `${data.totals.clients_new} new · ${data.totals.clients_existing} existing`,
             },
           ].map((s) => (
             <Card key={s.label} className="py-3">
-              <div className="text-lg font-semibold text-slate-900 dark:text-white">{s.value}</div>
+              <div className={clsx('text-lg font-semibold text-slate-900 dark:text-white', s.tone)}>{s.value}</div>
               <div className="text-xs text-slate-500">{s.label}</div>
+              {s.hint && <div className="mt-0.5 text-[11px] text-slate-400">{s.hint}</div>}
             </Card>
           ))}
         </div>
       )}
 
       {data && clientRows.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {[
             { label: 'Clients target', value: String(data.client_totals.client_target) },
             { label: 'Clients built', value: String(data.client_totals.clients_built) },
@@ -294,8 +315,12 @@ export default function CrmTargetsPage() {
               label: 'New / existing',
               value: `${data.client_totals.clients_built_new} / ${data.client_totals.clients_built_existing}`,
             },
-            { label: 'Sales value', value: inr(data.client_totals.client_sales) },
-            { label: 'Still to find', value: String(data.client_totals.clients_due) },
+            {
+              label: 'Sales value',
+              value: inr(data.client_totals.client_sales),
+              hint: `from new ${inr(data.client_totals.client_sales_new)} · from existing ${inr(data.client_totals.client_sales_existing)}`,
+            },
+            { label: 'Pending clients', value: String(data.client_totals.clients_due) },
             {
               label: 'Of client target',
               value: data.client_totals.percent === null ? '—' : `${data.client_totals.percent}%`,
@@ -304,6 +329,7 @@ export default function CrmTargetsPage() {
             <Card key={s.label} className="py-3">
               <div className="text-lg font-semibold text-slate-900 dark:text-white">{s.value}</div>
               <div className="text-xs text-slate-500">{s.label}</div>
+              {s.hint && <div className="mt-0.5 text-[11px] text-slate-400">{s.hint}</div>}
             </Card>
           ))}
         </div>
@@ -368,17 +394,23 @@ export default function CrmTargetsPage() {
             <Card>
               <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Sales targets</h2>
               <div className="-mx-4 overflow-x-auto px-4">
-                <table className="w-full min-w-[960px] text-sm">
+                <table className="w-full min-w-[1140px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                       <th className="py-2 pr-3 font-medium">#</th>
-                      <th className="py-2 pr-3 font-medium">Salesperson</th>
+                      <th className={clsx(STICKY_PERSON, 'py-2 pr-3 font-medium')}>Salesperson</th>
                       <th className="py-2 pr-3 text-right font-medium">Target</th>
-                      <th className="py-2 pr-3 text-right font-medium">Achieved</th>
+                      <th className="py-2 pr-3 text-right font-medium" title="The taxable value sold, before tax.">Achieved</th>
                       <th className="py-2 pr-3 text-right font-medium">New</th>
                       <th className="py-2 pr-3 text-right font-medium">Existing</th>
                       <th className="py-2 pr-3 text-right font-medium">Clients</th>
-                      <th className="py-2 pr-3 text-right font-medium">Due</th>
+                      <th className="py-2 pr-3 text-right font-medium" title="What is left of the target: the work still to do.">Pending target</th>
+                      <th
+                        className="py-2 pr-3 text-right font-medium"
+                        title="Unpaid invoice money clients still owe on this desk's documents, tax included. Not the shortfall against the target."
+                      >
+                        Payment due
+                      </th>
                       <th className="w-44 py-2 font-medium">Progress</th>
                     </tr>
                   </thead>
@@ -394,7 +426,7 @@ export default function CrmTargetsPage() {
                               min="0"
                               value={draftFor(r).target}
                               onChange={(e) => editDraft(r, { target: e.target.value })}
-                              className="w-28 text-right"
+                              className="min-h-[38px] w-24 text-right sm:w-28"
                               placeholder="0"
                             />
                           ) : (
@@ -406,21 +438,36 @@ export default function CrmTargetsPage() {
                         <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.achieved_existing ? inr(r.achieved_existing) : '—'}</td>
                         <td className="whitespace-nowrap py-2.5 pr-3 text-right">
                           {r.clients > 0 ? (
-                            <span
-                              className="font-medium text-slate-700 dark:text-slate-200"
-                              title={`${r.invoices} invoice${r.invoices === 1 ? '' : 's'}${r.per_client ? ` · ${inr(r.per_client)} per client` : ''}`}
-                            >
-                              {r.clients}
-                            </span>
+                            <>
+                              <div
+                                className="font-medium text-slate-700 dark:text-slate-200"
+                                title={`${r.invoices} invoice${r.invoices === 1 ? '' : 's'}${r.per_client ? ` · ${inr(r.per_client)} per client` : ''}`}
+                              >
+                                {r.clients}
+                              </div>
+                              <div className="text-[11px] text-slate-400">
+                                {r.clients_new} new · {r.clients_existing} existing
+                              </div>
+                            </>
                           ) : <span className="text-slate-400">—</span>}
                         </td>
-                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-red-500">{r.due ? inr(r.due) : '—'}</td>
+                        {/* Work left, not money owed, so it is not dressed in red. */}
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium text-slate-600 dark:text-slate-300">
+                          {r.pending_target ? inr(r.pending_target) : '—'}
+                        </td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-red-500">
+                          {r.payment_due ? inr(r.payment_due) : '—'}
+                        </td>
                         <ProgressCell percent={r.percent} />
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Target, Achieved, New and Existing are taxable value, before tax. Payment due is what clients
+                still owe on this desk&rsquo;s documents, tax included.
+              </p>
             </Card>
           )}
 
@@ -428,17 +475,22 @@ export default function CrmTargetsPage() {
             <Card>
               <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Client targets</h2>
               <div className="-mx-4 overflow-x-auto px-4">
-                <table className="w-full min-w-[960px] text-sm">
+                <table className="w-full min-w-[1140px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                       <th className="py-2 pr-3 font-medium">#</th>
-                      <th className="py-2 pr-3 font-medium">Salesperson</th>
+                      <th className={clsx(STICKY_PERSON, 'py-2 pr-3 font-medium')}>Salesperson</th>
                       <th className="py-2 pr-3 text-right font-medium">Target (clients)</th>
                       <th className="py-2 pr-3 text-right font-medium">Built</th>
                       <th className="py-2 pr-3 text-right font-medium">New</th>
                       <th className="py-2 pr-3 text-right font-medium">Existing</th>
-                      <th className="py-2 pr-3 text-right font-medium">Sales value</th>
-                      <th className="py-2 pr-3 text-right font-medium">Due</th>
+                      <th
+                        className="py-2 pr-3 text-right font-medium"
+                        title="The taxable value these clients have billed in the period, before tax."
+                      >
+                        Sales value
+                      </th>
+                      <th className="py-2 pr-3 text-right font-medium" title="Clients still to find to meet the target.">Pending clients</th>
                       <th className="w-44 py-2 font-medium">Progress</th>
                     </tr>
                   </thead>
@@ -454,7 +506,7 @@ export default function CrmTargetsPage() {
                               min="0"
                               value={draftFor(r).clientTarget}
                               onChange={(e) => editDraft(r, { clientTarget: e.target.value })}
-                              className="w-28 text-right"
+                              className="min-h-[38px] w-24 text-right sm:w-28"
                               placeholder="0"
                             />
                           ) : (
@@ -464,14 +516,29 @@ export default function CrmTargetsPage() {
                         <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{r.clients_built}</td>
                         <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.clients_built_new || '—'}</td>
                         <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.clients_built_existing || '—'}</td>
-                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">{r.client_sales ? inr(r.client_sales) : '—'}</td>
-                        <td className="whitespace-nowrap py-2.5 pr-3 text-right text-red-500">{r.clients_due || '—'}</td>
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right">
+                          {r.client_sales ? (
+                            <>
+                              <div className="font-medium text-slate-700 dark:text-slate-200">{inr(r.client_sales)}</div>
+                              <div className="text-[11px] text-slate-400">
+                                from new {inr(r.client_sales_new)} · from existing {inr(r.client_sales_existing)}
+                              </div>
+                            </>
+                          ) : <span className="text-slate-400">—</span>}
+                        </td>
+                        {/* Clients still to find. Work left, so it reads like the sales floor's. */}
+                        <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium text-slate-600 dark:text-slate-300">
+                          {r.clients_due || '—'}
+                        </td>
                         <ProgressCell percent={r.client_percent} />
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Sales value is taxable value, before tax, billed by the clients this person brought in.
+              </p>
             </Card>
           )}
         </>

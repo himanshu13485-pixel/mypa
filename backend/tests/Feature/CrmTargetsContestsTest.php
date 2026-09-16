@@ -106,7 +106,7 @@ class CrmTargetsContestsTest extends TestCase
         $this->assertEquals(100000, $row['achieved']);
         $this->assertEquals(60000, $row['achieved_new']);
         $this->assertEquals(40000, $row['achieved_existing']);
-        $this->assertEquals(100000, $row['due']);
+        $this->assertEquals(100000, $row['pending_target']);
         $this->assertEquals(50, $row['percent']);
     }
 

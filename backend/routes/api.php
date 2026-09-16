@@ -926,6 +926,11 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member:targets,view');
             Route::get('/targets/growth', [\App\Http\Controllers\Api\V1\Crm\TargetController::class, 'growth'])
                 ->middleware('crm.member:targets,view');
+            // One's own standing, for the strip at the top of every CRM
+            // screen. Behind plain membership, not the targets right: a
+            // salesperson always knows their own number.
+            Route::get('/targets/mine', [\App\Http\Controllers\Api\V1\Crm\TargetController::class, 'mine'])
+                ->middleware('crm.member');
             // Setting targets (and copying a month) is company authority —
             // the Admin and Subadmin, never a granted right.
             Route::middleware(['crm.member', 'crm.manager'])->group(function () {

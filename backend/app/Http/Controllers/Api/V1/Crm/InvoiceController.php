@@ -247,6 +247,11 @@ class InvoiceController extends Controller
             $query->whereHas('member', fn ($m) => $m->whereIn('uuid', $people));
         }
 
+        // New business or repeat business, as the document was raised.
+        if ($categories = QueryList::of($request, 'client_category')) {
+            $query->whereIn('client_category', $categories);
+        }
+
         // The consolidated figures for exactly what the filters selected —
         // the block the foot of the list shows.
         $live = (clone $query)->where('status', '!=', 'cancelled')
@@ -1832,6 +1837,8 @@ class InvoiceController extends Controller
                 // and IGST when the document is edited.
                 'gst_no' => $i->client->gst_no,
             ] : null,
+            // Whether this was new business or a client coming back.
+            'client_category' => $i->client_category,
             'issuing_company' => $i->issuingCompany?->only(['id', 'name', 'state_code']),
             // The e-mail dialog offers the salesperson a copy of what
             // went to their client, so it needs their address too.

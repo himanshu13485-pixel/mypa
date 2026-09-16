@@ -600,8 +600,12 @@ export interface CrmClient {
   approval_reason?: string | null
   matched_client?: { uuid: string; company_name: string } | null
   assigned_member: { uuid: string; name: string | null } | null
+  /** Who put it on that desk - their own name, for a client they added themselves. */
+  assigned_by?: string | null
   shared_with: { uuid: string; name: string | null }[]
   created_at: string | null
+  /** The date AND the time it came on the books. */
+  created_at_full?: string | null
   custom_fields?: Record<string, string | number | boolean>
   notes?: string | null
   invoices?: CrmInvoiceRow[]
@@ -646,6 +650,8 @@ export interface CrmInvoiceRow {
     uuid: string; company_name: string; contact_person: string | null
     email?: string | null; gst_no?: string | null
   } | null
+  /** New business or a client coming back, as the document was raised. */
+  client_category?: string | null
   issuing_company?: { id: number; name: string; state_code?: string | null } | null
   salesperson?: { uuid: string; name: string | null; email?: string | null } | null
   /** Who raised it, which is not always whose client it is. */
@@ -885,17 +891,26 @@ export interface CrmTargetRow {
   clients_built: number
   clients_built_new: number
   clients_built_existing: number
-  /** What the clients they brought in have billed in the period, in rupees. */
+  /** What the clients they brought in have billed in the period, before tax. */
   client_sales: number
+  client_sales_new: number
+  client_sales_existing: number
   clients_due: number
   client_percent: number | null
   target: number
+  /** The taxable value sold - a target is judged on the sale, not on the tax. */
   achieved: number
   achieved_new: number
   achieved_existing: number
-  due: number
+  /** What is left of the target: work still to do. */
+  pending_target: number
+  /** What clients still owe on this desk's documents, tax included. */
+  payment_due: number
   percent: number | null
   clients: number
+  /** New business covers New, Global-New and SEZ-New; existing the other three. */
+  clients_new: number
+  clients_existing: number
   invoices: number
   per_client: number | null
   note: string | null
@@ -910,6 +925,8 @@ export interface CrmClientTargetTotals {
   clients_built_existing: number
   clients_due: number
   client_sales: number
+  client_sales_new: number
+  client_sales_existing: number
   percent: number | null
 }
 
@@ -922,8 +939,11 @@ export interface CrmTargetsResponse {
     achieved: number
     achieved_new: number
     achieved_existing: number
-    due: number
+    pending_target: number
+    payment_due: number
     clients: number
+    clients_new: number
+    clients_existing: number
     invoices: number
     per_client: number | null
   }
@@ -936,6 +956,34 @@ export interface CrmTargetsResponse {
   label: string
   /** Targets are typed one month at a time, so a span is read-only. */
   editable: boolean
+}
+
+/** One month of a salesperson's own standing, for the strip on every CRM screen. */
+export interface CrmMyTargetMonth {
+  month: string
+  label: string
+  is_current: boolean
+  kind: 'sales' | 'clients'
+  target: number
+  achieved: number
+  pending_target: number
+  payment_due: number
+  percent: number | null
+  clients: number
+  client_target: number
+  clients_built: number
+  clients_built_new: number
+  client_percent: number | null
+}
+
+export interface CrmMyTargets {
+  /** Nothing asked of this desk in four months: the strip stays away. */
+  has_target: boolean
+  kind: 'sales' | 'clients'
+  /** This month and the three before it, oldest first. */
+  months: CrmMyTargetMonth[]
+  current: CrmMyTargetMonth
+  best: string | null
 }
 
 export type CrmGrowthPeriod = 'month' | 'quarter' | 'half' | 'year'
@@ -2381,6 +2429,8 @@ export const crm = {
       api.post('/crm/targets', { year, month, targets }).then((r) => r.data),
     copyPrevious: (year: number, month: number) =>
       api.post('/crm/targets/copy-previous', { year, month }).then((r) => r.data),
+    /** My own target, this month and the three before it. */
+    mine: () => api.get<{ data: CrmMyTargets }>('/crm/targets/mine').then((r) => r.data.data),
   },
 
   contests: {

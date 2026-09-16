@@ -11,6 +11,7 @@ import { FestivalVibes } from './FestivalVibes'
 import { CallProvider } from '../../components/CallManager'
 import ImpersonationBanner from '../../components/ImpersonationBanner'
 import NotificationBell from '../../components/NotificationBell'
+import CrmTargetStrip from '../../components/CrmTargetStrip'
 import { MenuAlertToggle } from '../../components/MenuAlertToggle'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -550,6 +551,10 @@ export default function CrmLayout() {
           <NotificationBell />
         </div>
         <main className="scroll-pane min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
+          {/* Where you stand, on every screen. Carrying a target and having to
+              go and look for it is how a month gets away from somebody. Draws
+              nothing when no target was set for this desk. */}
+          <CrmTargetStrip me={me} />
           <Outlet context={{ me }} />
           {/* The follow-up nag rides the shell so it fires on every screen. */}
           <LeadFollowUpAlerts me={me} />

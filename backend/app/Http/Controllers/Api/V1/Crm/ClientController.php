@@ -35,7 +35,9 @@ class ClientController extends Controller
     {
         $org = $request->attributes->get('crm_org');
 
-        $query = $this->scoped($request)->with(['assignedMember.user:id,name', 'sharedWith.user:id,name']);
+        $query = $this->scoped($request)->with([
+            'assignedMember.user:id,name', 'assignedBy.user:id,name', 'sharedWith.user:id,name',
+        ]);
 
         if ($search = trim((string) $request->query('search'))) {
             $query->matching($search);
@@ -100,6 +102,9 @@ class ClientController extends Controller
         $data['assigned_member_id'] = $this->isManager($me)
             ? ($data['assigned_member_id'] ?? $me->id)
             : $me->id;
+        // Who put it on this desk. Adding a client for yourself is still an
+        // answer to that question, and it is your own name.
+        $data['assigned_by'] = $me->id;
 
         /*
          * The same person, a company the books have never seen.
@@ -234,6 +239,11 @@ class ClientController extends Controller
             }
         }
 
+        // A manager moving the client to somebody else is an assignment too.
+        if (array_key_exists('assigned_member_id', $data) && $data['assigned_member_id'] !== $client->assigned_member_id) {
+            $data['assigned_by'] = $me->id;
+        }
+
         $client->update($data);
         $this->syncShares($request, $client, $me);
         ActivityLog::record($me, $org->id, 'client.updated', $client, ['company_name' => $client->company_name]);
@@ -311,7 +321,7 @@ class ClientController extends Controller
             $kept = $client->invoices()->where('member_id', $from->id)->count();
         }
 
-        $client->update(['assigned_member_id' => $to->id]);
+        $client->update(['assigned_member_id' => $to->id, 'assigned_by' => $me->id]);
 
         // The outgoing owner loses sight of it entirely, and the new owner
         // does not need a share row on top of owning it.
@@ -845,6 +855,9 @@ class ClientController extends Controller
             'assigned_member' => $c->assignedMember
                 ? ['uuid' => $c->assignedMember->uuid, 'name' => $c->assignedMember->user?->name]
                 : null,
+            // Who put it on that desk, and when it came on the books.
+            'assigned_by' => $c->assignedBy?->user?->name,
+            'created_at_full' => $c->created_at?->toDateTimeString(),
             'shared_with' => $c->relationLoaded('sharedWith')
                 ? $c->sharedWith->map(fn ($m) => ['uuid' => $m->uuid, 'name' => $m->user?->name])->values()
                 : [],

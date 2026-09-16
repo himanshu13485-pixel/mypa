@@ -171,6 +171,29 @@ class CrmClientNameAndContactTest extends TestCase
             ->assertStatus(422);
     }
 
+    public function test_a_client_records_who_put_it_on_that_desk(): void
+    {
+        // Added for yourself: the answer is still your own name.
+        $own = $this->add($this->aliceUser, ['company_name' => 'Bhavya Steel'])->assertCreated()->json('data');
+        $this->assertSame($this->aliceUser->name, $own['assigned_by']);
+        $this->assertNotNull($own['created_at_full']);
+
+        // Handed over: the manager who moved it.
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/clients/' . $own['uuid'] . '/transfer', [
+            'to_member_uuid' => $this->alice->uuid,
+        ])->assertStatus(422);   // already hers
+
+        $moved = $this->add($this->adminUser, ['company_name' => 'Team Leader Logistics'])->assertCreated()->json('data');
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/clients/' . $moved['uuid'] . '/transfer', [
+            'to_member_uuid' => $this->alice->uuid,
+        ])->assertOk();
+
+        $this->assertSame(
+            $this->adminUser->name,
+            $this->actingAs($this->adminUser)->getJson('/api/v1/crm/clients/' . $moved['uuid'])->json('data.assigned_by'),
+        );
+    }
+
     public function test_a_manager_adding_it_has_already_decided(): void
     {
         $this->add($this->adminUser, [

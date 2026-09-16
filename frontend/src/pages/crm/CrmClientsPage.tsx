@@ -335,7 +335,18 @@ export default function CrmClientsPage() {
                     </td>
                     <td className="max-w-[180px] truncate py-2.5 pr-3">{c.email ?? '—'}</td>
                     <td className="whitespace-nowrap py-2.5 pr-3">{c.gst_no ?? '—'}</td>
-                    <td className="py-2.5 pr-3">{c.assigned_member?.name ?? '—'}</td>
+                    <td className="py-2.5 pr-3">
+                      {c.assigned_member?.name ?? '—'}
+                      {/* When it came on the books, and whose hand put it
+                          there — a desk that has held a client for two years
+                          is a different story from one handed it last week,
+                          and the owner's name alone tells neither. */}
+                      {(c.created_at || c.assigned_by) && (
+                        <div className="truncate text-xs text-slate-400" title={c.assigned_by ? `Assigned by ${c.assigned_by}` : undefined}>
+                          {[c.created_at?.slice(0, 10), c.assigned_by ? `by ${c.assigned_by}` : null].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-2.5 pr-3">
                       {(c.shared_with ?? []).length === 0 ? (
                         <span className="text-slate-300 dark:text-slate-600">—</span>

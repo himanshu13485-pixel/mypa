@@ -4,7 +4,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRightLeft, Plus, Search, Download, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { ScopeToggle } from './ScopeToggle'
-import { crm, crmCan, crmMeQuery, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
+import {
+  crm, crmCan, crmMeQuery, CRM_CLIENT_CATEGORY_LABELS, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS,
+  type CrmInvoiceRow,
+} from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Pager, Select, Spinner } from '../../components/ui'
@@ -19,6 +22,30 @@ const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN
 /** "$300.00 + €120.00" - the foreign money inside a rupee figure, or '' when there is none. */
 const foreignList = (rows: { currency: string; total: number; due: number; base?: number }[] | undefined, field: 'total' | 'due' | 'base') =>
   (rows ?? []).filter((r) => Number(r[field] ?? 0) > 0).map((r) => money(r[field] ?? 0, r.currency)).join(' + ')
+
+/**
+ * The client status as the document froze it.
+ *
+ * A client reclassified since is not what the invoice was raised against, so
+ * the answer comes off the document rather than off the client record. New
+ * business is coloured apart from a client coming back, because which of the
+ * two a month was made of is the one thing the total at the top cannot say.
+ */
+function ClientCategory({ row }: { row: CrmInvoiceRow }) {
+  const key = row.client_category
+  if (!key) return null
+
+  return (
+    <span className={clsx(
+      'mt-0.5 inline-flex whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-medium',
+      key.endsWith('new')
+        ? 'bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300'
+        : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+    )}>
+      {CRM_CLIENT_CATEGORY_LABELS[key] ?? key}
+    </span>
+  )
+}
 
 /**
  * The stretches of time a ledger is read in.
@@ -56,6 +83,8 @@ export default function CrmInvoicesPage() {
   const [gst, setGst] = useState<string[] | null>(null)
   const [tds, setTds] = useState<string[] | null>(null)
   const [dispatch, setDispatch] = useState<string[] | null>(null)
+  // New business against repeat business, the cut a sales review opens with.
+  const [clientCategory, setClientCategory] = useState<string[] | null>(null)
   const [dueOnly, setDueOnly] = useState(false)
   const [dueMin, setDueMin] = useState('')
   const [dueMax, setDueMax] = useState('')
@@ -127,7 +156,7 @@ export default function CrmInvoicesPage() {
   const [salespeople, setSalespeople] = useState<string[] | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salespeople],
+    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, clientCategory, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salespeople],
     queryFn: () =>
       crm.invoices.list({
         kind,
@@ -138,6 +167,7 @@ export default function CrmInvoicesPage() {
         gst: listParam(gst),
         tds: listParam(tds),
         dispatch_status: listParam(dispatch),
+        client_category: listParam(clientCategory),
         due_only: dueOnly ? 1 : undefined,
         due_min: dueMin || undefined,
         due_max: dueMax || undefined,
@@ -338,6 +368,15 @@ export default function CrmInvoicesPage() {
             onChange={(v) => { setCompany(v); setPage(1) }}
             className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
           />
+          {/* Worded as the document words it, so the filter and the field on
+              the invoice form are plainly the same question. */}
+          <MultiSelect
+            label="Client status"
+            options={optionsFrom(CRM_CLIENT_CATEGORY_LABELS)}
+            value={clientCategory}
+            onChange={(v) => { setClientCategory(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           {effectiveScope === 'team' && (data?.totals.by_salesperson?.length ?? 0) > 1 && (
             <MultiSelect
               label="Salesperson"
@@ -493,7 +532,10 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                         </span>
                       )}
                     </td>
-                    <td className="max-w-[200px] truncate py-2.5 pr-3">{i.client?.company_name ?? '—'}</td>
+                    <td className="max-w-[200px] py-2.5 pr-3">
+                      <div className="truncate">{i.client?.company_name ?? '—'}</div>
+                      <ClientCategory row={i} />
+                    </td>
                     {showMembership && (
                       /* Titled as well as truncated: an invoice against three
                          memberships is exactly the row somebody is looking

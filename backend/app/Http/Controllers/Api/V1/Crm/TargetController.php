@@ -115,16 +115,26 @@ class TargetController extends Controller
             ->whereDate('invoice_date', '>=', $start->toDateString())
             ->whereDate('invoice_date', '<=', $end->toDateString())
             ->whereNotNull('member_id')
-            ->get(['member_id', 'client_id', 'client_category', ...Invoice::RUPEE_COLUMNS]);
+            ->withSum('payments as received', 'amount')
+            ->get(['id', 'member_id', 'client_id', 'client_category', 'subtotal', 'discount', ...Invoice::RUPEE_COLUMNS]);
 
-        $achieved = $invoices->groupBy('member_id')->map(fn ($group) => [
-            'total_sum' => round((float) $group->sum(fn ($i) => $i->inRupees($i->total)), 2),
-            'existing_sum' => round((float) $group
-                ->filter(fn ($i) => in_array($i->client_category, self::EXISTING, true))
-                ->sum(fn ($i) => $i->inRupees($i->total)), 2),
-            'invoice_count' => $group->count(),
-            'client_count' => $group->pluck('client_id')->filter()->unique()->count(),
-        ]);
+        $achieved = $invoices->groupBy('member_id')->map(function ($group) {
+            $existing = $group->filter(fn ($i) => in_array($i->client_category, self::EXISTING, true));
+            $clients = fn ($rows) => $rows->pluck('client_id')->filter()->unique()->count();
+
+            return [
+                // A sale is what was sold, not what the government adds to
+                // it: the target is judged on the taxable value, and the tax
+                // only shows up in what the client still owes.
+                'base_sum' => round((float) $group->sum(fn ($i) => self::baseOf($i)), 2),
+                'base_existing' => round((float) $existing->sum(fn ($i) => self::baseOf($i)), 2),
+                'payment_due' => round((float) $group->sum(fn ($i) => self::dueOf($i)), 2),
+                'invoice_count' => $group->count(),
+                'client_count' => $clients($group),
+                'client_existing' => $clients($existing),
+                'client_new' => $clients($group->reject(fn ($i) => in_array($i->client_category, self::EXISTING, true))),
+            ];
+        });
 
         /*
          * The clients a desk brought in, for a client-oriented target.
@@ -142,17 +152,18 @@ class TargetController extends Controller
             ->get(['id', 'assigned_member_id', 'category'])
             ->groupBy('assigned_member_id');
 
-        // What those clients have billed inside the period, whoever raised it.
+        // What those clients have billed inside the period, whoever raised
+        // it - the taxable value, like the money side.
         $builtIds = $built->flatten(1)->pluck('id')->all();
         $salesByClient = $builtIds === [] ? collect() : $invoices
             ->whereIn('client_id', $builtIds)
             ->groupBy('client_id')
-            ->map(fn ($group) => round((float) $group->sum(fn ($i) => $i->inRupees($i->total)), 2));
+            ->map(fn ($group) => round((float) $group->sum(fn ($i) => self::baseOf($i)), 2));
 
         $rows = $members->map(function (Member $m) use ($targets, $achieved, $notes, $kinds, $built, $salesByClient) {
             $target = (float) ($targets[$m->id]->target_sum ?? 0);
-            $total = (float) ($achieved[$m->id]['total_sum'] ?? 0);
-            $existing = (float) ($achieved[$m->id]['existing_sum'] ?? 0);
+            $total = (float) ($achieved[$m->id]['base_sum'] ?? 0);
+            $existing = (float) ($achieved[$m->id]['base_existing'] ?? 0);
             $clients = (int) ($achieved[$m->id]['client_count'] ?? 0);
 
             $kind = in_array($kinds[$m->id] ?? null, Target::KINDS, true)
@@ -160,8 +171,10 @@ class TargetController extends Controller
                 : (in_array($m->target_kind, Target::KINDS, true) ? $m->target_kind : 'sales');
 
             $mine = $built[$m->id] ?? collect();
-            $builtNew = $mine->reject(fn ($c) => in_array($c->category, self::EXISTING, true))->count();
-            $clientSales = round((float) $mine->sum(fn ($c) => (float) ($salesByClient[$c->id] ?? 0)), 2);
+            $newlyBuilt = $mine->reject(fn ($c) => in_array($c->category, self::EXISTING, true));
+            $builtNew = $newlyBuilt->count();
+            $sales = fn ($rows) => round((float) $rows->sum(fn ($c) => (float) ($salesByClient[$c->id] ?? 0)), 2);
+            $clientSales = $sales($mine);
             $clientTarget = (int) ($targets[$m->id]->client_target_sum ?? 0);
 
             return [
@@ -174,9 +187,22 @@ class TargetController extends Controller
                 'achieved' => round($total, 2),
                 'achieved_new' => round($total - $existing, 2),
                 'achieved_existing' => round($existing, 2),
-                'due' => round(max(0, $target - $total), 2),
+                /*
+                 * Two different shortfalls, and they were one column.
+                 *
+                 * What is left of the target is work still to do; what is due
+                 * is money a client has not paid. The screen called both
+                 * "Due", so a desk that had billed its whole target read as
+                 * owing it.
+                 */
+                'pending_target' => round(max(0, $target - $total), 2),
+                'payment_due' => round((float) ($achieved[$m->id]['payment_due'] ?? 0), 2),
                 'percent' => $target > 0 ? round($total / $target * 100, 1) : null,
                 'clients' => $clients,
+                // The head count split the way the categories read: New,
+                // Global-New and SEZ-New are all new business.
+                'clients_new' => (int) ($achieved[$m->id]['client_new'] ?? 0),
+                'clients_existing' => (int) ($achieved[$m->id]['client_existing'] ?? 0),
                 'invoices' => (int) ($achieved[$m->id]['invoice_count'] ?? 0),
                 // What one client was worth on average to this desk.
                 'per_client' => $clients > 0 ? round($total / $clients, 2) : null,
@@ -187,6 +213,8 @@ class TargetController extends Controller
                 'clients_built_new' => $builtNew,
                 'clients_built_existing' => $mine->count() - $builtNew,
                 'client_sales' => $clientSales,
+                'client_sales_new' => $sales($newlyBuilt),
+                'client_sales_existing' => round($clientSales - $sales($newlyBuilt), 2),
                 'clients_due' => max(0, $clientTarget - $mine->count()),
                 'client_percent' => $clientTarget > 0 ? round($mine->count() / $clientTarget * 100, 1) : null,
                 'note' => $notes[$m->id] ?? null,
@@ -225,6 +253,8 @@ class TargetController extends Controller
                 'clients_built_existing' => (int) $clientRows->sum('clients_built_existing'),
                 'clients_due' => (int) $clientRows->sum('clients_due'),
                 'client_sales' => round($clientRows->sum('client_sales'), 2),
+                'client_sales_new' => round($clientRows->sum('client_sales_new'), 2),
+                'client_sales_existing' => round($clientRows->sum('client_sales_existing'), 2),
                 'percent' => $clientRows->sum('client_target') > 0
                     ? round($clientRows->sum('clients_built') / $clientRows->sum('client_target') * 100, 1)
                     : null,
@@ -235,8 +265,11 @@ class TargetController extends Controller
                 'achieved' => $rows->sum('achieved'),
                 'achieved_new' => $rows->sum('achieved_new'),
                 'achieved_existing' => $rows->sum('achieved_existing'),
-                'due' => $rows->sum('due'),
+                'pending_target' => $rows->sum('pending_target'),
+                'payment_due' => $rows->sum('payment_due'),
                 'clients' => $clientTotal,
+                'clients_new' => $rows->sum('clients_new'),
+                'clients_existing' => $rows->sum('clients_existing'),
                 'invoices' => $rows->sum('invoices'),
                 'per_client' => $clientTotal > 0 ? round($rows->sum('achieved') / $clientTotal, 2) : null,
             ],
@@ -395,6 +428,94 @@ class TargetController extends Controller
                 'clients' => count($clientsSeen),
                 'best' => ($best && $best['achieved'] > 0) ? $best['label'] : null,
             ],
+        ]]);
+    }
+
+    /** What a document sold, before tax, in rupees. */
+    private static function baseOf(Invoice $invoice): float
+    {
+        return $invoice->inRupees((float) $invoice->subtotal - (float) ($invoice->discount ?? 0));
+    }
+
+    /** What is still owed on a document, tax included, in rupees. */
+    private static function dueOf(Invoice $invoice): float
+    {
+        return $invoice->inRupees(max(0, (float) $invoice->total - (float) ($invoice->received ?? 0)));
+    }
+
+    /**
+     * One salesperson's own standing, this month and the three before it.
+     *
+     * Read by the strip that rides the top of every CRM screen, so somebody
+     * carrying a target never has to go and look for it. Quiet - no target in
+     * any of the four months means nothing to show, and the strip draws
+     * nothing at all.
+     */
+    public function mine(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $months = collect(range(3, 0))->map(fn ($back) => now()->startOfMonth()->subMonthsNoOverflow($back));
+
+        $rows = $months->map(function (Carbon $month) use ($org, $me) {
+            $start = $month->copy()->startOfMonth();
+            $end = $month->copy()->endOfMonth();
+
+            $target = Target::where('organization_id', $org->id)
+                ->where('member_id', $me->id)
+                ->where('year', $month->year)->where('month', $month->month)
+                ->first();
+
+            $invoices = Invoice::where('organization_id', $org->id)
+                ->where('kind', 'invoice')
+                ->where('status', '!=', 'cancelled')
+                ->where('member_id', $me->id)
+                ->whereDate('invoice_date', '>=', $start->toDateString())
+                ->whereDate('invoice_date', '<=', $end->toDateString())
+                ->withSum('payments as received', 'amount')
+                ->get(['id', 'client_id', 'client_category', 'subtotal', 'discount', ...Invoice::RUPEE_COLUMNS]);
+
+            $built = Client::approved()
+                ->where('organization_id', $org->id)
+                ->where('assigned_member_id', $me->id)
+                ->whereBetween('created_at', [$start, $end])
+                ->get(['id', 'category']);
+
+            $achieved = round((float) $invoices->sum(fn ($i) => self::baseOf($i)), 2);
+            $clientTarget = (int) ($target?->client_target ?? 0);
+            $kind = $target?->kind ?: ($me->target_kind ?: 'sales');
+            $amount = (float) ($target?->target_amount ?? 0);
+
+            return [
+                'month' => $month->format('Y-m'),
+                'label' => $month->format('M Y'),
+                'is_current' => $month->isSameMonth(now()),
+                'kind' => $kind,
+                'target' => round($amount, 2),
+                'achieved' => $achieved,
+                'pending_target' => round(max(0, $amount - $achieved), 2),
+                'payment_due' => round((float) $invoices->sum(fn ($i) => self::dueOf($i)), 2),
+                'percent' => $amount > 0 ? round($achieved / $amount * 100, 1) : null,
+                'clients' => $invoices->pluck('client_id')->filter()->unique()->count(),
+                'client_target' => $clientTarget,
+                'clients_built' => $built->count(),
+                'clients_built_new' => $built->reject(fn ($c) => in_array($c->category, self::EXISTING, true))->count(),
+                'client_percent' => $clientTarget > 0 ? round($built->count() / $clientTarget * 100, 1) : null,
+            ];
+        })->values();
+
+        $current = $rows->last();
+        $best = $rows->sortByDesc(fn ($r) => $r['kind'] === 'clients' ? $r['clients_built'] : $r['achieved'])->first();
+
+        return response()->json(['data' => [
+            // Nothing asked of this desk in four months: the strip stays away.
+            'has_target' => $rows->contains(fn ($r) => $r['target'] > 0 || $r['client_target'] > 0),
+            'kind' => $current['kind'],
+            'months' => $rows,
+            'current' => $current,
+            'best' => $best && ($best['achieved'] > 0 || $best['clients_built'] > 0) ? $best['label'] : null,
         ]]);
     }
 

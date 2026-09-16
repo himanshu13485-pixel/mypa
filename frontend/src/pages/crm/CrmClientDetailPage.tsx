@@ -9,6 +9,24 @@ import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { crmPath } from '../../lib/crmPath'
 
 
+/**
+ * "12 Mar 2026, 4:05 pm" out of the server's "2026-03-12 16:05:00".
+ *
+ * Two clients added the same morning are told apart by the time, not the
+ * date, which is why this card carries both. The space in the middle is not
+ * a date every browser will parse, so it becomes a T first, and a string we
+ * still cannot read is shown as it came rather than as "Invalid Date".
+ */
+const readableWhen = (raw: string | null | undefined) => {
+  if (!raw) return undefined
+  const at = new Date(raw.replace(' ', 'T'))
+  if (Number.isNaN(at.getTime())) return raw
+
+  return at.toLocaleString('en-IN', {
+    day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
+}
+
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined || value === '') return null
   return (
@@ -75,8 +93,11 @@ export default function CrmClientDetailPage() {
           <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Account</h2>
           <Row label="Status" value={c.status === 'active' ? 'Active' : 'Inactive'} />
           <Row label="Assigned to" value={c.assigned_member?.name} />
+          {/* Who put it on that desk. A Row hides itself when the answer is
+              unknown, so older clients simply do not carry the line. */}
+          <Row label="Assigned by" value={c.assigned_by} />
           <Row label="Shared with" value={(c.shared_with ?? []).map((m) => m.name).filter(Boolean).join(', ') || undefined} />
-          <Row label="Added" value={c.created_at?.slice(0, 10)} />
+          <Row label="Added" value={readableWhen(c.created_at_full ?? c.created_at)} />
           {c.notes && <p className="mt-2 rounded-lg bg-slate-50 p-2.5 text-xs text-slate-500 dark:bg-slate-800/60">{c.notes}</p>}
         </Card>
       </div>

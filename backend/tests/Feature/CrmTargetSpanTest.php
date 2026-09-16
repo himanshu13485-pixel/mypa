@@ -119,7 +119,8 @@ class CrmTargetSpanTest extends TestCase
 
         $this->assertEquals(250000, $span['totals']['target']);
         $this->assertEquals(100000, $span['totals']['achieved']);
-        $this->assertEquals(150000, $span['totals']['due']);
+        // What is left of the target - money a client owes is its own column now.
+        $this->assertEquals(150000, $span['totals']['pending_target']);
         $this->assertSame(
             $lastMonth->format('M Y') . ' — ' . $thisMonth->format('M Y'),
             $span['label'],
