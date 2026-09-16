@@ -73,6 +73,25 @@ class CrmClientStatusAndSegmentTest extends TestCase
         ]);
     }
 
+    /** The fields an update has to send back with it. */
+    private function payloadFor(array $document): array
+    {
+        return [
+            'invoice_date' => $document['invoice_date'],
+            'due_date' => $document['due_date'],
+            'client_segment' => $document['client_segment'],
+            'pricing_tier' => 'regular',
+            'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online',
+            'dispatch_status' => 'pending',
+            'items' => [[
+                'membership' => 'Standard', 'plan_name' => 'Annual listing',
+                'validity_from' => now()->toDateString(), 'validity_to' => now()->addYear()->toDateString(),
+                'qty' => 1, 'unit_price' => 1000,
+            ]],
+        ];
+    }
+
     public function test_the_first_document_is_new_business_and_the_next_is_repeat(): void
     {
         // Even claiming otherwise: the books decide, not the form.
@@ -112,6 +131,44 @@ class CrmClientStatusAndSegmentTest extends TestCase
 
         // With the first one cancelled, the one that stands is the first.
         $this->assertSame('new', Invoice::where('uuid', $second['uuid'])->value('client_category'));
+    }
+
+    public function test_a_quotation_does_not_make_the_first_sale_a_repeat(): void
+    {
+        // The usual order of things: quote first, then the bill for it.
+        $quote = $this->raise($this->clientUuid, [], 'proforma')->assertCreated()->json('data');
+        $this->assertSame('new', $quote['client_category']);
+
+        $first = $this->raise($this->clientUuid)->assertCreated()->json('data');
+        $this->assertSame('new', $first['client_category']);
+
+        // The sale after it is the repeat.
+        $this->assertSame('existing', $this->raise($this->clientUuid)->assertCreated()->json('data.client_category'));
+    }
+
+    public function test_a_status_set_by_hand_is_left_alone(): void
+    {
+        $first = $this->raise($this->clientUuid)->assertCreated()->json('data');
+
+        // Two firms under one client record: the second sale is new business
+        // whatever the books say, and somebody says so.
+        $second = $this->raise($this->clientUuid, [
+            'client_category' => 'new', 'client_category_manual' => true,
+        ])->assertCreated()->json('data');
+
+        $this->assertSame('new', $second['client_category']);
+        $this->assertTrue($second['client_category_manual']);
+
+        // A third sale restates the client, and the hand-set one stands.
+        $this->raise($this->clientUuid)->assertCreated();
+        $this->assertSame('new', Invoice::where('uuid', $second['uuid'])->value('client_category'));
+        $this->assertSame('new', Invoice::where('uuid', $first['uuid'])->value('client_category'));
+
+        // Handed back to the books, it reads as the ledger says again.
+        $this->as()->putJson('/api/v1/crm/invoices/' . $second['uuid'], [
+            'client_category_manual' => false,
+        ] + $this->payloadFor($second))->assertOk();
+        $this->assertSame('existing', Invoice::where('uuid', $second['uuid'])->value('client_category'));
     }
 
     public function test_the_kind_of_business_comes_from_the_companys_own_list(): void

@@ -656,6 +656,8 @@ export interface CrmInvoiceRow {
   client_category?: string | null
   /** Regular, Global, SEZ - what kind of business it is. */
   client_segment?: string | null
+  /** The status was set by hand, so the books leave it alone. */
+  client_category_manual?: boolean
   issuing_company?: { id: number; name: string; state_code?: string | null } | null
   salesperson?: { uuid: string; name: string | null; email?: string | null } | null
   /** Who raised it, which is not always whose client it is. */
@@ -737,6 +739,7 @@ export interface CrmInvoiceFull extends CrmInvoiceRow {
   } | null
   client_category: string | null
   client_segment?: string | null
+  client_category_manual?: boolean
   pricing_tier: string
   terms_of_payment: string | null
   subscription_type: string | null

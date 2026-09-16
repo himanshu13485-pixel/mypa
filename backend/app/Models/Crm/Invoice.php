@@ -33,7 +33,7 @@ class Invoice extends Model
     protected $fillable = [
         'organization_id', 'kind', 'number', 'issuing_company_id', 'client_id',
         'member_id', 'invoice_date', 'due_date', 'client_category', 'pricing_tier',
-        'client_segment',
+        'client_segment', 'client_category_manual',
         'currency', 'terms_of_payment', 'subscription_type', 'subtotal', 'discount',
         'cgst', 'sgst', 'igst', 'other_tax', 'tds', 'tds_certificate_at', 'tds_certificate_by', 'total', 'fx_currency',
         'discount_rate', 'cgst_rate', 'sgst_rate', 'igst_rate', 'other_tax_rate', 'tds_rate',
@@ -79,6 +79,7 @@ class Invoice extends Model
     {
         return [
             'custom_fields' => 'array',
+            'client_category_manual' => 'boolean',
             'invoice_date' => 'date',
             'due_date' => 'date',
             'subtotal' => 'decimal:2',

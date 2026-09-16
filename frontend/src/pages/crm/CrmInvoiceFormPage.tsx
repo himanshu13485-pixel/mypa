@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Plus, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Pencil, Plus, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, CRM_CLIENT_STATUS_LABELS, CRM_DISPATCH_STATUS_LABELS, validityMonths, type CrmWorkOrderColumn } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -168,7 +168,8 @@ export default function CrmInvoiceFormPage() {
     invoice_date: new Date().toISOString().slice(0, 10),
     due_date: '',
     // What kind of business this is, out of the company's own list. Whether
-    // the client is new is not here: the books answer that one.
+    // the client is new is not here: the books answer that one, unless
+    // somebody overrules them below.
     client_segment: '',
     pricing_tier: 'regular',
     terms_of_payment: '',
@@ -192,6 +193,15 @@ export default function CrmInvoiceFormPage() {
     fx_rate: '',
     notes: '',
   })
+  /*
+   * The client status this document was given by hand, or null for the
+   * usual case where the books decide it.
+   *
+   * Kept out of `head` because it is two answers in one: null is not a word
+   * the server would ever store, it is the standing instruction to keep
+   * restating the document from the client's earlier invoices.
+   */
+  const [byHandCategory, setByHandCategory] = useState<'new' | 'existing' | null>(null)
   const [items, setItems] = useState<ItemRow[]>([{ ...EMPTY_ITEM }])
   // Money lines, keyed by this company's own line keys: a rate, or a figure.
   const [taxes, setTaxes] = useState<Record<string, { rate: string; amount: string }>>({})
@@ -299,6 +309,12 @@ export default function CrmInvoiceFormPage() {
     setDocValues(Object.fromEntries(
       Object.entries(existing.custom_fields ?? {}).map(([k, v]) => [k, typeof v === 'boolean' ? v : String(v)]),
     ))
+    // A document already overruled reopens overruled. Saving it again with
+    // the box back on automatic would hand it to the books, which is the one
+    // thing whoever set it by hand was trying to stop.
+    setByHandCategory(existing.client_category_manual
+      ? (existing.client_category === 'existing' ? 'existing' : 'new')
+      : null)
     setHead({
       issuing_company_id: String(existing.issuing_company?.id ?? ''),
       client_uuid: existing.client?.uuid ?? '',
@@ -569,8 +585,16 @@ export default function CrmInvoiceFormPage() {
         member_uuid: head.member_uuid || null,
         invoice_date: head.invoice_date,
         due_date: head.due_date || null,
-        // Client status is not sent: the server reads it off the client's
-        // earlier documents, so anything the form had to say would be a guess.
+        /*
+         * Client status is the server's to work out from the client's earlier
+         * invoices, so nothing is sent for it — except where somebody has
+         * overruled the books on purpose, and then the word travels with the
+         * flag that stops the restating. The flag goes either way round, so
+         * taking the override off puts the document back under the books.
+         */
+        ...(byHandCategory
+          ? { client_category: byHandCategory, client_category_manual: true }
+          : { client_category_manual: false }),
         client_segment: head.client_segment || null,
         pricing_tier: head.pricing_tier,
         terms_of_payment: head.terms_of_payment || null,
@@ -781,16 +805,56 @@ export default function CrmInvoiceFormPage() {
             <div>
               <Label>{heading('client_category', 'Client status')}</Label>
               {/* Shown, not asked. Whether a client is new is a fact about
-                  the books: the first document they are ever given is new
+                  the books: the first invoice they are ever given is new
                   business and every one after it is repeat. A box to type it
-                  in was only ever a way of contradicting them. */}
-              <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:ring-slate-700">
-                {editing
-                  ? CRM_CLIENT_STATUS_LABELS[existing?.client_category ?? ''] ?? '—'
-                  : head.client_uuid ? 'Decided when this is saved' : 'Decided when you pick a client'}
-              </div>
+                  in was only ever a way of contradicting them.
+                  Which is why setting it by hand is tucked behind a link
+                  rather than offered as the field: the books are right all but
+                  a handful of times, and the handful is real — two firms
+                  trading under one name, or one client record that should
+                  have been two, and the sale is genuinely new business. */}
+              {byHandCategory === null ? (
+                <>
+                  <div className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:ring-slate-700">
+                    {editing
+                      ? CRM_CLIENT_STATUS_LABELS[existing?.client_category ?? ''] ?? '—'
+                      : head.client_uuid ? 'Decided when this is saved' : 'Decided when you pick a client'}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setByHandCategory(existing?.client_category === 'existing' ? 'existing' : 'new')}
+                    className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-emerald-600 hover:underline"
+                  >
+                    <Pencil className="size-3" /> Set by hand
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Select
+                    value={byHandCategory}
+                    onChange={(e) => setByHandCategory(e.target.value as 'new' | 'existing')}
+                    className="w-full"
+                  >
+                    {Object.entries(CRM_CLIENT_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </Select>
+                  {/* Said in amber, because a figure that no longer follows
+                      the books is worth noticing every time the document is
+                      opened, not only on the day it was overruled. */}
+                  <p className="mt-1 text-xs text-amber-600">
+                    Set by hand on this document.{' '}
+                    <button
+                      type="button"
+                      onClick={() => setByHandCategory(null)}
+                      className="font-medium text-emerald-600 hover:underline"
+                    >
+                      Use the automatic one
+                    </button>
+                  </p>
+                </>
+              )}
               <p className="mt-1 text-xs text-slate-400">
-                Worked out from this client&rsquo;s earlier documents.
+                Worked out from this client&rsquo;s earlier invoices. A quotation does not count,
+                so a proforma raised before the first invoice does not make that invoice repeat business.
               </p>
             </div>
           )}

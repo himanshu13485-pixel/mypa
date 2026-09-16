@@ -1154,8 +1154,10 @@ class InvoiceController extends Controller
             'invoice_date' => ['required', 'date'],
             'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
             // Not asked for any more: whether a client is new is a fact about
-            // the books, not an opinion, and it is worked out below.
-            'client_category' => ['nullable', 'string', 'max:32'],
+            // the books, not an opinion, and it is worked out below - unless
+            // somebody deliberately sets it, which they may.
+            'client_category' => ['nullable', Rule::in(['new', 'existing'])],
+            'client_category_manual' => ['nullable', 'boolean'],
             'client_segment' => ['nullable', 'string', 'max:64'],
             'pricing_tier' => ['nullable', Rule::in(['regular', 'low'])],
             'currency' => ['nullable', 'string', 'size:3'],
@@ -1302,13 +1304,23 @@ class InvoiceController extends Controller
          * which - the client may have been billed by somebody else entirely,
          * and "New" sat there as the default until somebody noticed.
          */
+        /*
+         * New business, or a client coming back.
+         *
+         * Set by hand when somebody says so - two firms of one name, a client
+         * record that should have been two - and left to the books otherwise.
+         * The guess below only keeps the row from being saved blank; the whole
+         * of this client's paperwork is restated once the save lands, in
+         * ClientBusinessStatus, which is where the rule lives.
+         */
+        $byHand = $request->boolean('client_category_manual') && ! empty($data['client_category']);
+        $data['client_category_manual'] = $byHand;
+
         $clientId = $data['client_id'] ?? $existing?->client_id;
-        if ($clientId) {
-            // A first guess, so the row is never saved blank; the whole of
-            // this client's paperwork is restated once the save lands - see
-            // ClientBusinessStatus.
+        if ($clientId && ! $byHand) {
             $data['client_category'] = Invoice::where('organization_id', $orgId)
                 ->where('client_id', $clientId)
+                ->where('kind', 'invoice')
                 ->where('status', '!=', 'cancelled')
                 ->when($existing?->id, fn ($q, $mine) => $q->whereKeyNot($mine))
                 ->exists() ? 'existing' : 'new';
@@ -1884,6 +1896,8 @@ class InvoiceController extends Controller
             // Whether this was new business or a client coming back, and
             // what kind of business it is.
             'client_category' => $i->client_category,
+            // Set by hand, so the books leave it alone.
+            'client_category_manual' => (bool) $i->client_category_manual,
             'client_segment' => $i->client_segment,
             'issuing_company' => $i->issuingCompany?->only(['id', 'name', 'state_code']),
             // The e-mail dialog offers the salesperson a copy of what
