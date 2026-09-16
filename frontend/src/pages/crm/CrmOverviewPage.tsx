@@ -5,6 +5,7 @@ import { crm } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { Avatar } from '../../lib/avatars'
 import { Card, EmptyState, LoadError, SkeletonCards } from '../../components/ui'
+import { livePath } from '../../lib/crmPath'
 
 /**
  * The company as it is right now.
@@ -111,7 +112,7 @@ export default function CrmOverviewPage() {
                   </p>
                 </div>
                 <Link
-                  to={`/meetings/room/${m.code}`}
+                  to={livePath('meeting', m.code)}
                   className="shrink-0 text-xs font-medium text-brand-600 hover:underline"
                 >
                   Join

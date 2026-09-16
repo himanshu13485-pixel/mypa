@@ -457,6 +457,8 @@ export default function CrmLayout() {
     // CallProvider here too: the Connect suite lives inside the CRM shell,
     // so calls must ring and connect without leaving it.
     <CallProvider>
+    {/* And the share with it: the Connect suite's Screen page lives in this
+        shell too, so a session started here must survive moving about it. */}
     {/* Above everything, because forgetting whose account you are working in
         is how a record gets changed by the wrong hand. Draws nothing at all
         when the session is an ordinary one. */}

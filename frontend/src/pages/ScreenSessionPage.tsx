@@ -1,16 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { Copy, Expand, Eye, EyeOff, Lock, LockOpen, MessageSquare, MonitorOff, MonitorUp, Pause, Play, Users, Volume2, VolumeX } from 'lucide-react'
-import { calls, meetings as meetingsApi } from '../api/endpoints'
-import { getEcho } from '../lib/echo'
-import { useAuthStore } from '../stores/auth'
+import { Copy, Expand, Eye, EyeOff, KeyRound, Lock, LockOpen, MessageSquare, MonitorOff, MonitorUp, Pause, Play, Users, Volume2, VolumeX } from 'lucide-react'
 import { Button, Card, Spinner } from '../components/ui'
+import { useScreenShare } from '../components/ScreenShareManager'
+import { usePrompt } from '../components/Prompt'
+import { useToast } from '../components/Toast'
+import { meetings as meetingsApi } from '../api/endpoints'
+import { errorMessage } from '../api/client'
+import { readGuestPass } from '../lib/guestPass'
+import { useAuthStore } from '../stores/auth'
 import { screenLink } from './ScreenPage'
-import type { MeetingSignalPayload } from '../types'
-import { normalizeSdp } from '../lib/sdp'
-import { useSelfView } from '../lib/videoLayout'
-import { shareFailureMessage } from '../lib/devices'
 import {
   enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported,
 } from '../lib/fullscreen'
@@ -19,263 +18,63 @@ import {
  * A screen session: the HOST captures their screen and answers offers from
  * viewers; VIEWERS connect receive-only to the host and just watch. One-way
  * fan-out on the same signalling engine as meetings.
+ *
+ * The session itself lives in ScreenShareManager, mounted above the router, so
+ * that a host who opens another part of the app goes on sharing. This page is
+ * the view onto it: it says which code to run, draws what the provider holds,
+ * and takes nothing down when it goes away.
+ *
+ * Rendered at two addresses: /screen/session/:code for a member, and
+ * /guest/screen/:code for somebody with no account who has typed the session
+ * password. One component for both, exactly as the meeting room is, so that
+ * what a guest watches cannot quietly drift away from what a member watches.
  */
 export default function ScreenSessionPage() {
   const { code = '' } = useParams()
   const navigate = useNavigate()
-  const user = useAuthStore((s) => s.user)
+  const { toast, toastError } = useToast()
+  const { ask, confirm } = usePrompt()
+  const {
+    session, loadError, isHost, phase, errorMsg, viewers, knocks, approvalOn, paused, showPreview,
+    viewerMuted, displaySurface, reconnecting, elapsed, chatOpen, chatUnread, chatMsgs, attachVideo,
+    open, leavePage, stopSharing, leaveViewer, togglePause, togglePreview, toggleViewerMuted,
+    setApproval, admit, setChatOpen, sendChat,
+  } = useScreenShare()
 
-  const [phase, setPhase] = useState<'starting' | 'waiting' | 'denied' | 'live' | 'ended' | 'error'>('starting')
-  const [errorMsg, setErrorMsg] = useState('')
-  const [viewers, setViewers] = useState<{ uuid: string; name: string }[]>([])
-  const [paused, setPaused] = useState(false)
   const [copied, setCopied] = useState(false)
-  const [showPreview, setShowPreview] = useState(false)
-  const [viewerMuted, setViewerMuted] = useState(true)
-  const [knocks, setKnocks] = useState<{ uuid: string; name: string }[]>([])
-  const [approvalOn, setApprovalOn] = useState<boolean | null>(null)
-  const [chatOpen, setChatOpen] = useState(false)
-  const [chatUnread, setChatUnread] = useState(0)
+  const [copiedBoth, setCopiedBoth] = useState(false)
   const [chatTo, setChatTo] = useState('')
   const [chatDraft, setChatDraft] = useState('')
-  const [chatMsgs, setChatMsgs] = useState<{ name: string; text: string; priv: boolean; me: boolean }[]>([])
-  const chatOpenRef = useRef(false)
-  chatOpenRef.current = chatOpen
-  const [elapsed, setElapsed] = useState(0)
-
-  const pcsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
-  const pendingIceRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map())
-  const displayStreamRef = useRef<MediaStream | null>(null)
-  /* Remembered stream + callback ref, shared with meetings and calls: a
-   re-mounted <video> used to come back blank because the stream was only
-   ever assigned onto the element that existed at the time. */
-  const { show: showVideo, attach: attachVideo, videoRef } = useSelfView()
+  /**
+   * The password as the host has it now.
+   *
+   * Held here rather than read off the session each time, because setting one
+   * has to show up the instant it is saved and the session query is only
+   * refetched when something else asks for it. undefined means not known:
+   * either nothing has loaded, or this is not the host and never will be,
+   * since only the host is sent the password itself.
+   */
+  const [passcode, setPasscode] = useState<string | null | undefined>(undefined)
   /** The whole session view — what fullscreen should cover. */
   const pageRef = useRef<HTMLDivElement>(null)
-  const iceServersRef = useRef<RTCIceServer[] | null>(null)
-  const joinedRef = useRef(false)
 
-  const { data: session, error: loadError } = useQuery({
-    queryKey: ['screen-session', code],
-    queryFn: () => meetingsApi.show(code),
-    retry: false,
-  })
-  const isHost = session?.is_host ?? false
-
-  const flushPendingIce = useCallback((peerUuid: string) => {
-    const pc = pcsRef.current.get(peerUuid)
-    const pending = pendingIceRef.current.get(peerUuid)
-    if (!pc || !pc.remoteDescription || !pending?.length) return
-    pendingIceRef.current.delete(peerUuid)
-    for (const c of pending) pc.addIceCandidate(c).catch(() => undefined)
-  }, [])
-
-  const newPeer = useCallback(async (peerUuid: string) => {
-    const existing = pcsRef.current.get(peerUuid)
-    if (existing) return existing
-    if (!iceServersRef.current) iceServersRef.current = (await calls.config()).iceServers
-    const pc = new RTCPeerConnection({ iceServers: iceServersRef.current })
-    pcsRef.current.set(peerUuid, pc)
-    pc.onicecandidate = (e) => {
-      if (e.candidate) meetingsApi.signal(code, 'ice', { candidate: e.candidate.toJSON() }, peerUuid).catch(() => undefined)
-    }
-    return pc
-  }, [code])
-
-  const teardown = useCallback(() => {
-    pcsRef.current.forEach((pc) => pc.close())
-    pcsRef.current.clear()
-    pendingIceRef.current.clear()
-    displayStreamRef.current?.getTracks().forEach((t) => t.stop())
-    displayStreamRef.current = null
-    setViewers([])
-  }, [])
-
-  const startSession = useCallback(async () => {
-    const runStart = async () => {
-      try {
-        if (!session) return
-        if (session.is_host) {
-          const display = await navigator.mediaDevices
-            .getDisplayMedia({ video: true, audio: true })
-            .catch(() => navigator.mediaDevices.getDisplayMedia({ video: true }))
-          displayStreamRef.current = display
-          display.getVideoTracks()[0].onended = () => stopSharing()
-          const hostInfo = await meetingsApi.join(code)
-          setPhase('live')
-          if (!('waiting' in hostInfo)) setApprovalOn(hostInfo.requires_approval ?? null)
-        } else {
-          const info = await meetingsApi.join(code)
-          if ('waiting' in info && info.waiting) {
-            setPhase('waiting')
-            return
-          }
-          const room = info as Exclude<typeof info, { waiting: true }>
-          setPhase('live')
-          setApprovalOn(room.requires_approval ?? null)
-          // Viewers connect ONLY to the host, receive-only.
-          const hostUuid = room.host.uuid
-          const hostInside = (room.joined_peers ?? []).some((p) => p.uuid === hostUuid)
-          if (hostInside) {
-            const pc = await newPeer(hostUuid)
-            pc.addTransceiver('video', { direction: 'recvonly' })
-            pc.addTransceiver('audio', { direction: 'recvonly' })
-            pc.ontrack = (e) => showVideo(e.streams[0])
-            pc.onconnectionstatechange = () => console.info('[screen] host connection:', pc.connectionState)
-            const offer = await pc.createOffer()
-            await pc.setLocalDescription(offer)
-            await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, hostUuid)
-          }
-        }
-      } catch (err) {
-        setPhase('error')
-        // A host on a phone used to be shown the raw exception —
-        // "getDisplayMedia is not a function" — which describes the code
-        // rather than the situation.
-        // A null here means they simply dismissed the picker, which is not a
-        // fault and should not read like one.
-        const why = shareFailureMessage(err)
-        setErrorMsg(
-          why === null && session?.is_host
-            ? 'You did not pick a screen to share. Press Retry to choose one.'
-            : why ?? (err instanceof Error ? err.message : 'Could not start the session.'),
-        )
-      }
-    }
-    await runStart()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, code])
-
-  // Kick off once loaded. Meeting codes belong to the Meetings module.
-  useEffect(() => {
-    if (!session || joinedRef.current) return
-    if (!session.is_screen) {
-      navigate(`/meetings/room/${code}`, { replace: true })
-      return
-    }
-    joinedRef.current = true
-    startSession()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session])
-
-  // Signalling: host answers viewer offers with the display stream attached.
-  useEffect(() => {
-    if (!user?.uuid || !session) return
-    const echo = getEcho()
-    if (!echo) return
-    const channel = echo.private(`user.${user.uuid}`)
-
-    const handler = async (signal: MeetingSignalPayload) => {
-      if (signal.meeting_code !== code) return
-      switch (signal.signal) {
-        case 'join': {
-          setViewers((v) => (v.some((x) => x.uuid === signal.from_uuid) ? v : [...v, { uuid: signal.from_uuid, name: signal.from_name ?? 'Viewer' }]))
-          // Viewer arrived before the host: offer as soon as the host shows up.
-          if (!session.is_host && signal.from_uuid === session.host.uuid && !pcsRef.current.has(signal.from_uuid)) {
-            try {
-              const pc = await newPeer(signal.from_uuid)
-              pc.addTransceiver('video', { direction: 'recvonly' })
-              pc.addTransceiver('audio', { direction: 'recvonly' })
-              pc.ontrack = (e) => showVideo(e.streams[0])
-              pc.onconnectionstatechange = () => console.info('[screen] host connection:', pc.connectionState)
-              const offer = await pc.createOffer()
-              await pc.setLocalDescription(offer)
-              await meetingsApi.signal(code, 'offer', { sdp: offer.sdp, type: offer.type }, signal.from_uuid)
-            } catch (err) {
-              console.warn('[screen] offering to late host failed', err)
-            }
-          }
-          break
-        }
-        case 'leave': {
-          setViewers((v) => v.filter((x) => x.uuid !== signal.from_uuid))
-          pcsRef.current.get(signal.from_uuid)?.close()
-          pcsRef.current.delete(signal.from_uuid)
-          // Viewer: the host leaving means the show is over.
-          if (!session.is_host && signal.from_uuid === session.host.uuid) {
-            teardown()
-            setPhase('ended')
-          }
-          break
-        }
-        case 'end':
-          teardown()
-          setPhase('ended')
-          break
-        case 'knock':
-          setKnocks((k) => (k.some((x) => x.uuid === signal.from_uuid) ? k : [...k, { uuid: signal.from_uuid, name: signal.from_name ?? 'Someone' }]))
-          break
-        case 'admitted':
-          startSession()
-          break
-        case 'denied':
-          teardown()
-          setPhase('denied')
-          break
-        case 'chat':
-          setChatMsgs((m) => [...m, {
-            name: signal.from_name ?? 'Someone',
-            text: signal.payload.message as string,
-            priv: !!signal.payload.private,
-            me: false,
-          }])
-          if (!chatOpenRef.current) setChatUnread((n) => n + 1)
-          break
-        case 'offer': {
-          // Only the HOST receives offers (from viewers).
-          if (!session.is_host || !displayStreamRef.current) return
-          try {
-            const pc = await newPeer(signal.from_uuid)
-            displayStreamRef.current.getTracks().forEach((t) => pc.addTrack(t, displayStreamRef.current!))
-            await pc.setRemoteDescription({ type: 'offer', sdp: normalizeSdp(signal.payload.sdp as string) })
-            flushPendingIce(signal.from_uuid)
-            const answer = await pc.createAnswer()
-            await pc.setLocalDescription(answer)
-            await meetingsApi.signal(code, 'answer', { sdp: answer.sdp, type: answer.type }, signal.from_uuid)
-            setViewers((v) => (v.some((x) => x.uuid === signal.from_uuid) ? v : [...v, { uuid: signal.from_uuid, name: signal.from_name ?? 'Viewer' }]))
-          } catch (err) {
-            console.warn('[screen] answering viewer failed', err)
-          }
-          break
-        }
-        case 'answer': {
-          const pc = pcsRef.current.get(signal.from_uuid)
-          if (!pc) return
-          try {
-            await pc.setRemoteDescription({ type: 'answer', sdp: normalizeSdp(signal.payload.sdp as string) })
-            flushPendingIce(signal.from_uuid)
-          } catch (err) {
-            console.warn('[screen] answer failed', err)
-          }
-          break
-        }
-        case 'ice': {
-          const candidate = signal.payload.candidate as RTCIceCandidateInit | undefined
-          if (!candidate) return
-          const pc = pcsRef.current.get(signal.from_uuid)
-          if (pc && pc.remoteDescription) {
-            pc.addIceCandidate(candidate).catch(() => undefined)
-          } else {
-            const q = pendingIceRef.current.get(signal.from_uuid) ?? []
-            q.push(candidate)
-            pendingIceRef.current.set(signal.from_uuid, q)
-          }
-          break
-        }
-      }
-    }
-
-    channel.listen('.meeting.signal', handler)
-    return () => {
-      channel.stopListening('.meeting.signal')
-    }
-  }, [user?.uuid, session, code, newPeer, teardown, flushPendingIce, startSession, showVideo])
+  /*
+   * Watching on a pass rather than an account.
+   *
+   * Nothing on this page is decided by it except where the exits lead: a guest
+   * has no Screen list to go back to and no account to sign the app in with,
+   * so "back" has to mean the door they came in by. Everything host-only is
+   * gated on isHost, which a guest can never be.
+   */
+  const account = useAuthStore((s) => s.user)
+  const guestPass = useMemo(() => readGuestPass(), [])
+  const isGuest = !account && guestPass?.code === code
+  const exitTo = isGuest ? `/join/${code}` : '/screen'
+  const exitLabel = isGuest ? 'Back to the join page' : 'Back to Screen'
 
   useEffect(() => {
-    if (phase !== 'live') return
-    const t = setInterval(() => setElapsed((s) => s + 1), 1000)
-    return () => clearInterval(t)
-  }, [phase])
+    open(code)
+  }, [code, open])
 
   // If the browser blocked playback, the first click anywhere resumes it.
   useEffect(() => {
@@ -289,46 +88,103 @@ export default function ScreenSessionPage() {
     return () => document.removeEventListener('click', resume)
   }, [])
 
+  /*
+   * Walking away from the picture is not walking away from the share: the
+   * provider decides what that means, and for a host it means carrying on.
+   */
   useEffect(() => {
-    return () => {
-      teardown()
-      if (joinedRef.current) meetingsApi.leave(code).catch(() => undefined)
-    }
+    return () => leavePage()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const sendChat = () => {
+  // The server is the authority on the password, so every fresh copy of the
+  // session wins over whatever is on screen.
+  useEffect(() => {
+    if (!session) return
+    setPasscode(session.is_host ? session.passcode ?? null : undefined)
+  }, [session])
+
+  const submitChat = () => {
     const text = chatDraft.trim()
     if (!text) return
     setChatDraft('')
-    setChatMsgs((m) => [...m, { name: 'You', text, priv: !!chatTo, me: true }])
-    meetingsApi.chat(code, text, chatTo || null).catch(() => undefined)
+    sendChat(text, chatTo)
   }
 
-  const togglePreview = () => {
-    const next = !showPreview
-    setShowPreview(next)
-    showVideo(next ? displayStreamRef.current : null)
+  /**
+   * Set or change the session password.
+   *
+   * It is the one control that decides whether the link works for people
+   * without an account: the engine has no second switch, and inventing one
+   * here would only be a lie about what the server actually checks.
+   */
+  const changePasscode = async () => {
+    const next = await ask({
+      title: passcode ? 'Change the session password' : 'Add a session password',
+      message:
+        'Anyone without a Netvork account is asked for this before they can watch, and stays 30 '
+        + 'minutes. Signed-in members never need it. 4–12 letters or digits.',
+      value: passcode ?? '',
+      placeholder: 'e.g. open1234',
+      actionLabel: 'Save',
+    })
+    if (next === null) return
+
+    const clean = next.replace(/[^a-zA-Z0-9]/g, '')
+    if (clean.length < 4) {
+      toastError('A password needs at least 4 letters or digits.')
+      return
+    }
+
+    try {
+      const res = await meetingsApi.setPasscode(code, clean)
+      setPasscode(res.data.passcode)
+      toast(res.message, 'success')
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
   }
 
-  const togglePause = () => {
-    const next = !paused
-    displayStreamRef.current?.getVideoTracks().forEach((t) => (t.enabled = !next))
-    setPaused(next)
+  /** Take the password off, which also shuts the door on people with no account. */
+  const clearPasscode = async () => {
+    const sure = await confirm({
+      title: 'Remove the password?',
+      message: 'Anyone without a Netvork account will no longer be able to watch with the link. '
+        + 'People already watching stay.',
+      actionLabel: 'Remove it',
+      danger: true,
+    })
+    if (!sure) return
+
+    try {
+      const res = await meetingsApi.setPasscode(code, null)
+      setPasscode(null)
+      toast(res.message, 'success')
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
   }
 
-  const stopSharing = async () => {
-    teardown()
-    joinedRef.current = false
-    await meetingsApi.end(code).catch(() => undefined)
-    navigate('/screen')
+  const copy = (text: string, mark: (on: boolean) => void) => {
+    navigator.clipboard.writeText(text).then(
+      () => {
+        mark(true)
+        setTimeout(() => mark(false), 2000)
+      },
+      () => prompt('Copy this:', text),
+    )
   }
 
-  const leaveViewer = async () => {
-    teardown()
-    joinedRef.current = false
-    await meetingsApi.leave(code).catch(() => undefined)
-    navigate('/screen')
+  /*
+   * Stop watching.
+   *
+   * leaveViewer walks a member back to the Screen list itself, but only from
+   * the member's own route, so a guest is shown out by hand rather than left
+   * looking at a page with nothing on it.
+   */
+  const stopWatching = () => {
+    leaveViewer()
+    if (isGuest) navigate(exitTo, { replace: true })
   }
 
   const fullscreen = () => {
@@ -351,7 +207,7 @@ export default function ScreenSessionPage() {
         <p className="mt-1 text-xs text-slate-400">
           You will start watching automatically the moment they admit you — keep this page open.
         </p>
-        <Button className="mt-4" variant="secondary" onClick={() => navigate('/screen')}>Cancel</Button>
+        <Button className="mt-4" variant="secondary" onClick={() => navigate(exitTo)}>Cancel</Button>
       </Card>
     )
   }
@@ -360,7 +216,7 @@ export default function ScreenSessionPage() {
     return (
       <Card className="mx-auto mt-10 max-w-md text-center">
         <p className="text-sm font-semibold">The sharer did not admit you</p>
-        <Button className="mt-4" onClick={() => navigate('/screen')}>Back to Screen</Button>
+        <Button className="mt-4" onClick={() => navigate(exitTo)}>{exitLabel}</Button>
       </Card>
     )
   }
@@ -372,9 +228,9 @@ export default function ScreenSessionPage() {
           {phase === 'ended' ? 'Session ended' : 'Could not open this session'}
         </p>
         <p className="mt-1 text-xs text-slate-400">
-          {phase === 'ended' ? 'The sharer has stopped sharing.' : errorMsg || 'Check the code and try again.'}
+          {phase === 'ended' ? 'The host has stopped sharing.' : errorMsg || 'Check the code and try again.'}
         </p>
-        <Button className="mt-4" onClick={() => navigate('/screen')}>Back to Screen</Button>
+        <Button className="mt-4" onClick={() => navigate(exitTo)}>{exitLabel}</Button>
       </Card>
     )
   }
@@ -386,7 +242,9 @@ export default function ScreenSessionPage() {
           <h1 className="text-base font-semibold">
             {isHost ? 'Sharing your screen' : `${session?.host.name ?? ''}'s screen`}
           </h1>
-          <p className="flex items-center gap-2 text-xs text-slate-400">
+          {/* Wrapping, because the password chip makes this row long enough to
+              run off a narrow screen otherwise. */}
+          <p className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
             <span className="font-mono">{code}</span>
             {phase === 'live' ? <span className="text-emerald-600">{fmt(elapsed)}</span> : 'Connecting…'}
             {isHost && (
@@ -395,29 +253,54 @@ export default function ScreenSessionPage() {
                 {viewers.length > 0 && `: ${viewers.map((v) => v.name).join(', ')}`}
               </span>
             )}
+            {/* The password IS the guest switch, the engine having no other,
+                so this is where a host decides whether the link is worth
+                anything to somebody without an account. Viewers never see it:
+                only the host is sent the password at all. */}
+            {isHost && passcode !== undefined && (
+              <span className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                <KeyRound className="size-3" />
+                {passcode ? (
+                  <>Password: <span className="select-all font-mono">{passcode}</span></>
+                ) : (
+                  'Members only'
+                )}
+                <button className="hover:text-brand-600" onClick={changePasscode}>
+                  {passcode ? 'change' : 'add a password'}
+                </button>
+                {passcode && (
+                  <button className="hover:text-red-600" onClick={clearPasscode}>remove</button>
+                )}
+              </span>
+            )}
             {isHost && approvalOn !== null && (
               <button
                 className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500 hover:text-brand-600 dark:bg-slate-800 dark:text-slate-400"
                 title={approvalOn ? 'Approval required — click for open access' : 'Open access — click to require your approval'}
-                onClick={() => {
-                  const next = !approvalOn
-                  meetingsApi.setApproval(code, next).then(() => setApprovalOn(next)).catch(() => undefined)
-                }}
+                onClick={() => setApproval(!approvalOn)}
               >
                 {approvalOn ? <Lock className="size-3" /> : <LockOpen className="size-3" />}
                 {approvalOn ? 'Approval required' : 'Open access'}
               </button>
             )}
           </p>
+          {/* What that switch actually does, in the server's own terms. */}
+          {isHost && passcode !== undefined && (
+            <p className="mt-1 text-[11px] text-slate-400">
+              {passcode
+                ? 'With a password set, anyone with the link can watch without a Netvork account.'
+                : 'Without a password, only signed-in Netvork members can watch.'}
+            </p>
+          )}
           {isHost && knocks.length > 0 && (
             <div className="mt-1.5 space-y-1">
               {knocks.map((k) => (
                 <div key={k.uuid} className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs dark:border-amber-900 dark:bg-amber-950">
                   <span className="font-medium">{k.name}</span> wants to watch
-                  <Button size="sm" onClick={() => { meetingsApi.admit(code, k.uuid, true).catch(() => undefined); setKnocks((ks) => ks.filter((x) => x.uuid !== k.uuid)) }}>
+                  <Button size="sm" onClick={() => admit(k.uuid, true)}>
                     Allow
                   </Button>
-                  <Button size="sm" variant="secondary" onClick={() => { meetingsApi.admit(code, k.uuid, false).catch(() => undefined); setKnocks((ks) => ks.filter((x) => x.uuid !== k.uuid)) }}>
+                  <Button size="sm" variant="secondary" onClick={() => admit(k.uuid, false)}>
                     Deny
                   </Button>
                 </div>
@@ -425,25 +308,38 @@ export default function ScreenSessionPage() {
             </div>
           )}
         </div>
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() =>
-            navigator.clipboard.writeText(screenLink(code)).then(
-              () => {
-                setCopied(true)
-                setTimeout(() => setCopied(false), 2000)
-              },
-              () => prompt('Copy this link:', screenLink(code)),
-            )
-          }
-        >
-          <Copy className="size-3.5" /> {copied ? 'Copied ✓' : 'Copy link'}
-        </Button>
+        <div className="flex gap-1.5">
+          <Button size="sm" variant="secondary" onClick={() => copy(screenLink(code), setCopied)}>
+            <Copy className="size-3.5" /> {copied ? 'Copied ✓' : 'Copy link'}
+          </Button>
+          {/* Both halves in one go, because with a password set the link alone
+              is only half of what the person on the other end needs, and two
+              separate copies means two separate pastes in the right order. */}
+          {isHost && passcode && (
+            <Button
+              size="sm"
+              variant="secondary"
+              title="The link and the password, ready to paste"
+              onClick={() => copy(`${screenLink(code)}\nPassword: ${passcode}`, setCopiedBoth)}
+            >
+              <KeyRound className="size-3.5" /> {copiedBoth ? 'Copied ✓' : 'Copy link + password'}
+            </Button>
+          )}
+        </div>
       </div>
 
+      {/* Browser behaviour, not a fault of ours and not fixable from here: a
+          captured tab stops producing frames while the host is looking at a
+          different one. Said quietly, and only when it actually applies. */}
+      {isHost && displaySurface === 'browser' && (
+        <p className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] leading-snug text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          You are sharing one browser tab, so the picture freezes for everyone watching whenever you
+          look at another tab. Sharing a window or your whole screen instead keeps it moving.
+        </p>
+      )}
+
       <div className="relative flex-1 overflow-hidden rounded-xl bg-slate-950">
-        {phase === 'starting' && (
+        {(phase === 'starting' || phase === 'idle') && (
           <div className="flex h-full items-center justify-center">
             <Spinner />
           </div>
@@ -464,6 +360,16 @@ export default function ScreenSessionPage() {
         {isHost && paused && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/70 text-sm text-white">
             Sharing paused — viewers see a frozen frame
+          </div>
+        )}
+        {/* A frozen picture says nothing. Over it, this does: the last frame is
+            still underneath, so a blip that heals in a second or two leaves
+            nothing but a moment's notice behind. */}
+        {!isHost && reconnecting && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70 text-sm text-white">
+            <Spinner />
+            <p className="font-semibold">Reconnecting…</p>
+            <p className="text-xs text-slate-400">The picture is frozen while the connection comes back.</p>
           </div>
         )}
       </div>
@@ -499,16 +405,16 @@ export default function ScreenSessionPage() {
               placeholder={chatTo ? 'Private message…' : 'Message everyone…'}
               value={chatDraft}
               onChange={(e) => setChatDraft(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendChat()}
+              onKeyDown={(e) => e.key === 'Enter' && submitChat()}
             />
-            <Button size="sm" onClick={sendChat} disabled={!chatDraft.trim()}>Send</Button>
+            <Button size="sm" onClick={submitChat} disabled={!chatDraft.trim()}>Send</Button>
           </div>
         </div>
       )}
 
       <div className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900">
         <div className="relative">
-          <Button size="sm" variant={chatOpen ? 'primary' : 'secondary'} title="Session chat" onClick={() => { setChatOpen(!chatOpen); setChatUnread(0) }}>
+          <Button size="sm" variant={chatOpen ? 'primary' : 'secondary'} title="Session chat" onClick={() => setChatOpen(!chatOpen)}>
             <MessageSquare className="size-4" />
           </Button>
           {chatUnread > 0 && !chatOpen && (
@@ -534,14 +440,7 @@ export default function ScreenSessionPage() {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => {
-                const next = !viewerMuted
-                setViewerMuted(next)
-                if (videoRef.current) {
-                  videoRef.current.muted = next
-                  videoRef.current.play().catch(() => undefined)
-                }
-              }}
+              onClick={toggleViewerMuted}
               title={viewerMuted ? 'Unmute shared audio' : 'Mute'}
             >
               {viewerMuted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
@@ -551,7 +450,7 @@ export default function ScreenSessionPage() {
                 <Expand className="size-4" /> Fullscreen
               </Button>
             )}
-            <Button size="sm" variant="danger" onClick={leaveViewer}>
+            <Button size="sm" variant="danger" onClick={stopWatching}>
               <MonitorUp className="size-4" /> Stop viewing
             </Button>
           </>

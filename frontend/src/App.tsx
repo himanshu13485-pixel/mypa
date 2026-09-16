@@ -6,6 +6,7 @@ import { MeetingRoomRoute } from './components/MeetingHost'
 import Layout from './components/Layout'
 import { RequireAdmin, RequireAuth, RequireGuestPass } from './components/Protected'
 import { ToastProvider } from './components/Toast'
+import { ScreenShareProvider } from './components/ScreenShareManager'
 import { PromptProvider } from './components/Prompt'
 import { Spinner } from './components/ui'
 import Login from './pages/auth/Login'
@@ -176,7 +177,12 @@ const crmScreens = (
     <Route path="connect/messages" element={<MessagesPage />} />
     <Route path="connect/calls" element={<CallsPage />} />
     <Route path="connect/meetings" element={<MeetingsPage />} />
+    {/* The room and the session under the company's own shell. Without these
+        a join from a company screen landed in the personal app, taking the
+        company sidebar and the workspace with it. */}
+    <Route path="connect/meetings/room/:code" element={<MeetingRoomRoute />} />
     <Route path="connect/screen" element={<ScreenPage />} />
+    <Route path="connect/screen/session/:code" element={<ScreenSessionPage />} />
     <Route path="connect/calendar" element={<CalendarPage />} />
     <Route path="connect/booking" element={<BookingLinkPage />} />
     <Route path="pl" element={<CrmPlPage />} />
@@ -289,6 +295,15 @@ export default function App() {
     <ToastProvider>
     <PromptProvider>
     <BrowserRouter>
+    {/*
+      * Above both shells on purpose.
+      *
+      * A screen share outlives the page that started it, and the personal app
+      * and the CRM unmount one another - so a host who went from Screen to a
+      * CRM menu had their share torn down mid-sentence. Owned here, it
+      * survives every move inside the app; only signing out ends it.
+      */}
+    <ScreenShareProvider>
       <Suspense fallback={<Spinner className="h-screen" />}>
         <Routes>
           {/* Public: joining a meeting with the meeting password and no
@@ -305,6 +320,19 @@ export default function App() {
             element={
               <RequireGuestPass>
                 <MeetingRoomPage />
+              </RequireGuestPass>
+            }
+          />
+          {/* A screen session watched by somebody with no account. The screen
+              module runs on the meeting engine, so the password is the same
+              switch here as it is for a room, and this is the same component
+              the member route renders, so a guest watches exactly what a
+              member watches. */}
+          <Route
+            path="/guest/screen/:code"
+            element={
+              <RequireGuestPass>
+                <ScreenSessionPage />
               </RequireGuestPass>
             }
           />
@@ -428,6 +456,7 @@ export default function App() {
           </Route>
         </Routes>
       </Suspense>
+    </ScreenShareProvider>
     </BrowserRouter>
     </PromptProvider>
     </ToastProvider>

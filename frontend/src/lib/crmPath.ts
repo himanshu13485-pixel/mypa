@@ -94,6 +94,25 @@ export function crmPath(path: string): string {
 }
 
 /**
+ * Where a meeting room or a screen session lives for the person opening it.
+ *
+ * The same room, reached two ways: the personal app has it at /meetings/room,
+ * and the CRM carries its own mount under the company's shell. Joining from a
+ * company screen used to jump into the personal one, which drops the company
+ * sidebar and the workspace the person was working in - so the link is built
+ * from where they are rather than being written once and hoped over.
+ *
+ * Invite links are NOT built from this: those are public addresses, and
+ * /meetings/room/<code> is the one everybody can open.
+ */
+export function livePath(kind: 'meeting' | 'screen', code: string): string {
+  const tail = kind === 'meeting' ? `/meetings/room/${code}` : `/screen/session/${code}`
+  const company = companyIn(window.location.pathname)
+
+  return company ? `/crm/${company}/connect${tail}` : tail
+}
+
+/**
  * Does this sidebar entry point at the page currently open?
  *
  * Proforma, Proforma log, Invoices and Invoice log share two paths between

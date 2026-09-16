@@ -8,7 +8,7 @@ import { returnState } from '../lib/returnTo'
 import { Button, Card, ErrorNote, Input, Label } from '../components/ui'
 
 /**
- * The door a meeting link opens for someone who has no account.
+ * The door a meeting or screen-share link opens for someone who has no account.
  *
  * There is one invite link, and it is the ordinary one. A signed-in member
  * clicking it walks straight into the room; anyone else lands here, because
@@ -16,9 +16,12 @@ import { Button, Card, ErrorNote, Input, Label } from '../components/ui'
  * a dead end — the people who most often follow a meeting link are exactly
  * the ones who will not make an account to attend a half-hour call.
  *
- * All they give is a name to appear as and the meeting password. The password
- * is also the switch: a meeting without one has nothing to check a stranger
- * against, so this page says so plainly instead of taking a guess at it.
+ * All they give is a name to appear as and the password. The password is also
+ * the switch: a meeting without one has nothing to check a stranger against,
+ * so this page says so plainly instead of taking a guess at it. A screen
+ * session is the same engine and the same rule, watched on its own page: the
+ * peek says which of the two a code opens, and where it sends them afterwards
+ * is the only difference this page makes between them.
  *
  * The pass lasts 30 minutes and is kept in sessionStorage rather than
  * localStorage: it belongs to this tab and this sitting, and should not
@@ -38,6 +41,13 @@ export default function GuestJoinPage() {
   const [busy, setBusy] = useState(false)
   /** null = not asked yet. Decides whether a password box is any use here. */
   const [allowsGuests, setAllowsGuests] = useState<boolean | null>(null)
+  /*
+   * Which of the two this link opens. A screen session runs on the meeting
+   * engine and takes guests by exactly the same rule, but it is watched on its
+   * own page rather than in a room, so the door has to know which it is.
+   * Meeting until the peek says otherwise: that is what most links are.
+   */
+  const [isScreen, setIsScreen] = useState(false)
   const [error, setError] = useState<string | null>(
     // Sent here by the API client when a pass ran out mid-meeting.
     new URLSearchParams(window.location.search).has('expired')
@@ -50,13 +60,19 @@ export default function GuestJoinPage() {
     raw.trim().toLowerCase().match(/[a-z]{3}-[a-z]{4}-[a-z]{3}/)?.[0] ?? raw.trim().toLowerCase()
 
   /*
-   * Signing in or making an account has to come back here, to the meeting.
+   * Signing in or making an account has to come back here: to the meeting, or
+   * to the screen session, whichever the link opened.
    * Anyone leaving this page is leaving it to attend one, and finishing at the
    * dashboard means hunting down the invite a second time — the link is
    * usually in somebody else's chat window by then.
    */
-  const meetingPath = codeFromUrl ? `/meetings/room/${cleanCode(codeFromUrl)}` : '/meetings'
-  const leaveFor = (path: string) => () => navigate(path, { state: returnState(meetingPath) })
+  const backPath = codeFromUrl
+    ? `${isScreen ? '/screen/session' : '/meetings/room'}/${cleanCode(codeFromUrl)}`
+    : '/meetings'
+  const leaveFor = (path: string) => () => navigate(path, { state: returnState(backPath) })
+
+  /** What the link opens, for the sentences that have to name it. */
+  const what = isScreen ? 'screen share' : 'meeting'
 
   // Ask up front whether this meeting takes guests at all, so a members-only
   // one says so before anybody types a name and a password into a form that
@@ -69,6 +85,7 @@ export default function GuestJoinPage() {
       .then((info) => {
         if (cancelled) return
         setAllowsGuests(info.exists ? info.allows_guests : null)
+        setIsScreen(info.exists && info.is_screen)
       })
       .catch(() => undefined)
     return () => {
@@ -82,6 +99,20 @@ export default function GuestJoinPage() {
     setError(null)
     setBusy(true)
     try {
+      /*
+       * A typed code was never peeked at, so nothing here knows yet which of
+       * the two it opens. Ask now rather than guess: guessing wrong lands the
+       * guest on a page their pass does not cover, which reads as a broken
+       * link. A failed peek falls back to a meeting, which is what the great
+       * majority of codes are.
+       *
+       * Before the pass is saved, not after: the API client points every
+       * /meetings/<that code> path at the narrower guest route once a pass for
+       * it exists, and this one has no guest twin to be pointed at.
+       */
+      const screen = codeFromUrl
+        ? isScreen
+        : await guestMeetings.peek(code).then((info) => info.is_screen).catch(() => false)
       const pass = await guestMeetings.join(code, name.trim(), passcode.trim())
       // The uuid matters as much as the token: the room identifies itself by
       // it, and the WebRTC tie-break decides who offers by comparing it.
@@ -92,9 +123,11 @@ export default function GuestJoinPage() {
         name: pass.guest.name,
         expiresAt: pass.expires_at,
       })
-      // The room without the app shell — a guest has no account to be
-      // guarded by, and nothing in the sidebar means anything to them.
-      navigate(`/guest/room/${code}`, { replace: true })
+      // The room, or the screen, without the app shell: a guest has no account
+      // to be guarded by, and nothing in the sidebar means anything to them.
+      // Both are the member's own page, so they see what a member sees, minus
+      // what only a host can do.
+      navigate(screen ? `/guest/screen/${code}` : `/guest/room/${code}`, { replace: true })
     } catch (err) {
       setError(errorMessage(err))
     } finally {
@@ -102,8 +135,8 @@ export default function GuestJoinPage() {
     }
   }
 
-  // A meeting with no password is members-only, and no form here will change
-  // that. Say so, and point at the one thing that does work.
+  // A meeting or screen share with no password is members-only, and no form
+  // here will change that. Say so, and point at the one thing that does work.
   if (allowsGuests === false) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-slate-50 p-4 dark:bg-slate-950">
@@ -111,11 +144,11 @@ export default function GuestJoinPage() {
           <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-950">
             <Video className="size-6" />
           </span>
-          <h1 className="text-xl font-semibold tracking-tight">This meeting needs an account</h1>
+          <h1 className="text-xl font-semibold tracking-tight">This {what} needs an account</h1>
           <p className="text-sm text-slate-500">
-            The host has not set a meeting password, so it is open to signed-in Netvork members only.
-            Create an account or sign in to join — either way you land straight back in this meeting.
-            You could also ask the host to set a password.
+            The host has not set a password, so it is open to signed-in Netvork members only.
+            Create an account or sign in to {isScreen ? 'watch' : 'join'} — either way you land
+            straight back in this {what}. You could also ask the host to set a password.
           </p>
           {/* Making an account is the way in for the people who actually end up
               on this card, so it leads. Both come back to the meeting. */}
@@ -145,7 +178,9 @@ export default function GuestJoinPage() {
           <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-950">
             <Video className="size-6" />
           </span>
-          <h1 className="text-xl font-semibold tracking-tight">Join the meeting</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            {isScreen ? 'Watch the screen share' : 'Join the meeting'}
+          </h1>
           <p className="text-sm text-slate-500">
             No account needed. You can stay for 30 minutes.
           </p>
@@ -183,7 +218,7 @@ export default function GuestJoinPage() {
             />
           </div>
           <div>
-            <Label>Meeting password</Label>
+            <Label>{isScreen ? 'Screen share password' : 'Meeting password'}</Label>
             <Input
               value={passcode}
               onChange={(e) => setPasscode(e.target.value)}
@@ -197,7 +232,7 @@ export default function GuestJoinPage() {
             className="w-full"
             disabled={busy || !codeInput.trim() || !name.trim() || !passcode.trim()}
           >
-            {busy ? <><Loader2 className="size-4 animate-spin" /> Joining…</> : 'Join'}
+            {busy ? <><Loader2 className="size-4 animate-spin" /> Joining…</> : isScreen ? 'Watch' : 'Join'}
           </Button>
         </form>
 

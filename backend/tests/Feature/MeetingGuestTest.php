@@ -152,6 +152,22 @@ class MeetingGuestTest extends TestCase
             ->assertJsonPath('data.exists', false);
     }
 
+    public function test_the_link_says_whether_it_opens_a_room_or_a_screen(): void
+    {
+        // A guest is sent to one or the other, and arriving in the wrong one
+        // looks like a broken link rather than a wrong turn.
+        $this->getJson("/api/v1/meetings/{$this->meeting->code}/guest")
+            ->assertOk()
+            ->assertJsonPath('data.is_screen', false);
+
+        $this->meeting->update(['is_screen' => true]);
+        $this->getJson("/api/v1/meetings/{$this->meeting->code}/guest")
+            ->assertOk()
+            ->assertJsonPath('data.is_screen', true)
+            // A password is still what lets a guest in at all.
+            ->assertJsonPath('data.allows_guests', true);
+    }
+
     public function test_the_host_can_set_and_clear_the_password_mid_meeting(): void
     {
         // The instant "New meeting" button makes no password, so the only place

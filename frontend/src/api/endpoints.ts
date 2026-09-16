@@ -1019,7 +1019,18 @@ export const guestMeetings = {
    * simply trying.
    */
   peek: (code: string) =>
-    api.get<{ data: { exists: boolean; allows_guests: boolean; ended: boolean; is_locked: boolean } }>(
+    api.get<{ data: {
+      exists: boolean
+      allows_guests: boolean
+      ended: boolean
+      is_locked: boolean
+      /**
+       * Which kind of thing the link opens: a room to talk in, or a screen to
+       * watch. They have different doors, and being sent to the wrong one
+       * looks to the person holding the link like a broken invite.
+       */
+      is_screen: boolean
+    } }>(
       `/meetings/${code}/guest`,
     ).then((r) => r.data.data),
   join: (code: string, name: string, passcode: string) =>

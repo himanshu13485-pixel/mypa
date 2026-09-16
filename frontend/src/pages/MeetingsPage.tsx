@@ -13,6 +13,7 @@ import type { MeetingItem } from '../types'
 import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, LoadError, Modal, Select, SkeletonCards,
 } from '../components/ui'
+import { livePath } from '../lib/crmPath'
 
 /**
  * The one link. Signed-in members open it and walk in; anyone else is asked
@@ -71,7 +72,7 @@ export default function MeetingsPage() {
    * list slowly filled with them. The room is made when somebody actually
    * joins; back out of the lobby and there is nothing to tidy up.
    */
-  const startInstant = () => navigate(`/meetings/room/${NEW_MEETING}`)
+  const startInstant = () => navigate(livePath('meeting', NEW_MEETING))
 
   const join = () => {
     // Accept a bare code OR a full pasted invite link — extract the
@@ -80,7 +81,7 @@ export default function MeetingsPage() {
     const fromLink = raw.match(/[a-z]{3}-[a-z]{4}-[a-z]{3}/)
     const code = fromLink ? fromLink[0] : raw.replace(/[^a-z-]/g, '')
     if (!code) return
-    navigate(`/meetings/room/${code}`)
+    navigate(livePath('meeting', code))
   }
 
   const [removing, setRemoving] = useState<string | null>(null)
@@ -327,7 +328,7 @@ export default function MeetingsPage() {
                   <Copy className="size-3.5" /> {copiedCode === m.code ? 'Copied ✓' : 'Link'}
                 </Button>
                 {m.status !== 'ended' && (
-                  <Button size="sm" onClick={() => navigate(`/meetings/room/${m.code}`)}>
+                  <Button size="sm" onClick={() => navigate(livePath('meeting', m.code))}>
                     {m.status === 'active' ? 'Join' : 'Start'}
                   </Button>
                 )}

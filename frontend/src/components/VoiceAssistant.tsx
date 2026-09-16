@@ -13,6 +13,7 @@ import { toInstant } from '../lib/localTime'
 import { useCalls } from './CallManager'
 import { Button, Input, Label, Select } from './ui'
 import { TASK_PRIORITIES } from '../types'
+import { livePath } from '../lib/crmPath'
 
 /* Minimal Web Speech API typings (not in lib.dom for all targets). */
 interface SpeechRecognitionLike {
@@ -627,7 +628,7 @@ export default function VoiceAssistant() {
           ? { is_screen: true, type: 'video', title: 'Screen share' }
           : { type: 'video', title: 'Meeting' },
       )
-      const path = isScreen ? `/screen/session/${meeting.code}` : `/meetings/room/${meeting.code}`
+      const path = livePath(isScreen ? 'screen' : 'meeting', meeting.code)
       const link = `${window.location.origin}${path}`
       const inviteText = isScreen
         ? `I'm sharing my screen on Netvork — join here: ${link}`

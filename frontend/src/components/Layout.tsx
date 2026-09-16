@@ -284,6 +284,9 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
 
   return (
     <CallProvider>
+    {/* Inside the call, because a share that outlives its page is the same
+        idea one floor down: the bar it draws has to know to keep out of the
+        call window's way. */}
     <MeetingHost>
     {/* Here as well as in the CRM shell: an 'account'-level seat reaches the
         whole of Netvork, so the reminder has to follow it there. */}

@@ -44,6 +44,10 @@ class MeetingGuestController extends Controller
             'allows_guests' => (bool) $meeting?->allowsGuests(),
             'ended' => $meeting?->status === 'ended',
             'is_locked' => (bool) $meeting?->is_locked,
+            // Which kind of thing the link opens: a room to talk in, or a
+            // screen to watch. The guest is sent to one or the other, and
+            // arriving in the wrong one looks like a broken link.
+            'is_screen' => (bool) $meeting?->is_screen,
         ]]);
     }
 

@@ -9,6 +9,7 @@ import { Badge, Button, Card, EmptyState, Input, SkeletonList } from '../compone
 import { screenShareSupported } from '../lib/devices'
 import { MeetingTranscript } from '../components/MeetingTranscript'
 import type { MeetingItem } from '../types'
+import { livePath } from '../lib/crmPath'
 
 export function screenLink(code: string): string {
   return `${window.location.origin}/screen/session/${code}`
@@ -38,7 +39,7 @@ export default function ScreenPage() {
     mutationFn: () => meetingsApi.create({ is_screen: true, type: 'video', title: 'Screen share' }),
     onSuccess: (m) => {
       queryClient.invalidateQueries({ queryKey: ['screen-sessions'] })
-      navigate(`/screen/session/${m.code}`)
+      navigate(livePath('screen', m.code))
     },
     onError: (err) => alert(errorMessage(err)),
   })
@@ -47,7 +48,7 @@ export default function ScreenPage() {
     const raw = viewCode.trim().toLowerCase()
     const fromLink = raw.match(/[a-z]{3}-[a-z]{4}-[a-z]{3}/)
     const code = fromLink ? fromLink[0] : raw.replace(/[^a-z-]/g, '')
-    if (code) navigate(`/screen/session/${code}`)
+    if (code) navigate(livePath('screen', code))
   }
 
   const copyLink = (code: string) => {
