@@ -281,6 +281,17 @@ export default function CrmLayout() {
   const isNavActive = (to: string) => navMatches(to, location.pathname, location.search)
 
   /*
+   * A live meeting or a screen being watched wants the whole area.
+   *
+   * Both are drawn inside this shell so the company sidebar survives a join,
+   * and both size themselves with h-full - which resolves against <main>'s
+   * content box and then has the padding added back on top of it. The room
+   * came out taller than the space it had, so the page scrolled and the
+   * lobby box, centred in a box too tall to see, sat below the fold.
+   */
+  const immersive = /\/(meetings\/room|screen\/session)\//.test(location.pathname)
+
+  /*
    * Which section is on screen, so its badge can be marked seen.
    *
    * The same question the highlighting asks, and it must be asked the same
@@ -559,11 +570,15 @@ export default function CrmLayout() {
           {me?.member?.crm_role === 'admin' && <MenuAlertToggle scope="company" />}
           <NotificationBell />
         </div>
-        <main className="scroll-pane min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
+        <main className={clsx(
+          'scroll-pane min-h-0 min-w-0 flex-1 overflow-y-auto',
+          immersive ? 'p-0' : 'p-4 sm:p-6',
+        )}>
           {/* Where you stand, on every screen. Carrying a target and having to
               go and look for it is how a month gets away from somebody. Draws
-              nothing when no target was set for this desk. */}
-          <CrmTargetStrip me={me} />
+              nothing when no target was set for this desk - and nothing during
+              a meeting either, where it would push the room down the page. */}
+          {!immersive && <CrmTargetStrip me={me} />}
           <Outlet context={{ me }} />
           {/* The room, drawn beside the page rather than inside it: on its own
               route the page is empty and the room has the space; anywhere else

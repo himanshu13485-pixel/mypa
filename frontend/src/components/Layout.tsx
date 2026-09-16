@@ -423,8 +423,16 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
             tiles collapsed from 366x648 to 256x144. */}
         <main ref={mainRef} className={clsx(
           'scroll-pane mx-auto min-h-0 w-full max-w-7xl flex-1 overflow-y-auto',
-          // A meeting wants the screen; every other page wants margins.
-          bare ? 'p-0' : immersive ? 'p-2 sm:p-4' : 'p-4 sm:p-6',
+          /*
+           * A meeting wants the screen; every other page wants margins.
+           *
+           * No padding at all, not a little: the room sizes itself with
+           * h-full, which is <main>'s content box, and padding is then added
+           * on top of that - so any at all made the room taller than the
+           * space it had and put a scrollbar on a page with nothing to
+           * scroll to.
+           */
+          immersive ? 'p-0' : 'p-4 sm:p-6',
         )}>
           {/*
             * The waiting happens here, not around the whole app.
