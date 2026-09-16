@@ -49,7 +49,19 @@ describe('guestRouteFor', () => {
     expect(guestRouteFor('/', null)).toBeNull()
     // The list page, not a room — and not a code either.
     expect(guestRouteFor('/meetings/room/', null)).toBeNull()
-    expect(guestRouteFor('/screen/session/abc-defg-hij', null)).toBeNull()
+    expect(guestRouteFor('/screen/session/', null)).toBeNull()
+    expect(guestRouteFor('/screen', null)).toBeNull()
+  })
+
+  it('treats a shared screen link the same way — it is sent to strangers too', () => {
+    // The reported bug: this link went to the sign-in page, so whoever the
+    // screen was being shown to could not get in at all.
+    expect(guestRouteFor('/screen/session/abc-defg-hij', null)).toBe('/join/abc-defg-hij')
+    expect(guestRouteFor('/screen/session/ABC-DEFG-HIJ/', null)).toBe('/join/abc-defg-hij')
+  })
+
+  it('takes a watcher holding a pass straight to the screen, not to a meeting', () => {
+    expect(guestRouteFor('/screen/session/abc-defg-hij', pass())).toBe('/guest/screen/abc-defg-hij')
   })
 
   it('ignores anything that is not shaped like a meeting code', () => {

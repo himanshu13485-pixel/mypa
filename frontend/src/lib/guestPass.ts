@@ -51,6 +51,15 @@ export function guestPassExpired(pass: GuestPass | null): boolean {
 const MEETING_ROOM = /^\/meetings\/room\/([a-z0-9]{3}-[a-z0-9]{4}-[a-z0-9]{3})\/?$/i
 
 /**
+ * The other link that reaches people with no account: a screen session.
+ *
+ * Shared exactly the way a meeting invite is - one link, sent to whoever
+ * needs to watch - so it must not dead-end at a sign-in form either. It was
+ * doing precisely that.
+ */
+const SCREEN_SESSION = /^\/screen\/session\/([a-z0-9]{3}-[a-z0-9]{4}-[a-z0-9]{3})\/?$/i
+
+/**
  * Where a signed-out visitor on a meeting link should be sent.
  *
  * There is one invite link and everybody gets the same one, so the guard
@@ -60,12 +69,15 @@ const MEETING_ROOM = /^\/meetings\/room\/([a-z0-9]{3}-[a-z0-9]{4}-[a-z0-9]{3})\/
  */
 export function guestRouteFor(pathname: string, pass: GuestPass | null): string | null {
   const room = pathname.match(MEETING_ROOM)
-  if (!room) return null
+  const screen = room ? null : pathname.match(SCREEN_SESSION)
+  const match = room ?? screen
+  if (!match) return null
 
-  const code = room[1].toLowerCase()
-  // Already holding a live pass for this meeting: that is a reload, not a new
+  const code = match[1].toLowerCase()
+  // Already holding a live pass for this one: that is a reload, not a new
   // arrival, and asking for the password again would be asking twice.
   const live = pass?.code === code && !guestPassExpired(pass)
+  const inside = screen ? `/guest/screen/${code}` : `/guest/room/${code}`
 
-  return live ? `/guest/room/${code}` : `/join/${code}`
+  return live ? inside : `/join/${code}`
 }

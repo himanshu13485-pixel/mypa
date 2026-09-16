@@ -68,11 +68,18 @@ export function RequireAuth({ children }: { children: ReactNode }) {
  */
 export function RequireGuestPass({ children }: { children: ReactNode }) {
   const { code } = useParams()
+  const { pathname } = useLocation()
   const token = useAuthStore((s) => s.token)
   const pass = readGuestPass()
 
-  // Signed in already: the ordinary room is theirs, with no half-hour limit.
-  if (token) return <Navigate to={`/meetings/room/${code}`} replace />
+  // A screen session is guarded the same way a room is, and a member sent to
+  // the room instead would arrive at a meeting nobody is holding.
+  const watching = pathname.startsWith('/guest/screen/')
+
+  // Signed in already: the ordinary page is theirs, with no half-hour limit.
+  if (token) {
+    return <Navigate to={watching ? `/screen/session/${code}` : `/meetings/room/${code}`} replace />
+  }
 
   if (!pass || pass.code !== code || guestPassExpired(pass)) {
     return <Navigate to={`/join/${code}`} replace />

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Copy, Eye, MessageSquare, MonitorUp } from 'lucide-react'
+import { Copy, Eye, KeyRound, MessageSquare, MonitorUp } from 'lucide-react'
 import { format, formatDistanceToNow } from 'date-fns'
 import { meetings as meetingsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
@@ -13,6 +13,19 @@ import { livePath } from '../lib/crmPath'
 
 export function screenLink(code: string): string {
   return `${window.location.origin}/screen/session/${code}`
+}
+
+/**
+ * A password worth reading down the phone: no l/1, no O/0.
+ *
+ * Six characters is not a secret to be guarded for years - it guards one
+ * screen, for as long as that screen is up, against somebody who would have
+ * to know the link as well.
+ */
+function suggestWord(): string {
+  const alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+
+  return Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('')
 }
 
 /**
@@ -28,6 +41,17 @@ export default function ScreenPage() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   /* Whose conversation is being read - during the share or long after. */
   const [chatFor, setChatFor] = useState<MeetingItem | null>(null)
+  /*
+   * The password that opens a share to people with no Netvork account.
+   *
+   * There is no separate "public link" to generate: the link is always the
+   * same one, and this is what decides whether a stranger holding it gets in
+   * or is turned towards a sign-in page. Empty means members only.
+   */
+  const [guestWord, setGuestWord] = useState('')
+  /** Which running session is having its password changed, if any. */
+  const [guestFor, setGuestFor] = useState<string | null>(null)
+  const [guestEdit, setGuestEdit] = useState('')
 
   const { data: sessions, isLoading } = useQuery({
     queryKey: ['screen-sessions'],
@@ -36,10 +60,35 @@ export default function ScreenPage() {
   })
 
   const shareMutation = useMutation({
-    mutationFn: () => meetingsApi.create({ is_screen: true, type: 'video', title: 'Screen share' }),
+    mutationFn: () => meetingsApi.create({
+      is_screen: true,
+      type: 'video',
+      title: 'Screen share',
+      // Only once it is long enough to be accepted; a half-typed word that
+      // was thought better of must not fail the whole share.
+      ...(guestWord.length >= 4 ? { passcode: guestWord } : {}),
+    }),
     onSuccess: (m) => {
       queryClient.invalidateQueries({ queryKey: ['screen-sessions'] })
       navigate(livePath('screen', m.code))
+    },
+    onError: (err) => alert(errorMessage(err)),
+  })
+
+  /*
+   * Opening - or closing - an existing share to guests.
+   *
+   * A share is usually started before anybody says "I cannot get in", so the
+   * decision has to be changeable while the screen is up rather than only in
+   * the moment it began.
+   */
+  const guestMutation = useMutation({
+    mutationFn: ({ code, passcode }: { code: string; passcode: string | null }) =>
+      meetingsApi.setPasscode(code, passcode),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['screen-sessions'] })
+      setGuestFor(null)
+      setGuestEdit('')
     },
     onError: (err) => alert(errorMessage(err)),
   })
@@ -81,9 +130,38 @@ export default function ScreenPage() {
               say that here rather than after the fact. Watching one still
               works, which is why only this half is withheld. */}
           {canShareScreen ? (
-            <Button size="sm" onClick={() => shareMutation.mutate()} disabled={shareMutation.isPending}>
-              <MonitorUp className="size-3.5" /> {shareMutation.isPending ? 'Starting…' : 'Start sharing'}
-            </Button>
+            <>
+              {/* Not a setting buried in a menu: whether the link works for
+                  people outside the company is decided here, where the link
+                  is made. */}
+              <div className="w-full space-y-1">
+                <span className="flex items-center gap-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                  <KeyRound className="size-3" /> Guest password (optional)
+                </span>
+                <div className="flex w-full gap-1">
+                  <Input
+                    placeholder="leave empty for members only"
+                    value={guestWord}
+                    maxLength={12}
+                    onChange={(e) => setGuestWord(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+                  />
+                  <Button size="sm" variant="secondary" onClick={() => setGuestWord(suggestWord())}>
+                    Suggest
+                  </Button>
+                </div>
+                <p className="text-[11px] leading-snug text-slate-400">
+                  Set one and anyone with the link can watch without a Netvork account — they type
+                  their name and this password. 4–12 letters or numbers.
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => shareMutation.mutate()}
+                disabled={shareMutation.isPending || (guestWord.length > 0 && guestWord.length < 4)}
+              >
+                <MonitorUp className="size-3.5" /> {shareMutation.isPending ? 'Starting…' : 'Start sharing'}
+              </Button>
+            </>
           ) : (
             <p className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] leading-snug text-slate-500 dark:bg-slate-800 dark:text-slate-400">
               Sharing needs a computer — no phone browser can capture its own screen. You can still
@@ -133,6 +211,71 @@ export default function ScreenPage() {
                     ` · lasted ${Math.max(1, Math.round(s.duration_seconds / 60))} min`}
                   {s.status === 'ended' && s.started_at && ` · ${format(new Date(s.started_at), 'd MMM, HH:mm')}`}
                 </p>
+                {/* Who the link lets in, said on the row that holds the link.
+                    The host's own sessions only, and only while they are
+                    running - there is nothing to let anybody into afterwards. */}
+                {s.is_host && s.status !== 'ended' && (
+                  guestFor === s.code ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-1">
+                      <Input
+                        className="w-40"
+                        autoFocus
+                        placeholder="4–12 letters/numbers"
+                        value={guestEdit}
+                        maxLength={12}
+                        onChange={(e) => setGuestEdit(e.target.value.replace(/[^a-zA-Z0-9]/g, ''))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && guestEdit.length >= 4) {
+                            guestMutation.mutate({ code: s.code, passcode: guestEdit })
+                          }
+                          if (e.key === 'Escape') setGuestFor(null)
+                        }}
+                      />
+                      <Button
+                        size="sm"
+                        disabled={guestEdit.length < 4 || guestMutation.isPending}
+                        onClick={() => guestMutation.mutate({ code: s.code, passcode: guestEdit })}
+                      >
+                        Save
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => setGuestFor(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+                      {s.allows_guests ? (
+                        <>
+                          <span className="text-emerald-600">
+                            Guests can watch · password <span className="font-mono">{s.passcode}</span>
+                          </span>
+                          <button
+                            className="text-slate-400 underline underline-offset-2 hover:text-slate-600"
+                            onClick={() => { setGuestFor(s.code); setGuestEdit(s.passcode ?? suggestWord()) }}
+                          >
+                            change
+                          </button>
+                          <button
+                            className="text-slate-400 underline underline-offset-2 hover:text-slate-600"
+                            onClick={() => guestMutation.mutate({ code: s.code, passcode: null })}
+                          >
+                            members only
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-slate-400">Signed-in members only</span>
+                          <button
+                            className="text-brand-600 underline underline-offset-2"
+                            onClick={() => { setGuestFor(s.code); setGuestEdit(suggestWord()) }}
+                          >
+                            let guests watch
+                          </button>
+                        </>
+                      )}
+                    </p>
+                  )
+                )}
               </div>
               <div className="flex gap-1.5">
                 {/* What was typed while the screen was up. It used to go
@@ -144,7 +287,7 @@ export default function ScreenPage() {
                   <Copy className="size-3.5" /> {copiedCode === s.code ? 'Copied ✓' : 'Link'}
                 </Button>
                 {s.status !== 'ended' && (
-                  <Button size="sm" onClick={() => navigate(`/screen/session/${s.code}`)}>
+                  <Button size="sm" onClick={() => navigate(livePath('screen', s.code))}>
                     {s.is_host ? 'Resume' : 'View'}
                   </Button>
                 )}
