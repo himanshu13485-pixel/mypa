@@ -19,6 +19,7 @@ import NetvorkMark from './Logo'
 import { CallProvider } from './CallManager'
 import ImpersonationBanner from './ImpersonationBanner'
 import { MeetingHost, MeetingSlot } from './MeetingHost'
+import { isMeetingRoute } from '../lib/meetingRoute'
 import VoiceAssistant from './VoiceAssistant'
 import MobileVerifyBanner from './MobileVerifyBanner'
 import { Avatar } from '../lib/avatars'
@@ -438,7 +439,13 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
             * navigated with stays where it is.
             */}
           <Suspense fallback={<RouteFallback />}>
-            <div key={pathname} className="route-enter">
+            {/*
+              * On the room's own route the Outlet draws nothing, but this
+              * wrapper carries all of <main>'s height for the pages that ask
+              * for it with h-full - which pushed the room, and the lobby box
+              * in front of it, below the fold.
+              */}
+            <div key={pathname} className={clsx('route-enter', isMeetingRoute(pathname) && 'hidden')}>
               <Outlet />
             </div>
           </Suspense>

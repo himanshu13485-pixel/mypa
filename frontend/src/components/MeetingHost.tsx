@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import { useLocation, useParams } from 'react-router-dom'
 
 import { lazyRoute } from '../lib/lazyRoute'
+import { isMeetingRoute } from '../lib/meetingRoute'
 
 const MeetingRoomPage = lazyRoute('MeetingRoomPage', () => import('../pages/MeetingRoomPage'))
 
@@ -47,7 +48,7 @@ const Ctx = createContext<MeetingSession>({
 export const useMeetingSession = () => useContext(Ctx)
 
 /** Where the room lives while it is on screen full size. */
-const MEETING_ROUTE = /^\/meetings\/room\//
+
 
 /**
  * The route element. It holds no meeting of its own — it hands the code to the
@@ -67,7 +68,7 @@ export function MeetingRoomRoute() {
 export function MeetingHost({ children }: { children: React.ReactNode }) {
   const [code, setCode] = useState<string | null>(null)
   const { pathname } = useLocation()
-  const onRoute = MEETING_ROUTE.test(pathname)
+  const onRoute = isMeetingRoute(pathname)
 
   const close = useCallback(() => setCode(null), [])
   const session = useMemo<MeetingSession>(

@@ -24,6 +24,7 @@ import BackgroundPicker, { type BackgroundChoice } from './BackgroundPicker'
 import { normalizeSdp } from '../lib/sdp'
 import { VIDEO_FIT, useGalleryLayout, useSelfView } from '../lib/videoLayout'
 import { isPhoneViewport, useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
+import { useDraggableWindow } from '../lib/draggable'
 import {
   enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported, onFullscreenChange,
 } from '../lib/fullscreen'
@@ -120,7 +121,25 @@ function RemoteTile({ peer, video, active, className, style, cover, hideName, on
       className={clsx('relative min-h-0 overflow-hidden rounded-lg bg-slate-900', active && 'ring-2 ring-emerald-400', className)}
     >
       {/* Fit, never crop — a tile is rarely the camera's own shape. */}
-      <video ref={attach} autoPlay playsInline className={cover ? 'h-full w-full bg-black object-cover' : VIDEO_FIT} />
+      {/*
+        * Mirrored, deliberately against the convention.
+        *
+        * Every other calling app mirrors only your own picture and sends the
+        * true image on, so the far side sees you the way a person across a
+        * table would. The company wants the opposite: what the sender sees and
+        * what the other side sees should match. Done here on the receiving
+        * side rather than by flipping what we encode, which would cost a
+        * canvas pass per frame for what is only a matter of display.
+        *
+        * Never a shared screen — mirrored text is unreadable, and reading is
+        * the whole point of sharing one.
+        */}
+      <video
+        ref={attach}
+        autoPlay
+        playsInline
+        className={clsx(cover ? 'h-full w-full bg-black object-cover' : VIDEO_FIT, !peer.sharing && '-scale-x-100')}
+      />
       {peer.conn && !['connected', 'completed'].includes(peer.conn) && (
         <span
           className={
@@ -279,6 +298,24 @@ export function CallProvider({ children }: { children: ReactNode }) {
   const incomingRef = useRef<CallSignalPayload | null>(null)
   incomingRef.current = incoming
 
+  /*
+   * The ICE servers, asked for as soon as a call is in the air.
+   *
+   * They used to be fetched inside the first createPeer, so the first offer of
+   * the call waited on a round trip to the API before it could even be built.
+   * Here it overlaps with the ringing — the seconds somebody spends deciding
+   * whether to answer are seconds this was going to spend anyway — and by the
+   * time there is a peer to dial the answer is already in hand. Not on mount:
+   * this provider is alive for the whole session, and most sessions never make
+   * a call at all.
+   */
+  useEffect(() => {
+    if ((!activeCall && !incoming) || iceServersRef.current) return
+    calls.config()
+      .then((cfg) => { iceServersRef.current = cfg.iceServers })
+      .catch(() => { /* createPeer asks again; this was only the head start */ })
+  }, [activeCall, incoming])
+
   /** Apply any ICE candidates that arrived early for this peer. */
   const flushPendingIce = useCallback((peerUuid: string) => {
     const pc = peersRef.current.get(peerUuid)
@@ -395,7 +432,10 @@ export function CallProvider({ children }: { children: ReactNode }) {
       if (!iceServersRef.current) {
         iceServersRef.current = (await calls.config()).iceServers
       }
-      const pc = new RTCPeerConnection({ iceServers: iceServersRef.current })
+      /* The pool gathers candidates before there is an offer to put them in, so
+         the first exchange carries a usable set rather than waiting on the
+         trickle behind it. */
+      const pc = new RTCPeerConnection({ iceServers: iceServersRef.current, iceCandidatePoolSize: 4 })
       peersRef.current.set(peerUuid, pc)
 
       const stream = await ensureLocalStream(type)
@@ -1464,6 +1504,16 @@ export function CallProvider({ children }: { children: ReactNode }) {
   // of the app is reachable mid-call.
   const fullBleed = !!activeCall && isVideo && phone && expanded
   /*
+   * The pill can be pushed out of the way, the big window cannot.
+   *
+   * Only the corner pill floats over somebody's work — the bottom right of the
+   * app is also where the page underneath keeps its own controls, and a window
+   * welded over them is a window in the way. Expanded and fullscreen fill the
+   * screen and have nothing to be moved out of, so they take no remembered
+   * position with them either.
+   */
+  const { dragProps } = useDraggableWindow(panelRef, 'call', !!activeCall && !fullBleed && !isFs && !expanded)
+  /*
    * Who is on the stage: whoever is pinned, else whoever is presenting, else
    * simply the first other person — a phone always has somebody big, unlike
    * the windowed panel where nothing on the stage means a plain grid.
@@ -1725,6 +1775,7 @@ export function CallProvider({ children }: { children: ReactNode }) {
       {activeCall && !fullBleed && (
         <div
           ref={panelRef}
+          {...dragProps}
           className={clsx(
             'z-[60] flex flex-col overflow-hidden border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900',
             isFs
@@ -1758,7 +1809,9 @@ export function CallProvider({ children }: { children: ReactNode }) {
                     <>
                       {/* Filmstrip above the stage, as every meeting app does. */}
                       {galleryPeers.length > 0 && (
-                        <div className="flex h-16 shrink-0 justify-center gap-1 overflow-x-auto sm:h-20">
+                        // data-no-drag: this strip scrolls, and a finger on it
+                        // should move the faces along rather than the window.
+                        <div data-no-drag className="flex h-16 shrink-0 justify-center gap-1 overflow-x-auto sm:h-20">
                           {galleryPeers.map((p) => (
                             <RemoteTile
                               key={p.uuid} peer={p} video active={activeSpeaker === p.uuid}
@@ -1999,12 +2052,15 @@ export function CallProvider({ children }: { children: ReactNode }) {
                   <>
                     {/* Catches the click away. A phone has no hover, so leaving
                         is not a gesture it can make. */}
-                    <div className="fixed inset-0 z-20" onMouseDown={() => setAudioOpen(false)} />
+                    {/* data-no-drag: this sheet and its backdrop are children
+                        of the panel but cover the whole screen, so without it a
+                        press anywhere at all would take hold of the window. */}
+                    <div data-no-drag className="fixed inset-0 z-20" onMouseDown={() => setAudioOpen(false)} />
                     {/* A strip above the controls on a phone. Anchored to the
                         button's right edge, this panel extended 14rem to the
                         left of a button that sits at the bar's left end —
                         which put most of it, mid-sentence, off the screen. */}
-                    <div className="fixed inset-x-3 bottom-24 z-30 rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:bottom-10 sm:right-0 sm:w-56 sm:max-w-[calc(100vw-2rem)]">
+                    <div data-no-drag className="fixed inset-x-3 bottom-24 z-30 rounded-xl border border-slate-200 bg-white p-3 shadow-lg dark:border-slate-700 dark:bg-slate-900 sm:absolute sm:inset-x-auto sm:bottom-10 sm:right-0 sm:w-56 sm:max-w-[calc(100vw-2rem)]">
                       {audioDevices}
                     </div>
                   </>

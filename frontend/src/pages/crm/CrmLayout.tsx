@@ -11,6 +11,7 @@ import { BirthdayWishes } from './BirthdayWishes'
 import { backgroundRule, sidebarStyle } from '../../lib/backgrounds'
 import { FestivalVibes } from './FestivalVibes'
 import { CallProvider } from '../../components/CallManager'
+import { MeetingHost, MeetingSlot } from '../../components/MeetingHost'
 import ImpersonationBanner from '../../components/ImpersonationBanner'
 import NotificationBell from '../../components/NotificationBell'
 import CrmTargetStrip from '../../components/CrmTargetStrip'
@@ -457,6 +458,10 @@ export default function CrmLayout() {
     // CallProvider here too: the Connect suite lives inside the CRM shell,
     // so calls must ring and connect without leaving it.
     <CallProvider>
+    {/* And the room with it: joining from a company screen keeps the company
+        shell, so the room has to be drawn inside it rather than only in the
+        personal app. */}
+    <MeetingHost>
     {/* And the share with it: the Connect suite's Screen page lives in this
         shell too, so a session started here must survive moving about it. */}
     {/* Above everything, because forgetting whose account you are working in
@@ -560,6 +565,10 @@ export default function CrmLayout() {
               nothing when no target was set for this desk. */}
           <CrmTargetStrip me={me} />
           <Outlet context={{ me }} />
+          {/* The room, drawn beside the page rather than inside it: on its own
+              route the page is empty and the room has the space; anywhere else
+              it floats in a corner over whatever is open. */}
+          <MeetingSlot />
           {/* The follow-up nag rides the shell so it fires on every screen. */}
           <LeadFollowUpAlerts me={me} />
           <NewLeadAlerts me={me} />
@@ -575,6 +584,7 @@ export default function CrmLayout() {
         </main>
       </div>
     </div>
+    </MeetingHost>
     </CallProvider>
   )
 }

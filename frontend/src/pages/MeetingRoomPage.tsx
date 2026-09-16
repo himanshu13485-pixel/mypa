@@ -28,6 +28,7 @@ import {
   enterFullscreen, exitFullscreen, fullscreenElement, fullscreenSupported, onFullscreenChange,
 } from '../lib/fullscreen'
 import { isPhoneViewport, useIsPhone, useLandscapePhone } from '../lib/useMediaQuery'
+import { useDraggableWindow } from '../lib/draggable'
 import BackgroundPicker, { type BackgroundChoice } from '../components/BackgroundPicker'
 import MeetingLobby, { type LobbyResult } from '../components/MeetingLobby'
 import ParticipantsPanel, { QualityDot } from '../components/ParticipantsPanel'
@@ -116,7 +117,21 @@ function PeerTile({
         className,
       )}
     >
-      <video ref={attach} autoPlay playsInline className={VIDEO_FIT} />
+      {/*
+        * Mirrored, deliberately against the convention.
+        *
+        * Every other meeting app mirrors only your own picture and sends the
+        * true image on, so the room sees you the way a person across a table
+        * would. The company wants the opposite: what the sender sees and what
+        * the room sees should match, so nobody has to explain why the badge on
+        * their shirt is on the other side here. Done on the receiving side,
+        * because flipping what we encode would cost a canvas pass per frame
+        * for something that is only ever a matter of how it is displayed.
+        *
+        * Never a shared screen. Text is the entire point of presenting one,
+        * and mirrored text is unreadable.
+        */}
+      <video ref={attach} autoPlay playsInline className={clsx(VIDEO_FIT, !peer.sharing && '-scale-x-100')} />
       {peer.camOff && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-900 text-slate-300">
           <Avatar name={peer.name} avatar={peer.avatar} size={52} />
@@ -327,6 +342,9 @@ export default function MeetingRoomPage() {
   const iceServersRef = useRef<RTCIceServer[] | null>(null)
   const joinedRef = useRef(false)
   const lobbyRef = useRef<LobbyResult | null>(null)
+  /** The floating window, while the meeting is running behind another page. */
+  const miniRef = useRef<HTMLDivElement>(null)
+  const { dragProps } = useDraggableWindow(miniRef, 'meeting', minimised)
   const restartTimersRef = useRef<Map<string, number>>(new Map())
   /** Offers in flight, so a slow one is not dialled a second time. */
   const dialingRef = useRef<Set<string>>(new Set())
@@ -530,7 +548,10 @@ export default function MeetingRoomPage() {
       if (existing) return existing
 
       if (!iceServersRef.current) iceServersRef.current = (await calls.config()).iceServers
-      const pc = new RTCPeerConnection({ iceServers: iceServersRef.current })
+      /* The pool gathers candidates before there is an offer to put them in, so
+         the first exchange carries a usable set rather than waiting on the
+         trickle behind it. */
+      const pc = new RTCPeerConnection({ iceServers: iceServersRef.current, iceCandidatePoolSize: 4 })
       pcsRef.current.set(peerUuid, pc)
 
       const stream = await ensureLocalStream()
@@ -1153,6 +1174,21 @@ export default function MeetingRoomPage() {
     }
     setPhase('lobby')
   }, [meeting, navigate, code, phase, unborn])
+
+  /*
+   * The ICE servers, asked for the moment the room opens.
+   *
+   * They used to be fetched inside the first createPeer, so the first offer of
+   * the meeting waited on a round trip to the API before it could even be
+   * built. Here it overlaps with the lobby the joiner is still reading, and by
+   * the time there is a peer to dial the answer is already in hand.
+   */
+  useEffect(() => {
+    if (!code || iceServersRef.current) return
+    calls.config()
+      .then((cfg) => { iceServersRef.current = cfg.iceServers })
+      .catch(() => { /* createPeer asks again; this was only the head start */ })
+  }, [code])
 
   // Signalling listener — shares the personal channel with calls, so only
   // stop OUR listener on unmount (never leave the channel itself).
@@ -2672,10 +2708,21 @@ export default function MeetingRoomPage() {
     const speaker = visiblePeers[0]
 
     return (
-      <div className="fixed bottom-20 right-3 z-50 w-44 overflow-hidden rounded-xl bg-slate-900 shadow-xl ring-1 ring-white/10 sm:bottom-4 sm:w-56">
+      /* The corner is a place to start from, not a place to stay: the bottom
+         right of the app is also where the page underneath keeps its own
+         controls, and a window welded over them is a window in the way. */
+      <div
+        ref={miniRef}
+        {...dragProps}
+        className="fixed bottom-20 right-3 z-50 w-44 overflow-hidden rounded-xl bg-slate-900 shadow-xl ring-1 ring-white/10 sm:bottom-4 sm:w-56"
+      >
         <button
           type="button"
           onClick={() => navigate(`/meetings/room/${code}`)}
+          /* The picture is most of this window, so it has to be somewhere the
+             window can be taken hold of; a press that does not move still
+             opens the meeting. */
+          data-drag-handle
           className="block w-full text-left"
           title="Back to the meeting"
         >
@@ -2686,7 +2733,9 @@ export default function MeetingRoomPage() {
                 autoPlay
                 playsInline
                 muted
-                className={VIDEO_FIT}
+                // Mirrored on the same terms as the tiles in the room — and
+                // left alone when what is on it is somebody's screen.
+                className={clsx(VIDEO_FIT, !speaker.sharing && '-scale-x-100')}
               />
             ) : (
               <div className="flex h-full items-center justify-center">

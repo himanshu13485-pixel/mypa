@@ -251,191 +251,209 @@ export default function MeetingLobby({
   }
 
   return (
-    <Card className="mx-auto mt-6 w-full max-w-3xl">
-      <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_240px]">
-        {/* Preview */}
-        <div>
-          <div className="relative aspect-video overflow-hidden rounded-xl bg-slate-900">
-            {!audioOnly && (
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className={clsx('h-full w-full -scale-x-100 object-cover', !camOn && 'invisible')}
-              />
-            )}
-            {(!camOn || audioOnly) && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300">
-                <Avatar
-                  name={displayName || defaultName}
-                  photoPath={me?.profile?.photo_path}
-                  avatar={me?.profile?.avatar}
-                  gender={me?.profile?.gender}
-                  size={72}
-                />
-                <span className="text-xs">{audioOnly ? 'Audio-only meeting' : 'Camera is off'}</span>
-              </div>
-            )}
-
-            <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-gradient-to-t from-black/70 to-transparent p-2">
-              <Button size="sm" variant={micOn ? 'secondary' : 'danger'} onClick={() => setMicOn((m) => !m)}>
-                {micOn ? <Mic className="size-4" /> : <MicOff className="size-4" />}
-              </Button>
+    /*
+     * A slot the height of the space it is given, with the panel centred in it.
+     *
+     * The room is drawn beside the router rather than inside it (see
+     * MeetingHost), so on the meeting route the empty route wrapper above it
+     * still carries the whole of <main>'s height and everything after it
+     * starts a screenful down — which is the band of nothing that used to sit
+     * above this panel and push it into the bottom half of the page. Owning
+     * the height and centring inside it puts the panel where the eye looks
+     * for it; the effect above brings the slot into view, since the empty
+     * wrapper belongs to the shell and is not this component's to move.
+     *
+     * max-h-full and its own scrollbar, not a taller box: on a short laptop
+     * screen the panel is taller than the space, and growing past the bottom
+     * of the window is how the Join button ends up somewhere you cannot reach.
+     */
+    <div className="flex h-full items-center justify-center py-2">
+      <Card className="mx-auto flex max-h-full w-full max-w-3xl flex-col overflow-y-auto">
+        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_240px]">
+          {/* Preview */}
+          <div>
+            <div className="relative aspect-video overflow-hidden rounded-xl bg-slate-900">
               {!audioOnly && (
-                <Button size="sm" variant={camOn ? 'secondary' : 'danger'} onClick={() => setCamOn((c) => !c)}>
-                  {camOn ? <Video className="size-4" /> : <VideoOff className="size-4" />}
-                </Button>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={clsx('h-full w-full -scale-x-100 object-cover', !camOn && 'invisible')}
+                />
               )}
-              {/* Checking how you look is the whole point of this screen, so
-                  the wrong camera is exactly the thing to fix here rather than
-                  after everyone can see you. */}
-              {!audioOnly && (isPhone || cameras.length > 1 || choice.facing) && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  title="Switch camera (front/back)"
-                  onClick={() => setChoice((c) => saveDeviceChoice(nextCamera(cameras, { deviceId: c.cameraId, facing: c.facing })))}
-                >
-                  <SwitchCamera className="size-4" />
-                </Button>
+              {(!camOn || audioOnly) && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-300">
+                  <Avatar
+                    name={displayName || defaultName}
+                    photoPath={me?.profile?.photo_path}
+                    avatar={me?.profile?.avatar}
+                    gender={me?.profile?.gender}
+                    size={72}
+                  />
+                  <span className="text-xs">{audioOnly ? 'Audio-only meeting' : 'Camera is off'}</span>
+                </div>
               )}
-            </div>
-          </div>
 
-          {/* Mic meter — proof the microphone is actually picking you up. */}
-          <div className="mt-2 flex items-center gap-2">
-            <Mic className="size-3.5 shrink-0 text-slate-400" />
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
-              <div
-                className={clsx('h-full rounded-full transition-[width] duration-75', micOn ? 'bg-emerald-500' : 'bg-slate-400')}
-                style={{ width: `${Math.round((micOn ? level : 0) * 100)}%` }}
-              />
-            </div>
-            <span className="w-24 shrink-0 text-right text-[11px] text-slate-400">
-              {micOn ? 'Say something' : 'Muted'}
-            </span>
-          </div>
-        </div>
-
-        {/* Settings */}
-        <div className="space-y-3">
-          <div>
-            <h2 className="text-sm font-semibold">{title}</h2>
-            {hostName && <p className="text-xs text-slate-400">Hosted by {hostName}</p>}
-          </div>
-
-          <ErrorNote message={mediaError ?? error ?? null} />
-
-          <div>
-            <Label>Your name in this meeting</Label>
-            <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={50} />
-          </div>
-
-          {/* No password box: whoever reaches this screen has already proved
-              who they are — a member by being signed in, a guest by typing the
-              meeting password at the door. Asking again made one join take two
-              entries of the same thing. */}
-
-          {!audioOnly && cameras.length > 0 && (
-            <div>
-              <Label>Camera</Label>
-              <Select value={choice.cameraId ?? ''} onChange={(e) => pick({ cameraId: e.target.value || undefined })}>
-                <option value="">Default camera</option>
-                {cameras.map((c) => (
-                  <option key={c.deviceId} value={c.deviceId}>{c.label}</option>
-                ))}
-              </Select>
-            </div>
-          )}
-
-          {mics.length > 0 && (
-            <div>
-              <Label>Microphone</Label>
-              <Select value={choice.micId ?? ''} onChange={(e) => pick({ micId: e.target.value || undefined })}>
-                <option value="">Default microphone</option>
-                {mics.map((m) => (
-                  <option key={m.deviceId} value={m.deviceId}>{m.label}</option>
-                ))}
-              </Select>
-            </div>
-          )}
-
-          {speakerSelectionSupported() && speakers.length > 0 && (
-            <div>
-              <Label>Speaker</Label>
-              <Select value={choice.speakerId ?? ''} onChange={(e) => pick({ speakerId: e.target.value || undefined })}>
-                <option value="">Default speaker</option>
-                {speakers.map((s) => (
-                  <option key={s.deviceId} value={s.deviceId}>{s.label}</option>
-                ))}
-              </Select>
-            </div>
-          )}
-
-          {/*
-            * Only when walking in from here is what creates the meeting.
-            * Named for what it does to the person choosing rather than for the
-            * architecture: nobody outside the codebase knows what an SFU is,
-            * and "direct" versus "through the server" is the whole difference.
-            */}
-          {choosesTransport && (
-            <div>
-              <Label>How it connects</Label>
-              <div className="mt-1 grid grid-cols-3 gap-1">
-                {([
-                  { value: '', label: 'Auto' },
-                  { value: 'mesh', label: 'Direct' },
-                  { value: 'sfu', label: 'Server' },
-                ] as const).map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => setTransport(option.value)}
-                    className={clsx(
-                      'rounded-lg border px-2 py-1.5 text-xs font-medium transition',
-                      transport === option.value
-                        ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
-                        : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600',
-                    )}
+              <div className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-gradient-to-t from-black/70 to-transparent p-2">
+                <Button size="sm" variant={micOn ? 'secondary' : 'danger'} onClick={() => setMicOn((m) => !m)}>
+                  {micOn ? <Mic className="size-4" /> : <MicOff className="size-4" />}
+                </Button>
+                {!audioOnly && (
+                  <Button size="sm" variant={camOn ? 'secondary' : 'danger'} onClick={() => setCamOn((c) => !c)}>
+                    {camOn ? <Video className="size-4" /> : <VideoOff className="size-4" />}
+                  </Button>
+                )}
+                {/* Checking how you look is the whole point of this screen, so
+                    the wrong camera is exactly the thing to fix here rather than
+                    after everyone can see you. */}
+                {!audioOnly && (isPhone || cameras.length > 1 || choice.facing) && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    title="Switch camera (front/back)"
+                    onClick={() => setChoice((c) => saveDeviceChoice(nextCamera(cameras, { deviceId: c.cameraId, facing: c.facing })))}
                   >
-                    {option.label}
-                  </button>
-                ))}
+                    <SwitchCamera className="size-4" />
+                  </Button>
+                )}
               </div>
-              {/*
-                * What actually degrades, which is not what you would guess.
-                * The upload does NOT grow with the room — sendQualityFor()
-                * divides one 2 Mbps budget by the headcount, so the uplink is
-                * flat and the picture is what gives way. What does grow is the
-                * number of connections and encoders, and that is the wall
-                * phones hit. Nothing stops the meeting growing past it, so it
-                * has to be said here rather than enforced later.
-                */}
-              <p className="mt-1 text-[11px] text-slate-400">
-                {transport === 'mesh'
-                  ? 'Straight between everyone, no server. Quality steps down as people join; past about a dozen it strains phones.'
-                  : transport === 'sfu'
-                    ? 'Everything through the server. Steady at any size.'
-                    : 'Direct while the meeting is small, through the server once it grows.'}
-              </p>
             </div>
-          )}
 
-          <div className="flex items-center gap-2 pt-1">
-            <Button className="flex-1" onClick={join} disabled={busy}>
-              {busy ? 'Joining…' : 'Join now'}
-            </Button>
-            <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+            {/* Mic meter — proof the microphone is actually picking you up. */}
+            <div className="mt-2 flex items-center gap-2">
+              <Mic className="size-3.5 shrink-0 text-slate-400" />
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
+                <div
+                  className={clsx('h-full rounded-full transition-[width] duration-75', micOn ? 'bg-emerald-500' : 'bg-slate-400')}
+                  style={{ width: `${Math.round((micOn ? level : 0) * 100)}%` }}
+                />
+              </div>
+              <span className="w-24 shrink-0 text-right text-[11px] text-slate-400">
+                {micOn ? 'Say something' : 'Muted'}
+              </span>
+            </div>
           </div>
-          <button
-            className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-brand-600"
-            onClick={refresh}
-          >
-            <RefreshCw className="size-3" /> Rescan devices
-          </button>
+
+          {/* Settings */}
+          <div className="space-y-3">
+            <div>
+              <h2 className="text-sm font-semibold">{title}</h2>
+              {hostName && <p className="text-xs text-slate-400">Hosted by {hostName}</p>}
+            </div>
+
+            <ErrorNote message={mediaError ?? error ?? null} />
+
+            <div>
+              <Label>Your name in this meeting</Label>
+              <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} maxLength={50} />
+            </div>
+
+            {/* No password box: whoever reaches this screen has already proved
+                who they are — a member by being signed in, a guest by typing the
+                meeting password at the door. Asking again made one join take two
+                entries of the same thing. */}
+
+            {!audioOnly && cameras.length > 0 && (
+              <div>
+                <Label>Camera</Label>
+                <Select value={choice.cameraId ?? ''} onChange={(e) => pick({ cameraId: e.target.value || undefined })}>
+                  <option value="">Default camera</option>
+                  {cameras.map((c) => (
+                    <option key={c.deviceId} value={c.deviceId}>{c.label}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+
+            {mics.length > 0 && (
+              <div>
+                <Label>Microphone</Label>
+                <Select value={choice.micId ?? ''} onChange={(e) => pick({ micId: e.target.value || undefined })}>
+                  <option value="">Default microphone</option>
+                  {mics.map((m) => (
+                    <option key={m.deviceId} value={m.deviceId}>{m.label}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+
+            {speakerSelectionSupported() && speakers.length > 0 && (
+              <div>
+                <Label>Speaker</Label>
+                <Select value={choice.speakerId ?? ''} onChange={(e) => pick({ speakerId: e.target.value || undefined })}>
+                  <option value="">Default speaker</option>
+                  {speakers.map((s) => (
+                    <option key={s.deviceId} value={s.deviceId}>{s.label}</option>
+                  ))}
+                </Select>
+              </div>
+            )}
+
+            {/*
+              * Only when walking in from here is what creates the meeting.
+              * Named for what it does to the person choosing rather than for the
+              * architecture: nobody outside the codebase knows what an SFU is,
+              * and "direct" versus "through the server" is the whole difference.
+              */}
+            {choosesTransport && (
+              <div>
+                <Label>How it connects</Label>
+                <div className="mt-1 grid grid-cols-3 gap-1">
+                  {([
+                    { value: '', label: 'Auto' },
+                    { value: 'mesh', label: 'Direct' },
+                    { value: 'sfu', label: 'Server' },
+                  ] as const).map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setTransport(option.value)}
+                      className={clsx(
+                        'rounded-lg border px-2 py-1.5 text-xs font-medium transition',
+                        transport === option.value
+                          ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                          : 'border-slate-200 hover:border-slate-300 dark:border-slate-700 dark:hover:border-slate-600',
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                {/*
+                  * What actually degrades, which is not what you would guess.
+                  * The upload does NOT grow with the room — sendQualityFor()
+                  * divides one 2 Mbps budget by the headcount, so the uplink is
+                  * flat and the picture is what gives way. What does grow is the
+                  * number of connections and encoders, and that is the wall
+                  * phones hit. Nothing stops the meeting growing past it, so it
+                  * has to be said here rather than enforced later.
+                  */}
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {transport === 'mesh'
+                    ? 'Straight between everyone, no server. Quality steps down as people join; past about a dozen it strains phones.'
+                    : transport === 'sfu'
+                      ? 'Everything through the server. Steady at any size.'
+                      : 'Direct while the meeting is small, through the server once it grows.'}
+                </p>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-1">
+              <Button className="flex-1" onClick={join} disabled={busy}>
+                {busy ? 'Joining…' : 'Join now'}
+              </Button>
+              <Button variant="secondary" onClick={onCancel}>Cancel</Button>
+            </div>
+            <button
+              className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-brand-600"
+              onClick={refresh}
+            >
+              <RefreshCw className="size-3" /> Rescan devices
+            </button>
+          </div>
         </div>
-      </div>
-    </Card>
+      </Card>
+    </div>
   )
 }
