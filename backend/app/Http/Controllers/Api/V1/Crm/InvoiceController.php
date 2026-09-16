@@ -999,8 +999,13 @@ class InvoiceController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
 
+        /*
+         * The person whose sale it is - and never the Company Admin, who
+         * would otherwise be nagged about every invoice they happened to
+         * raise on somebody else's behalf.
+         */
         $schedule = $org->paymentChaseSchedule();
-        if (! $schedule['enabled']) {
+        if (! $schedule['enabled'] || $me->crm_role === 'admin') {
             return response()->json(['data' => [], 'schedule' => $schedule]);
         }
 
@@ -1099,8 +1104,16 @@ class InvoiceController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
 
+        /*
+         * The Subadmins', not the Admin's.
+         *
+         * The Company Admin can see every document in the company, which made
+         * them the most interrupted person in it over dispatches that were
+         * never theirs to chase. Chasing goods out of the door is the desk's
+         * work, and the desk is the Subadmins.
+         */
         $schedule = $org->dispatchSchedule();
-        $chases = $schedule['enabled'] && in_array($me->crm_role, ['admin', 'subadmin'], true);
+        $chases = $schedule['enabled'] && $me->crm_role === 'subadmin';
 
         if (! $chases) {
             return response()->json(['data' => [], 'schedule' => $schedule]);
@@ -1150,7 +1163,7 @@ class InvoiceController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
         abort_unless(in_array($me->crm_role, ['admin', 'subadmin'], true), 403,
-            'Chasing a dispatch is the Company Admin’s, and the Subadmins’.');
+            'Deferring a dispatch is the Subadmins’, and the Company Admin’s if they choose to.');
 
         $invoice = $this->find($request, $uuid);
         $data = $request->validate([

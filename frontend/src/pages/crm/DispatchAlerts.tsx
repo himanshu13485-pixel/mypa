@@ -197,7 +197,7 @@ export function DispatchAlerts({ me }: { me: CrmMe | undefined }) {
         <div className="flex flex-col gap-2 border-t border-slate-100 px-4 py-3 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <span className="text-xs text-slate-400">
             Marking the goods dispatched clears a row for good. “Later” asks again
-            {repeatDays > 0 ? ` in ${repeatDays} days` : ' on the company’s own rhythm'}.
+            {repeatDays === 1 ? ' tomorrow' : repeatDays > 0 ? ` in ${repeatDays} days` : ' on the company’s own rhythm'}.
           </span>
           <Button size="sm" variant="secondary" className="self-start sm:self-auto" onClick={snooze}>Remind me later</Button>
         </div>

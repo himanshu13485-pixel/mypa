@@ -86,9 +86,10 @@ class CrmDispatchChasingTest extends TestCase
         ])->assertCreated()->json('data');
     }
 
+    /** The Subadmin is the one chased, so they are the default reader here. */
     private function due(?User $who = null): array
     {
-        return $this->as($who)->getJson('/api/v1/crm/invoices-dispatch-due')->assertOk()->json('data');
+        return $this->as($who ?? $this->subUser)->getJson('/api/v1/crm/invoices-dispatch-due')->assertOk()->json('data');
     }
 
     protected function tearDown(): void
@@ -175,7 +176,7 @@ class CrmDispatchChasingTest extends TestCase
         ])->assertStatus(422);
     }
 
-    public function test_the_chasing_belongs_to_the_office_not_the_salesperson(): void
+    public function test_the_chasing_is_the_subadmins_and_nobody_elses(): void
     {
         $this->raise();
         Carbon::setTestNow(now()->addDays(3));
@@ -183,6 +184,9 @@ class CrmDispatchChasingTest extends TestCase
         $this->assertCount(1, $this->due($this->subUser));
         // An employee is not asked, even though they may read the document.
         $this->assertSame([], $this->due($this->staffUser));
+        // Nor the Company Admin: they can see every document in the company,
+        // which made them the most interrupted person in it.
+        $this->assertSame([], $this->due($this->adminUser));
     }
 
     public function test_a_company_may_switch_the_chasing_off_or_change_its_rhythm(): void

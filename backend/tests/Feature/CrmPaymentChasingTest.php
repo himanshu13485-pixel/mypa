@@ -195,6 +195,16 @@ class CrmPaymentChasingTest extends TestCase
         $this->assertSame([], $this->due($this->otherUser));
     }
 
+    public function test_the_company_admin_is_not_nagged_about_money(): void
+    {
+        // Raised by the Admin themselves, so it would be theirs to chase by
+        // the ordinary rule - and they are still left alone.
+        $this->raise($this->adminUser);
+        Carbon::setTestNow(now()->addDays(9));
+
+        $this->assertSame([], $this->due($this->adminUser));
+    }
+
     public function test_a_company_may_switch_the_chasing_off_or_change_its_rhythm(): void
     {
         $this->raise();
