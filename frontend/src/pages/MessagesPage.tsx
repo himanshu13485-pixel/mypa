@@ -219,12 +219,16 @@ function ThemeModal({ conversation, busy, onPick, onPickBackground, onClose }: {
  * has to stay the default: nobody's history disappears unless somebody in
  * the room asks for it.
  */
-const RETENTION_LABELS: Record<number, string> = { 24: '24 hours', 168: '7 days', 720: '30 days' }
+const RETENTION_LABELS: Record<number, string> = {
+  24: '24 hours', 168: '7 days', 720: '30 days', 1440: '60 days', 2160: '90 days',
+}
 const RETENTION_CHOICES: { hours: number | null; label: string; hint: string }[] = [
   { hours: null, label: 'Keep everything', hint: 'Nothing is deleted — the default.' },
   { hours: 24, label: 'Delete after 24 hours', hint: 'Yesterday is gone by this time tomorrow.' },
   { hours: 168, label: 'Delete after 7 days', hint: 'A week of history, no more.' },
   { hours: 720, label: 'Delete after 30 days', hint: 'A month of history, no more.' },
+  { hours: 1440, label: 'Delete after 60 days', hint: 'Two months of history, no more.' },
+  { hours: 2160, label: 'Delete after 90 days', hint: 'A quarter of history, no more.' },
 ]
 
 /**
@@ -2054,20 +2058,6 @@ export default function MessagesPage() {
           </div>
         </Modal>
       )}
-      {showBroadcast && (
-        <BroadcastModal
-          onClose={() => setShowBroadcast(false)}
-          onSent={() => queryClient.invalidateQueries({ queryKey: ['conversations'] })}
-        />
-      )}
-      {showNewChat && (
-        <PickUserModal
-          title="Start a conversation"
-          actionLabel="Message"
-          onClose={() => setShowNewChat(false)}
-          onSubmit={beginChatWith}
-        />
-      )}
       {/*
         * Clearing is not deleting, and the dialog has to say so.
         *
@@ -2906,6 +2896,31 @@ export default function MessagesPage() {
           </>
         )}
       </div>
+
+      {/*
+        * Starting a conversation, and writing to everybody.
+        *
+        * Outside the pane that draws the open thread, because neither of
+        * them is about one: they were written inside it, so with nothing
+        * selected React never rendered them and the buttons did nothing at
+        * all. Portalling had already put them at the document root - which
+        * is why they looked right the moment any chat was open, and why the
+        * fault survived being "fixed" once.
+        */}
+      {showBroadcast && (
+        <BroadcastModal
+          onClose={() => setShowBroadcast(false)}
+          onSent={() => queryClient.invalidateQueries({ queryKey: ['conversations'] })}
+        />
+      )}
+      {showNewChat && (
+        <PickUserModal
+          title="Start a conversation"
+          actionLabel="Message"
+          onClose={() => setShowNewChat(false)}
+          onSubmit={beginChatWith}
+        />
+      )}
     </div>
   )
 }

@@ -179,7 +179,10 @@ class ConversationController extends Controller
 
         $data = $request->validate([
             // Null keeps everything; the rest are the offered spans, in hours.
-            'auto_delete_hours' => ['nullable', 'integer', Rule::in([24, 168, 720])],
+            // 24h, 7d, 30d, 60d, 90d. A closed list because each one is
+            // offered on screen and the purge is told in hours: an arbitrary
+            // number here would be a retention nobody could read back.
+            'auto_delete_hours' => ['nullable', 'integer', Rule::in([24, 168, 720, 1440, 2160])],
         ]);
 
         $hours = $data['auto_delete_hours'] ?? null;
@@ -187,7 +190,9 @@ class ConversationController extends Controller
 
         // Said out loud, in the room. Everyone whose words are now on a
         // timer deserves to be told, and to see who set it.
-        $labels = [24 => '24 hours', 168 => '7 days', 720 => '30 days'];
+        // Every span the rule above admits, so adding one there cannot leave
+        // this reaching for a key that is not here.
+        $labels = [24 => '24 hours', 168 => '7 days', 720 => '30 days', 1440 => '60 days', 2160 => '90 days'];
         Message::create([
             'conversation_id' => $conversation->id,
             'user_id' => $request->user()->id,

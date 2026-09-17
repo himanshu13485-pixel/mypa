@@ -102,4 +102,69 @@ class DisappearingMessagesTest extends TestCase
         $this->assertDatabaseMissing('messages', ['id' => $old->id]);
         $this->assertDatabaseHas('messages', ['id' => $recent->id]);
     }
+
+    public function test_every_span_offered_is_a_span_the_server_accepts(): void
+    {
+        [$me, , $conversation] = $this->conversation();
+
+        // The five on screen: 24 hours, 7, 30, 60 and 90 days.
+        foreach ([24, 168, 720, 1440, 2160] as $hours) {
+            $this->actingAs($me)->postJson("/api/v1/conversations/{$conversation->uuid}/retention", [
+                'auto_delete_hours' => $hours,
+            ])->assertOk();
+
+            $this->assertSame($hours, $conversation->fresh()->auto_delete_hours);
+        }
+
+        // And nothing else, so a span nobody can read back cannot be set.
+        $this->actingAs($me)->postJson("/api/v1/conversations/{$conversation->uuid}/retention", [
+            'auto_delete_hours' => 5000,
+        ])->assertStatus(422);
+    }
+
+    public function test_a_ninety_day_span_takes_what_is_older_and_nothing_else(): void
+    {
+        [$me, $mate, $conversation] = $this->conversation();
+
+        $ancient = Message::create([
+            'conversation_id' => $conversation->id, 'user_id' => $mate->id,
+            'type' => 'text', 'body' => 'Said in the spring',
+        ]);
+        $ancient->forceFill(['created_at' => Carbon::now()->subDays(95)])->saveQuietly();
+
+        $lastMonth = Message::create([
+            'conversation_id' => $conversation->id, 'user_id' => $mate->id,
+            'type' => 'text', 'body' => 'Said last month',
+        ]);
+        $lastMonth->forceFill(['created_at' => Carbon::now()->subDays(40)])->saveQuietly();
+
+        $this->actingAs($me)->postJson("/api/v1/conversations/{$conversation->uuid}/retention", [
+            'auto_delete_hours' => 2160,
+        ])->assertOk();
+
+        $this->artisan('chat:purge-expired')->assertSuccessful();
+
+        // Gone from the table itself, not marked deleted: a promise that a
+        // message is gone is not kept by a row with a timestamp on it.
+        $this->assertDatabaseMissing('messages', ['id' => $ancient->id]);
+        $this->assertDatabaseHas('messages', ['id' => $lastMonth->id]);
+    }
+
+    public function test_sixty_days_is_the_same_promise_one_month_further_out(): void
+    {
+        [$me, $mate, $conversation] = $this->conversation();
+
+        $old = Message::create([
+            'conversation_id' => $conversation->id, 'user_id' => $mate->id,
+            'type' => 'text', 'body' => 'Said two months ago',
+        ]);
+        $old->forceFill(['created_at' => Carbon::now()->subDays(61)])->saveQuietly();
+
+        $this->actingAs($me)->postJson("/api/v1/conversations/{$conversation->uuid}/retention", [
+            'auto_delete_hours' => 1440,
+        ])->assertOk();
+
+        $this->artisan('chat:purge-expired')->assertSuccessful();
+        $this->assertDatabaseMissing('messages', ['id' => $old->id]);
+    }
 }
