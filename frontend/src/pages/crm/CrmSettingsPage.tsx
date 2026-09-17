@@ -39,6 +39,7 @@ export default function CrmSettingsPage() {
       <LeadAlertTiming />
       <LeadOptions />
       <AssetCategories />
+      <IncentivePlanTypes />
       <ApprovalTypes />
       <ComplaintOptions />
 
@@ -1293,6 +1294,83 @@ function LeadAlertTiming() {
  * own lists — one per line — and every dropdown that uses them follows.
  * Lead type stays New/Existing: the reports depend on it meaning one thing.
  */
+/**
+ * Which work-order plan names are sold on their own incentive terms.
+ *
+ * The ordinary business pays under an employee's default structure. A plan
+ * name written here — "Enterprise-12M pays under Type-2" — sends every
+ * invoice line carrying it to that structure instead, without anybody having
+ * to remember to choose. Anything not listed pays the default, which is why
+ * an empty list is the right starting point rather than a missing setting.
+ *
+ * Names, not ids: two people may each have a Type-2 of their own on quite
+ * different terms, and each is paid their own.
+ */
+function IncentivePlanTypes() {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const [text, setText] = useState<string | null>(null)
+
+  const { data } = useQuery({
+    queryKey: ['crm', 'incentive-plan-types'],
+    queryFn: crm.compensation.incentivePlanTypes,
+  })
+  if (data && text === null) {
+    setText(Object.entries(data).map(([plan, type]) => `${plan} = ${type}`).join('\n'))
+  }
+
+  const saveMutation = useMutation({
+    mutationFn: () => {
+      const map: Record<string, string> = {}
+      for (const line of (text ?? '').split('\n')) {
+        // "Enterprise-12M = Type-2". A line without an = names nothing and
+        // is dropped rather than guessed at.
+        const at = line.indexOf('=')
+        if (at < 1) continue
+        const plan = line.slice(0, at).trim()
+        const type = line.slice(at + 1).trim()
+        if (plan && type) map[plan] = type
+      }
+
+      return crm.compensation.saveIncentivePlanTypes(map)
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'incentive-plan-types'] })
+      toast(res.message, 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  if (text === null) {
+    return <Card><div className="flex justify-center py-6"><Spinner /></div></Card>
+  }
+
+  return (
+    <Card>
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        <ListChecks className="size-4 text-emerald-500" /> Incentive by work order
+      </h2>
+      <p className="mt-1 text-xs text-slate-400">
+        Plan names that are sold on their own terms, one per line as
+        <span className="font-mono"> Plan name = Structure</span> — for example
+        <span className="font-mono"> Enterprise-12M = Type-2</span>. Every invoice line carrying that
+        plan name pays under that structure; everything else pays the employee&rsquo;s default.
+        An invoice can still be pointed elsewhere by hand.
+      </p>
+      <textarea
+        rows={6}
+        value={text}
+        placeholder="Enterprise-12M = Type-2"
+        onChange={(e) => setText(e.target.value)}
+        className="mt-3 w-full rounded-xl bg-white px-3 py-2 font-mono text-sm text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
+      />
+      <Button size="sm" variant="secondary" className="mt-3" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
+        {saveMutation.isPending ? 'Saving…' : 'Save'}
+      </Button>
+    </Card>
+  )
+}
+
 /**
  * The Office Assets category list — the words stock is filed under. One per
  * line, the company's own; assets already in the register keep the category

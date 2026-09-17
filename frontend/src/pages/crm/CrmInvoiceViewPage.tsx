@@ -427,6 +427,16 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
             {inv.created_by && (
               <div className="text-sm"><span className="text-slate-400">Raised by: </span>{inv.created_by}</div>
             )}
+            {/* Which incentive structure this sale pays under.
+                Only shown once somebody has overruled the company's rule,
+                because the rule answering for itself is the ordinary case and
+                does not need saying on every document. */}
+            {inv.incentive_plan_name && (
+              <div className="text-sm">
+                <span className="text-slate-400">Incentive: </span>
+                {inv.incentive_plan_name}
+              </div>
+            )}
             {inv.terms_of_payment && (
               <div className="text-sm"><span className="text-slate-400">{columnLabel('terms_of_payment', 'Terms')}: </span>{inv.terms_of_payment}</div>
             )}

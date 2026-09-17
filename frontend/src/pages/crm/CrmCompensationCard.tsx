@@ -244,9 +244,31 @@ function PlanBlock({ memberUuid, data, onChange }: {
   const { toast } = useToast()
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const current: CrmIncentivePlanRow | undefined = data.plans[0]
+  /*
+   * The structures this person is paid under, newest version of each.
+   *
+   * plans is newest-first, so the first row bearing a name is the one
+   * standing. The default is what the card details, because it is what the
+   * ordinary sale pays; the others are named beside it so nobody has to
+   * open a form to discover they exist.
+   */
+  const structures: CrmIncentivePlanRow[] = []
+  for (const plan of data.plans) {
+    if (!structures.some((p) => (p.name ?? 'Type-1') === (plan.name ?? 'Type-1'))) structures.push(plan)
+  }
+  const current: CrmIncentivePlanRow | undefined =
+    structures.find((p) => p.is_default) ?? structures[0]
 
   const [form, setForm] = useState(() => ({
+    /*
+     * Which structure is being set.
+     *
+     * Type-1 is what everything pays under unless something says otherwise;
+     * another name - Type-2 - is for the work orders sold on their own
+     * terms, and Billing setup says which plan names those are.
+     */
+    name: current?.name ?? 'Type-1',
+    is_default: current?.is_default ?? true,
     effective_from: new Date().toISOString().slice(0, 10),
     kind: (current?.kind ?? 'none') as CrmIncentivePlanRow['kind'],
     percent: current?.config?.percent !== undefined ? String(current.config.percent) : '',
@@ -277,6 +299,8 @@ function PlanBlock({ memberUuid, data, onChange }: {
 
   const save = useMutation({
     mutationFn: () => crm.compensation.addPlan(memberUuid, {
+      name: form.name.trim() || 'Type-1',
+      is_default: form.is_default,
       effective_from: form.effective_from,
       kind: form.kind,
       config: form.kind === 'none' ? {} : {
@@ -310,11 +334,32 @@ function PlanBlock({ memberUuid, data, onChange }: {
         </Button>
       </div>
 
+      {structures.length > 1 && (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {structures.map((p) => (
+            <span
+              key={p.uuid}
+              className={clsx(
+                'rounded-full px-2 py-0.5 text-[11px]',
+                p.is_default
+                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'
+                  : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300',
+              )}
+              title={p.is_default ? 'Everything pays under this unless something says otherwise' : 'Earned by the work orders Billing setup names'}
+            >
+              {p.name ?? 'Type-1'} · {p.kind_label}{p.is_default ? ' · default' : ''}
+            </span>
+          ))}
+        </div>
+      )}
+
       {!current || current.kind === 'none' ? (
         <p className="mt-2 text-sm text-slate-400">No incentive plan — the slip carries salary only.</p>
       ) : (
         <div className="mt-3 space-y-2 text-sm">
-          <div className="font-medium text-slate-800 dark:text-slate-100">{current.kind_label}</div>
+          <div className="font-medium text-slate-800 dark:text-slate-100">
+            {current.name ?? 'Type-1'} · {current.kind_label}
+          </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
             {current.config.percent !== undefined && current.config.percent !== null && <span>Self: {current.config.percent}%</span>}
             {!!current.config.base_amount && <span>less base {inr(current.config.base_amount)}</span>}
@@ -433,6 +478,34 @@ function PlanBlock({ memberUuid, data, onChange }: {
         <Modal title="Incentive plan" onClose={() => setOpen(false)} wide>
           <div className="space-y-3">
             <ErrorNote message={error} />
+            {/* A person may be paid on more than one set of terms at once:
+                the ordinary business on one, a work order sold differently on
+                another. The name is what Billing setup and an invoice point
+                at, so it is the first thing asked for. */}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Structure name</Label>
+                <Input
+                  value={form.name}
+                  maxLength={40}
+                  placeholder="Type-1"
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  className="w-full"
+                />
+              </div>
+              <label className="flex items-end gap-2 pb-2 text-sm text-slate-600 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={form.is_default}
+                  onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))}
+                  className="size-4 accent-emerald-600"
+                />
+                <span>
+                  The default — every sale pays under this unless a work order
+                  or the invoice says otherwise
+                </span>
+              </label>
+            </div>
             <div className="grid gap-3 sm:grid-cols-3">
               <div>
                 <Label>Effective from</Label>

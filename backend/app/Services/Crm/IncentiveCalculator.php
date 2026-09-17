@@ -48,13 +48,77 @@ class IncentiveCalculator
     {
     }
 
-    /** The plan standing for this member in a given month, if any. */
+    /** The default plan standing for this member in a given month, if any. */
     public function planFor(Member $member, Carbon $month): ?IncentivePlan
+    {
+        return $this->plansFor($member, $month)->first(fn (IncentivePlan $p) => $p->is_default)
+            ?? $this->plansFor($member, $month)->first();
+    }
+
+    /**
+     * Every structure standing for this member that month, by name.
+     *
+     * One person may be paid on two sets of terms at once - the ordinary
+     * business on Type-1, an enterprise work order on Type-2 - and a sale
+     * belongs to exactly one of them. Latest effective_from wins per name,
+     * so changing Type-2 leaves Type-1 alone.
+     *
+     * @return \Illuminate\Support\Collection<string, IncentivePlan>
+     */
+    public function plansFor(Member $member, Carbon $month): \Illuminate\Support\Collection
     {
         return IncentivePlan::where('member_id', $member->id)
             ->whereDate('effective_from', '<=', $month->copy()->endOfMonth()->toDateString())
-            ->orderByDesc('effective_from')
-            ->first();
+            ->orderBy('effective_from')
+            ->get()
+            // Later rows overwrite earlier ones of the same name, which is
+            // what makes the newest version of each structure the live one.
+            ->keyBy(fn (IncentivePlan $p) => $p->name ?: IncentivePlan::DEFAULT_NAME);
+    }
+
+    /**
+     * Which structure an invoice's money pays under, line by line.
+     *
+     * Three answers in order. A name written on the invoice by hand wins
+     * outright - that is somebody deciding, and deciding is allowed to beat
+     * a rule. Otherwise each work order is looked up by its plan name in the
+     * company's own table: "Enterprise-12M pays under Type-2". Anything left
+     * over pays under the default, which is the ordinary case and needs no
+     * setting at all.
+     *
+     * Returns the share of the invoice's value belonging to each structure,
+     * as a fraction, so an invoice carrying two work orders on different
+     * terms is split between them rather than forced into one.
+     *
+     * @param  array<string, string>  $types  plan name => structure name
+     * @return array<string, float>  structure name => share of the invoice
+     */
+    private function sharesFor(Invoice $invoice, array $types, string $default): array
+    {
+        if ($invoice->incentive_plan_name) {
+            return [$invoice->incentive_plan_name => 1.0];
+        }
+
+        $lines = $invoice->items;
+        if ($lines->isEmpty()) {
+            return [$default => 1.0];
+        }
+
+        $value = [];
+        foreach ($lines as $line) {
+            $structure = $types[trim((string) $line->plan_name)] ?? $default;
+            $value[$structure] = ($value[$structure] ?? 0) + (float) $line->amount;
+        }
+
+        $total = array_sum($value);
+        // Lines that add to nothing - a zero-rated work order, a placeholder -
+        // cannot be split by value, so the whole document goes to whichever
+        // structure its first line names.
+        if ($total <= 0) {
+            return [array_key_first($value) ?: $default => 1.0];
+        }
+
+        return array_map(fn ($v) => $v / $total, $value);
     }
 
     /**
@@ -70,6 +134,8 @@ class IncentiveCalculator
         $empty = [
             'incentive_month' => $label,
             'plan' => $plan?->kind ?? 'none',
+            'plan_name' => $plan?->name ?: IncentivePlan::DEFAULT_NAME,
+            'pots' => [],
             'plan_note' => $plan?->note,
             'self' => null,
             'team' => null,
@@ -101,8 +167,54 @@ class IncentiveCalculator
         $selfIds = $combined ? $member->teamMemberIds() : [$member->id];
 
         $gate = $this->paymentGate($member);
-        $self = $this->effectiveSale($selfIds, $month, $config, $gate);
-        $selfIncentive = $this->apply($plan->kind, $config, $self['effective']);
+
+        /*
+         * One pot per structure, each priced on its own terms.
+         *
+         * A slab is measured on the pot it belongs to: what somebody sold
+         * under Type-2 decides the Type-2 band, and has no say over Type-1.
+         * That is what a scheme means - "how much you sold under this" -
+         * and mixing the two would let an enterprise sale quietly raise the
+         * rate on ordinary business.
+         *
+         * The common case is one structure and one pot, and comes out of
+         * this as the same number it always did.
+         */
+        $plans = $this->plansFor($member, $month);
+        $default = $plan->name ?: IncentivePlan::DEFAULT_NAME;
+
+        $pots = [];
+        $selfIncentive = 0.0;
+        $self = null;
+        foreach ($plans as $name => $structure) {
+            if ($structure->kind === 'none') {
+                continue;
+            }
+
+            $sale = $this->effectiveSale($selfIds, $month, $structure->config ?? [], $gate, $name, $default);
+            if ($sale['invoices'] === 0 && $name !== $default) {
+                continue;
+            }
+
+            $earned = $this->apply($structure->kind, $structure->config ?? [], $sale['effective']);
+            $selfIncentive = round($selfIncentive + $earned, 2);
+
+            $pots[] = [
+                'plan' => $name,
+                'kind' => $structure->kind,
+                'is_default' => (bool) $structure->is_default,
+                'sale' => $sale,
+                'incentive' => $earned,
+            ];
+
+            // The default structure's own figures stay where every screen
+            // and every slip has always looked for them.
+            if ($name === $default) {
+                $self = $sale;
+            }
+        }
+
+        $self ??= $this->effectiveSale($selfIds, $month, $config, $gate, $default, $default);
 
         $team = null;
         $teamIncentive = 0.0;
@@ -118,12 +230,16 @@ class IncentiveCalculator
         return [
             'incentive_month' => $label,
             'plan' => $plan->kind,
+            'plan_name' => $default,
             'plan_note' => $plan->note,
             'config' => $config,
             'self' => $self,
             'team' => $team,
             'self_incentive' => $selfIncentive,
             'team_incentive' => $teamIncentive,
+            // What each structure earned, so a slip can say why the figure
+            // is the figure rather than presenting one number to argue with.
+            'pots' => $pots,
             'total' => round($selfIncentive + $teamIncentive, 2),
         ];
     }
@@ -140,12 +256,13 @@ class IncentiveCalculator
      * @param  array<string, mixed>  $config
      * @return array{total: float, commission: float, charges: float, tds: float, effective: float, invoices: int}
      */
-    private function effectiveSale(array $memberIds, Carbon $month, array $config = [], bool $gate = true): array
+    private function effectiveSale(array $memberIds, Carbon $month, array $config = [], bool $gate = true, ?string $structure = null, ?string $default = null): array
     {
         $from = $month->copy()->startOfMonth()->toDateString();
         $to = $month->copy()->endOfMonth()->toDateString();
 
-        $invoices = Invoice::where('organization_id', $this->org->id)
+        $invoices = Invoice::with('items:id,invoice_id,plan_name,amount')
+            ->where('organization_id', $this->org->id)
             ->where('kind', 'invoice')
             ->where('status', '!=', 'cancelled')
             ->whereIn('member_id', $memberIds)
@@ -155,19 +272,42 @@ class IncentiveCalculator
             // earns nothing. (One-go plans count it in its own month once
             // paid — recalculate that month's slip if it was already made.)
             ->when($gate, fn ($q) => $q->where('payment_status', 'paid'))
-            ->get(['id', 'total', 'tds']);
+            ->get(['id', 'total', 'tds', 'member_id', 'incentive_plan_name']);
 
-        $costs = Expense::whereIn('invoice_id', $invoices->pluck('id'))
+        /*
+         * Whose money this is, when a person is paid on two sets of terms.
+         *
+         * Each invoice is weighed by the share of its value that belongs to
+         * this structure - usually all of it or none of it, and a fraction
+         * when one document carries work orders on different terms. The
+         * costs the sale carried are split the same way, because half a
+         * sale carries half of what it cost to make.
+         */
+        $types = $structure === null ? [] : $this->org->incentivePlanTypes();
+        $share = function (Invoice $invoice) use ($structure, $types, $default): float {
+            if ($structure === null) {
+                return 1.0;
+            }
+
+            return $this->sharesFor($invoice, $types, $default ?: IncentivePlan::DEFAULT_NAME)[$structure] ?? 0.0;
+        };
+
+        $shares = $invoices->mapWithKeys(fn (Invoice $i) => [$i->id => $share($i)]);
+        $counted = $invoices->filter(fn (Invoice $i) => $shares[$i->id] > 0);
+
+        $costs = Expense::whereIn('invoice_id', $counted->pluck('id'))
             ->whereIn('category', [CommissionController::CATEGORY, GatewayCharge::CATEGORY])
-            ->get(['category', 'total_amount']);
+            ->get(['invoice_id', 'category', 'total_amount']);
 
-        $total = round((float) $invoices->sum('total'), 2);
-        $commission = round((float) $costs->where('category', CommissionController::CATEGORY)->sum('total_amount'), 2);
-        $charges = round((float) $costs->where('category', GatewayCharge::CATEGORY)->sum('total_amount'), 2);
+        $weigh = fn ($rows) => round((float) $rows->sum(fn ($r) => (float) $r->total_amount * ($shares[$r->invoice_id] ?? 0)), 2);
+
+        $total = round((float) $counted->sum(fn (Invoice $i) => (float) $i->total * $shares[$i->id]), 2);
+        $commission = $weigh($costs->where('category', CommissionController::CATEGORY));
+        $charges = $weigh($costs->where('category', GatewayCharge::CATEGORY));
 
         // The invoices' own TDS, already inside their totals — reported
         // for the screen, never deducted a second time.
-        $tds = round((float) $invoices->sum('tds'), 2);
+        $tds = round((float) $counted->sum(fn (Invoice $i) => (float) $i->tds * $shares[$i->id]), 2);
 
         return [
             'total' => $total,
@@ -175,7 +315,7 @@ class IncentiveCalculator
             'charges' => $charges,
             'tds' => $tds,
             'effective' => round(max(0, $total - $commission - $charges), 2),
-            'invoices' => $invoices->count(),
+            'invoices' => $counted->count(),
         ];
     }
 

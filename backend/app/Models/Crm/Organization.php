@@ -189,6 +189,37 @@ class Organization extends Model
         ];
     }
 
+    /**
+     * Which incentive structure a work order earns, by its plan name.
+     *
+     * The company's own answer to "what is special": a plan name it sells on
+     * different terms - Enterprise-12M, a fixed-fee listing - is named here
+     * against the structure it pays under, and every invoice line carrying
+     * that plan name goes to that structure without anybody remembering to
+     * choose it. Everything unnamed pays under the default.
+     *
+     * Kept as names rather than ids because it is the employee's plan NAME
+     * that is matched: two people may both have a "Type-2" of their own, on
+     * quite different terms, and each is paid their own.
+     *
+     * @return array<string, string>  plan name => incentive structure name
+     */
+    public function incentivePlanTypes(): array
+    {
+        $saved = (array) data_get($this->settings, 'incentive_plan_types', []);
+
+        $map = [];
+        foreach ($saved as $planName => $type) {
+            $planName = trim((string) $planName);
+            $type = trim((string) $type);
+            if ($planName !== '' && $type !== '') {
+                $map[$planName] = $type;
+            }
+        }
+
+        return $map;
+    }
+
     /** Option lists the org can customise; defaults mirror the old CRM. */
     public function optionList(string $key): array
     {

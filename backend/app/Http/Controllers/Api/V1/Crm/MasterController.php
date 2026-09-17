@@ -529,6 +529,48 @@ class MasterController extends Controller
         return response()->json(['message' => 'Asset categories saved.', 'data' => ['categories' => $org->fresh()->assetCategories()]]);
     }
 
+    /**
+     * Which incentive structure each work-order plan name earns.
+     *
+     * The company's own answer to "what is sold on different terms": a plan
+     * name is named here against a structure, and every invoice line
+     * carrying it pays under that structure without anybody remembering to
+     * choose. Everything unnamed pays the default.
+     */
+    public function incentivePlanTypes(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+
+        return response()->json(['data' => (object) $org->incentivePlanTypes()]);
+    }
+
+    public function saveIncentivePlanTypes(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $data = $request->validate([
+            'types' => ['present', 'array', 'max:200'],
+            'types.*' => ['nullable', 'string', 'max:40'],
+        ]);
+
+        $settings = (array) $org->settings;
+        $settings['incentive_plan_types'] = collect($data['types'])
+            ->map(fn ($type) => trim((string) $type))
+            // A plan name pointed at nothing is the same as one that was
+            // never named, and is dropped rather than stored as empty.
+            ->filter(fn ($type) => $type !== '')
+            ->all();
+        $org->update(['settings' => $settings]);
+
+        ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'masters.incentive_plan_types', $org, [
+            'count' => count($settings['incentive_plan_types']),
+        ]);
+
+        return response()->json([
+            'message' => 'Saved.',
+            'data' => (object) $org->fresh()->incentivePlanTypes(),
+        ]);
+    }
+
     public function communicationSettings(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');

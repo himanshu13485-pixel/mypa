@@ -986,6 +986,53 @@ class InvoiceController extends Controller
     }
 
     /**
+     * Point this document's incentive at a different structure.
+     *
+     * The rule in Billing setup answers for the ordinary case; this is for
+     * the one it does not - a work order sold on terms nobody wrote down, a
+     * correction after the fact. The Company Admin, or a Subadmin the Admin
+     * named with invoices.incentive_plan, because it moves money.
+     *
+     * Null puts the document back under the rule.
+     */
+    public function setIncentivePlan(Request $request, string $uuid): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+        /*
+         * Held by name, and by a Subadmin only.
+         *
+         * allows() hands a Subadmin every capability by virtue of the job,
+         * which is right for most of them and wrong for this: the Admin
+         * asked for this one to be given deliberately, so it is read off the
+         * list rather than inferred from the role.
+         */
+        abort_unless(
+            $me->crm_role === 'admin'
+                || ($me->status === 'active' && in_array('invoices.incentive_plan', (array) ($me->capabilities ?? []), true)),
+            403,
+            'Changing which incentive structure a sale pays under is the Company Admin’s, and the people the Admin has named.',
+        );
+
+        $data = $request->validate(['plan_name' => ['present', 'nullable', 'string', 'max:40']]);
+        $invoice = $this->find($request, $uuid);
+        $name = trim((string) ($data['plan_name'] ?? '')) ?: null;
+
+        $invoice->update(['incentive_plan_name' => $name]);
+        ActivityLog::record($me, $org->id, 'invoice.incentive_plan_set', $invoice, [
+            'number' => $invoice->number,
+            'plan' => $name ?? 'by the rule',
+        ]);
+
+        return response()->json([
+            'message' => $name
+                ? $invoice->number . ' pays under ' . $name . '.'
+                : $invoice->number . ' follows the company’s own rule again.',
+        ]);
+    }
+
+    /**
      * The money asking to be chased, for the person whose sale it was.
      *
      * The salesperson's own nudge, not the client's letter: those go out from
@@ -2136,6 +2183,9 @@ class InvoiceController extends Controller
             // Set by hand, so the books leave it alone.
             'client_category_manual' => (bool) $i->client_category_manual,
             'client_segment' => $i->client_segment,
+            // Which incentive structure this sale pays under, when somebody
+            // has overruled the company's own rule. Null means the rule.
+            'incentive_plan_name' => $i->incentive_plan_name,
             'issuing_company' => $i->issuingCompany?->only(['id', 'name', 'state_code']),
             // The e-mail dialog offers the salesperson a copy of what
             // went to their client, so it needs their address too.

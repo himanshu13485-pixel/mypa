@@ -30,14 +30,22 @@ class IncentivePlan extends Model
         'spread' => '% of sale, spread over months',
     ];
 
+    /**
+     * What the default structure is called when nobody has named one.
+     *
+     * Every sale pays under this unless something says otherwise, so it is
+     * the answer to "which plan" far more often than any other.
+     */
+    public const DEFAULT_NAME = 'Type-1';
+
     protected $fillable = [
-        'member_id', 'effective_from', 'kind', 'config',
+        'member_id', 'name', 'is_default', 'effective_from', 'kind', 'config',
         'release_offset_months', 'note', 'created_by',
     ];
 
     protected function casts(): array
     {
-        return ['effective_from' => 'date', 'config' => 'array'];
+        return ['effective_from' => 'date', 'config' => 'array', 'is_default' => 'boolean'];
     }
 
     public function uniqueIds(): array

@@ -1020,6 +1020,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member:invoices,view');
             Route::post('/invoices/{uuid}/payment-reminder', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'deferPayment'])
                 ->middleware('crm.member:invoices,view');
+            // Overruling the incentive structure a sale pays under. The
+            // controller checks who may, because it moves money.
+            Route::put('/invoices/{uuid}/incentive-plan', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'setIncentivePlan'])
+                ->middleware('crm.member:invoices,view');
             Route::get('/invoices-dispatch-due', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'dispatchDue'])
                 ->middleware('crm.member:invoices,view');
             Route::post('/invoices/{uuid}/dispatch-reminder', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'deferDispatch'])
@@ -1479,6 +1483,11 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
              * while the API said masters, which is two answers to one
              * question. Its own right, held by nobody until it is given.
              */
+            // Which work-order plan names are sold on their own terms.
+            Route::get('/masters/incentive-plan-types', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'incentivePlanTypes'])
+                ->middleware('crm.member:masters,view');
+            Route::put('/masters/incentive-plan-types', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveIncentivePlanTypes'])
+                ->middleware('crm.member:masters,edit');
             Route::get('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'communicationSettings'])
                 ->middleware('crm.member:communication,view');
             Route::put('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveCommunicationSettings'])

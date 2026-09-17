@@ -153,6 +153,11 @@ class CompensationController extends Controller
         $member = $this->managedMember($request, $memberUuid);
 
         $data = $request->validate([
+            // Which structure this is. A person may hold several - the
+            // ordinary one and the terms a particular work order is sold on -
+            // and the name is what an invoice, or Billing setup, points at.
+            'name' => ['nullable', 'string', 'max:40'],
+            'is_default' => ['nullable', 'boolean'],
             'effective_from' => ['required', 'date'],
             'kind' => ['required', Rule::in(array_keys(IncentivePlan::KINDS))],
             'config' => ['nullable', 'array'],
@@ -171,8 +176,25 @@ class CompensationController extends Controller
             'note' => ['nullable', 'string', 'max:255'],
         ]);
 
+        $name = trim((string) ($data['name'] ?? '')) ?: IncentivePlan::DEFAULT_NAME;
+        /*
+         * The first structure somebody is given is their default whatever it
+         * is called, because a person with plans and no default would have
+         * sales that pay under nothing. Afterwards it is said explicitly.
+         */
+        $hasDefault = IncentivePlan::where('member_id', $member->id)->where('is_default', true)
+            ->where('name', '!=', $name)->exists();
+        $isDefault = array_key_exists('is_default', $data) ? (bool) $data['is_default'] : ! $hasDefault;
+
+        if ($isDefault) {
+            // Exactly one default: naming a new one stands the old one down.
+            IncentivePlan::where('member_id', $member->id)->update(['is_default' => false]);
+        }
+
         $plan = IncentivePlan::create([
             'member_id' => $member->id,
+            'name' => $name,
+            'is_default' => $isDefault,
             'effective_from' => $data['effective_from'],
             'kind' => $data['kind'],
             'config' => $data['config'] ?? [],
@@ -183,6 +205,7 @@ class CompensationController extends Controller
 
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'salary.incentive_plan_set', $member, [
             'employee' => $member->user?->name,
+            'plan' => $plan->name,
             'kind' => IncentivePlan::KINDS[$plan->kind],
             'from' => $plan->effective_from->toDateString(),
         ]);
@@ -408,6 +431,11 @@ class CompensationController extends Controller
     {
         return [
             'uuid' => $p->uuid,
+            // Which structure this is. A person may hold several at once -
+            // the ordinary terms and the ones a particular work order is
+            // sold on - and the name is what points at each.
+            'name' => $p->name ?: IncentivePlan::DEFAULT_NAME,
+            'is_default' => (bool) $p->is_default,
             'effective_from' => $p->effective_from->toDateString(),
             'kind' => $p->kind,
             'kind_label' => IncentivePlan::KINDS[$p->kind] ?? $p->kind,

@@ -34,6 +34,7 @@ class Invoice extends Model
         'organization_id', 'kind', 'number', 'issuing_company_id', 'client_id',
         'member_id', 'invoice_date', 'due_date', 'client_category', 'pricing_tier',
         'client_segment', 'client_category_manual',
+        'incentive_plan_name',
         'dispatch_remind_at', 'dispatch_snoozed_until',
         'payment_remind_at', 'payment_snoozed_until',
         'currency', 'terms_of_payment', 'subscription_type', 'subtotal', 'discount',

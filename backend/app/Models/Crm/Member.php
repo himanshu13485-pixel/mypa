@@ -133,6 +133,9 @@ class Member extends Model
         // module matches a receipt, and somebody named settles it.
         'payments.settle' => ['group' => 'Money', 'label' => 'Settle, change, undo, withdraw and delete payments (Subadmin)'],
         'commissions.remove' => ['group' => 'Money', 'label' => 'Remove a commission entry'],
+        // Which structure a sale's incentive pays under. The rule in Billing
+        // setup decides it; this is permission to overrule the rule.
+        'invoices.incentive_plan' => ['group' => 'Money', 'label' => 'Change the incentive structure an invoice pays under'],
         // Held by name even for a Subadmin: the accounting export is the
         // Admin's, plus exactly the people the Admin has named.
         'exports.excel' => ['group' => 'Money', 'label' => 'Download invoices & payments as Excel (accounting export)'],

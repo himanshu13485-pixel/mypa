@@ -685,6 +685,8 @@ export interface CrmClientAccessRequest {
 }
 
 export interface CrmInvoiceRow {
+  /** Set by hand: the incentive structure this sale pays under, over the rule. */
+  incentive_plan_name?: string | null
   uuid: string
   kind: 'proforma' | 'invoice'
   number: string
@@ -1820,6 +1822,9 @@ export interface CrmSalaryStructureRow {
 }
 
 export interface CrmIncentivePlanRow {
+  /** Which structure this is: Type-1 is the default everything else falls to. */
+  name?: string
+  is_default?: boolean
   uuid: string
   effective_from: string
   kind: 'none' | 'flat_percent' | 'slab' | 'percent_minus_base' | 'spread'
@@ -2825,6 +2830,11 @@ export const crm = {
       api.post<{ message: string }>(`/crm/employees/${memberUuid}/compensation/structures`, payload).then((r) => r.data),
     removeStructure: (memberUuid: string, uuid: string) =>
       api.delete(`/crm/employees/${memberUuid}/compensation/structures/${uuid}`).then((r) => r.data),
+    /** Which work-order plan names are sold on their own terms. */
+    incentivePlanTypes: () =>
+      api.get<{ data: Record<string, string> }>('/crm/masters/incentive-plan-types').then((r) => r.data.data),
+    saveIncentivePlanTypes: (types: Record<string, string>) =>
+      api.put<{ message: string }>('/crm/masters/incentive-plan-types', { types }).then((r) => r.data),
     addPlan: (memberUuid: string, payload: Record<string, unknown>) =>
       api.post<{ message: string }>(`/crm/employees/${memberUuid}/compensation/plans`, payload).then((r) => r.data),
     removePlan: (memberUuid: string, uuid: string) =>
@@ -3351,6 +3361,12 @@ export const crm = {
     figures: (month: string) =>
       api.get<{ data: CrmPlFigure[] }>('/crm/pl/figures', { params: { month } }).then((r) => r.data.data),
     deleteLine: (id: number) => api.delete<{ message: string }>(`/crm/pl/lines/${id}`).then((r) => r.data),
+    /**
+     * Point one sale's incentive at a different structure, or null to put it
+     * back under the company's own rule.
+     */
+    setIncentivePlan: (uuid: string, planName: string | null) =>
+      api.put<{ message: string }>(`/crm/invoices/${uuid}/incentive-plan`, { plan_name: planName }).then((r) => r.data),
     /** An explanation against one entry, or - with no line_key - against the month. */
     addNote: (payload: { month: string; line_key?: string | null; body: string }) =>
       api.post<{ message: string }>('/crm/pl/notes', payload).then((r) => r.data),
