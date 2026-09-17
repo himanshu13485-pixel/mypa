@@ -72,6 +72,12 @@ class Member extends Model
         'complaints' => 'Complaints (CMS)',
         'complaint_log' => 'Complaint log',
         'masters' => 'Billing setup — the whole Settings screen',
+        // Its own right rather than a corner of Billing setup. What goes out
+        // in the company's name - which mailbox writes to clients, which
+        // address chases money - is not the same job as setting a tax rate,
+        // and whoever does one is not automatically to be trusted with the
+        // other. Nobody holds it until the Admin says so.
+        'communication' => 'Communication — the mailboxes the company writes from',
         'user_log' => 'User log',
     ];
 

@@ -1185,6 +1185,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::post('/offline-salaries/generate', [$offline, 'generate']);
                 Route::get('/offline-salaries/export', [$offline, 'export']);
                 Route::post('/offline-salaries/mark-paid', [$offline, 'markPaid']);
+                // Remarks beside the pay, the same way the payroll keeps them:
+                // one person's month, a selection of them, or the month itself.
+                Route::post('/offline-salaries/notes', [$offline, 'storeNote']);
+                Route::delete('/offline-salaries/notes/{id}', [$offline, 'deleteNote']);
                 Route::get('/offline-salaries/{uuid}/pdf', [$offline, 'pdf']);
                 Route::post('/offline-salaries', [$offline, 'storeSalary']);
                 Route::put('/offline-salaries/{uuid}', [$offline, 'updateSalary']);
@@ -1223,6 +1227,10 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // Remarks kept beside the pay - on one person's month, or on the
             // whole payroll run. The office's own record, not the employee's.
             Route::post('/salary/notes', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'storeNote'])
+                ->middleware('crm.member:salary,edit');
+            // The same remark against a set of slips - "paid from the ICICI
+            // account" - which is the one people actually need in bulk.
+            Route::post('/salary/notes/bulk', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'storeNotes'])
                 ->middleware('crm.member:salary,edit');
             Route::delete('/salary/notes/{id}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'deleteNote'])
                 ->middleware('crm.member:salary,edit');
@@ -1460,6 +1468,23 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::get('/masters/client-segments', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'clientSegments'])
                 ->middleware('crm.member');
 
+            /*
+             * Communication: the company's own mailboxes.
+             *
+             * These sat inside the Billing-setup group, so the one tick that
+             * let somebody edit tax rates also let them change the address
+             * every client hears from - and the menu entry said Subadmin
+             * while the API said masters, which is two answers to one
+             * question. Its own right, held by nobody until it is given.
+             */
+            Route::get('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'communicationSettings'])
+                ->middleware('crm.member:communication,view');
+            Route::put('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveCommunicationSettings'])
+                ->middleware('crm.member:communication,edit');
+            // Trying a mailbox before trusting it with anything.
+            Route::post('/masters/communication/test', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'testMailbox'])
+                ->middleware('crm.member:communication,edit');
+
             // Billing masters
             Route::middleware('crm.member:masters,edit')->group(function () {
                 Route::put('/masters/payment-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'savePaymentSettings']);
@@ -1482,10 +1507,6 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 // The Office Assets category list, edited in Billing setup.
                 Route::get('/masters/asset-categories', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'assetCategories']);
                 Route::put('/masters/asset-categories', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveAssetCategories']);
-                Route::get('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'communicationSettings']);
-                Route::put('/masters/communication', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveCommunicationSettings']);
-                // Trying a mailbox before trusting it with anything.
-                Route::post('/masters/communication/test', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'testMailbox']);
                 Route::post('/masters/bank-accounts', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeBank']);
                 Route::put('/masters/bank-accounts/{id}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'updateBank']);
             });

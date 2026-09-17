@@ -163,7 +163,9 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Reports', icon: BarChart3, to: '/crm/reports', capability: 'reports.view' },
     { label: 'Churn', icon: TrendingDown, to: '/crm/churn' },
     { label: 'Office Assets', section: 'assets', icon: Boxes, to: '/crm/assets' },
-    { label: 'Communication', icon: Mail, to: '/crm/communication', managerOnly: true },
+    // Not managerOnly any more: the entry now asks exactly what the API
+    // asks, so what a person sees and what they may do cannot disagree.
+    { label: 'Communication', icon: Mail, to: '/crm/communication', module: 'communication' },
     { label: 'Billing setup', section: 'settings', icon: Settings2, to: '/crm/settings', module: 'masters', ability: 'edit' },
     { label: 'HR Policy', icon: ScrollText, to: '/crm/hr-policy', adminOnly: true },
     { label: 'Workspace fields', icon: Sparkles, to: '/crm/workspace-fields', managerOnly: true },
