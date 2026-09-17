@@ -18,6 +18,14 @@
         </include>
     </source>
     <php>
+        <!--
+            The whole suite runs in one PHP process, so memory is cumulative:
+            over a thousand tests of models, and dompdf rendering invoices near
+            the end of it, walked past PHP's 128M default and killed the run
+            mid-test. Raised here rather than in anyone's php.ini so the suite
+            is runnable the same way on every machine and in CI.
+        -->
+        <ini name="memory_limit" value="1G"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
