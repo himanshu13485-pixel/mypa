@@ -482,6 +482,57 @@ class MessageController extends Controller
      * client that has lost track of the current state should not be able to
      * create two stars or fail to remove one.
      */
+    /**
+     * Who has seen this message, and who has not.
+     *
+     * The tick on a bubble is one bit for the whole room, and in a group it
+     * only turns double once the last person has read - so a message read by
+     * nine of ten looks exactly like a message nobody opened. That is fine as
+     * a glance and useless as an answer: the question people actually ask is
+     * "has Priyanshu seen it", and until now nothing could answer it.
+     *
+     * Read from the same last_read_at the tick uses, so the two can never
+     * disagree: somebody has seen this message if they have read the
+     * conversation at least as far as the moment it was sent.
+     *
+     * Only for one's own messages. Whether somebody has read what SOMEBODY
+     * ELSE wrote is not the reader's business to look up.
+     */
+    public function seenBy(Request $request, Conversation $conversation, string $messageUuid): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $message = $conversation->messages()->where('uuid', $messageUuid)->firstOrFail();
+        abort_unless($message->user_id === $me->id, 403, 'You can only see this for your own messages.');
+
+        $sent = $message->created_at;
+        $people = $conversation->members()
+            ->where('users.id', '!=', $me->id)
+            ->get(['users.id', 'users.uuid', 'users.name'])
+            ->map(function ($user) use ($sent) {
+                $at = $user->pivot->last_read_at;
+                $read = $at !== null && \Illuminate\Support\Carbon::parse($at)->gte($sent);
+
+                return [
+                    'uuid' => $user->uuid,
+                    'name' => $user->name,
+                    'seen' => $read,
+                    // When they last read the conversation, which for a
+                    // message they have seen is the nearest honest answer to
+                    // "when" - the row remembers the thread, not the bubble.
+                    'at' => $read ? \Illuminate\Support\Carbon::parse($at)->toDateTimeString() : null,
+                ];
+            })
+            ->sortBy([fn ($a, $b) => ($b['seen'] <=> $a['seen']), fn ($a, $b) => strcasecmp($a['name'], $b['name'])])
+            ->values();
+
+        return response()->json(['data' => [
+            'seen' => $people->where('seen', true)->values(),
+            'pending' => $people->where('seen', false)->values(),
+        ]]);
+    }
+
     public function star(Request $request, Conversation $conversation, string $messageUuid): JsonResponse
     {
         $me = $request->user();

@@ -540,6 +540,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         // confused with it.
         Route::post('/conversations/{conversation}/messages/forward', [MessageController::class, 'forwardMany']);
         // Kept privately, or held up for everyone.
+        // Who has read what you wrote - the question a tick cannot answer.
+        Route::get('/conversations/{conversation}/messages/{messageUuid}/seen', [MessageController::class, 'seenBy']);
         Route::post('/conversations/{conversation}/messages/{messageUuid}/star', [MessageController::class, 'star']);
         Route::post('/conversations/{conversation}/messages/{messageUuid}/pin', [MessageController::class, 'pin']);
         Route::get('/conversations/{conversation}/pinned', [MessageController::class, 'pinned']);

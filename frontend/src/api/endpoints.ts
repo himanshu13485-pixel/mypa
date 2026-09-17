@@ -696,6 +696,17 @@ export const chat = {
     api.put<{ data: ChatMessage }>(`/conversations/${uuid}/messages/${messageUuid}`, { body }).then((r) => r.data.data),
   remove: (uuid: string, messageUuid: string, scope: 'me' | 'everyone') =>
     api.delete(`/conversations/${uuid}/messages/${messageUuid}?for=${scope}`),
+  /**
+   * Who has read one of your messages, and who has not.
+   *
+   * The tick answers "everybody" or "not everybody"; this answers "who",
+   * which is the question actually being asked in a group of nine.
+   */
+  seenBy: (conversationUuid: string, messageUuid: string) =>
+    api.get<{ data: {
+      seen: { uuid: string; name: string; at: string | null }[]
+      pending: { uuid: string; name: string }[]
+    } }>(`/conversations/${conversationUuid}/messages/${messageUuid}/seen`).then((r) => r.data.data),
   react: (uuid: string, messageUuid: string, emoji: string) =>
     api.post<{ data: ChatMessage }>(`/conversations/${uuid}/messages/${messageUuid}/react`, { emoji }).then((r) => r.data.data),
   markRead: (uuid: string) => api.post(`/conversations/${uuid}/read`),

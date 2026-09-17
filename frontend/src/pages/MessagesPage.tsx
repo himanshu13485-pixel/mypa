@@ -10,6 +10,7 @@ import { badges as badgesApi, conversationMembers, removeConversationMember, rep
 import type { ConversationMember } from '../api/endpoints'
 import MessageAttachment from '../components/MessageAttachment'
 import PersonModal from '../components/PersonModal'
+import SeenByModal from '../components/SeenByModal'
 import BroadcastModal from '../components/BroadcastModal'
 import { EmojiPicker } from '../components/EmojiPicker'
 import { CameraCapture } from '../components/CameraCapture'
@@ -1292,6 +1293,10 @@ export default function MessagesPage() {
 
   const [showNewChat, setShowNewChat] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
+  /* Phone only: the attachment and camera buttons, folded away by default. */
+  const [moreOpen, setMoreOpen] = useState(false)
+  /** The message whose readers are being looked at, if any. */
+  const [seenFor, setSeenFor] = useState<ChatMessage | null>(null)
   const [showBroadcast, setShowBroadcast] = useState(false)
   const startNewChat = () => setShowNewChat(true)
   const beginChatWith = (identifier: string) => {
@@ -1850,8 +1855,15 @@ export default function MessagesPage() {
                       {selected.members_count} members
                     </button>
                   ) : (
-                    <p className="flex items-center gap-1.5 text-xs text-slate-400">
-                      <span className="truncate">
+                    <p className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-xs text-slate-400">
+                      {/* Swipeable rather than truncated.
+                          On a phone the handle, the presence dot and "last
+                          seen an hour ago" do not fit on one line, and
+                          whichever came last was simply cut off - the
+                          last-seen part being the one people look for.
+                          Nothing moves; the line itself can now be pushed
+                          sideways to read the rest of it. */}
+                      <span className="shrink-0">
                         {selected.other_user?.username ? `@${selected.other_user.username}` : selected.other_user?.app_id}
                       </span>
                       {/* The one place presence has no avatar to sit on, so
@@ -1872,7 +1884,7 @@ export default function MessagesPage() {
                         * absent when they have never opened the app.
                         */}
                       {headerPresence !== 'online' && headerLastSeen && (
-                        <span className="truncate">· {headerLastSeen}</span>
+                        <span className="shrink-0">· {headerLastSeen}</span>
                       )}
                     </p>
                   )}
@@ -1880,6 +1892,15 @@ export default function MessagesPage() {
               </div>
               {viewingPerson && (
         <PersonModal uuid={viewingPerson} onClose={() => setViewingPerson(null)} />
+      )}
+
+      {seenFor && selected && (
+        <SeenByModal
+          conversationUuid={selected.uuid}
+          messageUuid={seenFor.uuid}
+          preview={seenFor.body}
+          onClose={() => setSeenFor(null)}
+        />
       )}
 
       {/*
@@ -2430,12 +2451,31 @@ export default function MessagesPage() {
                         {m.is_own && !m.is_deleted && (
                           /* On its way, gone, read: the same corner of the
                              bubble answers all three, so the clock is simply
-                             the state before the first tick. */
+                             the state before the first tick.
+
+                             And in a group the tick is also the way to the
+                             answer it cannot give on its own - it goes double
+                             only once the LAST person has read, so nine of ten
+                             looks like none. Tapping asks who. */
                           isSending(m)
                             ? <Clock className="size-3 opacity-70" aria-label="Sending" />
-                            : m.read_by_others
-                              ? <CheckCheck className="size-3" aria-label="Read" />
-                              : <Check className="size-3 opacity-70" aria-label="Sent" />
+                            : selected.type === 'group'
+                              ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSeenFor(m)}
+                                  title="Who has seen this"
+                                  aria-label="Who has seen this"
+                                  className="inline-flex"
+                                >
+                                  {m.read_by_others
+                                    ? <CheckCheck className="size-3" />
+                                    : <Check className="size-3 opacity-70" />}
+                                </button>
+                              )
+                              : m.read_by_others
+                                ? <CheckCheck className="size-3" aria-label="Read" />
+                                : <Check className="size-3 opacity-70" aria-label="Sent" />
                         )}
                       </p>
                     </div>
@@ -2718,11 +2758,28 @@ export default function MessagesPage() {
                   are added, and the buttons beside it should stay on the
                   line being typed rather than drift up the middle of it. */}
               <div className="flex items-end gap-1.5">
+                {/* Four buttons and a send button left a phone about eight
+                    characters of message. The attachment and the camera fold
+                    behind this on a narrow screen; the microphone and the
+                    emoji stay, being the two reached for mid-sentence. */}
                 <button
                   type="button"
-                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800"
+                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800 sm:hidden"
+                  title={moreOpen ? 'Fewer options' : 'More options'}
+                  aria-label={moreOpen ? 'Fewer options' : 'More options'}
+                  aria-expanded={moreOpen}
+                  onClick={() => setMoreOpen((o) => !o)}
+                >
+                  {moreOpen ? <X className="size-4" /> : <Plus className="size-4" />}
+                </button>
+                <button
+                  type="button"
+                  className={clsx(
+                    'rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800',
+                    !moreOpen && 'hidden sm:inline-flex',
+                  )}
                   title="Attach file"
-                  onClick={() => fileRef.current?.click()}
+                  onClick={() => { setMoreOpen(false); fileRef.current?.click() }}
                 >
                   <Paperclip className="size-4" />
                 </button>
@@ -2730,10 +2787,13 @@ export default function MessagesPage() {
                     it waits in the box with any caption until Send. */}
                 <button
                   type="button"
-                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800"
+                  className={clsx(
+                    'rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800',
+                    !moreOpen && 'hidden sm:inline-flex',
+                  )}
                   title="Take a photo"
                   aria-label="Take a photo"
-                  onClick={() => setCameraOpen(true)}
+                  onClick={() => { setMoreOpen(false); setCameraOpen(true) }}
                 >
                   <Camera className="size-4" />
                 </button>
