@@ -1226,6 +1226,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member:salary,edit');
             Route::delete('/salary/notes/{id}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'deleteNote'])
                 ->middleware('crm.member:salary,edit');
+            // The bank's paperwork for a payroll month. Every one of these
+            // checks seesAllPay inside as well: a transfer advice names
+            // everybody's account, so it is not employee-readable.
+            Route::post('/salary/documents', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'uploadDocument'])
+                ->middleware('crm.member:salary,edit');
+            Route::get('/salary/documents/{uuid}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'downloadDocument'])
+                ->middleware('crm.member:salary,view');
+            Route::put('/salary/documents/{uuid}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'updateDocument'])
+                ->middleware('crm.member:salary,edit');
+            Route::delete('/salary/documents/{uuid}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'deleteDocument'])
+                ->middleware('crm.member:salary,edit');
             Route::put('/salary/{uuid}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'update'])
                 ->middleware('crm.member:salary,edit');
             Route::delete('/salary/{uuid}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'destroy'])

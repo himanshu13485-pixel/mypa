@@ -112,7 +112,10 @@ class SalaryController extends Controller
         ], 'year' => $year, 'month' => $month, 'manages' => $manages, 'can_export' => $this->canExport($me),
             // What belongs to the payroll month itself rather than to any one
             // person: a late run, a bonus round, a change of bank.
-            'notes' => $manages ? $notes->get($this->noteKey($year, $month, null), []) : []]);
+            'notes' => $manages ? $notes->get($this->noteKey($year, $month, null), []) : [],
+            // The bank's own paperwork for this run. Never for an employee:
+            // a transfer advice names everybody's account on the page.
+            'documents' => $manages ? $this->documentsFor($org, $year, $month) : []]);
     }
 
     /**
@@ -141,6 +144,123 @@ class SalaryController extends Controller
             'account_no' => $live ? ($member->bank_account_no ?: $s->account_no) : ($s->account_no ?: $member?->bank_account_no),
             'ifsc' => $live ? ($member->bank_ifsc ?: $s->ifsc) : ($s->ifsc ?: $member?->bank_ifsc),
         ];
+    }
+
+    /**
+     * The bank documents kept with one payroll month.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function documentsFor($org, int $year, int $month): array
+    {
+        return \App\Models\Crm\SalaryDocument::with('uploader:id,name')
+            ->where('organization_id', $org->id)
+            ->where('year', $year)->where('month', $month)
+            ->orderBy('id')
+            ->get()
+            ->map(fn (\App\Models\Crm\SalaryDocument $d) => [
+                'uuid' => $d->uuid,
+                'name' => $d->name,
+                'mime' => $d->mime,
+                'size' => (int) $d->size,
+                'note' => $d->note,
+                'by' => $d->uploader?->name ?: 'Someone',
+                'at' => $d->created_at?->toDateTimeString(),
+            ])->values()->all();
+    }
+
+    /**
+     * Keep a bank document with the month it belongs to.
+     *
+     * On the private disk, under the company's own folder, behind the same
+     * door as the rest of the payroll - a transfer advice lists every
+     * employee's account number, so it is not a file to leave anywhere it
+     * could be reached by a link alone. Checked by the upload guard first,
+     * which is what stops a renamed executable arriving as a "statement".
+     */
+    public function uploadDocument(Request $request): JsonResponse
+    {
+        $this->guardPay($request);
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $data = $request->validate([
+            'year' => ['required', 'integer', 'min:2000', 'max:2100'],
+            'month' => ['required', 'integer', 'min:1', 'max:12'],
+            'note' => ['nullable', 'string', 'max:500'],
+            'file' => ['required', 'file', 'max:10240'],
+        ]);
+
+        $file = $request->file('file');
+        \App\Support\UploadGuard::assertSafe($file);
+
+        $document = \App\Models\Crm\SalaryDocument::create([
+            'organization_id' => $org->id,
+            'year' => $data['year'],
+            'month' => $data['month'],
+            'name' => $file->getClientOriginalName(),
+            // Hashed name, private disk, outside anything the web serves.
+            'path' => $file->store('crm-documents/' . $org->id . '/salary/' . $data['year'] . '-' . $data['month'], 'local'),
+            'mime' => $file->getClientMimeType(),
+            'size' => $file->getSize(),
+            'note' => $data['note'] ?? null,
+            'uploaded_by' => $request->user()->id,
+        ]);
+
+        ActivityLog::record($me, $org->id, 'salary.document_added', $org, [
+            'period' => sprintf('%04d-%02d', $data['year'], $data['month']),
+            'file' => $document->name,
+        ]);
+
+        return response()->json(['message' => $document->name . ' attached.', 'data' => ['uuid' => $document->uuid]], 201);
+    }
+
+    /** What this document is, written beside it. Changeable; the file is not. */
+    public function updateDocument(Request $request, string $uuid): JsonResponse
+    {
+        $this->guardPay($request);
+        $org = $request->attributes->get('crm_org');
+
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:500']]);
+        $document = \App\Models\Crm\SalaryDocument::where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
+        $document->update(['note' => $data['note'] ?? null]);
+
+        return response()->json(['message' => 'Saved.']);
+    }
+
+    public function downloadDocument(Request $request, string $uuid): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $this->guardPay($request);
+        $org = $request->attributes->get('crm_org');
+
+        $document = \App\Models\Crm\SalaryDocument::where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
+
+        // As an attachment, and never sniffed into something the browser
+        // would run - the same terms every other private file is served on.
+        return \Illuminate\Support\Facades\Storage::disk('local')->download($document->path, $document->name, [
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    public function deleteDocument(Request $request, string $uuid): JsonResponse
+    {
+        $this->guardPay($request);
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $document = \App\Models\Crm\SalaryDocument::where('organization_id', $org->id)->where('uuid', $uuid)->firstOrFail();
+
+        \Illuminate\Support\Facades\Storage::disk('local')->delete($document->path);
+        $document->delete();
+
+        ActivityLog::record($me, $org->id, 'salary.document_removed', $org, [
+            'period' => sprintf('%04d-%02d', $document->year, $document->month),
+            'file' => $document->name,
+        ]);
+
+        return response()->json(['message' => 'Removed.']);
     }
 
     /** Where a remark lives: a person in a month, or the month itself. */

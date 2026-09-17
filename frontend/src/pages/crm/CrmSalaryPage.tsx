@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Download, FileSpreadsheet, MessageSquarePlus, PlayCircle, RefreshCw, Trash2, Wallet } from 'lucide-react'
+import { CheckCircle2, Download, FileSpreadsheet, MessageSquarePlus, Paperclip, PlayCircle, RefreshCw, Trash2, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, type CrmNote, type CrmSalarySlip } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -8,6 +8,7 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
 import NotesModal from './NotesModal'
+import BankDocumentsModal from './BankDocumentsModal'
 import { saveBlob } from '../../lib/download'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -35,6 +36,8 @@ export default function CrmSalaryPage() {
    * survives the refetch that follows saving a note.
    */
   const [noting, setNoting] = useState<{ member: CrmSalarySlip['member']; year: number; month: number } | null>(null)
+  /** The month whose bank paperwork is open, if any. */
+  const [filing, setFiling] = useState<{ year: number; month: number } | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'salary', year, month, period, monthFrom, monthTo],
@@ -159,6 +162,20 @@ export default function CrmSalaryPage() {
                 }}
               >
                 Rebuild pending
+              </Button>
+            )}
+            {/* Where the bank's own proof of the run is kept. Not in a mail
+                folder, not on somebody's desktop - beside the month it is
+                about, where it will be looked for. */}
+            {!period && data && (
+              <Button variant="secondary" onClick={() => setFiling({ year: data.year, month: data.month })}>
+                <Paperclip className="size-4" />
+                Bank documents
+                {!!data.documents?.length && (
+                  <span className="ml-1 rounded-full bg-slate-200 px-1.5 text-[11px] dark:bg-slate-700">
+                    {data.documents.length}
+                  </span>
+                )}
               </Button>
             )}
             </>
@@ -435,6 +452,15 @@ export default function CrmSalaryPage() {
         />
       )}
 
+      {filing && (
+        <BankDocumentsModal
+          year={filing.year}
+          month={filing.month}
+          documents={data?.documents ?? []}
+          onChanged={refresh}
+          onClose={() => setFiling(null)}
+        />
+      )}
       {noting && (
         <NotesModal
           title={noting.member?.name ?? 'this month'}

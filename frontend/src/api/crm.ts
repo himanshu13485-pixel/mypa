@@ -1652,6 +1652,18 @@ export interface CrmSalarySlip {
   notes?: CrmNote[]
 }
 
+/** A bank document filed against a payroll month, with what it is. */
+export interface CrmSalaryDocument {
+  uuid: string
+  name: string
+  mime: string | null
+  size: number
+  note: string | null
+  /** Who filed it. */
+  by: string
+  at: string | null
+}
+
 export interface CrmSalaryResponse {
   data: CrmSalarySlip[]
   totals: {
@@ -1672,6 +1684,8 @@ export interface CrmSalaryResponse {
   manages: boolean
   /** What belongs to the payroll run rather than to any one person. */
   notes?: CrmNote[]
+  /** The bank's own paperwork for the run. Empty for anyone but payroll. */
+  documents?: CrmSalaryDocument[]
   /** The Admin, or somebody the Admin named with salary.export. */
   can_export: boolean
 }
@@ -2865,6 +2879,26 @@ export const crm = {
     addNote: (payload: { year: number; month: number; member_uuid?: string | null; body: string }) =>
       api.post<{ message: string }>('/crm/salary/notes', payload).then((r) => r.data),
     deleteNote: (id: number) => api.delete<{ message: string }>(`/crm/salary/notes/${id}`).then((r) => r.data),
+    /**
+     * The bank's paperwork for a month - advice, statement, confirmation.
+     *
+     * Sent as a form because it carries a file; everything else here is JSON.
+     */
+    addDocument: ({ year, month, file, note }: { year: number; month: number; file: File; note?: string }) => {
+      const form = new FormData()
+      form.append('year', String(year))
+      form.append('month', String(month))
+      form.append('file', file)
+      if (note) form.append('note', note)
+
+      return api.post<{ message: string; data: { uuid: string } }>('/crm/salary/documents', form).then((r) => r.data)
+    },
+    describeDocument: (uuid: string, note: string) =>
+      api.put<{ message: string }>(`/crm/salary/documents/${uuid}`, { note }).then((r) => r.data),
+    downloadDocument: (uuid: string) =>
+      api.get(`/crm/salary/documents/${uuid}`, { responseType: 'blob' }).then((r) => r.data as Blob),
+    deleteDocument: (uuid: string) =>
+      api.delete<{ message: string }>(`/crm/salary/documents/${uuid}`).then((r) => r.data),
     markPaid: (uuids: string[], paidOn?: string) =>
       api.post<{ message: string }>('/crm/salary/mark-paid', { uuids, paid_on: paidOn }).then((r) => r.data),
     remove: (uuid: string) => api.delete(`/crm/salary/${uuid}`).then((r) => r.data),
