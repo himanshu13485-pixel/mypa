@@ -2878,6 +2878,9 @@ export const crm = {
     /** A remark against one person's month, or - with no member_uuid - the run. */
     addNote: (payload: { year: number; month: number; member_uuid?: string | null; body: string }) =>
       api.post<{ message: string }>('/crm/salary/notes', payload).then((r) => r.data),
+    /** One remark against a set of slips — "paid from the ICICI account". */
+    addNotes: (uuids: string[], body: string) =>
+      api.post<{ message: string }>('/crm/salary/notes/bulk', { uuids, body }).then((r) => r.data),
     deleteNote: (id: number) => api.delete<{ message: string }>(`/crm/salary/notes/${id}`).then((r) => r.data),
     /**
      * The bank's paperwork for a month - advice, statement, confirmation.
@@ -3013,8 +3016,16 @@ export const crm = {
     remove: (uuid: string) =>
       api.delete<{ message: string }>(`/crm/offline-employees/${uuid}`).then((r) => r.data),
     salaries: (params: ListParams) =>
-      api.get<{ data: CrmOfflineSalary[]; totals: CrmOfflineSalaryTotals }>('/crm/offline-salaries', { params })
+      api.get<{ data: CrmOfflineSalary[]; totals: CrmOfflineSalaryTotals; notes?: CrmNote[] }>('/crm/offline-salaries', { params })
         .then((r) => r.data),
+    /**
+     * A remark: against one person's month, across a selection of slips, or
+     * against the month itself when neither is named.
+     */
+    addNote: (payload: { year: number; month: number; employee_uuid?: string | null; uuids?: string[]; body: string }) =>
+      api.post<{ message: string; data?: { id: number } }>('/crm/offline-salaries/notes', payload).then((r) => r.data),
+    deleteNote: (id: number) =>
+      api.delete<{ message: string }>(`/crm/offline-salaries/notes/${id}`).then((r) => r.data),
     generate: (year: number, month: number) =>
       api.post<{ message: string; created: number }>('/crm/offline-salaries/generate', { year, month }).then((r) => r.data),
     addSalary: (payload: Record<string, unknown>) =>
@@ -3736,6 +3747,8 @@ export interface CrmOfflineSalary {
   uuid: string
   year: number
   month: number
+  /** Remarks kept beside this person's pay for the month. */
+  notes?: CrmNote[]
   month_days: number
   payable_days: number
   lop_days: number

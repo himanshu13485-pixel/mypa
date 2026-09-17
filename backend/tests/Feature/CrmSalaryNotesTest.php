@@ -223,6 +223,40 @@ class CrmSalaryNotesTest extends TestCase
         $this->assertSame('2222', $row['account_no']);
     }
 
+    public function test_one_remark_can_cover_a_selection_of_salaries(): void
+    {
+        $second = Member::create([
+            'organization_id' => $this->org->id, 'user_id' => $this->makeUser('kanika@grapout.test', 'Kanika')->id,
+            'crm_role' => 'employee', 'status' => 'active', 'joined_at' => '2024-01-01',
+        ]);
+        SalaryStructure::create([
+            'member_id' => $second->id, 'effective_from' => '2026-01-01',
+            'basic' => 15000, 'hra' => 3000, 'components' => [],
+            'has_pf' => false, 'has_edli' => false, 'has_esi' => false, 'has_welfare' => false,
+        ]);
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/salary/generate', ['year' => 2026, 'month' => 8])->assertOk();
+
+        $uuids = collect($this->register()['data'])->pluck('uuid')->all();
+        $this->assertCount(2, $uuids);
+
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/salary/notes/bulk', [
+            'uuids' => $uuids, 'body' => 'Paid from the ICICI account, not the usual one.',
+        ])->assertCreated()->assertJsonPath('message', 'Noted against 2 salaries.');
+
+        foreach ($this->register()['data'] as $row) {
+            $this->assertSame('Paid from the ICICI account, not the usual one.', $row['notes'][0]['body']);
+        }
+    }
+
+    public function test_a_bulk_remark_is_for_the_people_whose_job_the_payroll_is(): void
+    {
+        $uuids = collect($this->register()['data'])->pluck('uuid')->all();
+
+        $this->actingAs($this->employeeUser)->postJson('/api/v1/crm/salary/notes/bulk', [
+            'uuids' => $uuids, 'body' => 'All of us deserve a raise.',
+        ])->assertForbidden();
+    }
+
     public function test_the_register_download_carries_them(): void
     {
         $this->note($this->employee->uuid, 'Arrears of July recovered here.');

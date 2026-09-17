@@ -8,6 +8,7 @@ use App\Models\Crm\IssuingCompany;
 use App\Models\Crm\Member;
 use App\Models\Crm\OfflineEmployee;
 use App\Models\Crm\OfflineSalary;
+use App\Support\PayrollNotes;
 use App\Support\QueryList;
 use App\Support\Xlsx;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -125,12 +126,115 @@ class OfflineEmployeeController extends Controller
     public function salaries(Request $request): JsonResponse
     {
         $this->admin($request);
+        $org = $request->attributes->get('crm_org');
         $rows = $this->records($request);
 
+        /*
+         * The month being read, which this register names as YYYY-MM rather
+         * than as a year and a month.
+         *
+         * Asked for by name rather than taken from the rows, because a month
+         * with no slips in it yet can still have been written about - "nobody
+         * was paid in August, the run moved to September" is exactly the kind
+         * of thing worth writing down, and reading it off the rows would have
+         * meant it could never be seen again.
+         */
+        $from = (string) $request->query('month_from', now()->format('Y-m'));
+        $to = (string) $request->query('month_to', $from);
+        [$year, $month] = array_map('intval', explode('-', $from));
+
+        // The same remarks the payroll keeps, for the people paid outside it:
+        // why this amount, which account it went from, what was odd about the
+        // month. Kept against the person and the month, not the slip.
+        $notes = PayrollNotes::forPeriods(
+            $org->id,
+            PayrollNotes::OFFLINE,
+            $rows->map(fn (OfflineSalary $s) => [$s->year, $s->month])->push([$year, $month]),
+        );
+
         return response()->json([
-            'data' => $rows->map(fn (OfflineSalary $s) => $this->record($s))->values(),
+            'data' => $rows->map(function (OfflineSalary $s) use ($notes) {
+                $row = $this->record($s);
+                $row['notes'] = $notes->get(PayrollNotes::key($s->year, $s->month, $s->offline_employee_id), []);
+
+                return $row;
+            })->values(),
             'totals' => $this->totals($rows),
+            // What belongs to the month rather than to any one person. Only
+            // for a single month: over a span there is no one month for a
+            // remark to be about, and showing one would name the wrong one.
+            'notes' => $from === $to ? $notes->get(PayrollNotes::key($year, $month, null), []) : [],
         ]);
+    }
+
+    /**
+     * A remark against one person's month, several at once, or the month.
+     *
+     * Three shapes through one door because they are one act, and because
+     * the useful one in bulk - "paid from the ICICI account" - is true of
+     * some of a list and false of the rest.
+     */
+    public function storeNote(Request $request): JsonResponse
+    {
+        $me = $this->admin($request);
+        $org = $request->attributes->get('crm_org');
+
+        $data = $request->validate([
+            'year' => ['required_without:uuids', 'integer', 'min:2000', 'max:2100'],
+            'month' => ['required_without:uuids', 'integer', 'min:1', 'max:12'],
+            'employee_uuid' => ['nullable', 'string'],
+            // A selection of slips, each remarked against its own month.
+            'uuids' => ['nullable', 'array', 'max:200'],
+            'uuids.*' => ['string'],
+            'body' => ['required', 'string', 'max:2000'],
+        ]);
+
+        if (! empty($data['uuids'])) {
+            $slips = OfflineSalary::where('organization_id', $org->id)->whereIn('uuid', $data['uuids'])->get();
+            abort_if($slips->isEmpty(), 422, 'Nothing in that selection.');
+
+            $count = PayrollNotes::addMany(
+                $org->id, PayrollNotes::OFFLINE,
+                $slips->map(fn (OfflineSalary $s) => [$s->year, $s->month, $s->offline_employee_id]),
+                $data['body'], $request->user()->id,
+            );
+            ActivityLog::record($me, $org->id, 'offline_salary.notes_added', $org, ['count' => $count]);
+
+            return response()->json([
+                'message' => 'Noted against ' . $count . ' ' . ($count === 1 ? 'salary' : 'salaries') . '.',
+            ], 201);
+        }
+
+        $employee = ! empty($data['employee_uuid'])
+            ? OfflineEmployee::where('organization_id', $org->id)->where('uuid', $data['employee_uuid'])->firstOrFail()
+            : null;
+
+        $id = PayrollNotes::add(
+            $org->id, PayrollNotes::OFFLINE,
+            $data['year'], $data['month'], $employee?->id,
+            $data['body'], $request->user()->id,
+        );
+        ActivityLog::record($me, $org->id, 'offline_salary.note_added', $employee ?? $org, [
+            'period' => sprintf('%04d-%02d', $data['year'], $data['month']),
+        ]);
+
+        return response()->json(['message' => 'Noted.', 'data' => ['id' => $id]], 201);
+    }
+
+    public function deleteNote(Request $request, int $id): JsonResponse
+    {
+        $me = $this->admin($request);
+        $org = $request->attributes->get('crm_org');
+
+        $note = PayrollNotes::find($org->id, $id, PayrollNotes::OFFLINE);
+        abort_unless($note, 404, 'No such note.');
+
+        PayrollNotes::remove($id);
+        ActivityLog::record($me, $org->id, 'offline_salary.note_removed', $org, [
+            'period' => sprintf('%04d-%02d', $note->year, $note->month),
+        ]);
+
+        return response()->json(['message' => 'Note removed.']);
     }
 
     /**

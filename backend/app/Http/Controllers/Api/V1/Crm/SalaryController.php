@@ -12,6 +12,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use App\Support\PayrollNotes;
 use App\Support\QueryList;
 use App\Support\Xlsx;
 
@@ -85,8 +86,22 @@ class SalaryController extends Controller
          * the employee is told. Kept per person per month, so recalculating
          * a slip does not take them with it.
          */
+        /*
+         * The month asked for counts as well as the months the slips are in.
+         *
+         * A remark about the month itself can be written before anybody is
+         * paid - "the run moves to September" is worth saying in August,
+         * when August has no slips at all - and reading the months off the
+         * rows meant such a remark could never be seen again.
+         */
+        $single = ! ($from && $to) || $from === $to;
         $notes = $manages
-            ? $this->notesFor($org, $slips)
+            ? PayrollNotes::forPeriods(
+                $org->id,
+                PayrollNotes::SALARY,
+                $slips->map(fn (SalarySlip $s) => [$s->year, $s->month])
+                    ->when($single, fn ($periods) => $periods->push([$year, $month])),
+            )
             : collect();
 
         $rows = $slips->map(function (SalarySlip $s) use ($punches, $notes) {
@@ -112,7 +127,10 @@ class SalaryController extends Controller
         ], 'year' => $year, 'month' => $month, 'manages' => $manages, 'can_export' => $this->canExport($me),
             // What belongs to the payroll month itself rather than to any one
             // person: a late run, a bonus round, a change of bank.
-            'notes' => $manages ? $notes->get($this->noteKey($year, $month, null), []) : [],
+            // Only for a single month: across a span there is no one month
+            // for such a remark to be about, and naming one would name the
+            // wrong one.
+            'notes' => $manages && $single ? $notes->get($this->noteKey($year, $month, null), []) : [],
             // The bank's own paperwork for this run. Never for an employee:
             // a transfer advice names everybody's account on the page.
             'documents' => $manages ? $this->documentsFor($org, $year, $month) : []]);
@@ -266,49 +284,22 @@ class SalaryController extends Controller
     /** Where a remark lives: a person in a month, or the month itself. */
     private function noteKey(int $year, int $month, ?int $memberId): string
     {
-        return $year . '-' . $month . '-' . ($memberId ?: 'month');
+        return PayrollNotes::key($year, $month, $memberId);
     }
 
     /**
-     * Every remark that belongs to the months on screen, ready to hand out.
-     *
-     * One query for the lot, including the month-level ones for whichever
-     * months the slips cover - a span reads several at once.
+     * Every remark that belongs to the months on screen.
      *
      * @param  \Illuminate\Support\Collection<int, SalarySlip>  $slips
      * @return \Illuminate\Support\Collection<string, list<array<string, mixed>>>
      */
     private function notesFor($org, $slips): \Illuminate\Support\Collection
     {
-        $periods = $slips->map(fn (SalarySlip $s) => [$s->year, $s->month])->unique(fn ($p) => $p[0] . '-' . $p[1]);
-
-        $rows = DB::table('crm_salary_notes')
-            ->leftJoin('users', 'users.id', '=', 'crm_salary_notes.created_by')
-            ->where('crm_salary_notes.organization_id', $org->id)
-            ->where(function ($q) use ($periods) {
-                foreach ($periods as [$year, $month]) {
-                    $q->orWhere(fn ($p) => $p->where('crm_salary_notes.year', $year)->where('crm_salary_notes.month', $month));
-                }
-                // A month with no slips yet can still have been written about.
-                if ($periods->isEmpty()) {
-                    $q->whereRaw('1 = 0');
-                }
-            })
-            ->orderBy('crm_salary_notes.id')
-            ->get([
-                'crm_salary_notes.id', 'crm_salary_notes.year', 'crm_salary_notes.month',
-                'crm_salary_notes.member_id', 'crm_salary_notes.body', 'crm_salary_notes.created_at',
-                'users.name as author',
-            ]);
-
-        return $rows
-            ->groupBy(fn ($n) => $this->noteKey((int) $n->year, (int) $n->month, $n->member_id ? (int) $n->member_id : null))
-            ->map(fn ($group) => $group->map(fn ($n) => [
-                'id' => (int) $n->id,
-                'body' => $n->body,
-                'author' => $n->author ?: 'Someone',
-                'at' => \Carbon\Carbon::parse($n->created_at)->toDateTimeString(),
-            ])->values()->all());
+        return PayrollNotes::forPeriods(
+            $org->id,
+            PayrollNotes::SALARY,
+            $slips->map(fn (SalarySlip $s) => [$s->year, $s->month]),
+        );
     }
 
     /**
@@ -333,21 +324,61 @@ class SalaryController extends Controller
             ? Member::where('organization_id', $org->id)->where('uuid', $data['member_uuid'])->firstOrFail()
             : null;
 
-        $id = DB::table('crm_salary_notes')->insertGetId([
-            'organization_id' => $org->id,
-            'year' => $data['year'],
-            'month' => $data['month'],
-            'member_id' => $member?->id,
-            'body' => trim($data['body']),
-            'created_by' => $request->user()->id,
-            'created_at' => now(), 'updated_at' => now(),
-        ]);
+        $id = PayrollNotes::add(
+            $org->id, PayrollNotes::SALARY,
+            $data['year'], $data['month'], $member?->id,
+            $data['body'], $request->user()->id,
+        );
 
         ActivityLog::record($me, $org->id, 'salary.note_added', $member ?? $org, [
             'period' => sprintf('%04d-%02d', $data['year'], $data['month']),
         ]);
 
         return response()->json(['message' => 'Noted.', 'data' => ['id' => $id]], 201);
+    }
+
+    /**
+     * One remark against several people at once.
+     *
+     * "Paid from the ICICI account" is true of eleven slips and false of the
+     * other four, and typing it eleven times is how it ends up typed eight.
+     * The selection is slips rather than people, so a run read across two
+     * months writes each remark against the month its slip belongs to.
+     */
+    public function storeNotes(Request $request): JsonResponse
+    {
+        $this->guardPay($request);
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $data = $request->validate([
+            'uuids' => ['required', 'array', 'min:1', 'max:200'],
+            'uuids.*' => ['string'],
+            'body' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $slips = SalarySlip::with('member.user:id,name')
+            ->where('organization_id', $org->id)
+            ->whereIn('uuid', $data['uuids'])
+            ->get();
+        abort_if($slips->isEmpty(), 422, 'Nothing in that selection.');
+
+        PayrollNotes::addMany(
+            $org->id, PayrollNotes::SALARY,
+            $slips->map(fn (SalarySlip $s) => [$s->year, $s->month, $s->member_id]),
+            $data['body'], $request->user()->id,
+        );
+
+        ActivityLog::record($me, $org->id, 'salary.notes_added', $org, [
+            'period' => sprintf('%04d-%02d', $slips->first()->year, $slips->first()->month),
+            'count' => $slips->count(),
+            'employees' => $slips->map(fn ($s) => $s->member?->user?->name)->filter()->implode(', '),
+        ]);
+
+        return response()->json([
+            'message' => 'Noted against ' . $slips->count() . ' ' . ($slips->count() === 1 ? 'salary' : 'salaries') . '.',
+        ], 201);
     }
 
     public function deleteNote(Request $request, int $id): JsonResponse
@@ -357,10 +388,10 @@ class SalaryController extends Controller
         /** @var Member $me */
         $me = $request->attributes->get('crm_member');
 
-        $note = DB::table('crm_salary_notes')->where('organization_id', $org->id)->where('id', $id)->first();
+        $note = PayrollNotes::find($org->id, $id, PayrollNotes::SALARY);
         abort_unless($note, 404, 'No such note.');
 
-        DB::table('crm_salary_notes')->where('id', $id)->delete();
+        PayrollNotes::remove($id);
         ActivityLog::record($me, $org->id, 'salary.note_removed', $org, [
             'period' => sprintf('%04d-%02d', $note->year, $note->month),
         ]);

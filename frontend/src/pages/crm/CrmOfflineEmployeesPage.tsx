@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarPlus, CheckCircle2, Contact, Download, Eye, FileSpreadsheet, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
+import { CalendarPlus, CheckCircle2, Contact, Download, Eye, FileSpreadsheet, MessageSquarePlus, Pencil, Plus, Search, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmOfflineEmployee, type CrmOfflineSalary } from '../../api/crm'
+import { crm, type CrmNote, type CrmOfflineEmployee, type CrmOfflineSalary } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { MultiSelect } from '../../components/MultiSelect'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinner } from '../../components/ui'
 import { saveBlob } from '../../lib/download'
 import { listParam } from '../../lib/multiFilter'
+import NotesModal from './NotesModal'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
@@ -42,6 +43,17 @@ export default function CrmOfflineEmployeesPage() {
   const [record, setRecord] = useState<CrmOfflineSalary | 'new' | null>(null)
   const [viewing, setViewing] = useState<CrmOfflineSalary | null>(null)
   const [ticked, setTicked] = useState<string[]>([])
+  /*
+   * What is being written about: one person's month, the month itself, or a
+   * selection of slips at once.
+   *
+   * Held here rather than in the row so the panel survives the refetch that
+   * follows saving - the table is rebuilt from the new register, and a panel
+   * owned by a row would shut the moment you saved.
+   */
+  const [noting, setNoting] = useState<
+    { kind: 'person'; slip: CrmOfflineSalary } | { kind: 'month' } | { kind: 'bulk'; uuids: string[] } | null
+  >(null)
   const [exporting, setExporting] = useState(false)
 
   const people = useQuery({
@@ -120,10 +132,32 @@ export default function CrmOfflineEmployeesPage() {
   }
 
   const rows = records.data?.data ?? []
+  const shownUuids = rows.map((r) => r.uuid)
   const pendingUuids = rows.filter((r) => r.status !== 'paid').map((r) => r.uuid)
+  const tickedShown = ticked.filter((u) => shownUuids.includes(u))
   const tickedPending = ticked.filter((u) => pendingUuids.includes(u))
   const toggle = (uuid: string) => setTicked((t) => (t.includes(uuid) ? t.filter((x) => x !== uuid) : [...t, uuid]))
   const totals = records.data?.totals
+  /* One month on screen: a remark about "the month" has a month to mean. */
+  const single = monthFrom === monthTo
+  const [noteYear, noteMonth] = monthFrom.split('-').map(Number)
+  const monthNotes: CrmNote[] = records.data?.notes ?? []
+
+  /** Whatever the panel is open on, read out of the register itself. */
+  const notesOpen: CrmNote[] = noting?.kind === 'person'
+    ? rows.find((r) => r.uuid === noting.slip.uuid)?.notes ?? []
+    : noting?.kind === 'month' ? monthNotes : []
+
+  const writeNote = (body: string) => crm.offlineEmployees.addNote({
+    year: noting?.kind === 'person' ? noting.slip.year : noteYear,
+    month: noting?.kind === 'person' ? noting.slip.month : noteMonth,
+    employee_uuid: noting?.kind === 'person' ? noting.slip.employee?.uuid ?? null : null,
+    uuids: noting?.kind === 'bulk' ? noting.uuids : undefined,
+    body,
+  }).then((res: { message: string }) => {
+    queryClient.invalidateQueries({ queryKey: ['crm', 'offline-salaries'] })
+    if (noting?.kind === 'bulk') toast(res.message, 'success')
+  })
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -305,21 +339,53 @@ export default function CrmOfflineEmployeesPage() {
           />
         </div>
 
-        {pendingUuids.length > 0 && (
+        {/* The month's own remarks: a late run, a change of account, a week
+            nobody was on site. Only when one month is on screen, because over
+            a span there is no one month for it to be about. */}
+        {single && (
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setNoting({ kind: 'month' })}>
+              <MessageSquarePlus className="size-4" />
+              {monthNotes.length
+                ? `${monthNotes.length} note${monthNotes.length > 1 ? 's' : ''} on this month`
+                : 'Note on this month'}
+            </Button>
+            {monthNotes.map((n) => (
+              <span key={n.id} className="rounded-lg bg-amber-50 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                {n.body} <span className="opacity-60">— {n.author}</span>
+              </span>
+            ))}
+          </div>
+        )}
+
+        {rows.length > 0 && (
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/50">
             <span className="text-slate-500">
-              {tickedPending.length > 0
-                ? <>{tickedPending.length} of {pendingUuids.length} pending selected — {inr(rows.filter((r) => tickedPending.includes(r.uuid)).reduce((t, r) => t + r.net, 0))}</>
-                : 'Tick pending slips to pay several at once.'}
+              {tickedShown.length > 0
+                ? <>{tickedShown.length} of {shownUuids.length} selected — {inr(rows.filter((r) => tickedShown.includes(r.uuid)).reduce((t, r) => t + r.net, 0))}</>
+                : 'Tick salaries to pay them, or to write one remark across all of them.'}
             </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={tickedPending.length === 0 || markPaid.isPending}
-              onClick={() => { if (confirm(`Mark ${tickedPending.length} slip(s) as paid today?`)) markPaid.mutate(tickedPending) }}
-            >
-              <CheckCircle2 className="size-4" /> {markPaid.isPending ? 'Marking…' : `Mark ${tickedPending.length || ''} paid`.replace('  ', ' ')}
-            </Button>
+            <span className="flex flex-wrap gap-2">
+              {/* "Paid from the ICICI account" is true of some of a list and
+                  false of the rest, and typing it eleven times is how it ends
+                  up typed eight. */}
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={tickedShown.length === 0}
+                onClick={() => setNoting({ kind: 'bulk', uuids: tickedShown })}
+              >
+                <MessageSquarePlus className="size-4" /> Remark
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={tickedPending.length === 0 || markPaid.isPending}
+                onClick={() => { if (confirm(`Mark ${tickedPending.length} slip(s) as paid today?`)) markPaid.mutate(tickedPending) }}
+              >
+                <CheckCircle2 className="size-4" /> {markPaid.isPending ? 'Marking…' : `Mark ${tickedPending.length || ''} paid`.replace('  ', ' ')}
+              </Button>
+            </span>
           </div>
         )}
 
@@ -360,15 +426,15 @@ export default function CrmOfflineEmployeesPage() {
                 {rows.map((r) => (
                   <tr key={r.uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
                     <td className="py-2.5 pr-2">
-                      {r.status !== 'paid' && (
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${r.employee?.name ?? 'slip'}`}
-                          checked={ticked.includes(r.uuid)}
-                          onChange={() => toggle(r.uuid)}
-                          className="size-3.5 accent-emerald-600"
-                        />
-                      )}
+                      {/* Paid ones too: a remark about where the money went
+                          is written after it has gone. */}
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${r.employee?.name ?? 'slip'}`}
+                        checked={ticked.includes(r.uuid)}
+                        onChange={() => toggle(r.uuid)}
+                        className="size-3.5 accent-emerald-600"
+                      />
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3">{monthLabel(r.year, r.month)}</td>
                     <td className="py-2.5 pr-3">
@@ -376,6 +442,12 @@ export default function CrmOfflineEmployeesPage() {
                         <div className="font-medium text-emerald-600 hover:underline">{r.employee?.name ?? '—'}</div>
                         <div className="text-xs text-slate-400">{r.employee?.employee_code}</div>
                       </button>
+                      {/* Read beside the name rather than behind a click. */}
+                      {r.notes?.map((n) => (
+                        <div key={n.id} className="text-[11px] leading-snug text-amber-600/90 dark:text-amber-400/80">
+                          {n.body} <span className="text-slate-400">— {n.author}</span>
+                        </div>
+                      ))}
                     </td>
                     <td className="whitespace-nowrap py-2.5 pr-3 text-right text-xs text-slate-500" title={`${r.lop_days} without pay`}>
                       {r.payable_days}/{r.month_days}
@@ -399,6 +471,14 @@ export default function CrmOfflineEmployeesPage() {
                       </span>
                     </td>
                     <td className="whitespace-nowrap py-2.5 text-right">
+                      <button
+                        onClick={() => setNoting({ kind: 'person', slip: r })}
+                        aria-label={`Notes on ${r.employee?.name ?? 'this salary'}`}
+                        title="Remarks kept for the office"
+                        className={clsx('rounded p-1.5', r.notes?.length ? 'text-amber-500 hover:text-amber-600' : 'text-slate-400 hover:text-emerald-600')}
+                      >
+                        <MessageSquarePlus className="size-4" />
+                      </button>
                       <button onClick={() => setViewing(r)} aria-label="View slip" title="View slip" className="rounded p-1.5 text-slate-400 hover:text-emerald-600">
                         <Eye className="size-4" />
                       </button>
@@ -455,6 +535,27 @@ export default function CrmOfflineEmployeesPage() {
           defaultMonth={monthTo || thisMonth()}
           onClose={() => setRecord(null)}
           onDone={(message) => { setRecord(null); setViewing(null); done(message) }}
+        />
+      )}
+      {noting && (
+        <NotesModal
+          writeOnly={noting.kind === 'bulk'}
+          title={noting.kind === 'person'
+            ? noting.slip.employee?.name ?? 'this salary'
+            : noting.kind === 'bulk'
+              ? `${noting.uuids.length} ${noting.uuids.length === 1 ? 'salary' : 'salaries'}`
+              : 'this month'}
+          subtitle={noting.kind === 'bulk'
+            ? 'The same remark goes onto each of them, on their own month.'
+            : `${MONTHS[(noting.kind === 'person' ? noting.slip.month : noteMonth) - 1]} ${noting.kind === 'person' ? noting.slip.year : noteYear}`}
+          notes={notesOpen}
+          placeholder={noting.kind === 'month'
+            ? 'Anything worth remembering about this month…'
+            : 'Why this amount — which account it went from, what it covers…'}
+          onAdd={writeNote}
+          onRemove={(id) => crm.offlineEmployees.deleteNote(id)
+            .then(() => queryClient.invalidateQueries({ queryKey: ['crm', 'offline-salaries'] }))}
+          onClose={() => { setNoting(null); if (noting.kind === 'bulk') setTicked([]) }}
         />
       )}
       {viewing && (

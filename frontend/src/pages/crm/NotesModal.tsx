@@ -20,13 +20,21 @@ import { Button, Label, Modal, Textarea } from '../../components/ui'
  * The list is passed in rather than kept here, so a note written or removed
  * appears the moment the page's own query comes back.
  */
-export default function NotesModal({ title, subtitle, notes, placeholder, hint, onAdd, onRemove, onClose }: {
+export default function NotesModal({ title, subtitle, notes, placeholder, hint, writeOnly, onAdd, onRemove, onClose }: {
   title: string
   subtitle?: string
   notes: CrmNote[]
   placeholder?: string
   /** Who will and will not read these, when that is not obvious. */
   hint?: string
+  /**
+   * Writing one remark onto a selection of people.
+   *
+   * There is no single list to show - each of them has their own - so the
+   * panel is the box and the button, and it closes once the remark is
+   * written rather than sitting open over a list that was never here.
+   */
+  writeOnly?: boolean
   onAdd: (body: string) => Promise<unknown>
   onRemove: (id: number) => Promise<unknown>
   onClose: () => void
@@ -36,7 +44,10 @@ export default function NotesModal({ title, subtitle, notes, placeholder, hint, 
 
   const save = useMutation({
     mutationFn: () => onAdd(body.trim()),
-    onSuccess: () => setBody(''),
+    onSuccess: () => {
+      setBody('')
+      if (writeOnly) onClose()
+    },
     onError: (err) => toastError(errorMessage(err)),
   })
 
@@ -50,7 +61,7 @@ export default function NotesModal({ title, subtitle, notes, placeholder, hint, 
       <div className="space-y-3">
         {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
 
-        {notes.length === 0 ? (
+        {writeOnly ? null : notes.length === 0 ? (
           <p className="text-sm text-slate-400">Nothing written here yet.</p>
         ) : (
           <ul className="space-y-2">
@@ -73,7 +84,7 @@ export default function NotesModal({ title, subtitle, notes, placeholder, hint, 
         )}
 
         <div>
-          <Label>Add a note</Label>
+          <Label>{writeOnly ? 'The remark' : 'Add a note'}</Label>
           <Textarea
             rows={3}
             autoFocus

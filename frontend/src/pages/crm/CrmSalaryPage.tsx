@@ -38,6 +38,8 @@ export default function CrmSalaryPage() {
   const [noting, setNoting] = useState<{ member: CrmSalarySlip['member']; year: number; month: number } | null>(null)
   /** The month whose bank paperwork is open, if any. */
   const [filing, setFiling] = useState<{ year: number; month: number } | null>(null)
+  /** The slips a single remark is being written across, if any. */
+  const [remarking, setRemarking] = useState<string[] | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'salary', year, month, period, monthFrom, monthTo],
@@ -96,13 +98,23 @@ export default function CrmSalaryPage() {
   const manages = data?.manages ?? false
   const years = Array.from({ length: 5 }, (_, i) => now.getFullYear() - 2 + i)
 
-  // Only what is still pending can be ticked; stale ticks (paid meanwhile,
-  // month switched) simply fall out of the count.
+  /*
+   * Anybody on screen can be ticked, and paying acts on the pending ones.
+   *
+   * The ticks used to be pending-only, because paying was all they were for.
+   * A remark is not: "paid from the ICICI account" is written about the
+   * salaries that went out, and being unable to tick them was the difference
+   * between one remark and fifteen typed by hand.
+   *
+   * Stale ticks - paid meanwhile, month switched - simply fall out.
+   */
+  const shownUuids = (data?.data ?? []).map((s) => s.uuid)
   const pendingUuids = (data?.data ?? []).filter((s) => s.status === 'pending').map((s) => s.uuid)
-  const ticked = selected.filter((u) => pendingUuids.includes(u))
+  const ticked = selected.filter((u) => shownUuids.includes(u))
+  const tickedPending = ticked.filter((u) => pendingUuids.includes(u))
   const toggle = (uuid: string) =>
     setSelected((cur) => (cur.includes(uuid) ? cur.filter((u) => u !== uuid) : [...cur, uuid]))
-  const toggleAll = () => setSelected(ticked.length === pendingUuids.length ? [] : pendingUuids)
+  const toggleAll = () => setSelected(ticked.length === shownUuids.length ? [] : shownUuids)
 
   return (
     <div className="mx-auto max-w-6xl space-y-4">
@@ -232,27 +244,39 @@ export default function CrmSalaryPage() {
           />
         ) : (
           <div className="-mx-4 overflow-x-auto px-4">
-            {manages && pendingUuids.length > 0 && (
+            {manages && shownUuids.length > 0 && (
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/50">
                 <span className="text-slate-500">
                   {ticked.length > 0
-                    ? <>{ticked.length} of {pendingUuids.length} pending selected — {inr(
+                    ? <>{ticked.length} of {shownUuids.length} selected — {inr(
                         data.data.filter((s) => ticked.includes(s.uuid)).reduce((t, s) => t + Number(s.net_salary), 0),
-                      )}</>
-                    : <>Tick pending slips to pay several at once.</>}
+                      )}{tickedPending.length !== ticked.length && <> · {tickedPending.length} pending</>}</>
+                    : <>Tick salaries to pay them, or to write one remark across all of them.</>}
                 </span>
-                <Button
-                  variant="secondary"
-                  disabled={ticked.length === 0 || bulkPaidMutation.isPending}
-                  onClick={() => {
-                    if (confirm(`Mark ${ticked.length} pending slip${ticked.length === 1 ? '' : 's'} as paid today?`)) {
-                      bulkPaidMutation.mutate(ticked)
-                    }
-                  }}
-                >
-                  <CheckCircle2 className="size-4" />
-                  {bulkPaidMutation.isPending ? 'Marking…' : `Mark ${ticked.length || ''} paid`.replace('  ', ' ')}
-                </Button>
+                <span className="flex flex-wrap gap-2">
+                  {/* The remark half: it covers whatever is ticked, paid or
+                      not, because "paid from the ICICI account" is said about
+                      salaries that have gone out. */}
+                  <Button
+                    variant="secondary"
+                    disabled={ticked.length === 0}
+                    onClick={() => setRemarking(ticked)}
+                  >
+                    <MessageSquarePlus className="size-4" /> Remark
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={tickedPending.length === 0 || bulkPaidMutation.isPending}
+                    onClick={() => {
+                      if (confirm(`Mark ${tickedPending.length} pending slip${tickedPending.length === 1 ? '' : 's'} as paid today?`)) {
+                        bulkPaidMutation.mutate(tickedPending)
+                      }
+                    }}
+                  >
+                    <CheckCircle2 className="size-4" />
+                    {bulkPaidMutation.isPending ? 'Marking…' : `Mark ${tickedPending.length || ''} paid`.replace('  ', ' ')}
+                  </Button>
+                </span>
               </div>
             )}
             <table className="w-full min-w-[1160px] text-sm">
@@ -289,7 +313,7 @@ export default function CrmSalaryPage() {
                         <input
                           type="checkbox"
                           aria-label="Select all pending slips"
-                          checked={ticked.length > 0 && ticked.length === pendingUuids.length}
+                          checked={ticked.length > 0 && ticked.length === shownUuids.length}
                           onChange={toggleAll}
                           className="size-3.5 accent-emerald-600"
                         />
@@ -315,15 +339,13 @@ export default function CrmSalaryPage() {
                   <tr key={s.uuid} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
                     {manages && (
                       <td className="py-2.5 pr-2">
-                        {s.status === 'pending' && (
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${s.member?.name ?? 'slip'}`}
-                            checked={ticked.includes(s.uuid)}
-                            onChange={() => toggle(s.uuid)}
-                            className="size-3.5 accent-emerald-600"
-                          />
-                        )}
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${s.member?.name ?? 'slip'}`}
+                          checked={ticked.includes(s.uuid)}
+                          onChange={() => toggle(s.uuid)}
+                          className="size-3.5 accent-emerald-600"
+                        />
                       </td>
                     )}
                     <td className="py-2.5 pr-3">
@@ -452,6 +474,19 @@ export default function CrmSalaryPage() {
         />
       )}
 
+      {remarking && (
+        <NotesModal
+          writeOnly
+          title={`${remarking.length} ${remarking.length === 1 ? 'salary' : 'salaries'}`}
+          subtitle="The same remark goes onto each of them, on their own month."
+          notes={[]}
+          placeholder="Paid from the ICICI account, not the usual one…"
+          hint="Kept for the office. The employee does not see these on their slip."
+          onAdd={(body) => crm.salary.addNotes(remarking, body).then((res) => { refresh(); toast(res.message, 'success') })}
+          onRemove={() => Promise.resolve()}
+          onClose={() => { setRemarking(null); setSelected([]) }}
+        />
+      )}
       {filing && (
         <BankDocumentsModal
           year={filing.year}
