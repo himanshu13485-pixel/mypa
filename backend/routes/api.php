@@ -1195,6 +1195,11 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::get('/pl/figures', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'figuresFor'])->middleware('crm.member');
             Route::post('/pl/lines', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'storeLine'])->middleware('crm.member');
             Route::delete('/pl/lines/{id}', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'deleteLine'])->middleware('crm.member');
+            // Why the figure is what it is - against one entry, or against the
+            // whole month. The controller admits the Admin alone, as it does
+            // for every other door on this page.
+            Route::post('/pl/notes', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'storeNote'])->middleware('crm.member');
+            Route::delete('/pl/notes/{id}', [\App\Http\Controllers\Api\V1\Crm\PlController::class, 'deleteNote'])->middleware('crm.member');
             // Churn: reads with the reports right.
             // Celebrations: festival vibes + the wishes wall.
             Route::get('/chat-directory', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'chatDirectory'])->middleware('crm.member');

@@ -118,19 +118,26 @@ class PlController extends Controller
             [\App\Support\Xlsx::cell('Profit & Loss — ' . $org->name . ' — ' . $period, \App\Support\Xlsx::TITLE)],
             ['Generated ' . now()->format('d M Y H:i') . '. Income is gross sales in INR; salaries are the month’s CTC.'],
             [],
-            array_map(fn ($h) => \App\Support\Xlsx::cell($h, \App\Support\Xlsx::HEADER), ['Month', 'Side', 'Line', 'Amount (INR)']),
+            // The note travels with the figure: an explanation typed for
+            // the accountant is no use if it stays on the screen.
+            array_map(fn ($h) => \App\Support\Xlsx::cell($h, \App\Support\Xlsx::HEADER), ['Month', 'Side', 'Line', 'Amount (INR)', 'Notes']),
         ];
+        $said = fn (array $row) => collect($row['notes'] ?? [])
+            ->map(fn ($n) => $n['body'] . ' — ' . $n['author'])
+            ->implode(' · ');
         foreach ($statement['months'] as $m) {
             $month = $label($m['month']);
             foreach ($m['income'] as $line) {
-                $rows[] = [$month, 'Income', $line['label'], \App\Support\Xlsx::money($line['amount'])];
+                $rows[] = [$month, 'Income', $line['label'], \App\Support\Xlsx::money($line['amount']), $said($line)];
             }
             $rows[] = [$month, 'Income', \App\Support\Xlsx::cell('Total income', \App\Support\Xlsx::BOLD), \App\Support\Xlsx::money($m['income_total'], true)];
             foreach ($m['expenses'] as $line) {
-                $rows[] = [$month, 'Expense', $line['label'], \App\Support\Xlsx::money($line['amount'])];
+                $rows[] = [$month, 'Expense', $line['label'], \App\Support\Xlsx::money($line['amount']), $said($line)];
             }
             $rows[] = [$month, 'Expense', \App\Support\Xlsx::cell('Total expenses', \App\Support\Xlsx::BOLD), \App\Support\Xlsx::money($m['expense_total'], true)];
-            $rows[] = [$month, '', \App\Support\Xlsx::cell($m['profit'] >= 0 ? 'Profit' : 'Loss', \App\Support\Xlsx::BOLD), \App\Support\Xlsx::money($m['profit'], true)];
+            // The month's own remarks sit beside its result, which is the
+            // line somebody reading the sheet stops at.
+            $rows[] = [$month, '', \App\Support\Xlsx::cell($m['profit'] >= 0 ? 'Profit' : 'Loss', \App\Support\Xlsx::BOLD), \App\Support\Xlsx::money($m['profit'], true), $said($m)];
             $rows[] = [];
         }
 
@@ -152,7 +159,7 @@ class PlController extends Controller
         ActivityLog::record($me, $org->id, 'export.pl', $org, ['period' => $period]);
 
         $path = (new \App\Support\Xlsx())
-            ->sheet('P&L', $rows, [16, 10, 44, 16], 4)
+            ->sheet('P&L', $rows, [16, 10, 44, 16, 60], 4)
             ->sheet('Summary', $summary, [16, 16, 16, 16], 3)
             ->toTempFile();
 
@@ -280,6 +287,31 @@ class PlController extends Controller
             }
         }
 
+        // ---- What people wrote about all this ----------------------------
+        $notes = DB::table('crm_pl_notes')
+            ->leftJoin('users', 'users.id', '=', 'crm_pl_notes.created_by')
+            ->where('crm_pl_notes.organization_id', $org->id)
+            ->where('crm_pl_notes.month', $key)
+            ->orderBy('crm_pl_notes.id')
+            ->get(['crm_pl_notes.id', 'crm_pl_notes.line_key', 'crm_pl_notes.body', 'crm_pl_notes.created_at', 'users.name as author']);
+
+        $shape = fn ($n) => [
+            'id' => (int) $n->id,
+            'body' => $n->body,
+            'author' => $n->author ?: 'Someone',
+            'at' => Carbon::parse($n->created_at)->toDateTimeString(),
+        ];
+        $byLine = $notes->whereNotNull('line_key')->groupBy('line_key');
+        $attach = fn (array $lines) => array_map(function (array $row) use ($byLine, $shape) {
+            $row['key'] = self::lineKey($row);
+            $row['notes'] = collect($byLine->get($row['key'], []))->map($shape)->values()->all();
+
+            return $row;
+        }, $lines);
+
+        $incomeLines = $attach($incomeLines);
+        $expenseLines = $attach($expenseLines);
+
         $incomeTotal = round(collect($incomeLines)->sum('amount'), 2);
         $expenseTotal = round(collect($expenseLines)->sum('amount'), 2);
 
@@ -290,7 +322,32 @@ class PlController extends Controller
             'income_total' => $incomeTotal,
             'expense_total' => $expenseTotal,
             'profit' => round($incomeTotal - $expenseTotal, 2),
+            // The month's own remarks: what was unusual about it, said once
+            // where it will be read again next year.
+            'notes' => $notes->whereNull('line_key')->map($shape)->values()->all(),
         ];
+    }
+
+    /**
+     * The name a note hangs on.
+     *
+     * Most entries are not rows in a table. Gross sales, a category of the
+     * expense book, the payroll - each is worked out afresh every time the
+     * page is opened, so a note has to be pinned to what the entry IS rather
+     * than to an id it does not have. A hand-added line does have one, and
+     * uses it, so renaming that line keeps its notes.
+     *
+     * The price is that renaming a category, or an issuing company, starts
+     * the notes again - which is the honest answer, because the explanation
+     * was written about a line that no longer goes by that name.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private static function lineKey(array $row): string
+    {
+        return ! empty($row['id'])
+            ? 'line:' . $row['id']
+            : $row['source'] . ':' . $row['label'];
     }
 
     /**
@@ -410,6 +467,58 @@ class PlController extends Controller
         ActivityLog::record($me, $org->id, 'pl.line_added', $org, $data);
 
         return response()->json(['message' => $data['auto_key'] ? $data['label'] . ' added — it follows the month’s figures.' : 'Line added.', 'data' => ['id' => $id]], 201);
+    }
+
+    /**
+     * Write something beside a figure, or beside the month.
+     *
+     * No line_key means the month itself. There is no limit on how many a
+     * month or an entry may carry: an explanation is not a field to be
+     * overwritten by the next person who has something to say.
+     */
+    public function storeNote(Request $request): JsonResponse
+    {
+        $me = $this->admin($request);
+        $org = $request->attributes->get('crm_org');
+
+        $data = $request->validate([
+            'month' => ['required', 'date_format:Y-m'],
+            'line_key' => ['nullable', 'string', 'max:190'],
+            'body' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $id = DB::table('crm_pl_notes')->insertGetId([
+            'organization_id' => $org->id,
+            'month' => $data['month'],
+            'line_key' => $data['line_key'] ?: null,
+            'body' => trim($data['body']),
+            'created_by' => $request->user()->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        ActivityLog::record($me, $org->id, 'pl.note_added', $org, array_filter([
+            'month' => $data['month'],
+            'line' => $data['line_key'] ?? null,
+        ]));
+
+        return response()->json([
+            'message' => empty($data['line_key']) ? 'Noted against ' . $data['month'] . '.' : 'Noted.',
+            'data' => ['id' => $id],
+        ], 201);
+    }
+
+    public function deleteNote(Request $request, int $id): JsonResponse
+    {
+        $me = $this->admin($request);
+        $org = $request->attributes->get('crm_org');
+
+        $note = DB::table('crm_pl_notes')->where('organization_id', $org->id)->where('id', $id)->first();
+        abort_unless($note, 404, 'No such note.');
+
+        DB::table('crm_pl_notes')->where('id', $id)->delete();
+        ActivityLog::record($me, $org->id, 'pl.note_removed', $org, ['month' => $note->month]);
+
+        return response()->json(['message' => 'Note removed.']);
     }
 
     public function deleteLine(Request $request, int $id): JsonResponse

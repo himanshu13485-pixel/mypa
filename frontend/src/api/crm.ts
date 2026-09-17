@@ -3292,6 +3292,10 @@ export const crm = {
     figures: (month: string) =>
       api.get<{ data: CrmPlFigure[] }>('/crm/pl/figures', { params: { month } }).then((r) => r.data.data),
     deleteLine: (id: number) => api.delete<{ message: string }>(`/crm/pl/lines/${id}`).then((r) => r.data),
+    /** An explanation against one entry, or - with no line_key - against the month. */
+    addNote: (payload: { month: string; line_key?: string | null; body: string }) =>
+      api.post<{ message: string }>('/crm/pl/notes', payload).then((r) => r.data),
+    deleteNote: (id: number) => api.delete<{ message: string }>(`/crm/pl/notes/${id}`).then((r) => r.data),
     /** The statement as Excel, month by month plus a summary sheet. */
     exportExcel: (monthFrom: string, monthTo: string) =>
       api.get('/crm/pl/export', { params: { month_from: monthFrom, month_to: monthTo }, responseType: 'blob' })
@@ -3437,7 +3441,24 @@ export interface CrmPlConfig {
   include_proformas?: boolean
 }
 
-export interface CrmPlLine { id?: number; label: string; amount: number; source: string; auto_key?: string | null }
+/** Why a figure is what it is: written against one entry, or against the month. */
+export interface CrmPlNote { id: number; body: string; author: string; at: string }
+export interface CrmPlLine {
+  id?: number
+  /**
+   * What a note hangs on.
+   *
+   * Not the id: most entries have none. Gross sales, a category of the
+   * expense book and the payroll are worked out afresh on every read, so
+   * the server names them by what they are.
+   */
+  key: string
+  label: string
+  amount: number
+  source: string
+  auto_key?: string | null
+  notes: CrmPlNote[]
+}
 export interface CrmPlFigure {
   key: string
   label: string
@@ -3456,6 +3477,8 @@ export interface CrmPlMonth {
   income_total: number
   expense_total: number
   profit: number
+  /** What was special about the month, rather than about any one entry. */
+  notes: CrmPlNote[]
 }
 export interface CrmPlStatement {
   months: CrmPlMonth[]

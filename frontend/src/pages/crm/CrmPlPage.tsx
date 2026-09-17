@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileSpreadsheet, Link2, Plus, Scale, Settings2, Trash2 } from 'lucide-react'
+import { FileSpreadsheet, Link2, MessageSquarePlus, Plus, Scale, Settings2, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmPlConfig, type CrmPlFigure, type CrmPlMonth } from '../../api/crm'
+import { crm, type CrmPlConfig, type CrmPlFigure, type CrmPlMonth, type CrmPlNote } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
-import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { saveBlob } from '../../lib/download'
 
 const inr = (v: number) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -26,6 +26,14 @@ export default function CrmPlPage() {
   const [monthTo, setMonthTo] = useState(thisMonth)
   const [showConfig, setShowConfig] = useState(false)
   const [adding, setAdding] = useState<{ month: string; side: 'income' | 'expense' } | null>(null)
+  /*
+   * What is being explained: one entry, or the month itself (lineKey null).
+   *
+   * Held here rather than in the month card so the panel survives the
+   * refetch that follows writing a note - the card is rebuilt from the new
+   * statement, and a panel owned by it would shut the moment you saved.
+   */
+  const [noting, setNoting] = useState<{ month: string; lineKey: string | null; title: string } | null>(null)
 
   const { data, isLoading, refetch, isFetching } = useQuery({
     queryKey: ['crm', 'pl', monthFrom, monthTo],
@@ -114,11 +122,22 @@ export default function CrmPlPage() {
               m={m}
               onAdd={(side) => setAdding({ month: m.month, side })}
               onDeleteLine={(id) => { if (confirm('Remove this line?')) deleteLine.mutate(id) }}
+              onNote={(lineKey, title) => setNoting({ month: m.month, lineKey, title })}
             />
           ))}
         </>
       )}
 
+      {noting && (
+        <NotesModal
+          month={noting.month}
+          lineKey={noting.lineKey}
+          title={noting.title}
+          notes={noteList(data?.months ?? [], noting.month, noting.lineKey)}
+          onClose={() => setNoting(null)}
+          onSaved={refresh}
+        />
+      )}
       {showConfig && <ConfigModal onClose={() => setShowConfig(false)} onDone={() => { setShowConfig(false); refresh() }} />}
       {adding && (
         <AddLineModal
@@ -132,10 +151,25 @@ export default function CrmPlPage() {
   )
 }
 
-function MonthCard({ m, onAdd, onDeleteLine }: {
+/**
+ * The notes on one entry, or on the month, read out of the statement.
+ *
+ * The panel is given them this way rather than keeping its own copy, so a
+ * note written or removed shows up the moment the statement comes back.
+ */
+function noteList(months: CrmPlMonth[], month: string, lineKey: string | null): CrmPlNote[] {
+  const m = months.find((x) => x.month === month)
+  if (!m) return []
+  if (!lineKey) return m.notes ?? []
+
+  return [...m.income, ...m.expenses].find((l) => l.key === lineKey)?.notes ?? []
+}
+
+function MonthCard({ m, onAdd, onDeleteLine, onNote }: {
   m: CrmPlMonth
   onAdd: (side: 'income' | 'expense') => void
   onDeleteLine: (id: number) => void
+  onNote: (lineKey: string | null, title: string) => void
 }) {
   const side = (title: string, lines: CrmPlMonth['income'], total: number, sideKey: 'income' | 'expense', tone: string) => (
     <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
@@ -148,24 +182,46 @@ function MonthCard({ m, onAdd, onDeleteLine }: {
       {lines.length === 0
         ? <p className="py-1 text-sm text-slate-400">Nothing this month.</p>
         : lines.map((l, i) => (
-          <div key={i} className="flex items-baseline justify-between gap-2 py-1 text-sm">
-            <span className="min-w-0 truncate text-slate-600 dark:text-slate-300">
-              {l.label}
-              {l.source === 'manual' && <span className="ml-1 text-[10px] text-slate-400">(manual)</span>}
-              {l.source === 'linked' && (
-                <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-sky-500" title="Follows this month’s figures">
-                  <Link2 className="size-3" /> auto
-                </span>
-              )}
-            </span>
-            <span className="flex shrink-0 items-center gap-1 tabular-nums">
-              {inr(l.amount)}
-              {(l.source === 'manual' || l.source === 'linked') && l.id && (
-                <button onClick={() => onDeleteLine(l.id!)} aria-label="Remove line" className="rounded p-0.5 text-slate-300 hover:text-red-500">
-                  <Trash2 className="size-3.5" />
+          <div key={i}>
+            <div className="flex items-baseline justify-between gap-2 py-1 text-sm">
+              <span className="min-w-0 truncate text-slate-600 dark:text-slate-300">
+                {l.label}
+                {l.source === 'manual' && <span className="ml-1 text-[10px] text-slate-400">(manual)</span>}
+                {l.source === 'linked' && (
+                  <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-sky-500" title="Follows this month’s figures">
+                    <Link2 className="size-3" /> auto
+                  </span>
+                )}
+              </span>
+              <span className="flex shrink-0 items-center gap-1 tabular-nums">
+                {inr(l.amount)}
+                {/* Every entry, either side - the ones the system works out as
+                    much as the ones somebody typed, because those are the ones
+                    people ask about. */}
+                <button
+                  onClick={() => onNote(l.key, l.label)}
+                  aria-label={l.notes?.length ? `Notes on ${l.label}` : `Explain ${l.label}`}
+                  title={l.notes?.length ? 'Read or add a note' : 'Add a note'}
+                  className={clsx('flex items-center gap-0.5 rounded p-0.5 text-[10px]',
+                    l.notes?.length ? 'text-amber-500 hover:text-amber-600' : 'text-slate-300 hover:text-slate-500')}
+                >
+                  <MessageSquarePlus className="size-3.5" />
+                  {!!l.notes?.length && l.notes.length}
                 </button>
-              )}
-            </span>
+                {(l.source === 'manual' || l.source === 'linked') && l.id && (
+                  <button onClick={() => onDeleteLine(l.id!)} aria-label="Remove line" className="rounded p-0.5 text-slate-300 hover:text-red-500">
+                    <Trash2 className="size-3.5" />
+                  </button>
+                )}
+              </span>
+            </div>
+            {/* Read where the figure is, not behind a click: an explanation
+                nobody sees is one that gets asked for again next month. */}
+            {l.notes?.map((n) => (
+              <p key={n.id} className="-mt-0.5 pb-1 pl-1 text-[11px] leading-snug text-amber-600/90 dark:text-amber-400/80">
+                {n.body} <span className="text-slate-400">— {n.author}</span>
+              </p>
+            ))}
           </div>
         ))}
       <div className={clsx('mt-1 flex items-baseline justify-between border-t border-slate-200 pt-1 text-sm font-semibold dark:border-slate-700', tone)}>
@@ -181,18 +237,122 @@ function MonthCard({ m, onAdd, onDeleteLine }: {
         <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
           {new Date(m.month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
         </h2>
-        <span className={clsx('rounded-full px-3 py-1 text-sm font-semibold',
-          m.profit >= 0
-            ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'
-            : 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400')}>
-          {m.profit >= 0 ? 'Profit' : 'Loss'} {inr(Math.abs(m.profit))}
-        </span>
+        <div className="flex items-center gap-2">
+          {/* The month as a whole: what was special about it, for whoever
+              reads this again a year from now. */}
+          <button
+            onClick={() => onNote(null, 'this month')}
+            className={clsx('flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs',
+              m.notes?.length
+                ? 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10'
+                : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800')}
+          >
+            <MessageSquarePlus className="size-3.5" />
+            {m.notes?.length ? `${m.notes.length} note${m.notes.length > 1 ? 's' : ''}` : 'Note'}
+          </button>
+          <span className={clsx('rounded-full px-3 py-1 text-sm font-semibold',
+            m.profit >= 0
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400'
+              : 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400')}>
+            {m.profit >= 0 ? 'Profit' : 'Loss'} {inr(Math.abs(m.profit))}
+          </span>
+        </div>
       </div>
+      {!!m.notes?.length && (
+        <ul className="mb-2 space-y-1 rounded-xl bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+          {m.notes.map((n) => (
+            <li key={n.id}>
+              {n.body} <span className="opacity-60">— {n.author}, {n.at.slice(0, 10)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="grid gap-3 lg:grid-cols-2">
         {side('Income', m.income, m.income_total, 'income', 'text-slate-800 dark:text-slate-100')}
         {side('Expenses', m.expenses, m.expense_total, 'expense', 'text-red-500')}
       </div>
     </Card>
+  )
+}
+
+/**
+ * Reading and writing the explanations on one entry, or on a month.
+ *
+ * As many as it takes: a note is not a field to be overwritten by the next
+ * person with something to say, so saving adds one and leaves the rest.
+ */
+function NotesModal({ month, lineKey, title, notes, onClose, onSaved }: {
+  month: string
+  lineKey: string | null
+  title: string
+  notes: CrmPlNote[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const { toastError } = useToast()
+  const [body, setBody] = useState('')
+
+  const save = useMutation({
+    mutationFn: () => crm.pl.addNote({ month, line_key: lineKey, body: body.trim() }),
+    onSuccess: () => { setBody(''); onSaved() },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const remove = useMutation({
+    mutationFn: (id: number) => crm.pl.deleteNote(id),
+    onSuccess: onSaved,
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const monthName = new Date(month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
+
+  return (
+    <Modal title={`Notes — ${title}`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-xs text-slate-500">{monthName}</p>
+
+        {notes.length === 0 ? (
+          <p className="text-sm text-slate-400">Nothing written here yet.</p>
+        ) : (
+          <ul className="space-y-2">
+            {notes.map((n) => (
+              <li key={n.id} className="flex items-start justify-between gap-2 rounded-xl bg-slate-50 p-2.5 text-sm dark:bg-slate-800/60">
+                <div className="min-w-0">
+                  <p className="whitespace-pre-wrap break-words text-slate-700 dark:text-slate-200">{n.body}</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">{n.author} · {n.at.slice(0, 16).replace('T', ' ')}</p>
+                </div>
+                <button
+                  onClick={() => { if (confirm('Remove this note?')) remove.mutate(n.id) }}
+                  aria-label="Remove note"
+                  className="shrink-0 rounded p-1 text-slate-300 hover:text-red-500"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div>
+          <Label>Add a note</Label>
+          <Textarea
+            rows={3}
+            autoFocus
+            value={body}
+            maxLength={2000}
+            placeholder={lineKey ? 'Why this figure is what it is\u2026' : 'Anything worth remembering about this month\u2026'}
+            onChange={(e) => setBody(e.target.value)}
+          />
+        </div>
+
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+          <Button onClick={() => save.mutate()} disabled={!body.trim() || save.isPending}>
+            {save.isPending ? 'Saving\u2026' : 'Save note'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 
