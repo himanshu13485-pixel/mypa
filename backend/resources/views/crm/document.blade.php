@@ -153,25 +153,25 @@
 
   .head td { padding: 0 0 16px; border-bottom: 1px solid #f1f5f9; }
   .head .company { font-size: 18px; font-weight: bold; color: #0f172a; }
-  .head .kind { font-size: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: #334155; }
-  .chip { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 9px; background: #f1f5f9; color: #64748b; font-size: 11px; font-weight: 500; }
+  .head .kind { font-size: 16px; font-weight: bold; text-transform: uppercase; letter-spacing: .05em; color: #334155; }
+  .chip { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 9px; background: #f1f5f9; color: #64748b; font-size: 11px; }
 
   .parties td { padding: 16px 0; border-bottom: 1px solid #f1f5f9; }
-  .label { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
+  .label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
 
-  .lines th { text-align: left; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 8px 12px 8px 0; border-bottom: 1px solid #f1f5f9; }
+  .lines th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 8px 12px 8px 0; border-bottom: 1px solid #f1f5f9; }
   .lines td { padding: 10px 12px 10px 0; border-bottom: 1px solid #f8fafc; }
   .lines th.num, .lines td.num { text-align: right; }
   .lines th.last, .lines td.last { padding-right: 0; }
-  .keyword { display: inline-block; margin: 4px 4px 0 0; padding: 2px 8px; border-radius: 9px; font-size: 11px; font-weight: 500; }
+  .keyword { display: inline-block; margin: 4px 4px 0 0; padding: 2px 8px; border-radius: 9px; font-size: 11px; }
   .nowrap { white-space: nowrap; }
 
   .totals { width: 100%; }
   .totals td { padding: 2px 0; }
-  .totals .grand td { border-top: 1px solid #e2e8f0; padding-top: 6px; font-size: 16px; font-weight: 600; color: #0f172a; }
+  .totals .grand td { border-top: 1px solid #e2e8f0; padding-top: 6px; font-size: 16px; font-weight: bold; color: #0f172a; }
 
   .payments { margin-top: 20px; }
-  .payments th { text-align: left; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 6px 12px 6px 0; border-bottom: 1px solid #e2e8f0; }
+  .payments th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 6px 12px 6px 0; border-bottom: 1px solid #e2e8f0; }
   .payments td { padding: 6px 12px 6px 0; border-bottom: 1px solid #f8fafc; }
   .payments .num { text-align: right; padding-right: 0; }
 
@@ -208,7 +208,7 @@
     </td>
     <td class="right">
       <div class="kind">{{ $isProforma ? 'Proforma invoice' : 'Tax invoice' }}</div>
-      <div style="margin-top:4px"><span class="s400">No: </span><span style="font-weight:500">{{ $invoice->number }}</span></div>
+      <div style="margin-top:4px"><span class="s400">No: </span><span style="font-weight:bold">{{ $invoice->number }}</span></div>
       <div><span class="s400">Date: </span>{{ $invoice->invoice_date?->toDateString() }}</div>
       @if ($invoice->due_date && ! $docHidden('due_date'))
         <div><span class="s400">Due: </span>{{ $invoice->due_date->toDateString() }}</div>
@@ -226,7 +226,7 @@
   <tr>
     <td style="width:50%; padding-right:16px">
       <div class="label">Billed to</div>
-      <div style="margin-top:4px; font-weight:600; color:#1e293b">{{ $invoice->client?->company_name }}</div>
+      <div style="margin-top:4px; font-weight:bold; color:#1e293b">{{ $invoice->client?->company_name }}</div>
       @if ($invoice->client?->contact_person)<div class="s500">{{ $invoice->client->contact_person }}</div>@endif
       {{-- Directly under the name: they belong to the person. Joined so a
            missing half leaves no stray separator. --}}
@@ -256,7 +256,7 @@
       @endforeach
       <div>
         <span class="s400">Payment: </span>
-        <span style="font-weight:500; color:{{ $paymentColour }}">{{ $paymentLabels[$invoice->payment_status] ?? $invoice->payment_status }}</span>
+        <span style="font-weight:bold; color:{{ $paymentColour }}">{{ $paymentLabels[$invoice->payment_status] ?? $invoice->payment_status }}</span>
       </div>
     </td>
   </tr>
@@ -279,7 +279,7 @@
       <tr>
         <td class="s400">{{ $i + 1 }}</td>
         <td>
-          <div style="font-weight:500; color:#1e293b">
+          <div style="font-weight:bold; color:#1e293b">
             {{ collect([
                 $shown('membership') ? $item->membership : null,
                 $shown('plan_name') ? $item->plan_name : null,
@@ -330,7 +330,7 @@
         @endif
         <td class="num">{{ $qty($item->qty) }}</td>
         <td class="num nowrap">{{ $money($item->unit_price) }}</td>
-        <td class="num last nowrap" style="font-weight:500">{{ $money($item->amount) }}</td>
+        <td class="num last nowrap" style="font-weight:bold">{{ $money($item->amount) }}</td>
       </tr>
     @endforeach
   </tbody>
@@ -364,7 +364,7 @@
   @endif
   @if (! $isProforma)
     <tr style="color:#059669"><td>Received</td><td class="right">{{ $money($received) }}</td></tr>
-    <tr style="color:#ef4444; font-weight:500"><td>Balance</td><td class="right">{{ $money((float) $invoice->total - $received) }}</td></tr>
+    <tr style="color:#ef4444; font-weight:bold"><td>Balance</td><td class="right">{{ $money((float) $invoice->total - $received) }}</td></tr>
   @endif
 </table>
 </td>
@@ -392,7 +392,7 @@
           </td>
           <td class="s500">{{ $payment->payment_mode ?? '—' }}</td>
           <td class="s500">{{ $payment->reference_no ?? '—' }}</td>
-          <td class="num" style="font-weight:500; color:#059669">
+          <td class="num" style="font-weight:bold; color:#059669">
             {{ $money($payment->amount) }}
             {{-- The client paid in full; the charge is ours, and saying so stops
                  anyone reading it as a shortfall. --}}
