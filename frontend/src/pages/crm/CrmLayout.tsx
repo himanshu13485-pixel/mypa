@@ -14,6 +14,7 @@ import { CallProvider } from '../../components/CallManager'
 import { MeetingHost, MeetingSlot } from '../../components/MeetingHost'
 import ImpersonationBanner from '../../components/ImpersonationBanner'
 import NotificationBell from '../../components/NotificationBell'
+import AccountSwitcher from '../../components/AccountSwitcher'
 import CrmTargetStrip from '../../components/CrmTargetStrip'
 import { MenuAlertToggle } from '../../components/MenuAlertToggle'
 import { useQuery } from '@tanstack/react-query'
@@ -571,6 +572,10 @@ export default function CrmLayout() {
               reads them all. */}
           {me?.member?.crm_role === 'admin' && <MenuAlertToggle scope="company" />}
           <NotificationBell />
+          {/* The same switcher as the personal app: an account here may be
+              one of three this browser holds, and the company shell is no
+              reason to make somebody sign out to reach the others. */}
+          <AccountSwitcher />
         </div>
         <main className={clsx(
           'scroll-pane min-h-0 min-w-0 flex-1 overflow-y-auto',

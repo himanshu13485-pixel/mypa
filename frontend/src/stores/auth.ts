@@ -2,11 +2,44 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { User } from '../types'
 
+/**
+ * One signed-in account this browser is holding.
+ *
+ * The token is kept beside the person it belongs to, so switching is a swap
+ * rather than a sign-in: the same browser, several seats, and the one in use
+ * is whichever `token` and `user` currently point at.
+ */
+export interface SavedAccount {
+  uuid: string
+  token: string
+  user: User
+}
+
+/** Three. Enough for a personal seat and the companies somebody works in. */
+export const MAX_ACCOUNTS = 3
+
 interface AuthState {
   token: string | null
   user: User | null
+  /**
+   * Every account signed in on this browser, the active one included.
+   *
+   * Kept beside token/user rather than replacing them so that nothing else
+   * in the app has to know this exists: every caller still reads the active
+   * token the way it always did.
+   */
+  accounts: SavedAccount[]
   setAuth: (token: string, user: User) => void
   setUser: (user: User) => void
+  /** Make one of the held accounts the active one. */
+  switchTo: (uuid: string) => SavedAccount | null
+  /**
+   * Sign out of the account in use, keeping the others.
+   *
+   * Returns whichever account takes over, or null when that was the last
+   * one and this is an ordinary sign-out.
+   */
+  signOutActive: () => SavedAccount | null
   clear: () => void
 }
 
@@ -24,21 +57,78 @@ export const IMPERSONATION_KEY = 'netvork-impersonation'
 
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       token: null,
       user: null,
-      setAuth: (token, user) => set({ token, user }),
-      setUser: (user) => set({ user }),
+      accounts: [],
+      setAuth: (token, user) => set((state) => {
+        /*
+         * Signing in records the account as well as taking the seat.
+         *
+         * Signing into one already held replaces its token - that is the
+         * same person with a fresh session, not a fourth account - which is
+         * also what keeps the list from filling up with one's own logins.
+         */
+        const without = state.accounts.filter((a) => a.uuid !== user.uuid)
+        const accounts = [...without, { uuid: user.uuid, token, user }].slice(-MAX_ACCOUNTS)
+
+        return { token, user, accounts }
+      }),
+      setUser: (user) => set((state) => ({
+        user,
+        // The renamed, re-photographed person is the same account: keep the
+        // switcher's copy in step so it does not go on showing an old name.
+        accounts: state.accounts.map((a) => (a.uuid === user.uuid ? { ...a, user } : a)),
+      })),
+      switchTo: (uuid) => {
+        const next = get().accounts.find((a) => a.uuid === uuid)
+        if (!next) return null
+
+        set({ token: next.token, user: next.user })
+
+        return next
+      },
+      signOutActive: () => {
+        const { user, accounts } = get()
+        const rest = accounts.filter((a) => a.uuid !== user?.uuid)
+        const next = rest[rest.length - 1] ?? null
+
+        set({ accounts: rest, token: next?.token ?? null, user: next?.user ?? null })
+
+        return next
+      },
       clear: () => {
         try {
           localStorage.removeItem(IMPERSONATION_KEY)
         } catch {
           // Private mode, or storage turned off. Nothing was stashed either.
         }
-        set({ token: null, user: null })
+        // Everything, not only the seat in use: this is the path a 401 takes
+        // as well as the Sign out button, and a token the server has stopped
+        // honouring is no reason to keep the others - but it IS a reason not
+        // to leave somebody looking at a screen that is still half signed in.
+        set({ token: null, user: null, accounts: [] })
       },
     }),
-    { name: 'mypa-auth' },
+    {
+      name: 'mypa-auth',
+      /*
+       * Somebody already signed in when this arrived.
+       *
+       * Their token and user were stored long before there was a list to
+       * put them in, so without this the switcher would open on an empty
+       * menu for every existing user — signed in, and apparently nobody.
+       */
+      merge: (persisted, current) => {
+        const saved = (persisted ?? {}) as Partial<AuthState>
+        const accounts = saved.accounts ?? []
+        const seeded = accounts.length === 0 && saved.token && saved.user
+          ? [{ uuid: saved.user.uuid, token: saved.token, user: saved.user }]
+          : accounts
+
+        return { ...current, ...saved, accounts: seeded }
+      },
+    },
   ),
 )
 

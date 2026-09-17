@@ -6,7 +6,7 @@ import {
   Briefcase, Receipt, Repeat, Settings, Shield, Star, Sun, Target, UserPlus, Users, Video, X,
 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { auth, badges as badgesApi, theme as themeApi } from '../api/endpoints'
 import { SIDEBARS, backgroundRule, sidebarStyle } from '../lib/backgrounds'
 import { crmMeQuery } from '../api/crm'
@@ -14,6 +14,7 @@ import { ensurePushRegistered } from '../lib/alerts'
 import { disconnectEcho } from '../lib/echo'
 import { isStaff, useAuthStore } from '../stores/auth'
 import NotificationBell from './NotificationBell'
+import AccountSwitcher from './AccountSwitcher'
 import { MenuAlertToggle } from './MenuAlertToggle'
 import NetvorkMark from './Logo'
 import { CallProvider } from './CallManager'
@@ -93,7 +94,9 @@ function applyTheme(dark: boolean) {
 export default function Layout({ preloadPath }: { preloadPath?: (to: string) => void }) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const { user, clear } = useAuthStore()
+  const { user } = useAuthStore()
+  const signOutActive = useAuthStore((s) => s.signOutActive)
+  const queryClient = useQueryClient()
   const setUser = useAuthStore((s) => s.setUser)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
@@ -184,8 +187,17 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
       // Close the private channel before dropping the session — see the note
       // in api/client.ts; an orphaned socket outlives the logout.
       disconnectEcho()
-      clear()
-      navigate('/login')
+      /*
+       * This seat, not every seat.
+       *
+       * The browser may be holding two other accounts, and signing out of
+       * one is not a reason to sign the others out with it. Whoever takes
+       * over is shown their own app; if there is nobody, this is the
+       * ordinary sign-out it always was.
+       */
+      const next = signOutActive()
+      queryClient.clear()
+      navigate(next ? '/' : '/login', { replace: true })
     }
   }
 
@@ -396,9 +408,13 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
             >
               {dark ? <Sun className="size-5 sm:size-4" /> : <Moon className="size-5 sm:size-4" />}
             </button>
+            {/* Top right, where the person is: the seats this browser is
+                holding, the way to add another, and signing out of this one
+                without disturbing the others. */}
+            <AccountSwitcher />
             <button
               onClick={logout}
-              className="tap flex items-center justify-center rounded-lg p-2 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800"
+              className="tap hidden items-center justify-center rounded-lg p-2 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 sm:flex dark:hover:bg-slate-800"
               aria-label="Log out"
               title="Log out"
             >

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useQueryClient } from '@tanstack/react-query'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { clsx } from 'clsx'
 import { auth } from '../../api/endpoints'
 import { errorMessage } from '../../api/client'
@@ -8,6 +9,8 @@ import { useAuthStore } from '../../stores/auth'
 import { Button, ErrorNote, Input, Label } from '../../components/ui'
 import { returnState, returnTo } from '../../lib/returnTo'
 import { rememberDevice } from '../../lib/deviceTrust'
+import { disconnectEcho } from '../../lib/echo'
+import { MAX_ACCOUNTS } from '../../stores/auth'
 
 /** Long enough that a slow mail server is waited for, not queued behind. */
 const RESEND_COOLDOWN_SECONDS = 60
@@ -18,7 +21,35 @@ export default function Login() {
   // Whoever sent us here — the auth guard, or the guest door on a meeting
   // link — said where this ends. Default to the dashboard.
   const next = returnTo(location.state)
-  const setAuth = useAuthStore((s) => s.setAuth)
+  const queryClient = useQueryClient()
+  const [params] = useSearchParams()
+  const accounts = useAuthStore((s) => s.accounts)
+  const active = useAuthStore((s) => s.user)
+  /*
+   * Adding a second seat rather than starting from nothing.
+   *
+   * The screen is the same one; what changes is that the accounts already
+   * held are kept, and that this says so - somebody typing a password on a
+   * page that looks like a sign-out would reasonably think they had been
+   * signed out.
+   */
+  const adding = params.get('add') === '1' && !!active
+  const full = adding && accounts.length >= MAX_ACCOUNTS
+
+  const rawSetAuth = useAuthStore((s) => s.setAuth)
+  /*
+   * Taking the seat, and leaving nothing of the last one behind.
+   *
+   * The socket belongs to whoever opened it and would go on delivering
+   * their calls and messages; every list in the cache was fetched as them.
+   * Both have to go at the moment the token changes, or the new account
+   * spends its first seconds looking at somebody else's app.
+   */
+  const setAuth = (token: string, user: Parameters<typeof rawSetAuth>[1]) => {
+    disconnectEcho()
+    queryClient.clear()
+    rawSetAuth(token, user)
+  }
   const [mode, setMode] = useState<'password' | 'otp'>('password')
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
@@ -200,8 +231,18 @@ export default function Login() {
       <div className="w-full max-w-sm">
         <div className="mb-6 text-center">
           <NetvorkMark className="mx-auto mb-3 size-14" />
-          <h1 className="text-xl font-semibold">Welcome back</h1>
-          <p className="mt-1 text-sm text-slate-500">Sign in to your Netvork account</p>
+          <h1 className="text-xl font-semibold">{adding ? 'Add another account' : 'Welcome back'}</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            {adding
+              ? <>You stay signed in as <span className="font-medium">{active?.name}</span> — switch between them from your picture, top right.</>
+              : 'Sign in to your Netvork account'}
+          </p>
+          {full && (
+            <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+              This browser already holds {MAX_ACCOUNTS} accounts. Sign out of one before adding another —
+              signing in here will replace the oldest.
+            </p>
+          )}
           <p className="mt-0.5 text-xs italic text-brand-600">One App. Every Task. Every Connection.</p>
         </div>
 
