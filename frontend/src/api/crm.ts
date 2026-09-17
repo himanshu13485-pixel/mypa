@@ -1642,6 +1642,14 @@ export interface CrmSalarySlip {
   paid_on: string | null
   payment_mode: string | null
   attendance: { days: number; present: number; late: number; half_day: number; holiday: number } | null
+  /**
+   * The office's remarks about this person's pay this month.
+   *
+   * Empty for an employee reading their own slip: these are working notes
+   * about somebody's salary, not part of what they are told. Kept against
+   * the person and the month, so recalculating a slip does not lose them.
+   */
+  notes?: CrmNote[]
 }
 
 export interface CrmSalaryResponse {
@@ -1662,6 +1670,8 @@ export interface CrmSalaryResponse {
   year: number
   month: number
   manages: boolean
+  /** What belongs to the payroll run rather than to any one person. */
+  notes?: CrmNote[]
   /** The Admin, or somebody the Admin named with salary.export. */
   can_export: boolean
 }
@@ -2851,6 +2861,10 @@ export const crm = {
     recalculate: (uuid: string) =>
       api.post<{ message: string; data: CrmSalarySlip }>(`/crm/salary/${uuid}/recalculate`).then((r) => r.data),
     /** The payout run: mark every selected pending slip paid in one act. */
+    /** A remark against one person's month, or - with no member_uuid - the run. */
+    addNote: (payload: { year: number; month: number; member_uuid?: string | null; body: string }) =>
+      api.post<{ message: string }>('/crm/salary/notes', payload).then((r) => r.data),
+    deleteNote: (id: number) => api.delete<{ message: string }>(`/crm/salary/notes/${id}`).then((r) => r.data),
     markPaid: (uuids: string[], paidOn?: string) =>
       api.post<{ message: string }>('/crm/salary/mark-paid', { uuids, paid_on: paidOn }).then((r) => r.data),
     remove: (uuid: string) => api.delete(`/crm/salary/${uuid}`).then((r) => r.data),
@@ -3441,8 +3455,15 @@ export interface CrmPlConfig {
   include_proformas?: boolean
 }
 
-/** Why a figure is what it is: written against one entry, or against the month. */
-export interface CrmPlNote { id: number; body: string; author: string; at: string }
+/**
+ * Why a figure is what it is.
+ *
+ * The same shape wherever remarks are kept - the P&L's entries and months,
+ * the payroll's people and runs - because it is the same act: somebody
+ * answering, once, a question that would otherwise be asked every month.
+ */
+export interface CrmNote { id: number; body: string; author: string; at: string }
+export type CrmPlNote = CrmNote
 export interface CrmPlLine {
   id?: number
   /**

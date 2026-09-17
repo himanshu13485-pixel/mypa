@@ -1220,6 +1220,12 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member:salary,edit');
             Route::post('/salary/mark-paid', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'markPaid'])
                 ->middleware('crm.member:salary,edit');
+            // Remarks kept beside the pay - on one person's month, or on the
+            // whole payroll run. The office's own record, not the employee's.
+            Route::post('/salary/notes', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'storeNote'])
+                ->middleware('crm.member:salary,edit');
+            Route::delete('/salary/notes/{id}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'deleteNote'])
+                ->middleware('crm.member:salary,edit');
             Route::put('/salary/{uuid}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'update'])
                 ->middleware('crm.member:salary,edit');
             Route::delete('/salary/{uuid}', [\App\Http\Controllers\Api\V1\Crm\SalaryController::class, 'destroy'])

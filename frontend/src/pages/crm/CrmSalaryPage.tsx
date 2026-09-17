@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Download, FileSpreadsheet, PlayCircle, RefreshCw, Trash2, Wallet } from 'lucide-react'
+import { CheckCircle2, Download, FileSpreadsheet, MessageSquarePlus, PlayCircle, RefreshCw, Trash2, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, type CrmSalarySlip } from '../../api/crm'
+import { crm, type CrmNote, type CrmSalarySlip } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
+import NotesModal from './NotesModal'
 import { saveBlob } from '../../lib/download'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
@@ -28,6 +29,12 @@ export default function CrmSalaryPage() {
   const [period, setPeriod] = useState(false)
   const [monthFrom, setMonthFrom] = useState('')
   const [monthTo, setMonthTo] = useState('')
+  /*
+   * Whose pay is being written about: one person's month, or the run as a
+   * whole (member null). Held here rather than in the row, so the panel
+   * survives the refetch that follows saving a note.
+   */
+  const [noting, setNoting] = useState<{ member: CrmSalarySlip['member']; year: number; month: number } | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'salary', year, month, period, monthFrom, monthTo],
@@ -232,6 +239,31 @@ export default function CrmSalaryPage() {
               </div>
             )}
             <table className="w-full min-w-[1160px] text-sm">
+              {/* The run as a whole: a late payout, a bonus round, a change
+                  of bank - said once where the register is read. */}
+              <caption className="caption-top pb-2 text-left">
+                {manages && !period && (
+                  <span className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => setNoting({ member: null, year: data.year, month: data.month })}
+                      className={clsx('flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs',
+                        data.notes?.length
+                          ? 'text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-500/10'
+                          : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800')}
+                    >
+                      <MessageSquarePlus className="size-3.5" />
+                      {data.notes?.length
+                        ? `${data.notes.length} note${data.notes.length > 1 ? 's' : ''} on this month`
+                        : 'Note on this month'}
+                    </button>
+                    {data.notes?.map((n) => (
+                      <span key={n.id} className="rounded-lg bg-amber-50 px-2 py-0.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+                        {n.body} <span className="opacity-60">— {n.author}</span>
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </caption>
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                   {manages && (
@@ -288,6 +320,13 @@ export default function CrmSalaryPage() {
                       <div className="text-xs text-slate-400">
                         {[s.bank_name, s.account_no ? '…' + s.account_no.slice(-4) : null].filter(Boolean).join(' ')}
                       </div>
+                      {/* Read beside the name, not behind a click: a remark
+                          nobody sees is one that gets asked for again. */}
+                      {s.notes?.map((n) => (
+                        <div key={n.id} className="text-[11px] leading-snug text-amber-600/90 dark:text-amber-400/80">
+                          {n.body} <span className="text-slate-400">— {n.author}</span>
+                        </div>
+                      ))}
                     </td>
                     <td className="py-2.5 pr-3 text-xs text-slate-500">
                       {s.attendance
@@ -335,6 +374,17 @@ export default function CrmSalaryPage() {
                     </td>
                     {manages && (
                       <td className="py-2.5 text-right">
+                        {/* Every salary, paid or pending: the record of why
+                            it was what it was outlives the payout. */}
+                        <button
+                          onClick={() => setNoting({ member: s.member, year: s.year, month: s.month })}
+                          aria-label={`Notes on ${s.member?.name ?? 'this salary'}`}
+                          title="Remarks kept for the office"
+                          className={clsx('rounded p-1.5',
+                            s.notes?.length ? 'text-amber-500 hover:text-amber-600' : 'text-slate-400 hover:text-emerald-600')}
+                        >
+                          <MessageSquarePlus className="size-4" />
+                        </button>
                         <button
                           onClick={() => downloadPdf(s)}
                           aria-label="Download payslip"
@@ -385,6 +435,22 @@ export default function CrmSalaryPage() {
         />
       )}
 
+      {noting && (
+        <NotesModal
+          title={noting.member?.name ?? 'this month'}
+          subtitle={`${MONTHS[noting.month - 1]} ${noting.year}`}
+          notes={salaryNotes(data, noting)}
+          placeholder={noting.member
+            ? 'Why this salary is what it is — arrears, a hold, a decision taken…'
+            : 'Anything worth remembering about this payroll run…'}
+          hint="Kept for the office. The employee does not see these on their slip."
+          onAdd={(body) => crm.salary.addNote({
+            year: noting.year, month: noting.month, member_uuid: noting.member?.uuid ?? null, body,
+          }).then(refresh)}
+          onRemove={(id) => crm.salary.deleteNote(id).then(refresh)}
+          onClose={() => setNoting(null)}
+        />
+      )}
       {editing && (
         <SlipModal slip={editing} onClose={() => setEditing(null)} onDone={() => { setEditing(null); refresh() }} />
       )}
@@ -400,6 +466,23 @@ export default function CrmSalaryPage() {
       )}
     </div>
   )
+}
+
+/**
+ * The remarks on whatever is open, read out of the register itself.
+ *
+ * Taken from the query rather than kept in the panel, so a note saved or
+ * removed shows the moment the register comes back.
+ */
+function salaryNotes(
+  data: { data: CrmSalarySlip[]; notes?: CrmNote[] } | undefined,
+  at: { member: CrmSalarySlip['member']; year: number; month: number },
+): CrmNote[] {
+  if (!data) return []
+  if (!at.member) return data.notes ?? []
+
+  return data.data.find((s) =>
+    s.member?.uuid === at.member?.uuid && s.year === at.year && s.month === at.month)?.notes ?? []
 }
 
 function SlipModal({ slip, onClose, onDone }: { slip: CrmSalarySlip; onClose: () => void; onDone: () => void }) {
@@ -703,6 +786,16 @@ function BreakdownModal({ slip, canEdit, onEdit, onDownload, onClose }: {
           </div>
         </div>
 
+        {!!slip.notes?.length && (
+          <div className="mb-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
+            <p className="mb-1 font-semibold uppercase tracking-wide opacity-70">Remarks</p>
+            {slip.notes.map((n) => (
+              <p key={n.id}>
+                {n.body} <span className="opacity-60">— {n.author}, {n.at.slice(0, 10)}</span>
+              </p>
+            ))}
+          </div>
+        )}
         <div className="flex gap-2">
           {/* Everyone may take their slip away as a file. */}
           <Button className="flex-1" variant="secondary" onClick={onDownload}>

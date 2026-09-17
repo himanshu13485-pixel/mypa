@@ -76,7 +76,25 @@ class SalaryController extends Controller
             ->get()
             ->groupBy('member_id');
 
-        $rows = $slips->map(fn (SalarySlip $s) => $this->serialize($s, $punches[$s->member_id] ?? collect()));
+        /*
+         * Remarks, for the people whose job the payroll is.
+         *
+         * Not shown to an employee reading their own slip: these are the
+         * office's working notes about somebody's pay - an arrears recovery,
+         * a decision taken about a deduction - and the slip itself is what
+         * the employee is told. Kept per person per month, so recalculating
+         * a slip does not take them with it.
+         */
+        $notes = $manages
+            ? $this->notesFor($org, $slips)
+            : collect();
+
+        $rows = $slips->map(function (SalarySlip $s) use ($punches, $notes) {
+            $row = $this->serialize($s, $punches[$s->member_id] ?? collect());
+            $row['notes'] = $notes->get($this->noteKey($s->year, $s->month, $s->member_id), []);
+
+            return $row;
+        });
 
         return response()->json(['data' => $rows, 'totals' => [
             'payable' => round($slips->sum('payable'), 2),
@@ -91,7 +109,143 @@ class SalaryController extends Controller
             'net_without_incentive' => round($slips->sum(fn ($s) => (float) ($s->net_without_incentive ?? $s->net_salary)), 2),
             'paid' => round($slips->where('status', 'paid')->sum('net_salary'), 2),
             'pending' => round($slips->where('status', 'pending')->sum('net_salary'), 2),
-        ], 'year' => $year, 'month' => $month, 'manages' => $manages, 'can_export' => $this->canExport($me)]);
+        ], 'year' => $year, 'month' => $month, 'manages' => $manages, 'can_export' => $this->canExport($me),
+            // What belongs to the payroll month itself rather than to any one
+            // person: a late run, a bonus round, a change of bank.
+            'notes' => $manages ? $notes->get($this->noteKey($year, $month, null), []) : []]);
+    }
+
+    /**
+     * The bank details a slip should show.
+     *
+     * Stamped onto the slip when it is made, which is right for a payment
+     * that has happened - it is the record of where the money actually went,
+     * and must not change afterwards because somebody edited their profile.
+     *
+     * It was wrong for a slip still pending. Bank details filled in after the
+     * month was generated never reached the slip, so the register showed a
+     * blank beside a name while every colleague's account showed - and the
+     * only way to pick them up was to know that Recalculate would do it.
+     * Nothing has been paid yet, so a pending slip follows the person.
+     *
+     * @return array{bank_name: ?string, account_holder: ?string, account_no: ?string, ifsc: ?string}
+     */
+    private function bankOf(SalarySlip $s): array
+    {
+        $member = $s->member;
+        $live = $s->status !== 'paid' && $member;
+
+        return [
+            'bank_name' => $live ? ($member->bank_name ?: $s->bank_name) : ($s->bank_name ?: $member?->bank_name),
+            'account_holder' => $live ? ($member->bank_account_name ?: $s->account_holder) : ($s->account_holder ?: $member?->bank_account_name),
+            'account_no' => $live ? ($member->bank_account_no ?: $s->account_no) : ($s->account_no ?: $member?->bank_account_no),
+            'ifsc' => $live ? ($member->bank_ifsc ?: $s->ifsc) : ($s->ifsc ?: $member?->bank_ifsc),
+        ];
+    }
+
+    /** Where a remark lives: a person in a month, or the month itself. */
+    private function noteKey(int $year, int $month, ?int $memberId): string
+    {
+        return $year . '-' . $month . '-' . ($memberId ?: 'month');
+    }
+
+    /**
+     * Every remark that belongs to the months on screen, ready to hand out.
+     *
+     * One query for the lot, including the month-level ones for whichever
+     * months the slips cover - a span reads several at once.
+     *
+     * @param  \Illuminate\Support\Collection<int, SalarySlip>  $slips
+     * @return \Illuminate\Support\Collection<string, list<array<string, mixed>>>
+     */
+    private function notesFor($org, $slips): \Illuminate\Support\Collection
+    {
+        $periods = $slips->map(fn (SalarySlip $s) => [$s->year, $s->month])->unique(fn ($p) => $p[0] . '-' . $p[1]);
+
+        $rows = DB::table('crm_salary_notes')
+            ->leftJoin('users', 'users.id', '=', 'crm_salary_notes.created_by')
+            ->where('crm_salary_notes.organization_id', $org->id)
+            ->where(function ($q) use ($periods) {
+                foreach ($periods as [$year, $month]) {
+                    $q->orWhere(fn ($p) => $p->where('crm_salary_notes.year', $year)->where('crm_salary_notes.month', $month));
+                }
+                // A month with no slips yet can still have been written about.
+                if ($periods->isEmpty()) {
+                    $q->whereRaw('1 = 0');
+                }
+            })
+            ->orderBy('crm_salary_notes.id')
+            ->get([
+                'crm_salary_notes.id', 'crm_salary_notes.year', 'crm_salary_notes.month',
+                'crm_salary_notes.member_id', 'crm_salary_notes.body', 'crm_salary_notes.created_at',
+                'users.name as author',
+            ]);
+
+        return $rows
+            ->groupBy(fn ($n) => $this->noteKey((int) $n->year, (int) $n->month, $n->member_id ? (int) $n->member_id : null))
+            ->map(fn ($group) => $group->map(fn ($n) => [
+                'id' => (int) $n->id,
+                'body' => $n->body,
+                'author' => $n->author ?: 'Someone',
+                'at' => \Carbon\Carbon::parse($n->created_at)->toDateTimeString(),
+            ])->values()->all());
+    }
+
+    /**
+     * Write a remark against one person's pay for a month, or against the
+     * month itself. No member_uuid means the month.
+     */
+    public function storeNote(Request $request): JsonResponse
+    {
+        $this->guardPay($request);
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $data = $request->validate([
+            'year' => ['required', 'integer', 'min:2000', 'max:2100'],
+            'month' => ['required', 'integer', 'min:1', 'max:12'],
+            'member_uuid' => ['nullable', 'string'],
+            'body' => ['required', 'string', 'max:2000'],
+        ]);
+
+        $member = ! empty($data['member_uuid'])
+            ? Member::where('organization_id', $org->id)->where('uuid', $data['member_uuid'])->firstOrFail()
+            : null;
+
+        $id = DB::table('crm_salary_notes')->insertGetId([
+            'organization_id' => $org->id,
+            'year' => $data['year'],
+            'month' => $data['month'],
+            'member_id' => $member?->id,
+            'body' => trim($data['body']),
+            'created_by' => $request->user()->id,
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        ActivityLog::record($me, $org->id, 'salary.note_added', $member ?? $org, [
+            'period' => sprintf('%04d-%02d', $data['year'], $data['month']),
+        ]);
+
+        return response()->json(['message' => 'Noted.', 'data' => ['id' => $id]], 201);
+    }
+
+    public function deleteNote(Request $request, int $id): JsonResponse
+    {
+        $this->guardPay($request);
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+
+        $note = DB::table('crm_salary_notes')->where('organization_id', $org->id)->where('id', $id)->first();
+        abort_unless($note, 404, 'No such note.');
+
+        DB::table('crm_salary_notes')->where('id', $id)->delete();
+        ActivityLog::record($me, $org->id, 'salary.note_removed', $org, [
+            'period' => sprintf('%04d-%02d', $note->year, $note->month),
+        ]);
+
+        return response()->json(['message' => 'Note removed.']);
     }
 
     /** Start the month: one slip per active employee, from their salary record. */
@@ -352,7 +506,10 @@ class SalaryController extends Controller
 
         $paidOn = $data['paid_on'] ?? now()->toDateString();
         foreach ($slips as $slip) {
-            $slip->update([
+            // Written down at the moment of payment, not at the moment the
+            // month was generated: this is the account the money went to, and
+            // from here on the slip keeps it whatever anybody edits later.
+            $slip->update($this->bankOf($slip) + [
                 'status' => 'paid',
                 'paid_on' => $paidOn,
                 'payment_mode' => $data['payment_mode'] ?? $slip->payment_mode,
@@ -403,6 +560,9 @@ class SalaryController extends Controller
 
         $pdf = Pdf::loadView('crm.payslip', [
             'slip' => $slip,
+            // The same rule as the register: a pending payslip names the
+            // account the money would go to, a paid one the account it did.
+            'bank' => $this->bankOf($slip),
             'org' => $org,
             'company' => $paying,
             'logoPath' => $logoPath && is_file($logoPath) ? $logoPath : null,
@@ -753,9 +913,16 @@ class SalaryController extends Controller
             'Other deductions', 'Other deduction note', 'Total deductions',
             'Net without incentive', 'Net salary', 'Employer contributions', 'CTC (cost to company)',
             'Status', 'Paid on', 'Payment mode', 'Bank', 'Account holder', 'Account no.', 'IFSC',
+            // Last, so every column before it keeps the position the totals
+            // row and the row builder both count on.
+            'Remarks',
         ];
         $text = ['Employee', 'Employee code', 'Salary month', 'Released in', 'Addition note', 'Other deduction note',
-            'Status', 'Paid on', 'Payment mode', 'Bank', 'Account holder', 'Account no.', 'IFSC'];
+            'Status', 'Paid on', 'Payment mode', 'Bank', 'Account holder', 'Account no.', 'IFSC', 'Remarks'];
+
+        // The remarks kept beside the pay. The register is the record they
+        // were written for, so they travel with it.
+        $notes = $this->notesFor($org, $slips);
         $count = ['Days in month', 'Days present', 'Payable days', 'Days without pay', 'Leave beyond balance (unpaid)', 'Days paid from leave balance'];
 
         $rows = [];
@@ -776,6 +943,7 @@ class SalaryController extends Controller
                 || str_starts_with((string) $k, 'loan_'))->sum();
 
             $month = \Carbon\Carbon::create($slip->year, $slip->month, 1);
+            $bank = $this->bankOf($slip);
             $net = (float) $slip->net_salary;
             $statutoryTotal = (float) $slip->deductions;
             $other = (float) $slip->other_deductions;
@@ -825,10 +993,13 @@ class SalaryController extends Controller
                 $slip->status === 'paid' ? 'Paid' : 'Pending',
                 $slip->paid_on?->format('d M Y'),
                 $slip->payment_mode,
-                $slip->bank_name,
-                $slip->account_holder,
-                $slip->account_no,
-                $slip->ifsc,
+                $bank['bank_name'],
+                $bank['account_holder'],
+                $bank['account_no'],
+                $bank['ifsc'],
+                collect($notes->get($this->noteKey($slip->year, $slip->month, $slip->member_id), []))
+                    ->map(fn ($n) => $n['body'] . ' — ' . $n['author'])
+                    ->implode(' · '),
             );
 
             $row = [];
@@ -870,6 +1041,7 @@ class SalaryController extends Controller
 
         $widths = array_map(fn ($h) => match (true) {
             $h === 'Employee' => 24,
+            $h === 'Remarks' => 48,
             str_contains($h, 'note') => 28,
             in_array($h, $count, true) => 11,
             default => max(13, min(26, mb_strlen($h) + 2)),
@@ -969,10 +1141,7 @@ class SalaryController extends Controller
             'reimbursement_lines' => $s->reimbursement_lines ?? [],
             'net_salary' => $s->net_salary,
             'ctc' => $this->ctc($s),
-            'bank_name' => $s->bank_name,
-            'account_holder' => $s->account_holder,
-            'account_no' => $s->account_no,
-            'ifsc' => $s->ifsc,
+            ...$this->bankOf($s),
             'status' => $s->status,
             'paid_on' => $s->paid_on?->toDateString(),
             'payment_mode' => $s->payment_mode,

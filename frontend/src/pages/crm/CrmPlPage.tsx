@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FileSpreadsheet, Link2, MessageSquarePlus, Plus, Scale, Settings2, Trash2, X } from 'lucide-react'
+import { FileSpreadsheet, Link2, MessageSquarePlus, Plus, Scale, Settings2, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, type CrmPlConfig, type CrmPlFigure, type CrmPlMonth, type CrmPlNote } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
-import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
+import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
+import NotesModal from './NotesModal'
 import { saveBlob } from '../../lib/download'
 
 const inr = (v: number) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -130,12 +131,13 @@ export default function CrmPlPage() {
 
       {noting && (
         <NotesModal
-          month={noting.month}
-          lineKey={noting.lineKey}
           title={noting.title}
+          subtitle={new Date(noting.month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
           notes={noteList(data?.months ?? [], noting.month, noting.lineKey)}
+          placeholder={noting.lineKey ? 'Why this figure is what it is\u2026' : 'Anything worth remembering about this month\u2026'}
+          onAdd={(body) => crm.pl.addNote({ month: noting.month, line_key: noting.lineKey, body }).then(refresh)}
+          onRemove={(id) => crm.pl.deleteNote(id).then(refresh)}
           onClose={() => setNoting(null)}
-          onSaved={refresh}
         />
       )}
       {showConfig && <ConfigModal onClose={() => setShowConfig(false)} onDone={() => { setShowConfig(false); refresh() }} />}
@@ -272,87 +274,6 @@ function MonthCard({ m, onAdd, onDeleteLine, onNote }: {
         {side('Expenses', m.expenses, m.expense_total, 'expense', 'text-red-500')}
       </div>
     </Card>
-  )
-}
-
-/**
- * Reading and writing the explanations on one entry, or on a month.
- *
- * As many as it takes: a note is not a field to be overwritten by the next
- * person with something to say, so saving adds one and leaves the rest.
- */
-function NotesModal({ month, lineKey, title, notes, onClose, onSaved }: {
-  month: string
-  lineKey: string | null
-  title: string
-  notes: CrmPlNote[]
-  onClose: () => void
-  onSaved: () => void
-}) {
-  const { toastError } = useToast()
-  const [body, setBody] = useState('')
-
-  const save = useMutation({
-    mutationFn: () => crm.pl.addNote({ month, line_key: lineKey, body: body.trim() }),
-    onSuccess: () => { setBody(''); onSaved() },
-    onError: (err) => toastError(errorMessage(err)),
-  })
-
-  const remove = useMutation({
-    mutationFn: (id: number) => crm.pl.deleteNote(id),
-    onSuccess: onSaved,
-    onError: (err) => toastError(errorMessage(err)),
-  })
-
-  const monthName = new Date(month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
-
-  return (
-    <Modal title={`Notes — ${title}`} onClose={onClose}>
-      <div className="space-y-3">
-        <p className="text-xs text-slate-500">{monthName}</p>
-
-        {notes.length === 0 ? (
-          <p className="text-sm text-slate-400">Nothing written here yet.</p>
-        ) : (
-          <ul className="space-y-2">
-            {notes.map((n) => (
-              <li key={n.id} className="flex items-start justify-between gap-2 rounded-xl bg-slate-50 p-2.5 text-sm dark:bg-slate-800/60">
-                <div className="min-w-0">
-                  <p className="whitespace-pre-wrap break-words text-slate-700 dark:text-slate-200">{n.body}</p>
-                  <p className="mt-0.5 text-[11px] text-slate-400">{n.author} · {n.at.slice(0, 16).replace('T', ' ')}</p>
-                </div>
-                <button
-                  onClick={() => { if (confirm('Remove this note?')) remove.mutate(n.id) }}
-                  aria-label="Remove note"
-                  className="shrink-0 rounded p-1 text-slate-300 hover:text-red-500"
-                >
-                  <X className="size-3.5" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        <div>
-          <Label>Add a note</Label>
-          <Textarea
-            rows={3}
-            autoFocus
-            value={body}
-            maxLength={2000}
-            placeholder={lineKey ? 'Why this figure is what it is\u2026' : 'Anything worth remembering about this month\u2026'}
-            onChange={(e) => setBody(e.target.value)}
-          />
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>Close</Button>
-          <Button onClick={() => save.mutate()} disabled={!body.trim() || save.isPending}>
-            {save.isPending ? 'Saving\u2026' : 'Save note'}
-          </Button>
-        </div>
-      </div>
-    </Modal>
   )
 }
 

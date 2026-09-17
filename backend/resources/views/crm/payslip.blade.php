@@ -94,7 +94,7 @@
     </td>
     <td>
       <div class="muted">Bank</div>
-      {{ collect([$slip->bank_name, $slip->account_no ? 'A/c ' . $slip->account_no : null, $slip->ifsc])->filter()->implode(' · ') ?: '—' }}
+      {{ collect([$bank['bank_name'], $bank['account_no'] ? 'A/c ' . $bank['account_no'] : null, $bank['ifsc']])->filter()->implode(' · ') ?: '—' }}
     </td>
     <td style="text-align:right">
       <div class="muted">Status</div>
