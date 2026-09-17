@@ -7,6 +7,7 @@ import Layout from './components/Layout'
 import { RequireAdmin, RequireAuth, RequireGuestPass } from './components/Protected'
 import { ToastProvider } from './components/Toast'
 import { ScreenShareProvider } from './components/ScreenShareManager'
+import DueAlerts from './components/DueAlerts'
 import { PromptProvider } from './components/Prompt'
 import { Spinner } from './components/ui'
 import Login from './pages/auth/Login'
@@ -456,6 +457,11 @@ export default function App() {
           </Route>
         </Routes>
       </Suspense>
+      {/* The alarm for a task or a bill falling due.
+          Here, above both shells, because the thing is due whether or not
+          somebody is on its screen - a morning spent in the company CRM used
+          to pass in silence. */}
+      <DueAlerts />
     </ScreenShareProvider>
     </BrowserRouter>
     </PromptProvider>

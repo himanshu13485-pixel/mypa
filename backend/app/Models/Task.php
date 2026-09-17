@@ -17,7 +17,7 @@ class Task extends Model
 
     protected $fillable = [
         'user_id', 'category_id', 'parent_id', 'group_id', 'title', 'description', 'priority', 'status',
-        'start_at', 'due_at', 'estimated_minutes', 'actual_minutes', 'progress',
+        'alert_snoozed_until', 'alert_pushed_at', 'start_at', 'due_at', 'estimated_minutes', 'actual_minutes', 'progress',
         'location', 'contact_person', 'color', 'is_important', 'is_confidential',
         'is_favourite', 'is_pinned', 'repeat_config', 'completed_at', 'archived_at',
     ];

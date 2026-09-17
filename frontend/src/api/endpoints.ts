@@ -384,6 +384,22 @@ export const notifications = {
 
 // --- Reminders --------------------------------------------------------------
 
+/** A task or a bill whose time has come, wherever the person happens to be. */
+export interface DueAlert {
+  kind: 'task' | 'bill'
+  uuid: string
+  title: string
+  due_at: string | null
+  note: string | null
+}
+
+export const dueAlerts = {
+  list: () => api.get<{ data: DueAlert[] }>('/due-alerts').then((r) => r.data.data),
+  /** Minutes to wait, or nothing at all for "quiet until tomorrow". */
+  snooze: (payload: { kind: 'task' | 'bill'; uuid: string; minutes?: number }) =>
+    api.post<{ message: string; until: string }>('/due-alerts/snooze', payload).then((r) => r.data),
+}
+
 export const reminders = {
   upcoming: () => api.get('/reminders/upcoming').then((r) => r.data),
   snooze: (id: number, minutes: number) => api.post(`/reminders/${id}/snooze`, { minutes }),

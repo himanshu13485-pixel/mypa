@@ -66,3 +66,12 @@ Schedule::command('crm:credit-leaves')->monthlyOn(1, '00:20')->withoutOverlappin
 // Disappearing messages. Hourly is close enough for spans measured in days,
 // and a conversation with no span set is never touched.
 Schedule::command('chat:purge-expired')->hourly()->withoutOverlapping();
+
+/*
+ * The due-now alarm, for the device that is not looking at the app.
+ *
+ * Five minutes is close enough for a due date to feel answered and far
+ * enough that a quiet afternoon costs almost nothing. The command decides
+ * what is due and what has already been said - see App\Support\DueNow.
+ */
+Schedule::command('mypa:push-due-alerts')->everyFiveMinutes()->withoutOverlapping();
