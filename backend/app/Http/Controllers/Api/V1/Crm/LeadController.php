@@ -1233,6 +1233,10 @@ class LeadController extends Controller
             'mobile' => ['nullable', 'string', 'max:32'],
             'email' => ['nullable', 'email', 'max:255'],
             'amount' => ['nullable', 'numeric', 'min:0'],
+            // The currency it is quoted in. Three letters, from the
+            // company's own list; blank means rupees, which is the default
+            // and the overwhelming case.
+            'currency' => ['nullable', 'string', 'regex:/^[A-Za-z]{3}$/'],
             'closing_amount' => ['nullable', 'numeric', 'min:0'],
             'lead_status' => ['nullable', Rule::in(Lead::STATUSES)],
             'follow_up_at' => ['nullable', 'date'],
@@ -1276,6 +1280,7 @@ class LeadController extends Controller
             'mobile' => $l->mobile,
             'email' => $l->email,
             'amount' => $l->amount,
+            'currency' => $l->currency ?: 'INR',
             // Null until it closes; the figure it actually closed at.
             'closing_amount' => $l->closing_amount,
             'lead_status' => $l->lead_status,

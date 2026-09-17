@@ -84,6 +84,8 @@ class CrmController extends Controller
             'departments' => $org->optionList('departments'),
             'designations' => $org->optionList('designations'),
             'payment_modes' => $org->optionList('payment_modes'),
+            // Every dropdown that offers a currency reads this one list.
+            'currencies' => $org->optionList('currencies'),
             'client_categories' => Client::CATEGORIES,
             'client_segments' => $org->optionList('client_segments'),
             // Dedicated Company Workspace: this org's approved extra fields.

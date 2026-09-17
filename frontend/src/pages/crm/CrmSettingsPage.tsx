@@ -39,6 +39,7 @@ export default function CrmSettingsPage() {
       <LeadAlertTiming />
       <LeadOptions />
       <AssetCategories />
+      <Currencies />
       <IncentivePlanTypes />
       <ApprovalTypes />
       <ComplaintOptions />
@@ -563,6 +564,9 @@ function FestivalCelebrations() {
 }
 
 function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose: () => void; onDone: () => void }) {
+  // The currencies the company deals in, so this dropdown and the one on a
+  // lead offer the same list without either owning it.
+  const { data: currencies } = useQuery({ queryKey: ['crm', 'currencies'], queryFn: crm.masterData.currencies })
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({
     name: editing?.name ?? '',
@@ -697,7 +701,10 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
           <div>
             <Label>Billing currency</Label>
             <Select value={form.currency} onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))} className="w-full">
-              {['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD'].map((c) => <option key={c} value={c}>{c}</option>)}
+              {/* The company's own list rather than eight written into the
+                  app: adding a currency is done once, in Currencies below,
+                  and every dropdown that offers one follows. */}
+              {(currencies ?? ['INR']).map((c) => <option key={c} value={c}>{c}</option>)}
             </Select>
             <p className="mt-1 text-xs text-slate-400">
               A non-INR company bills whole invoices in that currency; each carries a universal INR equivalent at the live rate less the FX margin.
@@ -1294,6 +1301,61 @@ function LeadAlertTiming() {
  * own lists — one per line — and every dropdown that uses them follows.
  * Lead type stays New/Existing: the reports depend on it meaning one thing.
  */
+/**
+ * The currencies this company deals in.
+ *
+ * Eight were written into a dropdown in the app, so a company billing in
+ * anything else had to ask for a release. One list here, read by the issuing
+ * companies that bill in a currency and by the leads quoted in one — add a
+ * code and both follow. Documents already raised keep the currency they were
+ * raised in, so shortening this list never rewrites the books.
+ */
+function Currencies() {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const [text, setText] = useState<string | null>(null)
+
+  const { data } = useQuery({ queryKey: ['crm', 'currencies'], queryFn: crm.masterData.currencies })
+  if (data && text === null) setText(data.join('\n'))
+
+  const saveMutation = useMutation({
+    mutationFn: () => crm.masterData.saveCurrencies(
+      (text ?? '').split('\n').map((v) => v.trim().toUpperCase()).filter(Boolean),
+    ),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'currencies'] })
+      queryClient.invalidateQueries({ queryKey: ['crm', 'masters'] })
+      toast(res.message, 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  if (text === null) {
+    return <Card><div className="flex justify-center py-6"><Spinner /></div></Card>
+  }
+
+  return (
+    <Card>
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        <ListChecks className="size-4 text-emerald-500" /> Currencies
+      </h2>
+      <p className="mt-1 text-xs text-slate-400">
+        Three-letter codes, one per line, in the order you want them offered — INR first keeps it
+        the default. Used by issuing companies and by the expected amount on a lead.
+      </p>
+      <textarea
+        rows={6}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        className="mt-3 w-full rounded-xl bg-white px-3 py-2 font-mono text-sm uppercase text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-slate-800 dark:text-slate-100 dark:ring-slate-700"
+      />
+      <Button size="sm" variant="secondary" className="mt-3" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate()}>
+        {saveMutation.isPending ? 'Saving…' : 'Save currencies'}
+      </Button>
+    </Card>
+  )
+}
+
 /**
  * Which work-order plan names are sold on their own incentive terms.
  *

@@ -306,6 +306,14 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/tasks/{task}/comments', [TaskController::class, 'addComment']);
 
         // Reminders
+        /*
+         * What is due right now, wherever the person is.
+         *
+         * Outside the CRM's own group deliberately: a task falling due does
+         * not stop mattering because somebody is looking at an invoice.
+         */
+        Route::get('/due-alerts', [\App\Http\Controllers\Api\V1\DueAlertController::class, 'index']);
+        Route::post('/due-alerts/snooze', [\App\Http\Controllers\Api\V1\DueAlertController::class, 'snooze']);
         Route::get('/reminders/upcoming', [ReminderController::class, 'upcoming']);
         Route::post('/reminders/{reminder}/snooze', [ReminderController::class, 'snooze']);
         Route::post('/reminders/{reminder}/acknowledge', [ReminderController::class, 'acknowledge']);
@@ -1515,7 +1523,13 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::put('/masters/fx-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveFxSettings']);
                 Route::get('/masters/birthday-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'birthdaySettings']);
                 Route::put('/masters/birthday-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveBirthdaySettings']);
-                // The Office Assets category list, edited in Billing setup.
+                // The currencies this company deals in: read by anybody raising
+            // a document or a lead, edited in Billing setup.
+            Route::get('/masters/currencies', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'currencies'])
+                ->middleware('crm.member');
+            Route::put('/masters/currencies', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveCurrencies'])
+                ->middleware('crm.member:masters,edit');
+            // The Office Assets category list, edited in Billing setup.
                 Route::get('/masters/asset-categories', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'assetCategories']);
                 Route::put('/masters/asset-categories', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveAssetCategories']);
                 Route::post('/masters/bank-accounts', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeBank']);

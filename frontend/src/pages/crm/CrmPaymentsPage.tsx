@@ -598,7 +598,10 @@ function ClaimModal({ entry, isManager, defaultMode, moving, onClose, onDone }: 
 
   return (
     <Modal
-      title={`${moving ? 'Move' : 'Match'} ${'₹' + Number(entry.amount).toLocaleString('en-IN')}`}
+      // The payment's own currency. A dollar receipt read as rupees here
+      // while every other screen had been put right, which is the reading
+      // that makes somebody match a $764 payment against a ₹764 invoice.
+      title={`${moving ? 'Move' : 'Match'} ${money(entry.amount, entry.currency)}`}
       onClose={onClose}
       wide
     >
@@ -646,7 +649,10 @@ function ClaimModal({ entry, isManager, defaultMode, moving, onClose, onDone }: 
                 <span className="font-medium">{i.number}</span>
                 <span className="ml-2 text-sm text-slate-500">{i.client?.company_name}</span>
               </span>
-              <span className="text-sm font-medium">₹{Number(i.total).toLocaleString('en-IN')}</span>
+              {/* And the documents to match it against, each in its own:
+                  a USD invoice's total is in USD, with the rupee equivalent
+                  kept beside it for the books. */}
+              <span className="text-sm font-medium">{money(i.total, i.currency)}</span>
               <span className="text-xs text-slate-400">{i.payment_status}</span>
             </label>
           ))}

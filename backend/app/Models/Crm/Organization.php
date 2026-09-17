@@ -240,6 +240,16 @@ class Organization extends Model
                 'Cash', 'Cheque', 'DD', 'NEFT', 'RTGS', 'IMPS', 'UPI', 'SWIFT',
                 'Payment Gateway', 'Credit Note',
             ],
+            /*
+             * The currencies this company deals in.
+             *
+             * A list rather than a fixed set, because which currencies a
+             * company bills and quotes in is its own business - and it was
+             * written into a dropdown in the client, so adding one meant
+             * changing the app. Rupees first: it is the default everywhere
+             * and the one most of these documents are in.
+             */
+            'currencies' => ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD', 'JPY', 'CNY'],
             'lead_sources' => [
                 'Website', 'Call', 'Email', 'Message', 'WhatsApp', 'Chat',
                 'Self Lead', 'Reference Lead', 'Telecalling', 'LinkedIn',

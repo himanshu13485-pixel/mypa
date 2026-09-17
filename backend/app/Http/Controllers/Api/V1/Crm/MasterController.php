@@ -154,6 +154,44 @@ class MasterController extends Controller
         ]]);
     }
 
+    /**
+     * The currencies this company deals in.
+     *
+     * One list, read by every place that offers a choice of currency - the
+     * issuing companies that bill in one, and the leads quoted in one - so
+     * adding a currency is done once and appears everywhere.
+     */
+    public function currencies(Request $request): JsonResponse
+    {
+        return response()->json(['data' => $request->attributes->get('crm_org')->optionList('currencies')]);
+    }
+
+    public function saveCurrencies(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $data = $request->validate([
+            'currencies' => ['required', 'array', 'min:1', 'max:40'],
+            // Three letters, the way the world writes them. Anything else
+            // would reach a formatter that cannot read it.
+            'currencies.*' => ['string', 'regex:/^[A-Za-z]{3}$/'],
+        ]);
+
+        $settings = $org->settings ?? [];
+        $settings['currencies'] = collect($data['currencies'])
+            ->map(fn ($v) => strtoupper(trim($v)))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+        $org->update(['settings' => $settings]);
+
+        ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'masters.currencies', $org, [
+            'count' => count($settings['currencies']),
+        ]);
+
+        return response()->json(['message' => 'Currencies saved.', 'data' => $org->fresh()->optionList('currencies')]);
+    }
+
     public function saveLeadOptions(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');

@@ -29,7 +29,7 @@ export function leadStatusBadge(status: string, due: boolean) {
 
 const EMPTY_FORM = {
   company_name: '', contact_person: '', phone: '', mobile: '', email: '',
-  amount: '', lead_status: 'unattended', follow_up_at: '', subject: '',
+  amount: '', currency: 'INR', lead_status: 'unattended', follow_up_at: '', subject: '',
   requirement: '', lead_type: 'new', source: '', assigned_member_uuid: '',
 }
 
@@ -105,6 +105,7 @@ export default function CrmLeadsPage() {
     setEditing(l)
     setForm({
       company_name: l.company_name,
+      currency: l.currency ?? 'INR',
       contact_person: l.contact_person ?? '',
       phone: l.phone ?? '',
       mobile: l.mobile ?? '',
@@ -711,8 +712,21 @@ export default function CrmLeadsPage() {
                 </Select>
               </div>
               <div>
-                <Label>Expected amount (₹)</Label>
-                <Input type="number" min="0" value={form.amount} onChange={(e) => set('amount', e.target.value)} className="w-full" />
+                {/* An enquiry worth $8,000 written into a rupee-labelled
+                    box is read as eight thousand rupees by everyone after,
+                    so the currency is asked for beside the figure rather
+                    than assumed. Rupees stay the default. */}
+                <Label>Expected amount</Label>
+                <div className="flex gap-1">
+                  <Select
+                    value={form.currency}
+                    onChange={(e) => set('currency', e.target.value)}
+                    className="w-24 shrink-0"
+                  >
+                    {(masters?.currencies ?? ['INR']).map((c) => <option key={c} value={c}>{c}</option>)}
+                  </Select>
+                  <Input type="number" min="0" value={form.amount} onChange={(e) => set('amount', e.target.value)} className="w-full" />
+                </div>
               </div>
               <div>
                 <Label>Lead status</Label>

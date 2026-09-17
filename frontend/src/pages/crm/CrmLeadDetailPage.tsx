@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRightLeft, Flag, Pencil, PhoneCall, Send, Trash2, Users, RotateCcw } from 'lucide-react'
 import { crm, crmMeQuery, crmAllows, crmCan, CRM_LEAD_STATUS_LABELS, type CrmLeadLogEntry } from '../../api/crm'
 import { errorMessage } from '../../api/client'
+import { money } from '../../lib/money'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { EmailLink, PhoneLink } from '../../components/ContactLink'
@@ -370,7 +371,7 @@ export default function CrmLeadDetailPage() {
           <Row label="Source" value={lead.source} />
           <Row label="Subject" value={lead.subject} />
           <Row label="Type" value={lead.lead_type === 'new' ? 'New' : 'Existing'} />
-          <Row label="Expected amount" value={Number(lead.amount) ? '₹' + Number(lead.amount).toLocaleString('en-IN') : undefined} />
+          <Row label="Expected amount" value={Number(lead.amount) ? money(lead.amount, lead.currency) : undefined} />
           {/*
             * What it actually closed at, beside what it was hoped to be
             * worth. The row above it used to be printed twice under two
@@ -632,7 +633,7 @@ export default function CrmLeadDetailPage() {
                 </Select>
               </div>
               <div className="col-span-2">
-                <Label>Expected amount (₹)</Label>
+                <Label>Expected amount ({lead.currency ?? 'INR'})</Label>
                 <Input type="number" min="0" value={quick.amount} onChange={(e) => setQuick((q) => ({ ...q, amount: e.target.value }))} className="w-full" />
               </div>
             </div>

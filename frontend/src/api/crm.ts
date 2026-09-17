@@ -428,6 +428,8 @@ export interface CrmMasters {
   departments: string[]
   designations: string[]
   payment_modes: string[]
+  /** The currencies this company deals in, edited in Billing setup. */
+  currencies: string[]
   client_categories: string[]
   /** Regular, Global, SEZ - what kind of business a document is; the company keeps the list. */
   client_segments: string[]
@@ -858,6 +860,8 @@ export interface CrmLeadLogEntry {
 }
 
 export interface CrmLead {
+  /** What the expected amount is quoted in. Rupees unless it says otherwise. */
+  currency?: string
   uuid: string
   lead_no: number
   company_name: string
@@ -3382,6 +3386,11 @@ export const crm = {
     api.get<{ data: CrmChurnReport }>('/crm/churn', { params: { months, member } }).then((r) => r.data.data),
 
   masterData: {
+    /** The currencies this company deals in — one list, read everywhere. */
+    currencies: () =>
+      api.get<{ data: string[] }>('/crm/masters/currencies').then((r) => r.data.data),
+    saveCurrencies: (currencies: string[]) =>
+      api.put<{ message: string }>('/crm/masters/currencies', { currencies }).then((r) => r.data),
     /** Regular, Global, SEZ - the words a document's category is chosen from. */
     clientSegments: () =>
       api.get<{ data: { client_segments: string[] } }>('/crm/masters/client-segments')
