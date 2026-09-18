@@ -2333,6 +2333,20 @@ export interface CrmBadges {
   attend?: Record<string, number>
 }
 
+/**
+ * Warning people that a work order is about to run out.
+ *
+ * The offsets are days before expiry, one warning each. The executive's
+ * in-app notification is not listed here because it is not a choice: it is
+ * their sale. What is a choice is who gets written to.
+ */
+export type CrmRenewalReminders = {
+  enabled: boolean
+  offsets: number[]
+  email_executive: boolean
+  email_client: boolean
+}
+
 export const crm = {
   me: () => api.get<{ data: CrmMe }>('/crm/me').then((r) => r.data.data),
   badges: () => api.get<{ data: CrmBadges }>('/crm/badges').then((r) => r.data.data),
@@ -3252,6 +3266,16 @@ export const crm = {
   },
 
   invoices: {
+    /**
+     * The memberships and plan names the list's filters can offer.
+     *
+     * Read off the documents rather than a settings list: a company may
+     * leave these as free text, and a filter offering a value nothing was
+     * sold under returns an empty list and looks broken.
+     */
+    workOrderValues: () =>
+      api.get<{ data: { memberships: string[]; plan_names: string[] } }>('/crm/invoices/work-order-values')
+        .then((r) => r.data.data),
     list: (params: ListParams) =>
       api.get<Paginated<CrmInvoiceRow> & {
         totals: {
@@ -3419,6 +3443,12 @@ export const crm = {
     api.get<{ data: CrmChurnReport }>('/crm/churn', { params: { months, member } }).then((r) => r.data.data),
 
   masterData: {
+    /** Who is warned that a work order is about to run out, and how long before. */
+    renewalReminders: () =>
+      api.get<{ data: CrmRenewalReminders }>('/crm/masters/renewal-reminders').then((r) => r.data.data),
+    saveRenewalReminders: (settings: CrmRenewalReminders) =>
+      api.put<{ message: string; data: CrmRenewalReminders }>('/crm/masters/renewal-reminders', settings)
+        .then((r) => r.data),
     /** The currencies this company deals in — one list, read everywhere. */
     currencies: () =>
       api.get<{ data: string[] }>('/crm/masters/currencies').then((r) => r.data.data),

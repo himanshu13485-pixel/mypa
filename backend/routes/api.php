@@ -1012,6 +1012,12 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
              */
             Route::middleware('crm.member')->group(function () {
                 Route::get('/invoices', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'index']);
+                /*
+                 * Before the wildcard below, deliberately: a route that takes
+                 * a uuid will happily take the word "work-order-values" for
+                 * one and answer 404.
+                 */
+                Route::get('/invoices/work-order-values', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'workOrderValues']);
                 Route::get('/invoices/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'show']);
                 // Invoice Log / Proforma Log — the trail, same ledger window.
                 Route::get('/invoice-log', [\App\Http\Controllers\Api\V1\Crm\InvoiceController::class, 'log']);
@@ -1527,7 +1533,12 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::put('/masters/fx-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveFxSettings']);
                 Route::get('/masters/birthday-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'birthdaySettings']);
                 Route::put('/masters/birthday-settings', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveBirthdaySettings']);
-                // The currencies this company deals in: read by anybody raising
+                // Warning people a work order is about to run out.
+            Route::get('/masters/renewal-reminders', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'renewalReminders'])
+                ->middleware('crm.member:masters,view');
+            Route::put('/masters/renewal-reminders', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveRenewalReminders'])
+                ->middleware('crm.member:masters,edit');
+            // The currencies this company deals in: read by anybody raising
             // a document or a lead, edited in Billing setup.
             Route::get('/masters/currencies', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'currencies'])
                 ->middleware('crm.member');

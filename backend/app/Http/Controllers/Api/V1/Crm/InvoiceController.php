@@ -258,6 +258,25 @@ class InvoiceController extends Controller
             $query->whereIn('client_segment', $segments);
         }
 
+        /*
+         * What was actually sold, rather than who it was sold to.
+         *
+         * Membership and plan name live on the work order, so a document
+         * matches when any one of its lines does - which is the question
+         * being asked: "show me everyone on Enterprise-12M", not "show me
+         * documents where every line is".
+         */
+        if ($memberships = QueryList::of($request, 'membership')) {
+            $query->whereHas('items', fn ($i) => $i->whereIn('membership', $memberships));
+        }
+        if ($plans = QueryList::of($request, 'plan_name')) {
+            $query->whereHas('items', fn ($i) => $i->whereIn('plan_name', $plans));
+        }
+        // Online, Offline or both - how the thing is delivered.
+        if ($subscriptions = QueryList::of($request, 'subscription_type')) {
+            $query->whereIn('subscription_type', $subscriptions);
+        }
+
         // The consolidated figures for exactly what the filters selected —
         // the block the foot of the list shows.
         $live = (clone $query)->where('status', '!=', 'cancelled')
@@ -1030,6 +1049,41 @@ class InvoiceController extends Controller
                 ? $invoice->number . ' pays under ' . $name . '.'
                 : $invoice->number . ' follows the company’s own rule again.',
         ]);
+    }
+
+    /**
+     * The memberships and plan names the filters can offer.
+     *
+     * Taken from the documents themselves rather than from a settings list,
+     * for two reasons: a company may leave these as free text, and a filter
+     * that offers a value nothing was ever sold under is a filter that
+     * returns an empty list and looks broken.
+     *
+     * Both kinds together - a proforma and an invoice are filtered on the
+     * same screen, and a plan sold on one is a plan worth looking for on the
+     * other.
+     */
+    public function workOrderValues(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+
+        $values = \App\Models\Crm\InvoiceItem::query()
+            ->whereHas('invoice', fn ($i) => $i->where('organization_id', $org->id)->where('status', '!=', 'cancelled'))
+            ->select('membership', 'plan_name')
+            ->distinct()
+            ->get();
+
+        $tidy = fn (string $column) => $values->pluck($column)
+            ->map(fn ($v) => trim((string) $v))
+            ->filter()
+            ->unique()
+            ->sort(SORT_NATURAL | SORT_FLAG_CASE)
+            ->values();
+
+        return response()->json(['data' => [
+            'memberships' => $tidy('membership'),
+            'plan_names' => $tidy('plan_name'),
+        ]]);
     }
 
     /**

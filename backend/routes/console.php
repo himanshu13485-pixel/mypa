@@ -84,3 +84,14 @@ Schedule::command('mypa:push-due-alerts')->everyFiveMinutes()->withoutOverlappin
  * rather than watching rows change under them during the day.
  */
 Schedule::command('crm:close-served-dispatches')->dailyAt('01:30')->withoutOverlapping();
+
+/*
+ * Work orders about to run out.
+ *
+ * Once a day, because validity is measured in days and the warnings are set
+ * in days. Early, so the office finds them waiting rather than watching them
+ * arrive through the afternoon - and after the dispatch sweep, so a work
+ * order that ended last night is already closed rather than being warned
+ * about on its way out.
+ */
+Schedule::command('crm:warn-renewals')->dailyAt('02:00')->withoutOverlapping();

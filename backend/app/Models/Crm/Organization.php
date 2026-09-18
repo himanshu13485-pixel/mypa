@@ -220,6 +220,42 @@ class Organization extends Model
         return $map;
     }
 
+    /**
+     * Telling people a work order is about to run out.
+     *
+     * A renewal is only sold if somebody notices the validity ending, and an
+     * office that notices on the last day has already lost the conversation.
+     * Three warnings by default - a month, a fortnight, a week - because one
+     * is easy to miss and a daily drip is easy to ignore.
+     *
+     * The executive always gets the notification: it is their sale, and an
+     * in-app nudge costs the client nothing. Mail is ticked separately for
+     * each audience, and the client's is OFF to begin with - writing to a
+     * client is the company's own decision to make, not a default somebody
+     * discovers after it has gone out.
+     *
+     * @return array{enabled: bool, offsets: list<int>, email_executive: bool, email_client: bool}
+     */
+    public function renewalReminders(): array
+    {
+        $saved = (array) data_get($this->settings, 'renewal_reminders', []);
+
+        $offsets = collect($saved['offsets'] ?? [30, 15, 7])
+            ->map(fn ($d) => (int) $d)
+            ->filter(fn ($d) => $d > 0 && $d <= 365)
+            ->unique()
+            ->sortDesc()
+            ->values()
+            ->all();
+
+        return [
+            'enabled' => (bool) ($saved['enabled'] ?? true),
+            'offsets' => $offsets ?: [30, 15, 7],
+            'email_executive' => (bool) ($saved['email_executive'] ?? true),
+            'email_client' => (bool) ($saved['email_client'] ?? false),
+        ];
+    }
+
     /** Option lists the org can customise; defaults mirror the old CRM. */
     public function optionList(string $key): array
     {

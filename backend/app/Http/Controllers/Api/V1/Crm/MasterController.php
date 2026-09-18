@@ -155,6 +155,51 @@ class MasterController extends Controller
     }
 
     /**
+     * Who is told a work order is about to run out, and when.
+     *
+     * The executive's notification is not a setting: it is their sale, and
+     * an in-app nudge costs the client nothing. What can be decided is
+     * whether either of them is written to - and the client's mail starts
+     * switched off, because writing to a client is a decision rather than a
+     * default somebody discovers after it has gone out.
+     */
+    public function renewalReminders(Request $request): JsonResponse
+    {
+        return response()->json(['data' => $request->attributes->get('crm_org')->renewalReminders()]);
+    }
+
+    public function saveRenewalReminders(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $data = $request->validate([
+            'enabled' => ['required', 'boolean'],
+            // Three by default, but a company may want two or four; a day
+            // beyond a year out is a reminder nobody would act on.
+            'offsets' => ['required', 'array', 'min:1', 'max:6'],
+            'offsets.*' => ['integer', 'min:1', 'max:365'],
+            'email_executive' => ['required', 'boolean'],
+            'email_client' => ['required', 'boolean'],
+        ]);
+
+        $settings = (array) $org->settings;
+        $settings['renewal_reminders'] = [
+            'enabled' => (bool) $data['enabled'],
+            'offsets' => collect($data['offsets'])->map(fn ($d) => (int) $d)->unique()->sortDesc()->values()->all(),
+            'email_executive' => (bool) $data['email_executive'],
+            'email_client' => (bool) $data['email_client'],
+        ];
+        $org->update(['settings' => $settings]);
+
+        ActivityLog::record($request->attributes->get('crm_member'), $org->id, 'masters.renewal_reminders', $org, [
+            'enabled' => $settings['renewal_reminders']['enabled'],
+            'offsets' => implode(', ', $settings['renewal_reminders']['offsets']),
+            'client_mail' => $settings['renewal_reminders']['email_client'],
+        ]);
+
+        return response()->json(['message' => 'Saved.', 'data' => $org->fresh()->renewalReminders()]);
+    }
+
+    /**
      * The currencies this company deals in.
      *
      * One list, read by every place that offers a choice of currency - the

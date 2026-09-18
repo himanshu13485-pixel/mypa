@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { crmPath } from '../../lib/crmPath'
 import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, HandCoins, Image as ImageIcon, KeyRound, Landmark, LifeBuoy, ListChecks, PackageCheck, Pencil, Plus, Upload, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, crmMeQuery, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings } from '../../api/crm'
+import { crm, crmMeQuery, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings, type CrmRenewalReminders } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { usePrompt } from '../../components/Prompt'
@@ -42,6 +42,7 @@ export default function CrmSettingsPage() {
       <LeadOptions />
       <AssetCategories />
       <Currencies />
+      <RenewalWarnings />
       <IncentivePlanTypes />
       <ApprovalTypes />
       <ComplaintOptions />
@@ -1303,6 +1304,134 @@ function LeadAlertTiming() {
  * own lists — one per line — and every dropdown that uses them follows.
  * Lead type stays New/Existing: the reports depend on it meaning one thing.
  */
+/**
+ * Warning people a work order is about to run out.
+ *
+ * A renewal is sold before the expiry, not after it, and the three warnings
+ * exist so the expiry is never the first anybody hears of it. The executive
+ * is told in the app whatever is set here — it is their sale, and an in-app
+ * nudge costs the client nothing. What is set here is who is written to:
+ * the executive's mail on by default, the client's off, because a mail going
+ * to a client is a decision rather than something discovered afterwards.
+ */
+function RenewalWarnings() {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const [form, setForm] = useState<CrmRenewalReminders | null>(null)
+  const [days, setDays] = useState<string | null>(null)
+
+  const { data } = useQuery({ queryKey: ['crm', 'renewal-reminders'], queryFn: crm.masterData.renewalReminders })
+  if (data && form === null) {
+    setForm(data)
+    setDays(data.offsets.join(', '))
+  }
+
+  const offsets = (days ?? '')
+    .split(/[\s,]+/)
+    .map((v) => Number(v.trim()))
+    .filter((v) => Number.isFinite(v) && v >= 1 && v <= 365)
+  const uniqueOffsets = [...new Set(offsets)].sort((a, b) => b - a)
+
+  const saveMutation = useMutation({
+    mutationFn: () => crm.masterData.saveRenewalReminders({ ...form!, offsets: uniqueOffsets }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['crm', 'renewal-reminders'] })
+      setDays(res.data.offsets.join(', '))
+      toast(res.message, 'success')
+    },
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  if (form === null || days === null) {
+    return <Card><div className="flex justify-center py-6"><Spinner /></div></Card>
+  }
+
+  return (
+    <Card>
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        <AlarmClock className="size-4 text-emerald-500" /> Work order expiry warnings
+      </h2>
+      <p className="mt-1 text-xs text-slate-400">
+        Each work order's validity is watched, and a warning goes out on the days below — counted
+        back from the day it runs out. The executive who raised it is always notified in the app;
+        each warning is said once.
+      </p>
+
+      <label className="tap mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+        <input
+          type="checkbox"
+          checked={form.enabled}
+          onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+          className="mt-0.5 size-4 shrink-0 accent-emerald-600"
+        />
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          Warn before a work order expires
+          <span className="mt-0.5 block text-xs text-slate-400">
+            Off, nothing goes out at all — neither the notification nor the mails.
+          </span>
+        </span>
+      </label>
+
+      <div className="mt-4">
+        <Label>Days before expiry</Label>
+        <Input
+          value={days}
+          onChange={(e) => setDays(e.target.value)}
+          placeholder="30, 15, 7"
+          className="mt-1 max-w-xs"
+        />
+        <p className="mt-1 text-xs text-slate-400">
+          {uniqueOffsets.length === 0
+            ? 'At least one day is needed — 30, 15, 7 is the usual three.'
+            : `${uniqueOffsets.length} warning${uniqueOffsets.length === 1 ? '' : 's'}: ${uniqueOffsets.join(', ')} day(s) before it runs out.`}
+        </p>
+      </div>
+
+      <p className="mt-4 text-xs font-medium text-slate-500 dark:text-slate-400">Who is written to</p>
+      <label className="tap mt-2 flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+        <input
+          type="checkbox"
+          checked={form.email_executive}
+          onChange={(e) => setForm({ ...form, email_executive: e.target.checked })}
+          className="mt-0.5 size-4 shrink-0 accent-emerald-600"
+        />
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          E-mail the executive
+          <span className="mt-0.5 block text-xs text-slate-400">
+            Their in-app notification goes either way; this adds a mail they can act on away from
+            the desk.
+          </span>
+        </span>
+      </label>
+      <label className="tap mt-2 flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+        <input
+          type="checkbox"
+          checked={form.email_client}
+          onChange={(e) => setForm({ ...form, email_client: e.target.checked })}
+          className="mt-0.5 size-4 shrink-0 accent-emerald-600"
+        />
+        <span className="text-sm text-slate-600 dark:text-slate-300">
+          E-mail the client
+          <span className="mt-0.5 block text-xs text-slate-400">
+            Off by default. On, the client is told directly on each of the days above, from the
+            issuing company that raised the invoice.
+          </span>
+        </span>
+      </label>
+
+      <div className="mt-4 flex justify-end">
+        <Button
+          size="sm"
+          disabled={uniqueOffsets.length === 0 || saveMutation.isPending}
+          onClick={() => saveMutation.mutate()}
+        >
+          {saveMutation.isPending ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 /**
  * The currencies this company deals in.
  *

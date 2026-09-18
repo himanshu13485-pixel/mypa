@@ -108,6 +108,16 @@ export default function CrmInvoicesPage() {
   // What KIND of business it is, which is a different question from whether
   // the client is new - and one only the company's own list can answer.
   const [clientSegment, setClientSegment] = useState<string[] | null>(null)
+  /*
+   * What was sold, rather than who it was sold to.
+   *
+   * Membership and plan name live on the work order, and every filter this
+   * screen had described the client or the money - so "show me everyone on
+   * Enterprise-12M" was a question it could not answer.
+   */
+  const [membership, setMembership] = useState<string[] | null>(null)
+  const [planName, setPlanName] = useState<string[] | null>(null)
+  const [subscription, setSubscription] = useState<string[] | null>(null)
   const [dueOnly, setDueOnly] = useState(false)
   const [dueMin, setDueMin] = useState('')
   const [dueMax, setDueMax] = useState('')
@@ -127,6 +137,14 @@ export default function CrmInvoicesPage() {
   const [page, setPage] = useState(1)
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
+  // The memberships and plans this company has actually sold, for the two
+  // filters below. One list for the whole screen: it does not change with
+  // the filters, and re-asking on every keystroke would be noise.
+  const { data: workOrder } = useQuery({
+    queryKey: ['crm', 'work-order-values'],
+    queryFn: crm.invoices.workOrderValues,
+    staleTime: 5 * 60_000,
+  })
 
   /*
    * The Membership column, worded and shown as this company has it.
@@ -179,7 +197,7 @@ export default function CrmInvoicesPage() {
   const [salespeople, setSalespeople] = useState<string[] | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, clientStatus, clientSegment, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salespeople],
+    queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, clientStatus, clientSegment, membership, planName, subscription, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salespeople],
     queryFn: () =>
       crm.invoices.list({
         kind,
@@ -192,6 +210,9 @@ export default function CrmInvoicesPage() {
         dispatch_status: listParam(dispatch),
         client_category: listParam(clientStatus),
         client_segment: listParam(clientSegment),
+        membership: listParam(membership),
+        plan_name: listParam(planName),
+        subscription_type: listParam(subscription),
         due_only: dueOnly ? 1 : undefined,
         due_min: dueMin || undefined,
         due_max: dueMax || undefined,
@@ -409,6 +430,38 @@ export default function CrmInvoicesPage() {
             options={optionsOf(masters?.client_segments ?? [])}
             value={clientSegment}
             onChange={(v) => { setClientSegment(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
+          {/* Off the documents themselves: only what has actually been
+              sold is offered, so a filter never returns an empty list for a
+              plan nobody ever used. */}
+          {(workOrder?.memberships.length ?? 0) > 0 && (
+            <MultiSelect
+              label="Membership"
+              options={optionsOf(workOrder!.memberships)}
+              value={membership}
+              onChange={(v) => { setMembership(v); setPage(1) }}
+              className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+            />
+          )}
+          {(workOrder?.plan_names.length ?? 0) > 0 && (
+            <MultiSelect
+              label="Plan name"
+              options={optionsOf(workOrder!.plan_names)}
+              value={planName}
+              onChange={(v) => { setPlanName(v); setPage(1) }}
+              className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+            />
+          )}
+          <MultiSelect
+            label="Type"
+            options={[
+              { value: 'online', label: 'Online' },
+              { value: 'offline', label: 'Offline' },
+              { value: 'both', label: 'Both' },
+            ]}
+            value={subscription}
+            onChange={(v) => { setSubscription(v); setPage(1) }}
             className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
           />
           {effectiveScope === 'team' && (data?.totals.by_salesperson?.length ?? 0) > 1 && (
