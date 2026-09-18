@@ -11,6 +11,7 @@ import type { ConversationMember } from '../api/endpoints'
 import MessageAttachment from '../components/MessageAttachment'
 import PersonModal from '../components/PersonModal'
 import SeenByModal from '../components/SeenByModal'
+import Marquee from '../components/Marquee'
 import BroadcastModal from '../components/BroadcastModal'
 import { EmojiPicker } from '../components/EmojiPicker'
 import { CameraCapture } from '../components/CameraCapture'
@@ -1859,14 +1860,15 @@ export default function MessagesPage() {
                       {selected.members_count} members
                     </button>
                   ) : (
-                    <p className="flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-xs text-slate-400">
-                      {/* Swipeable rather than truncated.
-                          On a phone the handle, the presence dot and "last
-                          seen an hour ago" do not fit on one line, and
-                          whichever came last was simply cut off - the
-                          last-seen part being the one people look for.
-                          Nothing moves; the line itself can now be pushed
-                          sideways to read the rest of it. */}
+                    <Marquee className="text-xs text-slate-400">
+                      {/* It reads itself out.
+                          The handle, the presence dot and "last seen an hour
+                          ago" do not fit one phone line, and whichever came
+                          last was cut off - the last-seen part being the one
+                          people look for. Swiping it worked, and nobody
+                          swipes a subtitle, so the line walks right to left
+                          and comes back. It stays still whenever it fits. */}
+                      <span className="inline-flex items-center gap-1.5">
                       <span className="shrink-0">
                         {selected.other_user?.username ? `@${selected.other_user.username}` : selected.other_user?.app_id}
                       </span>
@@ -1890,7 +1892,8 @@ export default function MessagesPage() {
                       {headerPresence !== 'online' && headerLastSeen && (
                         <span className="shrink-0">· {headerLastSeen}</span>
                       )}
-                    </p>
+                      </span>
+                    </Marquee>
                   )}
                 </div>
               </div>

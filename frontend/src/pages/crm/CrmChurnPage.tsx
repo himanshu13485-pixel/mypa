@@ -63,7 +63,7 @@ export default function CrmChurnPage() {
         <Card><EmptyState title="Nothing to compute yet" hint="Churn reads from the invoice ledger." /></Card>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {([
               ['Active customers now', String(data.summary.active), 'text-slate-900 dark:text-white'],
               ['Avg monthly churn', data.summary.avg_churn_rate + '%', 'text-red-500'],

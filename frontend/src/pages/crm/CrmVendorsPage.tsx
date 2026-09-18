@@ -278,7 +278,7 @@ export default function CrmVendorsPage() {
             <div className="flex justify-center py-10"><Spinner /></div>
           ) : (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {[
                   { label: 'Billed', value: inr(detailData.billed) },
                   { label: 'Paid', value: inr(detailData.paid) },

@@ -441,3 +441,40 @@ h3 {
     display: none;
   }
 }
+
+/*
+ * A line too long for the space, read without touching it.
+ *
+ * The chat header carries a handle, a presence dot and "last seen an hour
+ * ago"; on a phone the end of that is off the edge. Swiping it worked and
+ * nobody swipes a subtitle, so it walks itself: right to left, a pause at
+ * each end, and round again.
+ *
+ * Only when it does not fit. The wrapper measures, and adds the class, so a
+ * short line on a wide screen stays perfectly still rather than drifting for
+ * no reason.
+ */
+.marquee-track {
+  display: inline-block;
+  /* Paced by distance, not by a number: a fixed duration makes a long line
+     race and a short one crawl, and the eye reads both at one speed. */
+  animation: marquee-walk var(--marquee-time, 12s) linear infinite;
+}
+
+@keyframes marquee-walk {
+  0%, 10% {
+    transform: translateX(0);
+  }
+  90%, 100% {
+    /* Its own width less the box it sits in: the end of the line arrives at
+       the right-hand edge and no further, so it never scrolls into blank. */
+    transform: translateX(calc(-1 * var(--marquee-shift, 0px)));
+  }
+}
+
+/* Motion nobody asked for is motion somebody cannot read. */
+@media (prefers-reduced-motion: reduce) {
+  .marquee-track {
+    animation: none;
+  }
+}

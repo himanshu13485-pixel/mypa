@@ -102,7 +102,7 @@ export default function CrmPlPage() {
       ) : (
         <>
           {data.months.length > 1 && (
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               {[
                 ['Income (span)', data.totals.income, 'text-slate-900 dark:text-white'],
                 ['Expenses (span)', data.totals.expense, 'text-red-500'],
@@ -186,7 +186,7 @@ function MonthCard({ m, onAdd, onDeleteLine, onNote }: {
         : lines.map((l, i) => (
           <div key={i}>
             <div className="flex items-baseline justify-between gap-2 py-1 text-sm">
-              <span className="min-w-0 truncate text-slate-600 dark:text-slate-300">
+              <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
                 {l.label}
                 {l.source === 'manual' && <span className="ml-1 text-[10px] text-slate-400">(manual)</span>}
                 {l.source === 'linked' && (
@@ -195,7 +195,7 @@ function MonthCard({ m, onAdd, onDeleteLine, onNote }: {
                   </span>
                 )}
               </span>
-              <span className="flex shrink-0 items-center gap-1 tabular-nums">
+              <span className="flex shrink-0 items-center gap-1 whitespace-nowrap tabular-nums">
                 {inr(l.amount)}
                 {/* Every entry, either side - the ones the system works out as
                     much as the ones somebody typed, because those are the ones
@@ -235,7 +235,7 @@ function MonthCard({ m, onAdd, onDeleteLine, onNote }: {
 
   return (
     <Card>
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
           {new Date(m.month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
         </h2>

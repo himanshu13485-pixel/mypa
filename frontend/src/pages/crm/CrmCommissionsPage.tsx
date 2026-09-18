@@ -58,7 +58,7 @@ export default function CrmCommissionsPage() {
       </div>
 
       {data && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
           {[
             { label: 'Total paid', value: inr(data.summary.total) },
             { label: 'This month', value: inr(data.summary.this_month) },
