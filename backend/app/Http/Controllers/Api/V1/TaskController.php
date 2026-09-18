@@ -607,13 +607,31 @@ class TaskController extends Controller
         $tz = $request->user()->profile?->timezone ?? config('app.timezone');
         foreach (['start_at', 'due_at'] as $field) {
             if (! empty($taskData[$field])) {
-                $taskData[$field] = \Illuminate\Support\Carbon::parse($taskData[$field], $tz)->utc();
+                /*
+                 * Into the application's own timezone, not UTC.
+                 *
+                 * Eloquent writes whatever wall-clock the Carbon carries and
+                 * reads it back in the app timezone, which here is
+                 * Asia/Kolkata - so a value forced to UTC on the way in came
+                 * out five and a half hours early. A task set for a two
+                 * o'clock meeting read "6:30 AM", on the list and in the
+                 * form, and nothing about the number said why.
+                 *
+                 * Parsing in the person's own zone is still right: that is
+                 * the wall-clock they typed. Only the zone it is expressed
+                 * in when stored was wrong.
+                 */
+                $taskData[$field] = \Illuminate\Support\Carbon::parse($taskData[$field], $tz)
+                    ->setTimezone(config('app.timezone'));
             }
         }
         if (isset($data['reminders'])) {
             foreach ($data['reminders'] as $i => $reminder) {
                 if (! empty($reminder['remind_at'])) {
-                    $data['reminders'][$i]['remind_at'] = \Illuminate\Support\Carbon::parse($reminder['remind_at'], $tz)->utc();
+                    // The same for a reminder: it fires against the clock
+                    // the rest of the row is written in.
+                    $data['reminders'][$i]['remind_at'] = \Illuminate\Support\Carbon::parse($reminder['remind_at'], $tz)
+                        ->setTimezone(config('app.timezone'));
                 }
             }
         }

@@ -241,7 +241,22 @@ class EventController extends Controller
         $tz = $request->user()->profile?->timezone ?? config('app.timezone');
         foreach (['starts_at', 'ends_at'] as $field) {
             if (! empty($data[$field])) {
-                $data[$field] = \Illuminate\Support\Carbon::parse($data[$field], $tz)->utc();
+                /*
+                 * Into the application's own timezone, not UTC.
+                 *
+                 * Eloquent writes whatever wall-clock the Carbon carries and
+                 * reads it back in the app timezone, which here is
+                 * Asia/Kolkata - so a value forced to UTC on the way in came
+                 * out five and a half hours early. A task set for a two
+                 * o'clock meeting read "6:30 AM", on the list and in the
+                 * form, and nothing about the number said why.
+                 *
+                 * Parsing in the person's own zone is still right: that is
+                 * the wall-clock they typed. Only the zone it is expressed
+                 * in when stored was wrong.
+                 */
+                $data[$field] = \Illuminate\Support\Carbon::parse($data[$field], $tz)
+                    ->setTimezone(config('app.timezone'));
             }
         }
 
