@@ -144,6 +144,10 @@ class Member extends Model
         // Held by name for everybody but the Admin: a Subadmin sees their own
         // salary only, unless the Admin ticks them in here.
         'salary.view_all' => ['group' => 'Money', 'label' => 'See every employee’s salary — slips, payslips, pay structure and incentive ledger'],
+        // A spreadsheet of every credit the company received leaves the
+        // building the moment it is downloaded: the Admin decides, once per
+        // person, who may take it.
+        'payments.export' => ['group' => 'Money', 'label' => 'Download the payments ledger as Excel'],
         'salary.export' => ['group' => 'Money', 'label' => 'Download the detailed salary register as Excel (every employee; PF, ESI and welfare fund with employer and employee shares)'],
         // Also held by name: the Reports screen is the Admin's, opened to a
         // Subadmin only when the Admin ticks them in.

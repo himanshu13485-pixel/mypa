@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Pencil, Plus, Trash2, X } from 'lucide-react'
@@ -202,6 +202,14 @@ export default function CrmInvoiceFormPage() {
    * restating the document from the client's earlier invoices.
    */
   const [byHandCategory, setByHandCategory] = useState<'new' | 'existing' | null>(null)
+  /*
+   * Has anybody chosen a dispatch status themselves?
+   *
+   * A ref rather than state: nothing on screen depends on it, and it must
+   * not be lost to a re-render between choosing a subscription type and
+   * choosing a dispatch status.
+   */
+  const dispatchTouched = useRef(false)
   const [items, setItems] = useState<ItemRow[]>([{ ...EMPTY_ITEM }])
   // Money lines, keyed by this company's own line keys: a rate, or a figure.
   const [taxes, setTaxes] = useState<Record<string, { rate: string; amount: string }>>({})
@@ -360,6 +368,29 @@ export default function CrmInvoiceFormPage() {
   }, [existing])
 
   const setH = (key: keyof typeof head, value: string) => setHead((h) => ({ ...h, [key]: value }))
+
+  /**
+   * Picking a subscription type suggests the dispatch status.
+   *
+   * Online is being worked on from the moment it is sold; offline is
+   * waiting to be sent. Both of those are what somebody would have chosen
+   * by hand a second later, so the form chooses first and lets them
+   * disagree.
+   *
+   * Only on a new document, and only while dispatch is still untouched: a
+   * document being edited has a status somebody decided, and moving it
+   * because a neighbouring field was corrected would be the form overruling
+   * a person.
+   */
+  const setSubscription = (value: string) => setHead((h) => {
+    const suggestion = value === 'online' ? 'in_process' : value === 'offline' ? 'pending' : null
+
+    return {
+      ...h,
+      subscription_type: value,
+      dispatch_status: !existing && suggestion && !dispatchTouched.current ? suggestion : h.dispatch_status,
+    }
+  })
   const setItem = (idx: number, key: keyof ItemRow, value: string) =>
     setItems((rows) => rows.map((r, i) => (i === idx ? { ...r, [key]: value } : r)))
   const setItemField = (idx: number, key: string, value: string | boolean) =>
@@ -886,7 +917,12 @@ export default function CrmInvoiceFormPage() {
           {shows('subscription_type') && (
             <div>
               <Label>{heading('subscription_type', 'Subscription type')}</Label>
-              <Select value={head.subscription_type} onChange={(e) => setH('subscription_type', e.target.value)} className="w-full">
+              {/* Choosing how it is sold suggests how it goes out: an online
+                  subscription is being worked on the moment it is sold, and
+                  an offline one is waiting to be sent. Only a suggestion -
+                  whoever raises the document can say otherwise, and editing
+                  one that already has a status set is never overruled. */}
+              <Select value={head.subscription_type} onChange={(e) => setSubscription(e.target.value)} className="w-full">
                 <option value="">Select</option>
                 <option value="online">Online</option>
                 <option value="offline">Offline</option>
@@ -897,7 +933,11 @@ export default function CrmInvoiceFormPage() {
           {shows('dispatch_status') && (
             <div>
               <Label>{heading('dispatch_status', 'Dispatch status')}</Label>
-              <Select value={head.dispatch_status} onChange={(e) => setH('dispatch_status', e.target.value)} className="w-full">
+              <Select
+                value={head.dispatch_status}
+                onChange={(e) => { dispatchTouched.current = true; setH('dispatch_status', e.target.value) }}
+                className="w-full"
+              >
                 {Object.entries(CRM_DISPATCH_STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </Select>
             </div>

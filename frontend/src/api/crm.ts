@@ -2695,7 +2695,11 @@ export const crm = {
 
   payments: {
     list: (params: ListParams) =>
-      api.get<Paginated<CrmPaymentEntry> & { summary: CrmPaymentSummary }>('/crm/payments', { params }).then((r) => r.data),
+      api.get<Paginated<CrmPaymentEntry> & { summary: CrmPaymentSummary; can_export?: boolean }>('/crm/payments', { params })
+        .then((r) => r.data),
+    /** The ledger as Excel, filtered exactly as the screen has it. */
+    exportExcel: (params: ListParams) =>
+      api.get('/crm/payments/export', { params, responseType: 'blob' }).then((r) => r.data as Blob),
     settings: () => api.get<{ data: CrmPaymentSettings }>('/crm/masters/payment-settings').then((r) => r.data.data),
     gateway: () => api.get<{ data: CrmGatewaySettings }>('/crm/masters/payment-gateway').then((r) => r.data.data),
     saveGateway: (payload: { mode: string; app_id: string; secret?: string; is_active: boolean }) =>

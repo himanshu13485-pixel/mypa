@@ -1071,7 +1071,11 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             // Payment inbox: bank credits logged, then claimed onto invoices
             // Money still owed, and the chasing of it.
             Route::middleware('crm.member:payments,view')->group(function () {
-                Route::get('/payments/outstanding', [\App\Http\Controllers\Api\V1\Crm\PaymentReminderController::class, 'outstanding']);
+                // The ledger as a file. The controller decides who may: the
+            // Admin, and the Subadmins the Admin has named.
+            Route::get('/payments/export', [\App\Http\Controllers\Api\V1\Crm\PaymentInboxController::class, 'export'])
+                ->middleware('crm.member:payments,view');
+            Route::get('/payments/outstanding', [\App\Http\Controllers\Api\V1\Crm\PaymentReminderController::class, 'outstanding']);
                 Route::get('/invoices/{invoiceUuid}/reminders', [\App\Http\Controllers\Api\V1\Crm\PaymentReminderController::class, 'index']);
             });
             Route::post('/invoices/{invoiceUuid}/reminders', [\App\Http\Controllers\Api\V1\Crm\PaymentReminderController::class, 'store'])

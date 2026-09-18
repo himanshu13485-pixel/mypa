@@ -11,6 +11,7 @@ use App\Models\Crm\PaymentInboxEntry;
 use App\Notifications\CrmNotification;
 use App\Services\Crm\PaymentSettler;
 use App\Support\QueryList;
+use App\Support\Xlsx;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,14 +30,8 @@ class PaymentInboxController extends Controller
     public function index(Request $request): JsonResponse
     {
         $org = $request->attributes->get('crm_org');
+        $query = $this->filtered($request);
 
-        $query = PaymentInboxEntry::with([
-            'issuingCompany:id,name', 'bankAccount:id,label',
-            'claimedInvoice:id,uuid,number,kind', 'claimedMember.user:id,name',
-            'sourceProforma:id,number',
-        ])->where('organization_id', $org->id);
-
-        // Checkbox filters: any of the values ticked.
         if ($statuses = QueryList::of($request, 'status')) {
             $query->whereIn('status', $statuses);
         }
@@ -56,15 +51,6 @@ class PaymentInboxController extends Controller
         if ($people = QueryList::of($request, 'member')) {
             $query->whereHas('claimedMember', fn ($m) => $m->whereIn('uuid', $people));
         }
-        if ($search = trim((string) $request->query('search'))) {
-            $query->where(function ($q) use ($search) {
-                $q->where('details', 'like', "%{$search}%")
-                    ->orWhere('payment_no', 'like', "%{$search}%")
-                    ->orWhere('reference_no', 'like', "%{$search}%")
-                    ->orWhereHas('claimedInvoice', fn ($i) => $i->where('number', 'like', "%{$search}%"));
-            });
-        }
-
         $all = (clone $query)->get(['id', 'status', 'amount', 'currency', 'payment_mode', 'received_on']);
 
         // Money in two currencies is two figures, never one sum.
@@ -74,6 +60,7 @@ class PaymentInboxController extends Controller
             ->sortByDesc('amount')->values();
         $lastMonths = $all->map(fn ($e) => $e->received_on->format('Y-m'))->unique()->sort()->values()->take(-12);
 
+        $canExport = $this->canExport($request->attributes->get('crm_member'));
         $summary = [
             'unclaimed_by_currency' => $perCurrency($all->where('status', 'unclaimed')),
             'pending_by_currency' => $perCurrency($all->where('status', 'pending')),
@@ -123,7 +110,9 @@ class PaymentInboxController extends Controller
         $entries = $query->orderByDesc('id')->paginate(25);
         $entries->getCollection()->transform(fn ($e) => $this->serialize($e));
 
-        return response()->json(['summary' => $summary] + $entries->toArray());
+        // So the screen knows whether to offer the download at all, rather
+        // than showing a button that answers 403.
+        return response()->json(['summary' => $summary, 'can_export' => $canExport] + $entries->toArray());
     }
 
     public function store(Request $request): JsonResponse
@@ -524,6 +513,136 @@ class PaymentInboxController extends Controller
         $data['currency'] = strtoupper($data['currency']);
 
         return $data;
+    }
+
+    /**
+     * The list as the screen asked for it.
+     *
+     * Lifted out of index() so the download answers the same question: an
+     * export that quietly ignored the date range, or the company filter,
+     * would be a spreadsheet nobody could reconcile against what they were
+     * looking at when they pressed the button.
+     */
+    private function filtered(Request $request): \Illuminate\Database\Eloquent\Builder
+    {
+        $org = $request->attributes->get('crm_org');
+
+        $query = PaymentInboxEntry::with([
+            'issuingCompany:id,name', 'bankAccount:id,label',
+            'claimedInvoice:id,uuid,number,kind', 'claimedMember.user:id,name',
+            'sourceProforma:id,number',
+        ])->where('organization_id', $org->id);
+
+        // Checkbox filters: any of the values ticked.
+        if ($statuses = QueryList::of($request, 'status')) {
+            $query->whereIn('status', $statuses);
+        }
+        if ($banks = QueryList::ids($request, 'bank_account_id')) {
+            $query->whereIn('bank_account_id', $banks);
+        }
+        if ($companies = QueryList::ids($request, 'issuing_company_id')) {
+            $query->whereIn('issuing_company_id', $companies);
+        }
+        if ($from = $request->query('date_from')) {
+            $query->whereDate('received_on', '>=', $from);
+        }
+        if ($to = $request->query('date_to')) {
+            $query->whereDate('received_on', '<=', $to);
+        }
+        // Whose money: the salesperson the credit was claimed for.
+        if ($people = QueryList::of($request, 'member')) {
+            $query->whereHas('claimedMember', fn ($m) => $m->whereIn('uuid', $people));
+        }
+        if ($search = trim((string) $request->query('search'))) {
+            $query->where(function ($q) use ($search) {
+                $q->where('details', 'like', "%{$search}%")
+                    ->orWhere('payment_no', 'like', "%{$search}%")
+                    ->orWhere('reference_no', 'like', "%{$search}%")
+                    ->orWhereHas('claimedInvoice', fn ($i) => $i->where('number', 'like', "%{$search}%"));
+            });
+        }
+
+        return $query;
+    }
+
+    /**
+     * May this person take the ledger away as a file?
+     *
+     * The Company Admin by the job, and a Subadmin the Admin has named -
+     * held by name rather than inherited, because a spreadsheet of every
+     * credit the company received leaves the building the moment it is
+     * downloaded, and that is the Admin's decision to make once per person.
+     */
+    private function canExport(Member $me): bool
+    {
+        return $me->status === 'active' && (
+            $me->crm_role === 'admin'
+            || in_array('payments.export', (array) ($me->capabilities ?? []), true)
+        );
+    }
+
+    /** The bank inbox as Excel, exactly as the screen has it filtered. */
+    public function export(Request $request)
+    {
+        $org = $request->attributes->get('crm_org');
+        /** @var Member $me */
+        $me = $request->attributes->get('crm_member');
+        abort_unless(
+            $this->canExport($me),
+            403,
+            'Downloading the payments ledger is the Company Admin’s, and the people the Admin has named.',
+        );
+
+        $entries = $this->filtered($request)->orderByDesc('received_on')->orderByDesc('id')->get();
+        abort_if($entries->isEmpty(), 422, 'There are no payments for that selection.');
+
+        $rows = [];
+        foreach ($entries as $e) {
+            $rows[] = [
+                $e->payment_no,
+                $e->received_on->format('d M Y'),
+                $e->issuingCompany?->name,
+                $e->bankAccount?->label,
+                $e->payment_mode,
+                // Money in two currencies is two figures, never one sum - so
+                // the code travels in its own column rather than being
+                // implied by a symbol somebody has to guess at.
+                strtoupper($e->currency ?: 'INR'),
+                Xlsx::money($e->amount),
+                $e->status,
+                $e->claimedInvoice?->number,
+                $e->claimedMember?->user?->name,
+                $e->reference_no,
+                $e->details,
+            ];
+        }
+
+        $header = [
+            'Payment no.', 'Received on', 'Issuing company', 'Bank account', 'Mode',
+            'Currency', 'Amount', 'Status', 'Claimed against', 'Salesperson', 'Reference', 'Details',
+        ];
+
+        $sheet = [
+            [Xlsx::cell('Payments — ' . $org->name, Xlsx::TITLE)],
+            ['Generated ' . now()->format('d M Y H:i') . ' by ' . ($me->user?->name ?? 'Admin')
+                . '. Each credit in the currency it arrived in.'],
+            [],
+            array_map(fn ($h) => Xlsx::cell($h, Xlsx::HEADER), $header),
+            ...$rows,
+        ];
+
+        ActivityLog::record($me, $org->id, 'export.payments', $org, ['count' => $entries->count()]);
+
+        $path = (new Xlsx())
+            ->sheet('Payments', $sheet, [14, 14, 26, 20, 14, 10, 16, 12, 18, 20, 20, 44], 4)
+            ->toTempFile();
+
+        return response()->streamDownload(function () use ($path) {
+            readfile($path);
+            @unlink($path);
+        }, 'payments-' . now()->format('Y-m-d') . '.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     private function serialize(PaymentInboxEntry $e): array

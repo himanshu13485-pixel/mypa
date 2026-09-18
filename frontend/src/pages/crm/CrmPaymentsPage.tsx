@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, ArrowRightLeft, Banknote, Check, Link2, Link2Off, Mail, Phone, Plus, Search, Trash2 } from 'lucide-react'
+import { AlarmClock, ArrowRightLeft, Banknote, Check, FileSpreadsheet, Link2, Link2Off, Mail, Phone, Plus, Search, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, type CrmOutstandingRow, type CrmOutstandingSummary, type CrmPaymentEntry } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -11,6 +11,7 @@ import { CHART_COLORS, ColumnChart, DonutChart } from './charts'
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam } from '../../lib/multiFilter'
+import { saveBlob } from '../../lib/download'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -104,6 +105,32 @@ export default function CrmPaymentsPage() {
       }),
   })
 
+  /*
+   * The download answers the question the screen is asking.
+   *
+   * The same filters, minus the page: a spreadsheet of whichever thirty rows
+   * happened to be on screen would be a spreadsheet nobody could reconcile
+   * against anything.
+   */
+  const [exporting, setExporting] = useState(false)
+  const downloadExcel = async () => {
+    setExporting(true)
+    try {
+      const blob = await crm.payments.exportExcel({
+        status: listParam(status),
+        member: listParam(inboxMember),
+        search: applied || undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      })
+      saveBlob(blob, `payments-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: ['crm', 'payments'] })
     queryClient.invalidateQueries({ queryKey: ['crm', 'invoices'] })
@@ -193,7 +220,17 @@ export default function CrmPaymentsPage() {
           <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Payments</h1>
           <p className="text-sm text-slate-500">Every credit that lands, logged first — then claimed against an invoice.</p>
         </div>
-        <Button onClick={openCreate}><Plus className="size-4" /> Log payment</Button>
+        <div className="flex flex-wrap gap-2">
+          {/* Offered only to the people who may: the Admin, and the Subadmins
+              the Admin has named. A button that answers 403 is worse than no
+              button at all. */}
+          {data?.can_export && (
+            <Button variant="secondary" disabled={exporting} onClick={downloadExcel}>
+              <FileSpreadsheet className="size-4" /> {exporting ? 'Preparing…' : 'Excel'}
+            </Button>
+          )}
+          <Button onClick={openCreate}><Plus className="size-4" /> Log payment</Button>
+        </div>
       </div>
 
       {/* Two halves of one job: money that landed, and money still owed. */}
@@ -810,9 +847,12 @@ function OutstandingLedger({ data, isLoading, bucket, onBucket, member, onMember
                         <div className="text-xs font-medium text-red-500">{row.days_overdue} days overdue</div>
                       )}
                     </td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-right">{inr(row.total)}</td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-right text-emerald-600">{inr(row.received)}</td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-right font-semibold">{inr(row.balance)}</td>
+                    {/* Each document in its own currency. These rows have
+                        carried one all along; the screen was writing ₹ over
+                        it. */}
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-right">{money(row.total, row.currency)}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-right text-emerald-600">{money(row.received, row.currency)}</td>
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-right font-semibold">{money(row.balance, row.currency)}</td>
                     <td className="py-2.5 pr-3">
                       {row.last_reminder ? (
                         <>
@@ -900,7 +940,7 @@ function ReminderModal({ row, onClose, onDone }: {
   })
 
   return (
-    <Modal title={`Chase ${row.number} — ${inr(row.balance)} owed`} onClose={onClose} wide>
+    <Modal title={`Chase ${row.number} — ${money(row.balance, row.currency)} owed`} onClose={onClose} wide>
       <div className="space-y-3">
         <ErrorNote message={error} />
 
@@ -1009,7 +1049,7 @@ function SettleModal({ entry, pending, onClose, onSettle }: {
         <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/40">
           <div className="flex justify-between">
             <span className="text-slate-500">Credited to the bank</span>
-            <span className="font-semibold">{inr(entry.amount)}</span>
+            <span className="font-semibold">{money(entry.amount, entry.currency)}</span>
           </div>
           {entry.claimed_invoice && (
             <div className="mt-0.5 text-xs text-slate-400">
@@ -1020,7 +1060,10 @@ function SettleModal({ entry, pending, onClose, onSettle }: {
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Gateway / bank charge (₹)</Label>
+            {/* In the currency the payment came in, not in rupees: a
+                Stripe fee on a dollar receipt is deducted in dollars, and a
+                rupee label here is how it gets typed as one. */}
+            <Label>Gateway / bank charge ({(entry.currency || 'INR').toUpperCase()})</Label>
             <Input
               type="number"
               min="0"
@@ -1040,8 +1083,9 @@ function SettleModal({ entry, pending, onClose, onSettle }: {
         <p className="text-xs text-slate-500">
           {Number(charge) > 0 ? (
             <>
-              The client paid <strong>{inr(gross)}</strong>; <strong>{inr(charge)}</strong> stayed with the
-              gateway. The invoice will be credited the full {inr(gross)} and the charge booked as an expense.
+              The client paid <strong>{money(gross, entry.currency)}</strong>;{' '}
+              <strong>{money(charge, entry.currency)}</strong> stayed with the gateway. The invoice will be
+              credited the full {money(gross, entry.currency)} and the charge booked as an expense.
             </>
           ) : (
             'Leave blank if the whole amount reached the bank.'
@@ -1053,7 +1097,7 @@ function SettleModal({ entry, pending, onClose, onSettle }: {
           disabled={pending}
           onClick={() => onSettle(Number(charge) || undefined, note || undefined)}
         >
-          {pending ? 'Settling…' : `Settle ${inr(gross)}`}
+          {pending ? 'Settling…' : `Settle ${money(gross, entry.currency)}`}
         </Button>
       </div>
     </Modal>

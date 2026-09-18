@@ -75,3 +75,12 @@ Schedule::command('chat:purge-expired')->hourly()->withoutOverlapping();
  * what is due and what has already been said - see App\Support\DueNow.
  */
 Schedule::command('mypa:push-due-alerts')->everyFiveMinutes()->withoutOverlapping();
+
+/*
+ * Sales served to the end of their term.
+ *
+ * Validity is measured in days, so once a night is often enough - and early
+ * morning means the office finds yesterday's endings already accounted for
+ * rather than watching rows change under them during the day.
+ */
+Schedule::command('crm:close-served-dispatches')->dailyAt('01:30')->withoutOverlapping();
