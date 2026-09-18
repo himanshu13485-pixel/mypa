@@ -280,6 +280,30 @@ export default function CrmTargetsPage() {
         )}
       </Card>
 
+      {/* Against what came before.
+          A target says whether the floor is where it was asked to be; this
+          says which way it is travelling, which is the other half of every
+          conversation about a number. The span before is the same length -
+          three months against the three before them. */}
+      {data && (data.totals.achieved > 0 || data.previous.achieved > 0) && (
+        <Card className="py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-400">Against {data.previous.label}</p>
+              <p className="mt-0.5 text-sm text-slate-500">
+                {inr(data.previous.achieved)} then · {inr(data.totals.achieved)} now
+                {' · '}
+                {data.previous.clients_new} new clients then · {data.totals.clients_new} now
+              </p>
+            </div>
+            <div className="flex gap-4">
+              <Growth label="Sales" percent={data.previous.growth_percent} />
+              <Growth label="New clients" percent={data.previous.client_growth_percent} />
+            </div>
+          </div>
+        </Card>
+      )}
+
       {data && salesRows.length > 0 && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {[
@@ -312,6 +336,41 @@ export default function CrmTargetsPage() {
             </Card>
           ))}
         </div>
+      )}
+
+      {/* Desk against desk.
+          Two ladders, because the two floors are judged on different things:
+          the money one on what it billed, the client one on the names it
+          brought in. Each row carries its share of the floor and which way
+          it moved, so the ranking is not the only thing being said. */}
+      {data && salesRows.length > 1 && (
+        <Leaderboard
+          title="Sales, desk by desk"
+          hint="Share of everything the floor billed, and the move on the span before."
+          rows={[...salesRows].sort((a, b) => a.sales_rank - b.sales_rank)}
+          valueLabel="Billed"
+          value={(r) => inr(r.achieved)}
+          target={(r) => (r.target > 0 ? inr(r.target) : '—')}
+          percent={(r) => r.percent}
+          share={(r) => r.sales_share}
+          growth={(r) => r.growth_percent}
+          before={(r) => inr(r.previous_achieved)}
+        />
+      )}
+
+      {data && clientRows.length > 1 && (
+        <Leaderboard
+          title="New clients, desk by desk"
+          hint="Share of every new name the floor opened, and the move on the span before."
+          rows={[...clientRows].sort((a, b) => a.client_rank - b.client_rank)}
+          valueLabel="New clients"
+          value={(r) => String(r.clients_new)}
+          target={(r) => (r.client_target > 0 ? String(r.client_target) : '—')}
+          percent={(r) => r.client_percent}
+          share={(r) => r.client_share}
+          growth={(r) => r.client_growth_percent}
+          before={(r) => String(r.previous_clients_new)}
+        />
       )}
 
       {data && clientRows.length > 0 && (
@@ -711,6 +770,109 @@ function GrowthMap() {
           </div>
         </>
       )}
+    </Card>
+  )
+}
+
+/**
+ * Which way a figure moved, said in one glance.
+ *
+ * Silent when there is nothing to compare against: "up 100%" from a standing
+ * start is arithmetic rather than news, and a column that says it often is a
+ * column people stop reading.
+ */
+function Growth({ label, percent }: { label: string; percent: number | null }) {
+  return (
+    <div className="text-right">
+      <div className={clsx(
+        'text-lg font-semibold',
+        percent === null ? 'text-slate-400' : percent >= 0 ? 'text-emerald-600' : 'text-red-500',
+      )}>
+        {percent === null ? '—' : `${percent > 0 ? '▲' : percent < 0 ? '▼' : ''} ${Math.abs(percent)}%`}
+      </div>
+      <div className="text-[11px] text-slate-400">{label}</div>
+    </div>
+  )
+}
+
+/**
+ * Desk against desk, on one measure.
+ *
+ * The same shape serves money and new clients, because the comparison is the
+ * same act either way — the ladder, the share of the room, and which way the
+ * desk moved since the span before. Ranking alone would say who is ahead and
+ * nothing about whether that is new.
+ */
+function Leaderboard({ title, hint, rows, valueLabel, value, target, percent, share, growth, before }: {
+  title: string
+  hint: string
+  rows: CrmTargetRow[]
+  valueLabel: string
+  value: (row: CrmTargetRow) => string
+  target: (row: CrmTargetRow) => string
+  percent: (row: CrmTargetRow) => number | null
+  share: (row: CrmTargetRow) => number | null
+  growth: (row: CrmTargetRow) => number | null
+  before: (row: CrmTargetRow) => string
+}) {
+  return (
+    <Card>
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
+        <Medal className="size-4 text-amber-500" /> {title}
+      </h2>
+      <p className="mt-0.5 text-xs text-slate-400">{hint}</p>
+
+      <div className="-mx-4 mt-3 overflow-x-auto px-4">
+        <table className="w-full min-w-[620px] text-sm">
+          <thead>
+            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
+              <th className="py-2 pr-3 font-medium">#</th>
+              <th className="py-2 pr-3 font-medium">Employee</th>
+              <th className="py-2 pr-3 text-right font-medium">{valueLabel}</th>
+              <th className="py-2 pr-3 text-right font-medium">Target</th>
+              <th className="py-2 pr-3 text-right font-medium">Of target</th>
+              <th className="py-2 pr-3 text-right font-medium">Share</th>
+              <th className="py-2 pr-3 text-right font-medium">Before</th>
+              <th className="py-2 text-right font-medium">Move</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              const moved = growth(row)
+              const done = percent(row)
+
+              return (
+                <tr key={row.member_uuid} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
+                  <td className="py-2 pr-3 text-slate-400">{i + 1}</td>
+                  <td className="py-2 pr-3">
+                    <div className="font-medium">{row.name ?? '—'}</div>
+                    {row.employee_code && <div className="text-xs text-slate-400">{row.employee_code}</div>}
+                  </td>
+                  <td className="whitespace-nowrap py-2 pr-3 text-right font-semibold tabular-nums">{value(row)}</td>
+                  <td className="whitespace-nowrap py-2 pr-3 text-right tabular-nums text-slate-500">{target(row)}</td>
+                  <td className="whitespace-nowrap py-2 pr-3 text-right tabular-nums">
+                    {done === null
+                      ? <span className="text-slate-400">—</span>
+                      : <span className={done >= 100 ? 'text-emerald-600' : 'text-slate-600 dark:text-slate-300'}>{done}%</span>}
+                  </td>
+                  {/* Share of the whole floor, so the column adds to a hundred
+                      and one desk's month can be weighed against the room. */}
+                  <td className="whitespace-nowrap py-2 pr-3 text-right tabular-nums text-slate-500">
+                    {share(row) === null ? '—' : `${share(row)}%`}
+                  </td>
+                  <td className="whitespace-nowrap py-2 pr-3 text-right tabular-nums text-slate-400">{before(row)}</td>
+                  <td className={clsx(
+                    'whitespace-nowrap py-2 text-right tabular-nums',
+                    moved === null ? 'text-slate-400' : moved >= 0 ? 'text-emerald-600' : 'text-red-500',
+                  )}>
+                    {moved === null ? '—' : `${moved > 0 ? '▲' : moved < 0 ? '▼' : ''} ${Math.abs(moved)}%`}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     </Card>
   )
 }

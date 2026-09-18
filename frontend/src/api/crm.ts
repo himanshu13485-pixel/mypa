@@ -977,7 +977,35 @@ export interface CrmTargetRow {
   clients_existing: number
   invoices: number
   per_client: number | null
+  /**
+   * The same desk over the span immediately before this one.
+   *
+   * Beside the target rather than instead of it: a target says whether
+   * somebody is where they were asked to be, this says which way they are
+   * travelling. Growth is null when there was nothing to grow from.
+   */
+  previous_achieved: number
+  previous_clients_new: number
+  growth_percent: number | null
+  client_growth_percent: number | null
+  /** Where this desk stands in the room, on money and on new names. */
+  sales_rank: number
+  client_rank: number
+  /** Its share of everything the floor billed, and of every new client. */
+  sales_share: number | null
+  client_share: number | null
   note: string | null
+}
+
+/** The span immediately before the one on screen, the same length. */
+export interface CrmTargetPrevious {
+  achieved: number
+  clients_new: number
+  clients_existing: number
+  invoices: number
+  label: string
+  growth_percent: number | null
+  client_growth_percent: number | null
 }
 
 /** The client-oriented floor, counted apart from the money one. */
@@ -997,6 +1025,7 @@ export interface CrmClientTargetTotals {
 
 export interface CrmTargetsResponse {
   data: CrmTargetRow[]
+  previous: CrmTargetPrevious
   client_totals: CrmClientTargetTotals
   totals: {
     people: number

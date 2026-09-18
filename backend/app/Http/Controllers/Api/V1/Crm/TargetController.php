@@ -101,40 +101,20 @@ class TargetController extends Controller
                 ->pluck('note', 'member_id')
             : collect();
 
+        $achieved = $this->achievementBetween($org, $start, $end);
+
         /*
-         * The period's invoices, read in rupees.
+         * The same span, immediately before this one.
          *
-         * Summed in PHP rather than by the database, because a document in
-         * another currency counts at the INR equivalent frozen on it - the
-         * rule every other money screen keeps. sum(total) in SQL would add a
-         * dollar to a rupee and call the answer two.
+         * A target answers "how are we doing"; this answers "compared with
+         * what", which is the question people actually argue about. Three
+         * months against the three before them, a year against the year
+         * before - the same length, so the comparison is fair, and the same
+         * query, so it cannot disagree with itself.
          */
-        $invoices = Invoice::where('organization_id', $org->id)
-            ->where('kind', 'invoice')
-            ->where('status', '!=', 'cancelled')
-            ->whereDate('invoice_date', '>=', $start->toDateString())
-            ->whereDate('invoice_date', '<=', $end->toDateString())
-            ->whereNotNull('member_id')
-            ->withSum('payments as received', 'amount')
-            ->get(['id', 'member_id', 'client_id', 'client_category', 'subtotal', 'discount', ...Invoice::RUPEE_COLUMNS]);
-
-        $achieved = $invoices->groupBy('member_id')->map(function ($group) {
-            $existing = $group->filter(fn ($i) => in_array($i->client_category, self::EXISTING, true));
-            $clients = fn ($rows) => $rows->pluck('client_id')->filter()->unique()->count();
-
-            return [
-                // A sale is what was sold, not what the government adds to
-                // it: the target is judged on the taxable value, and the tax
-                // only shows up in what the client still owes.
-                'base_sum' => round((float) $group->sum(fn ($i) => self::baseOf($i)), 2),
-                'base_existing' => round((float) $existing->sum(fn ($i) => self::baseOf($i)), 2),
-                'payment_due' => round((float) $group->sum(fn ($i) => self::dueOf($i)), 2),
-                'invoice_count' => $group->count(),
-                'client_count' => $clients($group),
-                'client_existing' => $clients($existing),
-                'client_new' => $clients($group->reject(fn ($i) => in_array($i->client_category, self::EXISTING, true))),
-            ];
-        });
+        $beforeEnd = $start->copy()->subDay()->endOfDay();
+        $beforeStart = $start->copy()->subMonthsNoOverflow($span)->startOfMonth();
+        $previous = $this->achievementBetween($org, $beforeStart, $beforeEnd);
 
         /*
          * How many clients a desk has in all, for the client-oriented board.
@@ -151,7 +131,7 @@ class TargetController extends Controller
             ->groupBy('assigned_member_id')
             ->pluck('held', 'assigned_member_id');
 
-        $rows = $members->map(function (Member $m) use ($targets, $achieved, $notes, $kinds, $portfolio) {
+        $rows = $members->map(function (Member $m) use ($targets, $achieved, $previous, $notes, $kinds, $portfolio) {
             $target = (float) ($targets[$m->id]->target_sum ?? 0);
             $total = (float) ($achieved[$m->id]['base_sum'] ?? 0);
             $existing = (float) ($achieved[$m->id]['base_existing'] ?? 0);
@@ -214,9 +194,48 @@ class TargetController extends Controller
                 'client_percent' => $clientTarget > 0 ? round($newClients / $clientTarget * 100, 1) : null,
                 // The portfolio behind the month: everything on this desk.
                 'clients_total' => (int) ($portfolio[$m->id] ?? 0),
+                /*
+                 * The same desk over the span before this one.
+                 *
+                 * Beside the target rather than instead of it: a target says
+                 * whether somebody is where they were asked to be, and this
+                 * says which way they are travelling. A desk at 80% and
+                 * climbing is a different conversation from a desk at 80%
+                 * and falling.
+                 */
+                'previous_achieved' => round((float) ($previous[$m->id]['base_sum'] ?? 0), 2),
+                'previous_clients_new' => (int) ($previous[$m->id]['client_new'] ?? 0),
+                'growth_percent' => self::growthOf($total, (float) ($previous[$m->id]['base_sum'] ?? 0)),
+                'client_growth_percent' => self::growthOf(
+                    (float) $newClients,
+                    (float) ($previous[$m->id]['client_new'] ?? 0),
+                ),
                 'note' => $notes[$m->id] ?? null,
             ];
         })->sortByDesc(fn ($row) => $row['kind'] === 'clients' ? $row['clients_new'] : $row['achieved'])->values();
+
+        /*
+         * Where each desk stands against the others.
+         *
+         * Rank and share are the comparison people actually make out loud,
+         * and they were being made by eye off a sorted column - which works
+         * until the sort changes. Two ladders, because the two floors are
+         * judged on different things: money for one, new clients for the
+         * other. Share is of the whole floor, so it adds to a hundred.
+         */
+        $floorSales = (float) $rows->sum('achieved');
+        $floorNew = (int) $rows->sum('clients_new');
+        $salesLadder = $rows->sortByDesc('achieved')->pluck('member_uuid')->values()->flip();
+        $clientLadder = $rows->sortByDesc('clients_new')->pluck('member_uuid')->values()->flip();
+
+        $rows = $rows->map(function (array $row) use ($salesLadder, $clientLadder, $floorSales, $floorNew) {
+            $row['sales_rank'] = (int) $salesLadder[$row['member_uuid']] + 1;
+            $row['client_rank'] = (int) $clientLadder[$row['member_uuid']] + 1;
+            $row['sales_share'] = $floorSales > 0 ? round($row['achieved'] / $floorSales * 100, 1) : null;
+            $row['client_share'] = $floorNew > 0 ? round($row['clients_new'] / $floorNew * 100, 1) : null;
+
+            return $row;
+        })->values();
 
         // A client billed by two salespeople is still one client to the
         // company, so the head count is taken again over the whole floor
@@ -256,6 +275,31 @@ class TargetController extends Controller
                 'percent' => $clientRows->sum('client_target') > 0
                     ? round($clientRows->sum('clients_new') / $clientRows->sum('client_target') * 100, 1)
                     : null,
+            ],
+            /*
+             * The whole floor against the span before it.
+             *
+             * The same length of time, immediately before: three months read
+             * against the three before them, a year against the year before.
+             * Growth is null rather than a number when there was nothing to
+             * grow from - "up 100%" from zero is arithmetic, not news.
+             */
+            'previous' => [
+                'achieved' => round((float) $previous->sum('base_sum'), 2),
+                'clients_new' => (int) $previous->sum('client_new'),
+                'clients_existing' => (int) $previous->sum('client_existing'),
+                'invoices' => (int) $previous->sum('invoice_count'),
+                'label' => $span === 1
+                    ? $beforeStart->format('F Y')
+                    : $beforeStart->format('M Y') . ' — ' . $beforeEnd->format('M Y'),
+                'growth_percent' => self::growthOf(
+                    (float) $rows->sum('achieved'),
+                    (float) $previous->sum('base_sum'),
+                ),
+                'client_growth_percent' => self::growthOf(
+                    (float) $rows->sum('clients_new'),
+                    (float) $previous->sum('client_new'),
+                ),
             ],
             'totals' => [
                 'people' => $salesRows->count(),
@@ -430,6 +474,68 @@ class TargetController extends Controller
     }
 
     /** What a document sold, before tax, in rupees. */
+    /**
+     * What each desk billed between two dates, and to how many clients.
+     *
+     * Lifted out so the same reading can be taken of the span before this
+     * one. A comparison drawn from a second, slightly different query is a
+     * comparison nobody can trust: the two halves have to be the same
+     * question asked twice.
+     *
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>>
+     */
+    private function achievementBetween($org, Carbon $start, Carbon $end): \Illuminate\Support\Collection
+    {
+        /*
+         * Summed in PHP rather than by the database, because a document in
+         * another currency counts at the INR equivalent frozen on it - the
+         * rule every other money screen keeps. sum(total) in SQL would add a
+         * dollar to a rupee and call the answer two.
+         */
+        $invoices = Invoice::where('organization_id', $org->id)
+            ->where('kind', 'invoice')
+            ->where('status', '!=', 'cancelled')
+            ->whereDate('invoice_date', '>=', $start->toDateString())
+            ->whereDate('invoice_date', '<=', $end->toDateString())
+            ->whereNotNull('member_id')
+            ->withSum('payments as received', 'amount')
+            ->get(['id', 'member_id', 'client_id', 'client_category', 'subtotal', 'discount', ...Invoice::RUPEE_COLUMNS]);
+
+        return $invoices->groupBy('member_id')->map(function ($group) {
+            $existing = $group->filter(fn ($i) => in_array($i->client_category, self::EXISTING, true));
+            $clients = fn ($rows) => $rows->pluck('client_id')->filter()->unique()->count();
+
+            return [
+                // A sale is what was sold, not what the government adds to
+                // it: the target is judged on the taxable value, and the tax
+                // only shows up in what the client still owes.
+                'base_sum' => round((float) $group->sum(fn ($i) => self::baseOf($i)), 2),
+                'base_existing' => round((float) $existing->sum(fn ($i) => self::baseOf($i)), 2),
+                'payment_due' => round((float) $group->sum(fn ($i) => self::dueOf($i)), 2),
+                'invoice_count' => $group->count(),
+                'client_count' => $clients($group),
+                'client_existing' => $clients($existing),
+                'client_new' => $clients($group->reject(fn ($i) => in_array($i->client_category, self::EXISTING, true))),
+            ];
+        });
+    }
+
+    /**
+     * One number against the one before it, as a percentage.
+     *
+     * Null rather than a figure when there is nothing to compare against:
+     * "up 100%" from zero is arithmetic, not news, and a first month reading
+     * as a triumph teaches people to ignore the column.
+     */
+    private static function growthOf(float $now, float $before): ?float
+    {
+        if ($before <= 0) {
+            return null;
+        }
+
+        return round(($now - $before) / $before * 100, 1);
+    }
+
     private static function baseOf(Invoice $invoice): float
     {
         return $invoice->inRupees((float) $invoice->subtotal - (float) ($invoice->discount ?? 0));
