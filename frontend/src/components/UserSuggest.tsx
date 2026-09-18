@@ -258,7 +258,13 @@ export function PickUserModal({
   return createPortal(
     // z-80: this one is opened *from* the call window (z-60), so at z-50 the
     // call drew straight over the dialog asking who to ring.
-    <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 pt-24" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[80] flex items-start justify-center bg-black/40 p-4 pt-24"
+      // Only when there is nothing to lose. A name half typed is still work,
+      // and a mis-aimed click on the dark area should not take it - the same
+      // rule the shared Modal follows.
+      onClick={() => { if (!value.trim() || window.confirm('Discard what you have typed?')) onClose() }}
+    >
       <div
         className="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-4 shadow-xl dark:border-slate-800 dark:bg-slate-900"
         onClick={(e) => e.stopPropagation()}

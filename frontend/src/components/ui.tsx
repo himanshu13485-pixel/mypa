@@ -1,5 +1,5 @@
 import { clsx } from 'clsx'
-import { forwardRef } from 'react'
+import { forwardRef, useRef } from 'react'
 import type { ButtonHTMLAttributes, CSSProperties, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { AlertTriangle, Inbox, RefreshCw, X } from 'lucide-react'
 import { createPortal } from 'react-dom'
@@ -424,6 +424,28 @@ export function Modal({
   size?: 'md' | 'lg' | 'xl'
 }) {
   /*
+   * Has anybody typed anything in here?
+   *
+   * A click on the dark area around a dialog closes it, which is right for
+   * one that is only being read and quietly destructive for one being
+   * filled in: a mis-aimed click halfway through a new lead threw away
+   * every field and left nothing to recover. Anything typed, ticked or
+   * picked inside the panel sets this, and then closing by accident has to
+   * be confirmed. The X and Cancel are unaffected - those are somebody
+   * saying so.
+   *
+   * A ref rather than state: nothing on screen depends on it, and a
+   * re-render on every keystroke of every form in the app is a cost for
+   * nothing.
+   */
+  const dirty = useRef(false)
+
+  const leave = () => {
+    if (dirty.current && !window.confirm('Discard what you have typed?')) return
+    onClose()
+  }
+
+  /*
    * Rendered at the document root, never where it was written.
    *
    * A dialog is fixed to the viewport, but "the viewport" stops being the
@@ -442,9 +464,14 @@ export function Modal({
       // always the thing you are looking at; at z-50 an active call covered
       // the bottom half of it, including its buttons.
       className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-900/40 backdrop-blur-sm sm:items-start sm:overflow-y-auto sm:p-8"
-      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      onMouseDown={(e) => e.target === e.currentTarget && leave()}
     >
       <div
+        // Anything typed, ticked or chosen anywhere inside marks the panel
+        // as worth asking about. onInput covers text and textareas; onChange
+        // covers a select, a checkbox and a date.
+        onInput={() => { dirty.current = true }}
+        onChange={() => { dirty.current = true }}
         className={clsx(
           'flex max-h-[92dvh] w-full flex-col rounded-t-3xl bg-white shadow-lift ring-1 ring-slate-900/5',
           'dark:bg-slate-900 dark:ring-white/10',
