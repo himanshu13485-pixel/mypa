@@ -19,6 +19,7 @@ import { MenuAlertToggle } from './MenuAlertToggle'
 import NetvorkMark from './Logo'
 import { CallProvider } from './CallManager'
 import ImpersonationBanner from './ImpersonationBanner'
+import { isImpersonating } from '../lib/impersonation'
 import { MeetingHost, MeetingSlot } from './MeetingHost'
 import { isMeetingRoute } from '../lib/meetingRoute'
 import VoiceAssistant from './VoiceAssistant'
@@ -412,6 +413,11 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
                 holding, the way to add another, and signing out of this one
                 without disturbing the others. */}
             <AccountSwitcher />
+            {/* Not while a seat is borrowed.
+                Inside somebody else's workspace this would drop the borrowed
+                session without handing it back — leaving a live token nobody
+                remembers holding. The amber banner above owns the way out. */}
+            {!isImpersonating() && (
             <button
               onClick={logout}
               className="tap hidden items-center justify-center rounded-lg p-2 text-sm text-slate-500 hover:bg-slate-100 dark:text-slate-400 sm:flex dark:hover:bg-slate-800"
@@ -420,6 +426,7 @@ export default function Layout({ preloadPath }: { preloadPath?: (to: string) => 
             >
               <LogOut className="size-5 sm:size-4" />
             </button>
+            )}
           </div>
         </header>
         <MobileVerifyBanner />

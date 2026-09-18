@@ -90,7 +90,15 @@ export async function enterWorkspace(memberUuid: string): Promise<void> {
     orgUuid: impersonation.organization_uuid ?? null,
   } satisfies Stash))
 
-  useAuthStore.getState().setAuth(token, user)
+  /*
+   * Borrowed, not signed in.
+   *
+   * setAuth() records an account on this browser, and three is the limit -
+   * so lending an Admin a Subadmin's seat for ten minutes quietly pushed
+   * somebody's own account out of the list, and it was gone when they came
+   * back. A borrowed seat leaves the list exactly as it found it.
+   */
+  useAuthStore.getState().borrowSeat(token, user)
 }
 
 /**
@@ -118,6 +126,8 @@ export async function leaveWorkspace(): Promise<void> {
 
   localStorage.removeItem(STASH_KEY)
   if (stash.orgUuid) setCrmOrg(stash.orgUuid)
-  useAuthStore.getState().setAuth(stash.token, stash.user)
+  // And handing it back is the same act in the other direction: the Admin's
+  // own account never left the list, so nothing needs adding to it.
+  useAuthStore.getState().borrowSeat(stash.token, stash.user)
 }
 

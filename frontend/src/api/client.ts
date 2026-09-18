@@ -26,6 +26,15 @@ api.interceptors.request.use((config) => {
     config.headers['X-Device-Token'] = deviceTokens.join(',')
   }
 
+  /*
+   * A call that has already said whose it is.
+   *
+   * Signing out of a second account sends that account's token, and the
+   * line below would otherwise replace it with the active one - ending the
+   * wrong session and leaving the intended one live.
+   */
+  if (config.headers.Authorization) return config
+
   const token = useAuthStore.getState().token
   if (token) {
     config.headers.Authorization = `Bearer ${token}`

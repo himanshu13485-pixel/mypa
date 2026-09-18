@@ -31,8 +31,24 @@ interface AuthState {
   accounts: SavedAccount[]
   setAuth: (token: string, user: User) => void
   setUser: (user: User) => void
+  /**
+     * Take a seat without being handed the keys to it.
+     *
+     * "Login as" lends an Admin somebody else's session for a few minutes,
+     * and coming back hands it straight over again. Neither is a person
+     * signing in on this browser: recording them cost somebody their own
+     * account, because a third seat arriving pushed the oldest out.
+     */
+  borrowSeat: (token: string, user: User) => void
   /** Make one of the held accounts the active one. */
   switchTo: (uuid: string) => SavedAccount | null
+  /**
+   * Sign out of one account by name, whether or not it is the one in use.
+   *
+   * Three is the limit, so making room has to be possible without first
+   * switching to the account being given up.
+   */
+  signOut: (uuid: string) => SavedAccount | null
   /**
    * Sign out of the account in use, keeping the others.
    *
@@ -80,11 +96,28 @@ export const useAuthStore = create<AuthState>()(
         // switcher's copy in step so it does not go on showing an old name.
         accounts: state.accounts.map((a) => (a.uuid === user.uuid ? { ...a, user } : a)),
       })),
+      borrowSeat: (token, user) => set({ token, user }),
       switchTo: (uuid) => {
         const next = get().accounts.find((a) => a.uuid === uuid)
         if (!next) return null
 
         set({ token: next.token, user: next.user })
+
+        return next
+      },
+      signOut: (uuid) => {
+        const { user, accounts } = get()
+        const rest = accounts.filter((a) => a.uuid !== uuid)
+
+        // Somebody else's seat: the one in use is untouched.
+        if (user?.uuid !== uuid) {
+          set({ accounts: rest })
+
+          return null
+        }
+
+        const next = rest[rest.length - 1] ?? null
+        set({ accounts: rest, token: next?.token ?? null, user: next?.user ?? null })
 
         return next
       },

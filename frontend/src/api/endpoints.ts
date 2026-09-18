@@ -37,6 +37,16 @@ export const auth = {
   loginWithOtp: (payload: { identifier: string; code: string; device_name?: string }) =>
     api.post<{ data: User; token: string; must_change_password?: boolean }>('/auth/otp/login', payload).then((r) => r.data),
   logout: () => api.post('/auth/logout'),
+  /**
+   * Revoke one particular session, which may not be the one in use.
+   *
+   * Signing out of a second account held on this browser has to end that
+   * account's session, not the session of whoever happens to be looking at
+   * the screen — a token the browser has merely forgotten is still a live
+   * token.
+   */
+  logoutToken: (token: string) =>
+    api.post('/auth/logout', {}, { headers: { Authorization: `Bearer ${token}` } }),
   forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
   resetPassword: (payload: Record<string, string>) => api.post('/auth/reset-password', payload),
   changePassword: (payload: Record<string, string>) => api.post('/auth/change-password', payload),

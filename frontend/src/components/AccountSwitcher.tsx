@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Check, LogOut, Plus, UserPlus, Users } from 'lucide-react'
+import { Check, LogOut, Plus, UserPlus, Users, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { MAX_ACCOUNTS, useAuthStore, type SavedAccount } from '../stores/auth'
 import { disconnectEcho } from '../lib/echo'
+import { isImpersonating } from '../lib/impersonation'
+import { auth } from '../api/endpoints'
 import { Avatar } from '../lib/avatars'
 
 /**
@@ -36,6 +38,7 @@ export default function AccountSwitcher({ className }: { className?: string }) {
   const accounts = useAuthStore((s) => s.accounts)
   const switchTo = useAuthStore((s) => s.switchTo)
   const signOutActive = useAuthStore((s) => s.signOutActive)
+  const signOut = useAuthStore((s) => s.signOut)
 
   useEffect(() => {
     const away = (e: MouseEvent) => {
@@ -61,6 +64,16 @@ export default function AccountSwitcher({ className }: { className?: string }) {
    */
   if (!user) return null
 
+  /*
+   * A borrowed seat is nobody's account.
+   *
+   * While an Admin is inside somebody else's workspace the person on screen
+   * is not one of the accounts this browser holds, so a list with nothing
+   * ticked would invite a switch that abandons the borrowed session without
+   * giving it back. The amber banner owns the way out of that.
+   */
+  if (isImpersonating()) return null
+
   const settle = (to: SavedAccount | null) => {
     disconnectEcho()
     queryClient.clear()
@@ -83,8 +96,32 @@ export default function AccountSwitcher({ className }: { className?: string }) {
   }
 
   const leave = () => {
+    void auth.logout().catch(() => undefined)
     const next = signOutActive()
     settle(next)
+  }
+
+  /**
+   * Sign out of one account without first switching to it.
+   *
+   * Three is the limit, so making room for a fourth means giving one up -
+   * and having to switch into an account in order to leave it is a detour
+   * nobody should have to work out. The token is revoked rather than merely
+   * forgotten: one the browser has dropped is still a live token.
+   *
+   * Signing out of the seat in use hands over to whatever remains, which is
+   * the same act the row at the bottom performs.
+   */
+  const drop = (account: SavedAccount) => {
+    void auth.logoutToken(account.token).catch(() => undefined)
+
+    if (account.uuid === user.uuid) {
+      settle(signOut(account.uuid))
+
+      return
+    }
+
+    signOut(account.uuid)
   }
 
   return (
@@ -121,11 +158,11 @@ export default function AccountSwitcher({ className }: { className?: string }) {
           </p>
 
           {accounts.map((a) => (
+            <div key={a.uuid} className="flex items-center hover:bg-slate-50 dark:hover:bg-slate-800">
             <button
-              key={a.uuid}
               role="menuitem"
               onClick={() => goTo(a.uuid)}
-              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800"
+              className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm"
             >
               <Avatar
                 name={a.user.name}
@@ -142,6 +179,15 @@ export default function AccountSwitcher({ className }: { className?: string }) {
               </span>
               {a.uuid === user.uuid && <Check className="size-4 shrink-0 text-emerald-500" />}
             </button>
+            <button
+              onClick={() => { if (confirm(`Sign out of ${a.user.name} on this device?`)) drop(a) }}
+              aria-label={`Sign out of ${a.user.name}`}
+              title={`Sign out of ${a.user.name}`}
+              className="shrink-0 rounded p-2 text-slate-300 hover:text-red-500"
+            >
+              <X className="size-3.5" />
+            </button>
+            </div>
           ))}
 
           <div className="my-1 border-t border-slate-100 dark:border-slate-800" />

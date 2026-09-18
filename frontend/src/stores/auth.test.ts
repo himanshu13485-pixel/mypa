@@ -95,6 +95,47 @@ describe('the accounts a browser holds', () => {
     expect(useAuthStore.getState().accounts).toEqual([])
   })
 
+  it('a borrowed seat is not an account and costs nobody theirs', () => {
+    // Three held, and the Admin steps into somebody's workspace with
+    // "Login as". That is a seat lent for ten minutes, not a fourth person
+    // signing in on this browser — recording it pushed the oldest account
+    // out, and it was gone when they came back.
+    for (const [token, uuid] of [['t1', 'a'], ['t2', 'b'], ['t3', 'c']]) {
+      useAuthStore.getState().setAuth(token, person(uuid, uuid.toUpperCase()))
+    }
+
+    useAuthStore.getState().borrowSeat('borrowed', person('sub', 'Priyanshu'))
+
+    expect(useAuthStore.getState().token).toBe('borrowed')
+    expect(useAuthStore.getState().user?.uuid).toBe('sub')
+    // Untouched: all three, in the order they arrived.
+    expect(useAuthStore.getState().accounts.map((a) => a.uuid)).toEqual(['a', 'b', 'c'])
+
+    // And handing it back is the same act the other way round.
+    useAuthStore.getState().borrowSeat('t3', person('c', 'C'))
+    expect(useAuthStore.getState().accounts.map((a) => a.uuid)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('one account can be signed out without switching into it first', () => {
+    useAuthStore.getState().setAuth('tok-a', person('a', 'Himanshu'))
+    useAuthStore.getState().setAuth('tok-b', person('b', 'GrapOut CRM'))
+
+    // Giving up the one NOT in use: nothing about the current seat moves.
+    expect(useAuthStore.getState().signOut('a')).toBeNull()
+    expect(useAuthStore.getState().accounts.map((a) => a.uuid)).toEqual(['b'])
+    expect(useAuthStore.getState().token).toBe('tok-b')
+  })
+
+  it('signing out the seat in use hands over to what is left', () => {
+    useAuthStore.getState().setAuth('tok-a', person('a', 'Himanshu'))
+    useAuthStore.getState().setAuth('tok-b', person('b', 'GrapOut CRM'))
+
+    const next = useAuthStore.getState().signOut('b')
+
+    expect(next?.uuid).toBe('a')
+    expect(useAuthStore.getState().token).toBe('tok-a')
+  })
+
   it('a renamed person is the same account, not a new one', () => {
     useAuthStore.getState().setAuth('tok-a', person('a', 'Himanshu'))
     useAuthStore.getState().setUser(person('a', 'Himanshu Sachdeva'))
