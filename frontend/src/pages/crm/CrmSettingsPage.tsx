@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
+import { crmPath } from '../../lib/crmPath'
 import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, HandCoins, Image as ImageIcon, KeyRound, Landmark, LifeBuoy, ListChecks, PackageCheck, Pencil, Plus, Upload, Wallet } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings } from '../../api/crm'
@@ -1412,6 +1414,18 @@ function IncentivePlanTypes() {
       <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800 dark:text-slate-100">
         <ListChecks className="size-4 text-emerald-500" /> Incentive by work order
       </h2>
+      {/* Where the rest of it lives.
+          This card decides which work orders earn a different structure — not
+          what any structure pays, and not the company's defaults. Both of
+          those have always been elsewhere, and putting one incentive setting
+          here made it reasonable to look for the others beside it. */}
+      <p className="mt-1 text-xs text-slate-500">
+        The structures themselves are set per person, on{' '}
+        <Link to={crmPath('/crm/employees')} className="text-emerald-600 hover:underline">Users</Link>
+        {' '}→ the employee → Incentive plan. The company-wide defaults — the spread run, and whether
+        an incentive waits for full payment — are on{' '}
+        <Link to={crmPath('/crm/hr-policy')} className="text-emerald-600 hover:underline">HR Policy</Link>.
+      </p>
       <p className="mt-1 text-xs text-slate-400">
         Plan names that are sold on their own terms, one per line as
         <span className="font-mono"> Plan name = Structure</span> — for example
