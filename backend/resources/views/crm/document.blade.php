@@ -175,7 +175,10 @@
   .payments td { padding: 6px 12px 6px 0; border-bottom: 1px solid #f8fafc; }
   .payments .num { text-align: right; padding-right: 0; }
 
-  .notes { margin-top: 16px; padding-top: 12px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #64748b; }
+  /* The note carries terms - a contract value split into an advance and a
+     balance - so it is printed to be read, not as fine print. */
+  .notes { margin-top: 16px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0;
+           border-radius: 6px; font-size: 12.5px; line-height: 1.6; color: #334155; }
   .bank { margin-top: 24px; font-size: 12px; color: #475569; }
   .sign { margin-top: 32px; text-align: right; font-size: 12px; color: #64748b; }
   /* Capped so a large upload cannot push the signatory line onto a page of

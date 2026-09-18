@@ -211,6 +211,7 @@ export default function CrmInvoiceFormPage() {
    */
   const dispatchTouched = useRef(false)
   const [items, setItems] = useState<ItemRow[]>([{ ...EMPTY_ITEM }])
+  const [advance, setAdvance] = useState('')
   // Money lines, keyed by this company's own line keys: a rate, or a figure.
   const [taxes, setTaxes] = useState<Record<string, { rate: string; amount: string }>>({})
   /*
@@ -477,6 +478,35 @@ export default function CrmInvoiceFormPage() {
 
     return { subtotal, taxable, total: round2(taxable + added - deducted), amounts }
   }, [items, taxes, taxSetup, blockedTaxes])
+
+  /**
+   * What the client pays up front, as typed: "36000" or "40%".
+   *
+   * Kept out of the document: it is a way of writing the note, not a field
+   * of its own, and a figure the client will read off the note is not a
+   * figure worth storing twice.
+   */
+  const advanceAmount = useMemo(() => {
+    const typed = advance.trim()
+    if (!typed || totals.total <= 0) return null
+    const percent = typed.endsWith('%')
+    const value = Number(typed.replace(/[%,\s₹$]/g, ''))
+    if (!Number.isFinite(value) || value <= 0) return null
+    const amount = percent ? (totals.total * value) / 100 : value
+    // More than the document is not a split, it is a typo.
+    return amount > totals.total ? null : Math.round(amount * 100) / 100
+  }, [advance, totals.total])
+
+  /** The three lines, added under whatever the note already says. */
+  const appendSplit = (existing: string, amount: number) => {
+    const lines = [
+      `Total contract value ${inr(totals.total)}`,
+      `Advance payment ${inr(amount)}`,
+      `Balance payment ${inr(Math.round((totals.total - amount) * 100) / 100)}`,
+    ].join('\n')
+
+    return existing.trim() ? `${existing.trim()}\n${lines}` : lines
+  }
 
   /**
    * One of our own columns, drawn the way this company asked for it — a
@@ -1156,8 +1186,43 @@ export default function CrmInvoiceFormPage() {
           </div>
           {shows('notes') && (
           <div className="mt-3">
-            <Label>{heading('notes', 'Notes')} (printed on the document)</Label>
-            <Textarea rows={2} value={head.notes} onChange={(e) => setH('notes', e.target.value)} className="w-full" />
+            <Label>{heading('notes', 'Note to the client')} (printed on the document)</Label>
+            <Textarea
+              rows={3}
+              value={head.notes}
+              onChange={(e) => setH('notes', e.target.value)}
+              placeholder={'Total contract value ' + inr(totals.total) + '\nAdvance payment ...\nBalance payment ...'}
+              className="w-full"
+            />
+            {/* The split, worked out rather than typed.
+                A part-paid contract is written on the document as three
+                figures that have to agree, and typing them by hand is how
+                they stop agreeing. The advance is the only thing anybody
+                actually decides; the balance is arithmetic, and the total is
+                the document's own. */}
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-slate-400">Payment split — advance</span>
+              <Input
+                value={advance}
+                onChange={(e) => setAdvance(e.target.value)}
+                placeholder="40%"
+                className="w-24"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={advanceAmount === null}
+                onClick={() => setH('notes', appendSplit(head.notes, advanceAmount!))}
+              >
+                Add to note
+              </Button>
+              {advanceAmount !== null && (
+                <span className="text-xs text-slate-400">
+                  {inr(advanceAmount)} now, {inr(Math.round((totals.total - advanceAmount) * 100) / 100)} on balance
+                </span>
+              )}
+            </div>
           </div>
           )}
         </Card>

@@ -592,7 +592,15 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
           </div>
         )}
 
-        {inv.notes && <p className="mt-4 border-t border-slate-100 pt-3 text-xs text-slate-500 dark:border-slate-800">{inv.notes}</p>}
+        {/* The note the client reads.
+            It carries what was agreed — a contract value split into an
+            advance and a balance, a delivery promise — so it is set as
+            something to be read rather than the fine print it used to be. */}
+        {inv.notes && (
+          <div className="mt-4 whitespace-pre-line rounded-xl bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-700 ring-1 ring-inset ring-slate-200 dark:bg-slate-800/60 dark:text-slate-200 dark:ring-slate-700">
+            {inv.notes}
+          </div>
+        )}
 
         {/* Where to send the money. Above the signatory, as on the PDF —
             the client reads it before they stop reading. */}
