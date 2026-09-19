@@ -252,6 +252,20 @@ class TargetController extends Controller
         $clientRows = $rows->where('kind', 'clients')->values();
         $salesRows = $rows->where('kind', 'sales')->values();
 
+        /*
+         * How the floor is doing against what was actually asked of it.
+         *
+         * Each desk is measured against its own kind of target - money for
+         * one, new clients for the other - and the average of those is the
+         * one figure that can honestly be said about both floors at once.
+         * Adding rupees to head counts is not a total, it is a mistake with
+         * a number in it.
+         */
+        $scored = $rows
+            ->map(fn (array $r) => $r['kind'] === 'clients' ? $r['client_percent'] : $r['percent'])
+            ->filter(fn ($p) => $p !== null)
+            ->values();
+
         return response()->json([
             'data' => $rows,
             /*
@@ -261,8 +275,39 @@ class TargetController extends Controller
              * it brings in; a single figure over both would be a number nobody
              * is measured by.
              */
+            /*
+             * The money floor, and only it.
+             *
+             * These used to be summed over every row, so a desk judged on
+             * clients - carrying whatever number happened to sit in its
+             * amount box - added itself to the company's money target. That
+             * is where "total target 4,00,015" came from: four lakh asked of
+             * two salespeople, and fifteen rupees of somebody else's row.
+             */
+            'sales_totals' => [
+                'people' => $salesRows->count(),
+                'target' => round($salesRows->sum('target'), 2),
+                'achieved' => round($salesRows->sum('achieved'), 2),
+                'achieved_new' => round($salesRows->sum('achieved_new'), 2),
+                'achieved_existing' => round($salesRows->sum('achieved_existing'), 2),
+                'pending_target' => round($salesRows->sum('pending_target'), 2),
+                'payment_due' => round($salesRows->sum('payment_due'), 2),
+                'clients' => (int) $salesRows->sum('clients'),
+                'clients_new' => (int) $salesRows->sum('clients_new'),
+                'clients_existing' => (int) $salesRows->sum('clients_existing'),
+                'invoices' => (int) $salesRows->sum('invoices'),
+                'per_client' => $salesRows->sum('clients') > 0
+                    ? round($salesRows->sum('achieved') / $salesRows->sum('clients'), 2)
+                    : null,
+                'percent' => $salesRows->sum('target') > 0
+                    ? round($salesRows->sum('achieved') / $salesRows->sum('target') * 100, 1)
+                    : null,
+                'on_target' => $salesRows->filter(fn ($r) => $r['percent'] !== null && $r['percent'] >= 100)->count(),
+            ],
             'client_totals' => [
                 'people' => $clientRows->count(),
+                'payment_due' => round($clientRows->sum('payment_due'), 2),
+                'on_target' => $clientRows->filter(fn ($r) => $r['client_percent'] !== null && $r['client_percent'] >= 100)->count(),
                 'client_target' => (int) $clientRows->sum('client_target'),
                 'clients_new' => (int) $clientRows->sum('clients_new'),
                 'clients_existing' => (int) $clientRows->sum('clients_existing'),
@@ -301,13 +346,40 @@ class TargetController extends Controller
                     (float) $previous->sum('client_new'),
                 ),
             ],
+            /*
+             * Both floors in one place.
+             *
+             * The money figures are what the whole floor billed, whichever
+             * way each desk is judged - a client desk still brings money in,
+             * and leaving it out would understate the month. The target
+             * beside it is only what was asked in money, because that is the
+             * only thing it can honestly be compared with; what was asked in
+             * clients is counted in clients, next to it.
+             */
             'totals' => [
-                'people' => $salesRows->count(),
-                'target' => $rows->sum('target'),
+                'people' => $rows->count(),
+                'sales_people' => $salesRows->count(),
+                'client_people' => $clientRows->count(),
+                // Every desk that was asked for something, and how many got there.
+                'with_target' => $scored->count(),
+                'on_target' => $scored->filter(fn ($p) => $p >= 100)->count(),
+                /*
+                 * The floor's standing, in one number.
+                 *
+                 * Each desk against its own target, averaged - so a money
+                 * desk at 50% and a client desk at 50% make a floor at 50%,
+                 * which is the sentence a manager actually says out loud.
+                 */
+                'attainment_percent' => $scored->count() > 0
+                    ? round($scored->sum() / $scored->count(), 1)
+                    : null,
+                'target' => round($salesRows->sum('target'), 2),
+                'client_target' => (int) $clientRows->sum('client_target'),
                 'achieved' => $rows->sum('achieved'),
                 'achieved_new' => $rows->sum('achieved_new'),
                 'achieved_existing' => $rows->sum('achieved_existing'),
-                'pending_target' => $rows->sum('pending_target'),
+                'pending_target' => round($salesRows->sum('pending_target'), 2),
+                'clients_due' => (int) $clientRows->sum('clients_due'),
                 'payment_due' => $rows->sum('payment_due'),
                 'clients' => $clientTotal,
                 'clients_new' => $rows->sum('clients_new'),

@@ -1011,6 +1011,8 @@ export interface CrmTargetPrevious {
 /** The client-oriented floor, counted apart from the money one. */
 export interface CrmClientTargetTotals {
   people: number
+  payment_due: number
+  on_target: number
   client_target: number
   clients_new: number
   clients_existing: number
@@ -1023,17 +1025,47 @@ export interface CrmClientTargetTotals {
   percent: number | null
 }
 
+/** The money floor on its own: what was asked in rupees, and what came in. */
+export interface CrmSalesTargetTotals {
+  people: number
+  target: number
+  achieved: number
+  achieved_new: number
+  achieved_existing: number
+  pending_target: number
+  payment_due: number
+  clients: number
+  clients_new: number
+  clients_existing: number
+  invoices: number
+  per_client: number | null
+  percent: number | null
+  on_target: number
+}
+
 export interface CrmTargetsResponse {
   data: CrmTargetRow[]
   previous: CrmTargetPrevious
+  sales_totals: CrmSalesTargetTotals
   client_totals: CrmClientTargetTotals
+  /** Both floors at once - see the note on the endpoint for what may be added up. */
   totals: {
     people: number
+    sales_people: number
+    client_people: number
+    with_target: number
+    on_target: number
+    /** Each desk against its own kind of target, averaged. */
+    attainment_percent: number | null
+    /** Asked in money, of the desks asked in money. */
     target: number
+    /** Asked in clients, of the desks asked in clients. */
+    client_target: number
     achieved: number
     achieved_new: number
     achieved_existing: number
     pending_target: number
+    clients_due: number
     payment_due: number
     clients: number
     clients_new: number

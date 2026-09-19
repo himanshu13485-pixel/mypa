@@ -305,38 +305,163 @@ export default function CrmTargetsPage() {
         </Card>
       )}
 
+      {/*
+        * What was asked, and what came of it.
+        *
+        * Two floors are measured in two different units - one in rupees, one
+        * in clients - and the overview used to lay both sets of figures out
+        * as one long row of tiles, with a "total target" that had quietly
+        * added a client desk's stray rupees to the money floor's ask. So
+        * each floor now answers its own question in its own panel, target
+        * first and achievement against it, and a third panel says how the
+        * company is doing across both without pretending the two units are
+        * the same thing.
+        */}
       {data && salesRows.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {[
-            { label: 'Total target', value: inr(data.totals.target) },
-            // A target is judged on the sale, so every money figure here is the
-            // taxable value: what the client was charged before tax.
-            { label: 'Achieved', value: inr(data.totals.achieved), hint: 'taxable value' },
-            { label: 'New business', value: inr(data.totals.achieved_new) },
-            { label: 'Existing business', value: inr(data.totals.achieved_existing) },
-            { label: 'Pending target', value: inr(data.totals.pending_target), hint: 'still to sell' },
-            {
-              label: 'Payment due',
-              value: inr(data.totals.payment_due),
-              tone: 'text-red-500',
-              hint: 'unpaid, tax included',
-            },
-            {
-              // Head count, not a sum — one client billed twice is one client.
-              label: data.totals.per_client
-                ? `Clients billed · ${inr(data.totals.per_client)} avg`
-                : 'Clients billed',
-              value: String(data.totals.clients),
-              hint: `${data.totals.clients_new} new · ${data.totals.clients_existing} existing`,
-            },
-          ].map((s) => (
-            <Card key={s.label} className="py-3">
-              <div className={clsx('text-lg font-semibold text-slate-900 dark:text-white', s.tone)}>{s.value}</div>
-              <div className="text-xs text-slate-500">{s.label}</div>
-              {s.hint && <div className="mt-0.5 text-[11px] text-slate-400">{s.hint}</div>}
-            </Card>
-          ))}
-        </div>
+        <Card>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Amount targets
+              <span className="ml-2 text-xs font-normal text-slate-400">
+                {data.sales_totals.people} {data.sales_totals.people === 1 ? 'desk' : 'desks'} judged on what they bill
+              </span>
+            </h2>
+            <span className="text-xs text-slate-400">
+              {data.sales_totals.on_target} of {data.sales_totals.people} at or past target
+            </span>
+          </div>
+
+          <Meter
+            asked={inr(data.sales_totals.target)}
+            askedLabel="Target given"
+            done={inr(data.sales_totals.achieved)}
+            doneLabel="Achieved"
+            percent={data.sales_totals.percent}
+            left={inr(data.sales_totals.pending_target)}
+            leftLabel="Still to sell"
+          />
+
+          <Tiles
+            items={[
+              { label: 'New business', value: inr(data.sales_totals.achieved_new) },
+              { label: 'Existing business', value: inr(data.sales_totals.achieved_existing) },
+              {
+                label: 'Payment due',
+                value: inr(data.sales_totals.payment_due),
+                tone: 'text-red-500',
+                hint: 'unpaid, tax included',
+              },
+              {
+                label: data.sales_totals.per_client ? `Clients billed · ${inr(data.sales_totals.per_client)} avg` : 'Clients billed',
+                value: String(data.sales_totals.clients),
+                hint: `${data.sales_totals.clients_new} new · ${data.sales_totals.clients_existing} existing`,
+              },
+            ]}
+          />
+        </Card>
+      )}
+
+      {data && clientRows.length > 0 && (
+        <Card>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Client targets
+              <span className="ml-2 text-xs font-normal text-slate-400">
+                {data.client_totals.people} {data.client_totals.people === 1 ? 'desk' : 'desks'} judged on new names
+              </span>
+            </h2>
+            <span className="text-xs text-slate-400">
+              {data.client_totals.on_target} of {data.client_totals.people} at or past target
+            </span>
+          </div>
+
+          {/* The target is a head count of NEW clients, so that is what stands
+              against it; everything the desk billed rides behind. */}
+          <Meter
+            asked={String(data.client_totals.client_target)}
+            askedLabel="Target given"
+            done={String(data.client_totals.clients_new)}
+            doneLabel="New clients won"
+            percent={data.client_totals.percent}
+            left={String(data.client_totals.clients_due)}
+            leftLabel="Still to win"
+          />
+
+          <Tiles
+            items={[
+              {
+                label: 'Total clients closed',
+                value: String(data.client_totals.clients_closed),
+                hint: `${data.client_totals.clients_new} new · ${data.client_totals.clients_existing} existing`,
+              },
+              {
+                label: 'Sales value',
+                value: inr(data.client_totals.client_sales),
+                hint: `from new ${inr(data.client_totals.client_sales_new)} · from existing ${inr(data.client_totals.client_sales_existing)}`,
+              },
+              {
+                label: 'Payment due',
+                value: inr(data.client_totals.payment_due),
+                tone: 'text-red-500',
+                hint: 'unpaid, tax included',
+              },
+              { label: 'Clients in all', value: String(data.client_totals.clients_total), hint: 'portfolio, all time' },
+            ]}
+          />
+        </Card>
+      )}
+
+      {/*
+        * Both floors, together.
+        *
+        * The one figure that may be said about both is how far each desk got
+        * towards what it was asked for, averaged - a money desk at half its
+        * number and a client desk at half of its own make a company at half,
+        * and that sentence survives the two units being different. The rest
+        * is laid out in pairs, money against money and clients against
+        * clients, so nothing is ever added across the line.
+        */}
+      {data && salesRows.length > 0 && clientRows.length > 0 && (
+        <Card>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-100">
+              Both together
+              <span className="ml-2 text-xs font-normal text-slate-400">
+                {data.totals.sales_people} on amount · {data.totals.client_people} on clients
+              </span>
+            </h2>
+            <span className="text-xs text-slate-400">
+              {data.totals.on_target} of {data.totals.with_target} at or past target
+            </span>
+          </div>
+
+          <Meter
+            asked={`${data.totals.sales_people + data.totals.client_people} desks`}
+            askedLabel="Targets set"
+            done={data.totals.attainment_percent === null ? '—' : `${data.totals.attainment_percent}%`}
+            doneLabel="Average attainment"
+            percent={data.totals.attainment_percent}
+            left={`${Math.max(0, data.totals.with_target - data.totals.on_target)}`}
+            leftLabel="Desks short"
+          />
+
+          <Tiles
+            items={[
+              {
+                label: 'Amount: target vs achieved',
+                value: `${inr(data.totals.target)} → ${inr(data.totals.achieved)}`,
+                hint: 'billed by every desk, either floor',
+              },
+              {
+                label: 'Clients: target vs won',
+                value: `${data.totals.client_target} → ${data.totals.clients_new}`,
+                hint: 'new clients, whole floor',
+              },
+              { label: 'Amount still to sell', value: inr(data.totals.pending_target) },
+              { label: 'Clients still to win', value: String(data.totals.clients_due) },
+            ]}
+          />
+        </Card>
       )}
 
       {/* Desk against desk.
@@ -372,42 +497,6 @@ export default function CrmTargetsPage() {
           growth={(r) => r.client_growth_percent}
           before={(r) => String(r.previous_clients_new)}
         />
-      )}
-
-      {data && clientRows.length > 0 && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {[
-            // The target is a head count of NEW clients, so the new figure is
-            // what stands next to it; the rest of the month rides behind.
-            { label: 'Clients target', value: String(data.client_totals.client_target), hint: 'new clients only' },
-            { label: 'New clients', value: String(data.client_totals.clients_new), hint: 'what the target is measured on' },
-            { label: 'Existing clients', value: String(data.client_totals.clients_existing) },
-            {
-              label: 'Total clients closed',
-              value: String(data.client_totals.clients_closed),
-              hint: `${data.client_totals.clients_new} new · ${data.client_totals.clients_existing} existing`,
-            },
-            { label: 'Pending clients', value: String(data.client_totals.clients_due), hint: 'new clients still wanted' },
-            {
-              label: 'Sales value',
-              value: inr(data.client_totals.client_sales),
-              hint: `from new ${inr(data.client_totals.client_sales_new)} · from existing ${inr(data.client_totals.client_sales_existing)}`,
-            },
-            {
-              label: 'Of client target',
-              value: data.client_totals.percent === null ? '—' : `${data.client_totals.percent}%`,
-            },
-            // The whole portfolio, all time. It is the desk's standing, never
-            // the month's score, so it is named apart from the target.
-            { label: 'Clients in all', value: String(data.client_totals.clients_total), hint: 'portfolio, all time' },
-          ].map((s) => (
-            <Card key={s.label} className="py-3">
-              <div className="text-lg font-semibold text-slate-900 dark:text-white">{s.value}</div>
-              <div className="text-xs text-slate-500">{s.label}</div>
-              {s.hint && <div className="mt-0.5 text-[11px] text-slate-400">{s.hint}</div>}
-            </Card>
-          ))}
-        </div>
       )}
 
       {data && salesRows.length > 0 && (data.totals.achieved > 0 || data.totals.target > 0) && (
@@ -877,3 +966,72 @@ function Leaderboard({ title, hint, rows, valueLabel, value, target, percent, sh
     </Card>
   )
 }
+
+/**
+ * Target, achievement, and the gap - in that order.
+ *
+ * The order is the point. "What was asked" is the first thing anybody wants
+ * when they open this screen, and it was previously the eleventh tile in a
+ * row of tiles that all looked alike.
+ */
+function Meter({ asked, askedLabel, done, doneLabel, percent, left, leftLabel }: {
+  asked: string
+  askedLabel: string
+  done: string
+  doneLabel: string
+  percent: number | null
+  left: string
+  leftLabel: string
+}) {
+  const pct = percent ?? 0
+
+  return (
+    <div className="mt-3">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+        <div>
+          <p className="text-xs uppercase tracking-wide text-slate-400">{askedLabel}</p>
+          <p className="text-xl font-semibold tabular-nums text-slate-900 dark:text-white">{asked}</p>
+        </div>
+        <div>
+          <p className="text-xs uppercase tracking-wide text-slate-400">{doneLabel}</p>
+          <p className="text-xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{done}</p>
+        </div>
+        <div>
+          <p className="text-xs uppercase tracking-wide text-slate-400">{leftLabel}</p>
+          <p className="text-xl font-semibold tabular-nums text-slate-500">{left}</p>
+        </div>
+      </div>
+
+      <div className="mt-2.5 flex items-center gap-3">
+        <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+          <div
+            className={clsx(
+              'h-full rounded-full transition-all',
+              pct >= 100 ? 'bg-emerald-500' : pct >= 60 ? 'bg-amber-400' : 'bg-red-400',
+            )}
+            style={{ width: `${Math.min(100, pct)}%` }}
+          />
+        </div>
+        <span className="w-14 text-right text-sm font-semibold tabular-nums text-slate-600 dark:text-slate-300">
+          {percent === null ? '—' : `${percent}%`}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** The detail under a panel's headline: quieter, because it is the detail. */
+function Tiles({ items }: { items: { label: string; value: string; hint?: string; tone?: string }[] }) {
+  return (
+    <div className="mt-4 grid grid-cols-2 gap-3 border-t border-slate-100 pt-3 dark:border-slate-800 lg:grid-cols-4">
+      {items.map((s) => (
+        <div key={s.label}>
+          <div className={clsx('text-base font-semibold tabular-nums text-slate-900 dark:text-white', s.tone)}>{s.value}</div>
+          <div className="text-xs text-slate-500">{s.label}</div>
+          {s.hint && <div className="mt-0.5 text-[11px] text-slate-400">{s.hint}</div>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
