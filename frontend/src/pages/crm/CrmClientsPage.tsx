@@ -269,7 +269,7 @@ export default function CrmClientsPage() {
       {tab === 'clients' && (
       <Card>
         <form
-          className="mb-4 flex flex-wrap items-center gap-2"
+          className="crm-filters mb-4 flex flex-wrap items-center gap-2"
           onSubmit={(e) => { e.preventDefault(); setPage(1); setApplied(search) }}
         >
           <div className="relative min-w-0 flex-1 sm:max-w-xs">

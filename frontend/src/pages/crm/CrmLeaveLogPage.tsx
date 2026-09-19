@@ -152,7 +152,7 @@ export default function CrmLeaveLogPage() {
 
       <Card>
         <form
-          className="mb-4 flex flex-wrap items-center gap-2"
+          className="crm-filters mb-4 flex flex-wrap items-center gap-2"
           onSubmit={(e) => { e.preventDefault(); setPage(1); setApplied(search) }}
         >
           {/* A floor as well as a ceiling: this row carries more filters than

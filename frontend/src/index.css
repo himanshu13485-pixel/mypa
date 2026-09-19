@@ -515,6 +515,53 @@ h3 {
 }
 
 /*
+ * A filter bar that fits the screen it is on.
+ *
+ * The bars were laid out for a desk and left to wrap: a date box is as wide
+ * as a date box, a dropdown as wide as its longest word, and on a phone the
+ * last of them hung off the right-hand edge - which set the whole page
+ * sliding sideways, so the heading and the first column of every card went
+ * with it.
+ *
+ * Below `md` every control is allowed to shrink and share the row instead.
+ * Two to a line for the small ones, a line of its own for a date range,
+ * and nothing wider than the screen it is on.
+ */
+@media (max-width: 767px) {
+  .crm-filters {
+    max-width: 100%;
+  }
+
+  /* Nothing in here refuses to be made smaller. */
+  .crm-filters > *,
+  .crm-filters label > * {
+    min-width: 0;
+  }
+
+  .crm-filters > input,
+  .crm-filters > select,
+  .crm-filters > div,
+  .crm-filters > label {
+    flex: 1 1 calc(50% - 0.25rem);
+  }
+
+  /* A date range is a label and two boxes: it needs the whole line. */
+  .crm-filters > label:has(input[type="date"]) {
+    flex-basis: 100%;
+  }
+
+  .crm-filters label input[type="date"] {
+    flex: 1 1 6rem;
+    width: auto;
+  }
+
+  /* A button says one word and should be no wider than that word. */
+  .crm-filters > button {
+    flex: 0 0 auto;
+  }
+}
+
+/*
  * A wide table on a narrow screen.
  *
  * The CRM lists are eleven-column tables in a sideways scroller. On a phone

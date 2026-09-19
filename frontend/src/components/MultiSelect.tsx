@@ -82,8 +82,22 @@ export function MultiSelect({ label, options, value, onChange, className, allLab
             : 'text-brand-700 ring-brand-400 dark:text-brand-300 dark:ring-brand-500/60',
         )}
       >
-        <span className="shrink-0 text-slate-400">{label}:</span>
-        <span className="min-w-0 flex-1 truncate font-medium">{summary}</span>
+        {/*
+          * Two lines on a phone, one on a desk.
+          *
+          * Side by side there is room for "Assigned:" and about four letters
+          * of the answer, so every chip read "Ev…" - the label taking the
+          * width and the value, which is the part being asked about, losing
+          * it. Stacked, both fit.
+          */}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[11px] leading-tight text-slate-400 sm:inline sm:text-sm sm:leading-normal">
+            {label}:
+          </span>
+          <span className="block truncate font-medium leading-tight sm:ml-1 sm:inline sm:leading-normal">
+            {summary}
+          </span>
+        </span>
         <ChevronDown className={clsx('size-4 shrink-0 text-slate-400 transition-transform', open && 'rotate-180')} />
       </button>
 

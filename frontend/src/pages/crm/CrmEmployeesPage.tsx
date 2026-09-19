@@ -167,7 +167,7 @@ export default function CrmEmployeesPage() {
 
       <Card>
         <form
-          className="mb-4 flex flex-wrap items-center gap-2"
+          className="crm-filters mb-4 flex flex-wrap items-center gap-2"
           onSubmit={(e) => {
             e.preventDefault()
             setPage(1)
