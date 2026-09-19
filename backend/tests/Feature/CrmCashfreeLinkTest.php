@@ -241,6 +241,47 @@ class CrmCashfreeLinkTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /**
+     * Keys that work, on an account that may not raise links.
+     *
+     * A different problem from a wrong key, and nothing typed into Billing
+     * setup will fix it - so it is said as its own sentence, with the one
+     * action that does fix it.
+     */
+    public function test_an_account_without_the_links_product_is_told_what_to_ask_for(): void
+    {
+        $this->configure();
+        Http::fake(['*/pg/links/*' => Http::response([
+            'message' => 'link_creation_api is not enabled or approved. Please reach out to care@cashfree.com.',
+        ], 403)]);
+
+        $said = $this->actingAs($this->adminUser)
+            ->postJson('/api/v1/crm/masters/payment-gateway/test')
+            ->assertStatus(422)->json('data');
+
+        $this->assertFalse($said['ok']);
+        $this->assertStringContainsString('payment links', $said['message']);
+        $this->assertStringContainsString('care@cashfree.com', $said['message']);
+        // Not mistaken for a bad key, which would send somebody retyping one.
+        $this->assertStringNotContainsString('copied from the', $said['message']);
+    }
+
+    public function test_the_same_is_said_when_a_link_is_actually_asked_for(): void
+    {
+        $this->configure();
+        Http::fake(['*/pg/links' => Http::response([
+            'message' => 'link_creation_api is not enabled or approved. Please reach out to care@cashfree.com.',
+        ], 403)]);
+
+        $uuid = $this->document('invoice', 50000);
+        $said = $this->actingAs($this->adminUser)
+            ->postJson("/api/v1/crm/invoices/{$uuid}/payment-links", [])
+            ->assertStatus(422)->json('message');
+
+        $this->assertStringContainsString('not switched on', $said);
+        $this->assertStringContainsString('care@cashfree.com', $said);
+    }
+
     /** A refused link says the same thing, since that is where it is met. */
     public function test_a_refused_link_names_the_account_it_was_refused_on(): void
     {

@@ -105,6 +105,10 @@ class CashfreeGateway
             ->post($account->baseUrl() . '/links', $payload);
 
         if (! $response->successful()) {
+            if ($this->linksNotEnabled($response)) {
+                abort(422, $this->notEnabled($account));
+            }
+
             // Cashfree's own words, and which account they were said about.
             abort(422, 'Cashfree refused the link: ' . (
                 in_array($response->status(), [401, 403], true)
@@ -168,6 +172,14 @@ class CashfreeGateway
             ];
         }
 
+        if ($this->linksNotEnabled($response)) {
+            return [
+                'ok' => false,
+                'status' => $response->status(),
+                'message' => $this->notEnabled($account),
+            ];
+        }
+
         if (in_array($response->status(), [401, 403], true)) {
             return [
                 'ok' => false,
@@ -202,6 +214,33 @@ class CashfreeGateway
             . '. A key from the other environment is refused exactly like a wrong one, so check'
             . ' that the App ID and Secret in Billing setup were both copied from the '
             . ($live ? 'production' : 'test') . ' account.';
+    }
+
+    /**
+     * Keys Cashfree knows, on an account that may not raise links.
+     *
+     * A separate answer from a refused key, because it is a separate
+     * problem with a separate fix: nothing typed into Billing setup will
+     * change it. Cashfree sells payment links as their own product and it
+     * is off until a merchant asks for it.
+     */
+    private function linksNotEnabled(\Illuminate\Http\Client\Response $response): bool
+    {
+        $said = Str::lower((string) ($response->json('message') ?: $response->body()));
+
+        return str_contains($said, 'link_creation_api')
+            || (str_contains($said, 'link') && str_contains($said, 'not enabled'))
+            || (str_contains($said, 'link') && str_contains($said, 'not approved'));
+    }
+
+    private function notEnabled(PaymentGateway $account): string
+    {
+        return 'Cashfree accepted the keys but will not raise links on this account: payment links'
+            . ' are a product of their own and are not switched on for the '
+            . ($account->mode === 'production' ? 'production' : 'sandbox') . ' account yet.'
+            . ' Nothing here can turn it on - write to care@cashfree.com, or ask your account'
+            . ' manager, for the payment links API (link_creation_api) to be enabled. Everything'
+            . ' else is ready: the keys work and the webhook URL is on file.';
     }
 
     /**
