@@ -521,11 +521,16 @@ h3 {
  * that shows a third of a row and hides the rest behind a drag, so nothing
  * is ever read whole - and a record half-read is a record misread.
  *
- * Below `md` the table stops behaving like one. Each row becomes a card,
- * each cell a line of its own with its column heading in front of it, and
- * the row grows downwards until everything fits. Nothing moves sideways,
- * which is the whole point: a phone scrolls one way, and it is the way the
- * list should grow.
+ * Below `md` the table stops behaving like one. Each row becomes a card and
+ * each cell a line of its own: the column heading down the left, the value
+ * beside it, and the row growing downwards until everything fits.
+ *
+ * The heading is taken out of the flow rather than laid beside the value.
+ * The first attempt made the cell a flex row, which quietly turned every
+ * cell holding two things - a company above its contact, a number above an
+ * address - into two items side by side, each squeezed to nothing and
+ * spilling over the other. A cell is a block again, laid out exactly as it
+ * was written, with room made down its left for the heading to sit in.
  *
  * See components/TableBox.tsx, which copies the headings onto the cells.
  */
@@ -569,25 +574,57 @@ h3 {
     background: rgb(15 23 42 / 0.4);
   }
 
+  /*
+   * A block, with a margin down the left for its heading.
+   *
+   * Nothing about the cell's own contents changes: whatever the page put
+   * inside it stacks and wraps the way it was written, and the heading sits
+   * in the space made for it rather than competing for it.
+   */
   .table-box tbody td {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.1875rem 0 !important;
-    text-align: left !important;
+    display: block;
+    position: relative;
+    width: auto;
+    min-height: 1.375rem;
+    padding: 0.25rem 0 0.25rem 7.25rem !important;
     white-space: normal;
+    vertical-align: top;
+    /*
+     * An address has nowhere to wrap.
+     *
+     * Wrapping happens at spaces, and sachin@codedecodelabs.com has none -
+     * so the one thing in a lead most likely to be long was also the one
+     * thing that ran off the edge of the card. Broken mid-word only when
+     * there is no other way, which leaves ordinary text alone.
+     */
+    overflow-wrap: anywhere;
+  }
+
+  /*
+   * A column's alignment was a column's business.
+   *
+   * A total is put to the right so a stack of them line up in a narrow
+   * column; here it has no column to line up with, and a figure hard
+   * against the right edge reads as though it belongs to the row below.
+   * Only cells that got a heading are turned - the "nothing here" line
+   * keeps the middle it was written in.
+   */
+  .table-box tbody td[data-label] {
+    text-align: left !important;
   }
 
   .table-box tbody td::before {
     content: attr(data-label);
-    flex: 0 0 8.5rem;
+    position: absolute;
+    left: 0;
+    top: 0.3125rem;
+    width: 6.75rem;
     font-size: 0.6875rem;
-    line-height: 1.5;
+    line-height: 1.4;
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: rgb(148 163 184);
+    white-space: normal;
   }
 
   /* A cell with nothing in it is a line about nothing. */
@@ -597,11 +634,11 @@ h3 {
 
   /*
    * A cell with no heading of its own - a tick box, a row of buttons, the
-   * "nothing here" line - takes the whole width rather than sitting in the
-   * value column behind an empty label.
+   * "nothing here" line - takes the whole width instead of leaving a gap
+   * where a heading is not.
    */
   .table-box tbody td:not([data-label]) {
-    justify-content: flex-start;
+    padding-left: 0 !important;
   }
 
   .table-box tbody td:not([data-label])::before {
@@ -609,22 +646,17 @@ h3 {
   }
 
   /*
-   * The value side, given the rest of the line.
-   *
-   * Truncation is a desk habit - it exists because a column has a width.
-   * Here the row can simply grow, so a long client name wraps rather than
-   * ending in an ellipsis nobody can expand.
+   * Truncation is a desk habit: it exists because a column has a width.
+   * Here the card can simply grow, so a long client name wraps rather than
+   * ending in an ellipsis nobody can expand - and a width chosen for a
+   * desktop column does not get to squeeze it.
    */
-  .table-box tbody td > * {
-    min-width: 0;
-    max-width: 100%;
-    text-align: left;
-  }
-
-  .table-box tbody td .truncate {
+  .table-box tbody td .truncate,
+  .table-box tbody td [class*="max-w-"] {
     overflow: visible;
     text-overflow: clip;
     white-space: normal;
+    max-width: 100%;
   }
 
   /* The row that says "nothing here" is a sentence, not a record. */
@@ -632,5 +664,9 @@ h3 {
     border: 0;
     background: none;
     padding: 0;
+  }
+
+  .table-box tbody td[colspan] {
+    padding-left: 0 !important;
   }
 }
