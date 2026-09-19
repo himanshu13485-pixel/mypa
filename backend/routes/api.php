@@ -1474,6 +1474,9 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 ->middleware('crm.member:payments,create');
             Route::get('/masters/payment-gateway', [\App\Http\Controllers\Api\V1\Crm\PaymentLinkController::class, 'settings'])
                 ->middleware('crm.member:masters,edit');
+            // Asking Cashfree whether it knows these keys, without raising anything.
+            Route::post('/masters/payment-gateway/test', [\App\Http\Controllers\Api\V1\Crm\PaymentLinkController::class, 'testSettings'])
+                ->middleware('crm.member:masters,edit');
             Route::put('/masters/payment-gateway', [\App\Http\Controllers\Api\V1\Crm\PaymentLinkController::class, 'saveSettings'])
                 ->middleware('crm.member:masters,edit');
 

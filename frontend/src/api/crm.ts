@@ -3484,6 +3484,11 @@ export const crm = {
     /** The currencies this company deals in — one list, read everywhere. */
     currencies: () =>
       api.get<{ data: string[] }>('/crm/masters/currencies').then((r) => r.data.data),
+    /** "Do these keys work?" - asked of Cashfree, not of an invoice. */
+    testGateway: () =>
+      api.post<{ data: { ok: boolean; status: number | null; message: string } }>(
+        '/crm/masters/payment-gateway/test',
+      ).then((r) => r.data.data),
     saveCurrencies: (currencies: string[]) =>
       api.put<{ message: string }>('/crm/masters/currencies', { currencies }).then((r) => r.data),
     /** Regular, Global, SEZ - the words a document's category is chosen from. */

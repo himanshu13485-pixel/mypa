@@ -1097,6 +1097,7 @@ function CashfreeAccount() {
   const { toast, toastError } = useToast()
   const [form, setForm] = useState<CrmGatewaySettings | null>(null)
   const [secret, setSecret] = useState('')
+  const [tested, setTested] = useState<{ ok: boolean; message: string } | null>(null)
 
   const { data } = useQuery({ queryKey: ['crm', 'payment-gateway'], queryFn: crm.payments.gateway })
   if (data && !form) setForm(data)
@@ -1111,9 +1112,23 @@ function CashfreeAccount() {
     onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'payment-gateway'] })
       setSecret('')
+      setTested(null)
       toast(res.message, 'success')
     },
     onError: (err) => toastError(errorMessage(err)),
+  })
+
+  /*
+   * The answer is kept on the card rather than shouted in a toast.
+   *
+   * What comes back is a paragraph - which environment was asked, and what
+   * to check - and a paragraph that disappears after four seconds is worse
+   * than no paragraph at all.
+   */
+  const testMutation = useMutation({
+    mutationFn: crm.masterData.testGateway,
+    onSuccess: (res) => setTested(res),
+    onError: (err) => setTested({ ok: false, message: errorMessage(err) }),
   })
 
   if (!form) {
@@ -1193,9 +1208,34 @@ function CashfreeAccount() {
         </p>
       </div>
 
-      <Button className="mt-3" onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-        {saveMutation.isPending ? 'Saving…' : 'Save Cashfree settings'}
-      </Button>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+          {saveMutation.isPending ? 'Saving…' : 'Save Cashfree settings'}
+        </Button>
+        {/* Asked here rather than found out on an invoice: there is a client
+            on the other end of a payment link, and "authentication Failed"
+            is not a thing to discover with one of them waiting. */}
+        <Button
+          variant="secondary"
+          disabled={testMutation.isPending || !form.app_id}
+          onClick={() => testMutation.mutate()}
+        >
+          {testMutation.isPending ? 'Asking Cashfree…' : 'Test these keys'}
+        </Button>
+      </div>
+
+      {tested && (
+        <p
+          className={clsx(
+            'mt-2 rounded-xl px-3 py-2 text-xs',
+            tested.ok
+              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+              : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-300',
+          )}
+        >
+          {tested.message}
+        </p>
+      )}
     </Card>
   )
 }

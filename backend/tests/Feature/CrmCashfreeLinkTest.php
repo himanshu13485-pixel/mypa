@@ -167,6 +167,95 @@ class CrmCashfreeLinkTest extends TestCase
         $this->assertSame('https://api.cashfree.com/pg', $account->baseUrl());
     }
 
+    /**
+     * A key is what was typed, not the whitespace it was pasted in.
+     *
+     * A trailing newline off a dashboard cannot be sent in an HTTP header,
+     * and Cashfree answers "authentication Failed" about a key that is
+     * otherwise perfectly correct - which sends somebody off to retype a key
+     * that was right all along.
+     */
+    public function test_a_pasted_key_is_stored_without_its_packaging(): void
+    {
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/masters/payment-gateway', [
+            'mode' => 'sandbox',
+            'app_id' => "  TEST_APP_ID\n",
+            'secret' => "\u{200B}TEST_SECRET  ",
+            'is_active' => true,
+        ])->assertOk();
+
+        $account = PaymentGateway::firstOrFail();
+        $this->assertSame('TEST_APP_ID', $account->app_id);
+        $this->assertSame('TEST_SECRET', $account->secret);
+    }
+
+    // ---- Asking whether the keys work ---------------------------------------
+
+    public function test_keys_cashfree_knows_are_reported_as_working(): void
+    {
+        $this->configure();
+        // A link that does not exist: with keys it accepts, that is a 404.
+        Http::fake(['*/pg/links/*' => Http::response(['message' => 'link_id does not exist'], 404)]);
+
+        $said = $this->actingAs($this->adminUser)
+            ->postJson('/api/v1/crm/masters/payment-gateway/test')
+            ->assertOk()->json('data');
+
+        $this->assertTrue($said['ok']);
+        $this->assertStringContainsString('sandbox', $said['message']);
+    }
+
+    /**
+     * The refusal says which account was asked.
+     *
+     * "authentication Failed" on its own is the same sentence for a wrong
+     * key and for a sandbox key sent to the live endpoint, and only this
+     * side knows which of the two was used.
+     */
+    public function test_keys_cashfree_refuses_say_which_account_was_asked(): void
+    {
+        $this->configure();
+        PaymentGateway::firstOrFail()->update(['mode' => 'production']);
+        Http::fake(['*/pg/links/*' => Http::response(['message' => 'authentication Failed'], 401)]);
+
+        $said = $this->actingAs($this->adminUser)
+            ->postJson('/api/v1/crm/masters/payment-gateway/test')
+            ->assertStatus(422)->json('data');
+
+        $this->assertFalse($said['ok']);
+        $this->assertStringContainsString('authentication Failed', $said['message']);
+        $this->assertStringContainsString('production', $said['message']);
+        $this->assertStringContainsString('api.cashfree.com', $said['message']);
+    }
+
+    public function test_a_company_with_no_keys_is_told_that_rather_than_asked(): void
+    {
+        Http::fake();
+
+        $said = $this->actingAs($this->adminUser)
+            ->postJson('/api/v1/crm/masters/payment-gateway/test')
+            ->assertStatus(422)->json('data');
+
+        $this->assertFalse($said['ok']);
+        $this->assertStringContainsString('No Cashfree keys', $said['message']);
+        Http::assertNothingSent();
+    }
+
+    /** A refused link says the same thing, since that is where it is met. */
+    public function test_a_refused_link_names_the_account_it_was_refused_on(): void
+    {
+        $this->configure();
+        Http::fake(['*/pg/links' => Http::response(['message' => 'authentication Failed'], 401)]);
+
+        $uuid = $this->document('invoice', 50000);
+        $said = $this->actingAs($this->adminUser)
+            ->postJson("/api/v1/crm/invoices/{$uuid}/payment-links", [])
+            ->assertStatus(422)->json('message');
+
+        $this->assertStringContainsString('authentication Failed', $said);
+        $this->assertStringContainsString('sandbox.cashfree.com', $said);
+    }
+
     // ---- Raising a link -----------------------------------------------------
 
     public function test_a_link_is_raised_against_a_proforma_for_what_is_owed(): void

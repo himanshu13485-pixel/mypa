@@ -135,13 +135,14 @@ class PaymentLinkController extends Controller
             'provider' => 'cashfree',
         ]);
 
+        // Pasted, therefore cleaned - see PaymentGateway::cleanKey().
         $account->fill([
             'mode' => $data['mode'],
-            'app_id' => $data['app_id'],
+            'app_id' => PaymentGateway::cleanKey($data['app_id']),
             'is_active' => (bool) ($data['is_active'] ?? false),
         ]);
         if (filled($data['secret'] ?? null)) {
-            $account->secret = $data['secret'];
+            $account->secret = PaymentGateway::cleanKey($data['secret']);
         }
         if (blank($account->secret)) {
             abort(422, 'The Cashfree secret key is needed before links can be raised.');
@@ -163,6 +164,20 @@ class PaymentLinkController extends Controller
             'is_active' => $account->is_active,
             'webhook_url' => $this->cashfree->webhookUrl($org),
         ]]);
+    }
+
+    /**
+     * "Do these keys work?" - asked here rather than found out on an invoice.
+     *
+     * Reaching for a payment link is the wrong moment to discover the wrong
+     * key was pasted: there is a client on the other end of that link.
+     */
+    public function testSettings(Request $request): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $result = $this->cashfree->check($org);
+
+        return response()->json(['data' => $result], $result['ok'] ? 200 : 422);
     }
 
     // ---- Helpers -----------------------------------------------------------

@@ -22,6 +22,24 @@ class PaymentGateway extends Model
         return ['secret' => 'encrypted', 'is_active' => 'boolean'];
     }
 
+    /**
+     * A key is its characters, not the packaging it was pasted in.
+     *
+     * Keys arrive by copy and paste, which means they arrive with a trailing
+     * space, or a newline, or the zero-width character a dashboard put
+     * between the letters. None of those may appear in an HTTP header, and
+     * all of them make Cashfree answer "authentication Failed" about a key
+     * that is otherwise perfectly correct.
+     */
+    public static function cleanKey(?string $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        return trim(preg_replace('/[\s\x{200B}-\x{200D}\x{FEFF}]+/u', '', $value) ?? '');
+    }
+
     protected $hidden = ['secret'];
 
     public function organization(): BelongsTo

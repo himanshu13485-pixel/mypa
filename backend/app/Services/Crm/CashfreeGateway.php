@@ -105,8 +105,12 @@ class CashfreeGateway
             ->post($account->baseUrl() . '/links', $payload);
 
         if (! $response->successful()) {
-            // Cashfree's own words are more use than ours.
-            abort(422, 'Cashfree refused the link: ' . ($response->json('message') ?? $response->body()));
+            // Cashfree's own words, and which account they were said about.
+            abort(422, 'Cashfree refused the link: ' . (
+                in_array($response->status(), [401, 403], true)
+                    ? $this->refusal($account, $response)
+                    : ($response->json('message') ?? $response->body())
+            ));
         }
 
         $body = $response->json();
@@ -126,6 +130,78 @@ class CashfreeGateway
             'created_by' => $user?->id,
             'last_event' => ['created' => $body],
         ]);
+    }
+
+    /**
+     * Do these keys work, before an invoice depends on the answer?
+     *
+     * Asked of a link that does not exist: with keys Cashfree accepts that
+     * is a plain "not found", and with keys it does not it is a 401 - so one
+     * harmless read says which, without raising anything or charging anybody.
+     *
+     * @return array{ok: bool, status: int|null, message: string}
+     */
+    public function check(Organization $organization): array
+    {
+        $account = PaymentGateway::where('organization_id', $organization->id)
+            ->where('provider', 'cashfree')
+            ->first();
+
+        if (! $account || blank($account->app_id) || blank($account->secret)) {
+            return ['ok' => false, 'status' => null, 'message' => 'No Cashfree keys are on file yet.'];
+        }
+
+        try {
+            $response = Http::withHeaders([
+                'x-api-version' => self::API_VERSION,
+                'x-client-id' => $account->app_id,
+                'x-client-secret' => $account->secret,
+            ])->acceptJson()->timeout(15)
+                ->get($account->baseUrl() . '/links/netvork-key-check');
+        } catch (\Throwable $e) {
+            // The network, not the keys - and saying so saves an hour of
+            // retyping a key that was right all along.
+            return [
+                'ok' => false,
+                'status' => null,
+                'message' => 'Could not reach Cashfree from this server: ' . $e->getMessage(),
+            ];
+        }
+
+        if (in_array($response->status(), [401, 403], true)) {
+            return [
+                'ok' => false,
+                'status' => $response->status(),
+                'message' => $this->refusal($account, $response),
+            ];
+        }
+
+        return [
+            'ok' => true,
+            'status' => $response->status(),
+            'message' => 'Cashfree accepted these keys on the '
+                . ($account->mode === 'production' ? 'production' : 'sandbox') . ' account.',
+        ];
+    }
+
+    /**
+     * Cashfree's words, plus the one thing Cashfree cannot know: which of the
+     * two accounts we asked.
+     *
+     * "authentication Failed" on its own sends people to retype a key that
+     * was never wrong - the usual cause is a sandbox key being asked of the
+     * live endpoint, or the other way round, and only this side knows that.
+     */
+    private function refusal(PaymentGateway $account, \Illuminate\Http\Client\Response $response): string
+    {
+        $said = $response->json('message') ?: $response->body();
+        $live = $account->mode === 'production';
+
+        return trim($said) . ' — these are the ' . ($live ? 'production' : 'sandbox')
+            . ' keys on file, sent to ' . ($live ? 'api.cashfree.com' : 'sandbox.cashfree.com')
+            . '. A key from the other environment is refused exactly like a wrong one, so check'
+            . ' that the App ID and Secret in Billing setup were both copied from the '
+            . ($live ? 'production' : 'test') . ' account.';
     }
 
     /**
