@@ -10,6 +10,7 @@ import { Button, Card, EmptyState, Input, Label, Modal, Pager, Spinner, Textarea
 import { CHART_COLORS, ColumnChart, DonutChart, HBarChart } from './charts'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsFrom } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 export function bandBadge(band: string | null) {
   return clsx(
@@ -247,7 +248,7 @@ export default function CrmDwrPage() {
         ) : !list || list.data.length === 0 ? (
           <EmptyState title="No reports yet" hint="Submitted DWRs appear here." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -288,7 +289,7 @@ export default function CrmDwrPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={list} onPage={setPage} />
       </Card>

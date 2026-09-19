@@ -7,6 +7,7 @@ import { crm, getCrmOrg, setCrmOrg, type CrmOrganizationRow } from '../../api/cr
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Spinner } from '../../components/ui'
+import TableBox from '../../components/TableBox'
 
 /**
  * Super Admin only: the CRM addon's on switch. Each organization is an
@@ -102,7 +103,7 @@ export default function CrmOrganizationsPage() {
         ) : !orgs || orgs.length === 0 ? (
           <EmptyState title="No organizations yet" hint="Enable the CRM for the first company to get started." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -173,7 +174,7 @@ export default function CrmOrganizationsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
 

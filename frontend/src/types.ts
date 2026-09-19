@@ -951,6 +951,8 @@ export interface PersonProfile {
   avatar: string | null
   photo_path: string | null
   presence: string | null
+  /** When they were last here, if their settings allow the asking. */
+  last_seen_at: string | null
   email: string | null
   mobile: string | null
   is_me: boolean

@@ -7,6 +7,7 @@ import { useQuery as useQ } from '@tanstack/react-query'
 import { Card, EmptyState, Select, Spinner } from '../../components/ui'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const inr = (v: number) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -78,7 +79,7 @@ export default function CrmChurnPage() {
 
           <Card>
             <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Month by month</h2>
-            <div className="-mx-4 overflow-x-auto px-4">
+            <TableBox>
               <table className="w-full min-w-[760px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -107,7 +108,7 @@ export default function CrmChurnPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableBox>
             <p className="mt-2 text-xs text-slate-400">
               Hover a row to see who churned that month. Active = invoiced inside the trailing 12 months, or a Work Order validity still running.
             </p>
@@ -120,7 +121,7 @@ export default function CrmChurnPage() {
             {data.not_renewed.length === 0 ? (
               <p className="text-sm text-slate-400">Every finished run has renewed. Nothing to chase.</p>
             ) : (
-              <div className="-mx-4 overflow-x-auto px-4">
+              <TableBox>
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -141,7 +142,7 @@ export default function CrmChurnPage() {
                   ))}
                 </tbody>
               </table>
-              </div>
+              </TableBox>
             )}
           </Card>
         </>

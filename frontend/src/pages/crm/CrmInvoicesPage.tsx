@@ -16,6 +16,7 @@ import { money } from '../../lib/money'
 import { CHART_COLORS, ColumnChart, LineChart } from './charts'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, onlyOne, optionsFrom, optionsOf } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -530,7 +531,7 @@ export default function CrmInvoicesPage() {
         ) : !data || data.data.length === 0 ? (
           <EmptyState title={`No ${kind === 'proforma' ? 'proforma invoices' : 'invoices'} found`} hint="Adjust the filters or create one." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <div>
             {/* Only once something is ticked: a delete button sitting there
                 permanently is one mis-click from a hole in the ledger. */}
             {canDelete && selected.length > 0 && (
@@ -557,6 +558,7 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                 </button>
               </div>
             )}
+            <TableBox>
             <table className={clsx('w-full text-sm', showMembership ? 'min-w-[980px]' : 'min-w-[820px]')}>
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -716,6 +718,7 @@ Anything with a payment recorded, or a proforma already converted, is kept and r
                 ))}
               </tbody>
             </table>
+            </TableBox>
           </div>
         )}
         <Pager resp={data} onPage={setPage} />

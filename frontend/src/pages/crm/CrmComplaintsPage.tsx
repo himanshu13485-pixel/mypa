@@ -13,6 +13,7 @@ import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, onlyOne, optionsFrom, optionsOf } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const FILTER_CLASS = 'min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]'
 
@@ -332,7 +333,7 @@ export default function CrmComplaintsPage() {
         ) : !data || data.data.length === 0 ? (
           <EmptyState title="No complaints here" hint="Nothing matches these filters — which on this screen is good news." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[1040px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -354,7 +355,7 @@ export default function CrmComplaintsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>

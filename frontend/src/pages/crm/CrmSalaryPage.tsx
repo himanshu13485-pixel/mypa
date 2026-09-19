@@ -10,6 +10,7 @@ import { CHART_COLORS, DonutChart, HBarChart } from './charts'
 import NotesModal from './NotesModal'
 import BankDocumentsModal from './BankDocumentsModal'
 import { saveBlob } from '../../lib/download'
+import TableBox from '../../components/TableBox'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -243,7 +244,7 @@ export default function CrmSalaryPage() {
             hint={manages ? 'Generate slips to start the payroll run.' : 'Your slip appears once payroll is generated.'}
           />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <div>
             {manages && shownUuids.length > 0 && (
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/50">
                 <span className="text-slate-500">
@@ -279,6 +280,7 @@ export default function CrmSalaryPage() {
                 </span>
               </div>
             )}
+            <TableBox>
             <table className="w-full min-w-[1160px] text-sm">
               {/* The run as a whole: a late payout, a bonus round, a change
                   of bank - said once where the register is read. */}
@@ -459,6 +461,7 @@ export default function CrmSalaryPage() {
                 ))}
               </tbody>
             </table>
+            </TableBox>
           </div>
         )}
       </Card>

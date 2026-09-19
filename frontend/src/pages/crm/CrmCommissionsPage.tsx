@@ -8,6 +8,7 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Spinner, Textarea } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
+import TableBox from '../../components/TableBox'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -92,7 +93,7 @@ export default function CrmCommissionsPage() {
             hint="Record one and the linked invoice quietly remembers it in its internal notes."
           />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[860px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -141,7 +142,7 @@ export default function CrmCommissionsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>

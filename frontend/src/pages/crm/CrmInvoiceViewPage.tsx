@@ -12,6 +12,7 @@ import { photoUrl } from '../../lib/avatars'
 import { KeywordChips } from '../../components/KeywordChips'
 import { readsAsKeywords } from '../../lib/keywords'
 import { money } from '../../lib/money'
+import TableBox from '../../components/TableBox'
 
 /** "9.000" reads as 9, "2.500" as 2.5. */
 const trimRate = (v: string) => String(Number(v))
@@ -455,7 +456,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
           </div>
         </div>
 
-        <div className="-mx-4 overflow-x-auto px-4">
+        <TableBox>
           <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -521,7 +522,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
               ))}
             </tbody>
           </table>
-        </div>
+        </TableBox>
 
         <div className="mt-4 flex justify-end">
           <div className="w-full max-w-xs space-y-1 text-sm">
@@ -665,7 +666,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
           {inv.payments.length === 0 ? (
             <p className="text-sm text-slate-400">Nothing received yet.</p>
           ) : (
-            <div className="-mx-4 overflow-x-auto px-4">
+            <TableBox>
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -704,7 +705,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableBox>
           )}
         </Card>
       )}

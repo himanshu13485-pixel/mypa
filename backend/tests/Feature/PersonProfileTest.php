@@ -146,4 +146,51 @@ class PersonProfileTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('status');
     }
+
+    /**
+     * When they were last here.
+     *
+     * The profile is the screen people open to find out about somebody, and
+     * "are they around" was the one thing it would not say - it had to be
+     * read off a chat subtitle in another window.
+     */
+    public function test_the_profile_says_when_they_were_last_here(): void
+    {
+        $this->connect();
+        $this->them->forceFill(['last_active_at' => now()->subHours(3)])->save();
+
+        $seen = $this->actingAs($this->me)
+            ->getJson("/api/v1/people/{$this->them->uuid}")
+            ->assertOk()->json('data.last_seen_at');
+
+        $this->assertNotNull($seen);
+        // The instant, not the way it was written: the wire carries UTC and
+        // the app thinks in Kolkata.
+        $this->assertSame(now()->subHours(3)->timestamp, \Illuminate\Support\Carbon::parse($seen)->timestamp);
+    }
+
+    public function test_it_says_nothing_when_they_have_hidden_it(): void
+    {
+        $this->connect();
+        $this->them->forceFill(['last_active_at' => now()->subHours(3)])->save();
+        $this->them->settings->update(['privacy' => ['last_seen_visibility' => 'nobody']]);
+
+        $this->actingAs($this->me)
+            ->getJson("/api/v1/people/{$this->them->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.last_seen_at', null);
+    }
+
+    /** Hiding your own takes you out of everybody else's, as everywhere else. */
+    public function test_hiding_your_own_last_seen_hides_theirs_from_you(): void
+    {
+        $this->connect();
+        $this->them->forceFill(['last_active_at' => now()->subHours(3)])->save();
+        $this->me->settings->update(['privacy' => ['last_seen_visibility' => 'nobody']]);
+
+        $this->actingAs($this->me)
+            ->getJson("/api/v1/people/{$this->them->uuid}")
+            ->assertOk()
+            ->assertJsonPath('data.last_seen_at', null);
+    }
 }

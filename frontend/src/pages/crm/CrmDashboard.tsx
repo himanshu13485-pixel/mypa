@@ -10,6 +10,7 @@ import { crm, crmMeQuery, CRM_LEAD_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } fr
 import { Card, EmptyState, Spinner , Select } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
 import { crmPath } from '../../lib/crmPath'
+import TableBox from '../../components/TableBox'
 
 const LEAD_STATUS_COLORS: Record<string, string> = {
   unattended: CHART_COLORS[2],
@@ -147,7 +148,7 @@ export default function CrmDashboard() {
           {data.recent_invoices.length === 0 ? (
             <EmptyState title="No invoices yet" hint="Create a proforma or invoice to see it here." />
           ) : (
-            <div className="-mx-4 overflow-x-auto px-4">
+            <TableBox>
               <table className="w-full min-w-[540px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -186,7 +187,7 @@ export default function CrmDashboard() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableBox>
           )}
         </Card>
 

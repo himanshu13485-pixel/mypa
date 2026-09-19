@@ -10,6 +10,7 @@ import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, Spinn
 import { saveBlob } from '../../lib/download'
 import { listParam } from '../../lib/multiFilter'
 import NotesModal from './NotesModal'
+import TableBox from '../../components/TableBox'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
@@ -198,7 +199,7 @@ export default function CrmOfflineEmployeesPage() {
         ) : !people.data?.data.length ? (
           <EmptyState title="No offline employees" hint="Add the people you pay outside the payroll." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -259,7 +260,7 @@ export default function CrmOfflineEmployeesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
 
@@ -396,7 +397,7 @@ export default function CrmOfflineEmployeesPage() {
         ) : !rows.length ? (
           <EmptyState title="No slips in this range" hint="Create a month, or add one slip by hand." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[980px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -517,7 +518,7 @@ export default function CrmOfflineEmployeesPage() {
                 </tfoot>
               )}
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
 

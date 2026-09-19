@@ -5,6 +5,7 @@ import { format } from 'date-fns'
 import { subscription as subscriptionApi } from '../api/endpoints'
 import { useAuthStore } from '../stores/auth'
 import { Badge, Button, Card, EmptyState, Skeleton, SkeletonList } from '../components/ui'
+import TableBox from '../components/TableBox'
 
 function formatBytes(bytes: number): string {
   if (!bytes) return '0 B'
@@ -124,7 +125,7 @@ export default function SubscriptionPage() {
         {!payments?.data.length ? (
           <EmptyState title="No payments yet" hint="Payments appear here after your first checkout." />
         ) : (
-          <div className="overflow-x-auto">
+          <TableBox>
             <table className="w-full min-w-[560px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
@@ -159,7 +160,7 @@ export default function SubscriptionPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
 

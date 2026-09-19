@@ -12,6 +12,7 @@ import { StatusChip } from './CrmVendorsPage'
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsOf } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const PAY_STATES = [
   { value: 'unpaid', label: 'Unpaid' },
@@ -312,7 +313,7 @@ export default function CrmExpensesPage() {
         ) : !data || data.data.length === 0 ? (
           <EmptyState title="No expenses found" hint="Record office spend to see it here." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[1080px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -415,7 +416,7 @@ export default function CrmExpensesPage() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>

@@ -12,6 +12,7 @@ import { unavailableTaxes } from './gst'
 import { crmPath } from '../../lib/crmPath'
 import { KeywordChips } from '../../components/KeywordChips'
 import { money } from '../../lib/money'
+import TableBox from '../../components/TableBox'
 
 /** One Work Order line. `custom` holds this company's own DCW values. */
 interface ItemRow {
@@ -1045,7 +1046,7 @@ export default function CrmInvoiceFormPage() {
             <Plus className="size-3.5" /> Add row
           </Button>
         </div>
-        <div className="-mx-4 mt-3 overflow-x-auto px-4">
+        <TableBox className="mt-3">
           <table className="w-full min-w-[880px] text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -1086,7 +1087,7 @@ export default function CrmInvoiceFormPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableBox>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">

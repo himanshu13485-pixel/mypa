@@ -10,6 +10,7 @@ import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
+import TableBox from '../../components/TableBox'
 
 const TITLES = ['Mr.', 'Mrs.', 'Miss', 'Ms.', 'Dr.']
 
@@ -984,7 +985,7 @@ export default function CrmEmployeeFormPage() {
               onClose={() => setSharing(false)}
             />
           )}
-          <div className="-mx-4 mt-3 overflow-x-auto px-4">
+          <TableBox className="mt-3">
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -1023,7 +1024,7 @@ export default function CrmEmployeeFormPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         </Card>
       )}
 

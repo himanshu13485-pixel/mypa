@@ -84,6 +84,20 @@ class PersonController extends Controller
             'presence' => $person->presenceFor($me),
 
             /*
+             * When they were last here.
+             *
+             * The chat header has carried this for a while; the profile -
+             * the screen people open precisely to find out about somebody -
+             * did not, so "are they around" had to be answered from a
+             * subtitle in another window. Same privacy rule as everywhere
+             * else: their setting decides, and whoever hides their own is
+             * not shown anybody else's.
+             */
+            'last_seen_at' => $person->presenceVisibleTo($me, 'last_seen_visibility')
+                ? $person->last_active_at
+                : null,
+
+            /*
              * Contact details are the part of a profile that is only ever
              * shared on purpose, so they follow the connection rather than
              * the lookup.

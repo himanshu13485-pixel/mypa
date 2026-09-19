@@ -10,6 +10,7 @@ import { Button, Card, EmptyState, Input, Pager, Spinner } from '../../component
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsFrom } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const STATUS_COLORS: Record<string, string> = {
   present: CHART_COLORS[0],
@@ -235,7 +236,7 @@ export default function CrmPunchPage() {
         ) : !report || report.data.length === 0 ? (
           <EmptyState title="No punches in this range" hint="Punch-ins appear here as they happen." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[880px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -313,13 +314,13 @@ export default function CrmPunchPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={report} onPage={setPage} />
 
         {/* Per-member summary, like the old CRM's footer table */}
         {teamView && report && report.summary.members.length > 0 && (
-          <div className="-mx-4 mt-4 overflow-x-auto border-t border-slate-100 px-4 pt-3 dark:border-slate-800">
+          <TableBox className="mt-4 border-t border-slate-100 pt-3 dark:border-slate-800">
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
@@ -357,7 +358,7 @@ export default function CrmPunchPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
     </div>

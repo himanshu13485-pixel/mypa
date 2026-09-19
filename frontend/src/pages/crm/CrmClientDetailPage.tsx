@@ -7,6 +7,7 @@ import { money } from '../../lib/money'
 import { Button, Card, Spinner } from '../../components/ui'
 import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { crmPath } from '../../lib/crmPath'
+import TableBox from '../../components/TableBox'
 
 
 /**
@@ -133,7 +134,7 @@ export default function CrmClientDetailPage() {
         {!c.invoices || c.invoices.length === 0 ? (
           <p className="text-sm text-slate-400">No invoices raised for this client yet.</p>
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -167,7 +168,7 @@ export default function CrmClientDetailPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
     </div>

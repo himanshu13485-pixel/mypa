@@ -12,6 +12,7 @@ import { Button, Card, EmptyState, Input, Pager, Spinner } from '../../component
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsFrom } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const ROLE_LABELS: Record<string, string> = { admin: 'Admin', subadmin: 'Subadmin', employee: 'Employee' }
 
@@ -209,7 +210,7 @@ export default function CrmEmployeesPage() {
         ) : !data || data.data.length === 0 ? (
           <EmptyState title="No employees found" hint="Register the first employee to build the team." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[720px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -320,7 +321,7 @@ export default function CrmEmployeesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>

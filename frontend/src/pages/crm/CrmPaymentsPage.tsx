@@ -12,6 +12,7 @@ import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam } from '../../lib/multiFilter'
 import { saveBlob } from '../../lib/download'
+import TableBox from '../../components/TableBox'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -400,7 +401,7 @@ export default function CrmPaymentsPage() {
         ) : !data || data.data.length === 0 ? (
           <EmptyState title="No payments logged" hint="Incoming credits appear here once logged." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -498,7 +499,7 @@ export default function CrmPaymentsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>
@@ -814,7 +815,7 @@ function OutstandingLedger({ data, isLoading, bucket, onBucket, member, onMember
         ) : !data || data.data.length === 0 ? (
           <EmptyState title="Nothing outstanding" hint="Every invoice in this window is settled." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[900px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -887,7 +888,7 @@ function OutstandingLedger({ data, isLoading, bucket, onBucket, member, onMember
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
     </>

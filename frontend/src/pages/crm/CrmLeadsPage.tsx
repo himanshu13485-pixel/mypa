@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Download, Plus, Search } from 'lucide-react'
+import { AlarmClock, Download, Plus, Search, Wand2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, crmAllows, CRM_LEAD_STATUS_LABELS, type CrmLead } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -9,9 +9,11 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
 import { PhoneLink } from '../../components/ContactLink'
 import { companyCase, emailCase, nameCase } from './textCase'
+import { describeParsed, parseLeadText } from '../../lib/leadText'
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -124,6 +126,29 @@ export default function CrmLeadsPage() {
   }
 
   const set = (key: keyof typeof EMPTY_FORM, value: string) => setForm((f) => ({ ...f, [key]: value }))
+
+  /**
+   * The pasted enquiry, read into the boxes above it.
+   *
+   * Deliberate rather than automatic: it runs when somebody presses it, and
+   * it overwrites what it finds, because a button pressed on purpose that
+   * quietly skips half the fields is worse than one that does what it says.
+   * Whatever it gets wrong is a box away from being corrected.
+   */
+  const fillFromText = () => {
+    const parsed = parseLeadText(form.requirement)
+
+    setForm((f) => ({
+      ...f,
+      company_name: parsed.company_name ? companyCase(parsed.company_name) : f.company_name,
+      contact_person: parsed.contact_person ? nameCase(parsed.contact_person) : f.contact_person,
+      mobile: parsed.mobile ?? f.mobile,
+      phone: parsed.phone ?? f.phone,
+      email: parsed.email ? emailCase(parsed.email) : f.email,
+    }))
+
+    toast(describeParsed(parsed), Object.keys(parsed).length ? 'success' : 'info')
+  }
   /* Tidy on blur, matching the server's house style. */
   const tidy = (key: keyof typeof EMPTY_FORM, style: (v: string) => string) =>
     setForm((f) => ({ ...f, [key]: style(String(f[key] ?? '')) }))
@@ -291,7 +316,7 @@ export default function CrmLeadsPage() {
           {!requests || requests.data.length === 0 ? (
             <EmptyState title="Nothing waiting" hint="Lead Duplication requests appear here." />
           ) : (
-            <div className="-mx-4 overflow-x-auto px-4">
+            <TableBox>
               <table className="w-full min-w-[760px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -351,7 +376,7 @@ export default function CrmLeadsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableBox>
           )}
         </Card>
       )}
@@ -510,7 +535,7 @@ export default function CrmLeadsPage() {
         ) : !data || data.data.length === 0 ? (
           <EmptyState title="No leads found" hint="Create a lead or loosen the filters." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[940px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -667,7 +692,7 @@ export default function CrmLeadsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>
@@ -761,7 +786,28 @@ export default function CrmLeadsPage() {
               </div>
               <div className="sm:col-span-2">
                 <Label>Requirement</Label>
-                <Textarea rows={2} value={form.requirement} onChange={(e) => set('requirement', e.target.value)} className="w-full" />
+                <Textarea rows={4} value={form.requirement} onChange={(e) => set('requirement', e.target.value)} className="w-full" />
+                {/* Read, rather than retyped.
+                    An enquiry arrives as text and every field above it is
+                    already written down in there. Typing it out again is
+                    where the wrong digit in a phone number comes from, so
+                    the text is read into the boxes instead - and left where
+                    it is, because what they are looking for and what they
+                    said are the parts a salesperson actually reads. */}
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={!form.requirement.trim()}
+                    onClick={fillFromText}
+                  >
+                    <Wand2 className="size-3.5" /> Fill fields from this text
+                  </Button>
+                  <span className="text-xs text-slate-400">
+                    Paste the enquiry above — name, e-mail and number go to their own boxes, and
+                    anything found can still be corrected by hand.
+                  </span>
+                </div>
               </div>
             </div>
             {/* Lead Duplication: the original, and the ways forward. */}

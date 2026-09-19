@@ -26,8 +26,9 @@ export default function Marquee({ children, className }: { children: ReactNode; 
 
     const measure = () => {
       // How far past the edge it runs. Zero means it fits, and a fitting
-      // line is left alone.
-      const over = track.scrollWidth - box.clientWidth
+      // line is left alone. Measured off the track's own box rather than
+      // scrollWidth, which rounds to whole pixels and loses a few.
+      const over = Math.ceil(track.getBoundingClientRect().width - box.clientWidth)
       setShift(over > 4 ? over : 0)
     }
 
@@ -46,10 +47,22 @@ export default function Marquee({ children, className }: { children: ReactNode; 
   }, [children])
 
   return (
-    <span ref={boxRef} className={clsx('block overflow-hidden whitespace-nowrap', className)}>
+    <span ref={boxRef} className={clsx('marquee-box block overflow-hidden whitespace-nowrap', className)}>
       <span
         ref={trackRef}
-        className={clsx(shift > 0 && 'marquee-track')}
+        /*
+         * `marquee-line` is what makes the measuring work, and it is why
+         * this never walked on a phone.
+         *
+         * An inline-block is only as wide as the room it is given, and the
+         * line inside it - a flex row whose parts refuse to shrink - simply
+         * spilled over the edge of it. Measured that way the track looked
+         * exactly as wide as the box, so "does it fit" answered yes on the
+         * one screen where it plainly did not, and the end of the line was
+         * cut off in silence. Given its own content width, the overflow is
+         * real again and the line walks.
+         */
+        className={clsx('marquee-line', shift > 0 && 'marquee-track')}
         style={shift > 0
           ? ({
             '--marquee-shift': `${shift}px`,

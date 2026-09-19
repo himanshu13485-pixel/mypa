@@ -454,6 +454,19 @@ h3 {
  * short line on a wide screen stays perfectly still rather than drifting for
  * no reason.
  */
+/*
+ * The line, at its own width.
+ *
+ * Separate from the animation because it has to be true before anything is
+ * measured: an inline-block takes the width it is given, and a line that has
+ * been squeezed into the box cannot be found to be too big for it.
+ */
+.marquee-line {
+  display: inline-block;
+  width: max-content;
+  max-width: none;
+}
+
 .marquee-track {
   display: inline-block;
   /* Paced by distance, not by a number: a fixed duration makes a long line
@@ -476,5 +489,148 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
   .marquee-track {
     animation: none;
+  }
+
+  /*
+   * Still, but not cut off.
+   *
+   * A line that walks may be clipped, because the rest of it is coming
+   * round in a moment. A line that has been told to hold still may not:
+   * whatever is past the edge would never arrive. Windows ships with
+   * animation effects switched off on plenty of machines, and on those the
+   * "last seen" half of the chat header simply vanished off the end.
+   *
+   * So when it cannot move it wraps instead, and the whole line is read at
+   * once - which is the thing being asked for either way.
+   */
+  .marquee-box.marquee-box {
+    overflow: visible;
+    white-space: normal;
+  }
+
+  .marquee-line.marquee-line {
+    display: inline;
+    width: auto;
+  }
+}
+
+/*
+ * A wide table on a narrow screen.
+ *
+ * The CRM lists are eleven-column tables in a sideways scroller. On a phone
+ * that shows a third of a row and hides the rest behind a drag, so nothing
+ * is ever read whole - and a record half-read is a record misread.
+ *
+ * Below `md` the table stops behaving like one. Each row becomes a card,
+ * each cell a line of its own with its column heading in front of it, and
+ * the row grows downwards until everything fits. Nothing moves sideways,
+ * which is the whole point: a phone scrolls one way, and it is the way the
+ * list should grow.
+ *
+ * See components/TableBox.tsx, which copies the headings onto the cells.
+ */
+@media (max-width: 767px) {
+  .table-box {
+    /* The scroller and the bleed that made room for it are both undone. */
+    margin-left: 0;
+    margin-right: 0;
+    padding-left: 0;
+    padding-right: 0;
+    overflow-x: visible;
+  }
+
+  /* The widths were chosen for a desk: a phone has none to give. */
+  .table-box table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* The headings are not lost - they move in front of the values. */
+  .table-box thead {
+    display: none;
+  }
+
+  .table-box tbody {
+    display: block;
+  }
+
+  .table-box tbody tr {
+    display: block;
+    padding: 0.625rem 0.75rem;
+    margin-bottom: 0.5rem;
+    border: 1px solid rgb(226 232 240);
+    border-radius: 0.75rem;
+    background: rgb(255 255 255 / 0.6);
+  }
+
+  .dark .table-box tbody tr {
+    border-color: rgb(30 41 59);
+    background: rgb(15 23 42 / 0.4);
+  }
+
+  .table-box tbody td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.1875rem 0 !important;
+    text-align: left !important;
+    white-space: normal;
+  }
+
+  .table-box tbody td::before {
+    content: attr(data-label);
+    flex: 0 0 8.5rem;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: rgb(148 163 184);
+  }
+
+  /* A cell with nothing in it is a line about nothing. */
+  .table-box tbody td:empty {
+    display: none;
+  }
+
+  /*
+   * A cell with no heading of its own - a tick box, a row of buttons, the
+   * "nothing here" line - takes the whole width rather than sitting in the
+   * value column behind an empty label.
+   */
+  .table-box tbody td:not([data-label]) {
+    justify-content: flex-start;
+  }
+
+  .table-box tbody td:not([data-label])::before {
+    display: none;
+  }
+
+  /*
+   * The value side, given the rest of the line.
+   *
+   * Truncation is a desk habit - it exists because a column has a width.
+   * Here the row can simply grow, so a long client name wraps rather than
+   * ending in an ellipsis nobody can expand.
+   */
+  .table-box tbody td > * {
+    min-width: 0;
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .table-box tbody td .truncate {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  /* The row that says "nothing here" is a sentence, not a record. */
+  .table-box tbody tr:has(> td[colspan]:only-child) {
+    border: 0;
+    background: none;
+    padding: 0;
   }
 }

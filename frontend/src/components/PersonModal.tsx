@@ -7,6 +7,8 @@ import {
 import { people } from '../api/endpoints'
 import { Avatar } from '../lib/avatars'
 import { desktopAlertsPossible, isWatching, toggleWatching } from '../lib/onlineAlerts'
+import { lastSeenLabel, resolvePresence, usePresenceMap, type PresenceState } from '../lib/presence'
+import { PresenceInline } from './PresenceDot'
 import { Modal } from './ui'
 
 /**
@@ -28,6 +30,8 @@ export default function PersonModal({ uuid, onClose }: { uuid: string; onClose: 
     queryFn: () => people.get(uuid),
   })
 
+  const live = usePresenceMap()
+
   // Per device, so this is localStorage rather than anything the query cache
   // knows about — see lib/onlineAlerts.ts for why it is not on the account.
   const [watched, setWatched] = useState(() => isWatching(uuid))
@@ -46,6 +50,16 @@ export default function PersonModal({ uuid, onClose }: { uuid: string; onClose: 
   const shared = person.shared
   const chat = shared?.conversation_uuid
 
+  /*
+   * Live, not as it was when the sheet opened.
+   *
+   * Presence arrives over the socket the whole time this is open, and a
+   * profile that says "online" because they were online a minute ago is
+   * worse than one that says nothing.
+   */
+  const presence = resolvePresence(live, uuid, person.presence as PresenceState | null)
+  const lastSeen = lastSeenLabel(person.last_seen_at)
+
   return (
     <Modal title={person.name} onClose={onClose}>
       <div className="-mx-4 -mb-4 divide-y divide-slate-100 dark:divide-slate-800">
@@ -57,6 +71,21 @@ export default function PersonModal({ uuid, onClose }: { uuid: string; onClose: 
           <h2 className="mt-4 text-xl font-semibold tracking-tight">{person.name}</h2>
           {person.username && (
             <p className="mt-0.5 text-sm text-slate-400">@{person.username}</p>
+          )}
+
+          {/*
+            * Are they around, and if not, when were they last?
+            *
+            * The one question a profile is opened to answer that it never
+            * answered. "Online" says it on its own; once they are not, the
+            * reader wants the second half - and that is exactly when "last
+            * seen" earns the line, so the two share one.
+            */}
+          {(presence || lastSeen) && (
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+              {presence && <PresenceInline state={presence} />}
+              {presence !== 'online' && lastSeen && <span>{lastSeen}</span>}
+            </p>
           )}
 
           {/* The line most people opened this to read. */}

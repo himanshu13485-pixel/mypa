@@ -9,6 +9,7 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner } from '../../components/ui'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsOf } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -195,7 +196,7 @@ export default function CrmVendorsPage() {
             hint="Register a supplier before entering a bill against them — the same way a client is registered before an invoice."
           />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[880px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -267,7 +268,7 @@ export default function CrmVendorsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>
@@ -314,7 +315,7 @@ export default function CrmVendorsPage() {
                 {detailData.recent_bills.length === 0 ? (
                   <p className="text-sm text-slate-400">Nothing billed against this vendor yet.</p>
                 ) : (
-                  <div className="-mx-4 overflow-x-auto px-4">
+                  <TableBox>
                     <table className="w-full min-w-[520px] text-sm">
                       <tbody>
                         {detailData.recent_bills.map((b) => (
@@ -332,7 +333,7 @@ export default function CrmVendorsPage() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                  </TableBox>
                 )}
               </div>
             </div>

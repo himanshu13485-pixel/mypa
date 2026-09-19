@@ -10,6 +10,7 @@ import { Button, Card, EmptyState, Pager, Spinner } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -103,7 +104,7 @@ export default function CrmRecurringPage() {
             hint="Open a proforma or invoice and press Repeat to bill it on a schedule."
           />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[920px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -232,7 +233,7 @@ export default function CrmRecurringPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>

@@ -11,6 +11,7 @@ import { CHART_COLORS, DonutChart, GrowthChart, HBarChart } from './charts'
 import { ScopeToggle, useTeamHead } from './ScopeToggle'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
@@ -470,7 +471,7 @@ export default function CrmTargetsPage() {
           {salesRows.length > 0 && (
             <Card>
               <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Sales targets</h2>
-              <div className="-mx-4 overflow-x-auto px-4">
+              <TableBox>
                 <table className="w-full min-w-[1140px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -540,7 +541,7 @@ export default function CrmTargetsPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableBox>
               <p className="mt-2 text-[11px] text-slate-500">
                 Target, Achieved, New and Existing are taxable value, before tax. Payment due is what clients
                 still owe on this desk&rsquo;s documents, tax included.
@@ -551,7 +552,7 @@ export default function CrmTargetsPage() {
           {clientRows.length > 0 && (
             <Card>
               <h2 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Client targets</h2>
-              <div className="-mx-4 overflow-x-auto px-4">
+              <TableBox>
                 <table className="w-full min-w-[1140px] text-sm">
                   <thead>
                     <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -618,7 +619,7 @@ export default function CrmTargetsPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableBox>
               <p className="mt-2 text-[11px] text-slate-500">
                 The target counts new clients only, so progress is New against Target. Total closed is the
                 month&rsquo;s whole head count, and the figure under each name is the portfolio built all time.
@@ -728,7 +729,7 @@ function GrowthMap() {
             format={inr}
           />
 
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -767,7 +768,7 @@ function GrowthMap() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         </>
       )}
     </Card>
@@ -822,7 +823,7 @@ function Leaderboard({ title, hint, rows, valueLabel, value, target, percent, sh
       </h2>
       <p className="mt-0.5 text-xs text-slate-400">{hint}</p>
 
-      <div className="-mx-4 mt-3 overflow-x-auto px-4">
+      <TableBox className="mt-3">
         <table className="w-full min-w-[620px] text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -872,7 +873,7 @@ function Leaderboard({ title, hint, rows, valueLabel, value, target, percent, sh
             })}
           </tbody>
         </table>
-      </div>
+      </TableBox>
     </Card>
   )
 }

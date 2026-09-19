@@ -14,6 +14,7 @@ import {
   Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, SkeletonCards, SkeletonTable,
   Textarea,
 } from '../components/ui'
+import TableBox from '../components/TableBox'
 
 const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD', 'JPY', 'CNY']
 const PURPOSES = ['construction', 'business', 'personal', 'trading', 'rental', 'general']
@@ -554,7 +555,7 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
         </Card>
       ) : (
         <Card className="p-0">
-          <div className="overflow-x-auto">
+          <TableBox>
             <table className="w-full min-w-[720px] text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
@@ -613,7 +614,7 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
           <div className="px-3 pb-3">
             <Pager resp={entries} onPage={setPage} />
           </div>

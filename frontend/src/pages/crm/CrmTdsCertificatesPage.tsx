@@ -11,6 +11,7 @@ import {
 } from '../../components/ui'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const inr = (value: string | number, currency = 'INR') =>
   currency + ' ' + Number(value).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -188,7 +189,7 @@ export default function CrmTdsCertificatesPage() {
             hint="Invoices where a client deducted tax at source appear here."
           />
         ) : (
-          <div className="overflow-x-auto">
+          <TableBox>
             <table className="w-full min-w-[52rem] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-[11px] uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -280,7 +281,7 @@ export default function CrmTdsCertificatesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
 

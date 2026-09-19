@@ -10,6 +10,7 @@ import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 export function decisionBadge(status: string) {
   return clsx(
@@ -204,7 +205,7 @@ export default function CrmLeavesPage() {
         ) : !data || data.data.length === 0 ? (
           <EmptyState title="No leave requests" hint="Requests appear here once submitted." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -295,7 +296,7 @@ export default function CrmLeavesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>

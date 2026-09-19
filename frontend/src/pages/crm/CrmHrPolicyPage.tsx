@@ -6,6 +6,7 @@ import { crm, type CrmHrPolicy, type CrmLeaveAccount } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Select, Spinner, Modal } from '../../components/ui'
+import TableBox from '../../components/TableBox'
 
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
 
@@ -540,7 +541,7 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
       ) : !data || data.members.length === 0 ? (
         <div className="mt-3"><EmptyState title="No active employees" hint="Accounts appear as people join." /></div>
       ) : (
-        <div className="-mx-4 mt-3 overflow-x-auto px-4">
+        <TableBox className="mt-3">
           <table className="w-full min-w-[900px] text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -591,7 +592,7 @@ function LeaveAccounts({ financialYear }: { financialYear: number }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableBox>
       )}
 
       {data && canEdit && (
@@ -743,7 +744,7 @@ function LeaveLedgerModal({ account, year, canEdit, onClose, onChanged }: {
       ) : data.entries.length === 0 ? (
         <EmptyState title="No movements this year" hint="Credits, adjustments, leave and covered absences show here." />
       ) : (
-        <div className="-mx-4 overflow-x-auto px-4">
+        <TableBox>
           <table className="w-full min-w-[560px] text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -792,7 +793,7 @@ function LeaveLedgerModal({ account, year, canEdit, onClose, onChanged }: {
               </tr>
             </tfoot>
           </table>
-        </div>
+        </TableBox>
       )}
     </Modal>
   )

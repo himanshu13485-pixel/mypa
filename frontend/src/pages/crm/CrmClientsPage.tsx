@@ -12,6 +12,7 @@ import { codeCase, companyCase, emailCase, nameCase } from './textCase'
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const TITLES = ['Mr.', 'Mrs.', 'Miss', 'Ms.', 'Dr.']
 
@@ -297,7 +298,7 @@ export default function CrmClientsPage() {
         ) : !data || data.data.length === 0 ? (
           <EmptyState title="No clients found" hint="Add your first client to start invoicing." />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -407,7 +408,7 @@ export default function CrmClientsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
         <Pager resp={data} onPage={setPage} />
       </Card>
@@ -423,7 +424,7 @@ export default function CrmClientsPage() {
           {heldForApproval === 0 ? (
             <EmptyState title="Nothing waiting" hint="Clients held for approval appear here." />
           ) : (
-            <div className="-mx-4 overflow-x-auto px-4">
+            <TableBox>
               <table className="w-full min-w-[820px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -490,7 +491,7 @@ export default function CrmClientsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableBox>
           )}
         </Card>
       )}
@@ -505,7 +506,7 @@ export default function CrmClientsPage() {
           {!requests || requests.data.length === 0 ? (
             <EmptyState title="Nothing waiting" hint="Access requests appear here." />
           ) : (
-            <div className="-mx-4 overflow-x-auto px-4">
+            <TableBox>
               <table className="w-full min-w-[720px] text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -560,7 +561,7 @@ export default function CrmClientsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </TableBox>
           )}
         </Card>
       )}

@@ -11,6 +11,7 @@ import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { leadStatusBadge } from './CrmLeadsPage'
 import { format } from 'date-fns'
 import { crmPath } from '../../lib/crmPath'
+import TableBox from '../../components/TableBox'
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   if (value === null || value === undefined || value === '') return null
@@ -734,7 +735,7 @@ function LeadCallLog({ uuid }: { uuid: string }) {
         </p>
       ) : (
         <>
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -767,7 +768,7 @@ function LeadCallLog({ uuid }: { uuid: string }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
 
           <p className="mt-2 text-xs text-slate-400">
             Times are when the call was placed. Lengths are what the caller reported — a phone call

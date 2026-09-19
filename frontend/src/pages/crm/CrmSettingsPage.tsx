@@ -10,6 +10,7 @@ import { useToast } from '../../components/Toast'
 import { usePrompt } from '../../components/Prompt'
 import { photoUrl } from '../../lib/avatars'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner } from '../../components/ui'
+import TableBox from '../../components/TableBox'
 
 type Company = CrmMasters['issuing_companies'][number]
 type Bank = CrmMasters['bank_accounts'][number]
@@ -59,7 +60,7 @@ export default function CrmSettingsPage() {
         {!masters || masters.issuing_companies.length === 0 ? (
           <p className="mt-3 text-sm text-slate-400">No issuing companies yet — invoices need at least one.</p>
         ) : (
-          <div className="-mx-4 mt-3 overflow-x-auto px-4">
+          <TableBox className="mt-3">
             <table className="w-full min-w-[560px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -95,7 +96,7 @@ export default function CrmSettingsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
 
@@ -111,7 +112,7 @@ export default function CrmSettingsPage() {
         {!masters || masters.bank_accounts.length === 0 ? (
           <p className="mt-3 text-sm text-slate-400">No bank accounts yet — payments reference these.</p>
         ) : (
-          <div className="-mx-4 mt-3 overflow-x-auto px-4">
+          <TableBox className="mt-3">
             <table className="w-full min-w-[480px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -142,7 +143,7 @@ export default function CrmSettingsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
 

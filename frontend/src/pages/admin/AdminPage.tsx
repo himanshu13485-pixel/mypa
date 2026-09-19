@@ -23,6 +23,7 @@ import {
   Badge, Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, SkeletonList, SkeletonTable,
 } from '../../components/ui'
 import type { User } from '../../types'
+import TableBox from '../../components/TableBox'
 
 const MODULES = ['users', 'approvals', 'moderation', 'activity'] as const
 const ABILITIES = ['can_view', 'can_edit', 'can_delete'] as const
@@ -108,7 +109,7 @@ function ActiveMembersTab() {
       ) : !data?.length ? (
         <EmptyState title="No activity in the last 24 hours" />
       ) : (
-        <div className="overflow-x-auto">
+        <TableBox>
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
@@ -148,7 +149,7 @@ function ActiveMembersTab() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableBox>
       )}
     </Card>
   )
@@ -229,7 +230,7 @@ function LoginsTab() {
       ) : !data?.data.length ? (
         <EmptyState title="No logins recorded" />
       ) : (
-        <div className="overflow-x-auto">
+        <TableBox>
           <table className="w-full min-w-[640px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
@@ -254,7 +255,7 @@ function LoginsTab() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableBox>
       )}
       <Pager resp={data} onPage={setPage} />
     </Card>
@@ -535,7 +536,7 @@ function PlansTab() {
       {isLoading ? (
         <SkeletonTable rows={8} cols={5} />
       ) : (
-        <div className="overflow-x-auto">
+        <TableBox>
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
@@ -578,7 +579,7 @@ function PlansTab() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableBox>
       )}
 
       {editing && (
@@ -987,7 +988,7 @@ function UsersTab() {
       ) : !users?.data.length ? (
         <EmptyState title="No users found" />
       ) : (
-        <div className="overflow-x-auto">
+        <TableBox>
           <table className="w-full min-w-[760px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
@@ -1117,7 +1118,7 @@ function UsersTab() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableBox>
       )}
       <Pager resp={users} onPage={setPage} />
 
@@ -1594,7 +1595,7 @@ function SalesTab() {
       ) : !users?.data.length ? (
         <EmptyState title="No users assigned to you yet" hint="An admin assigns users from the Users tab." />
       ) : (
-        <div className="overflow-x-auto">
+        <TableBox>
           <table className="w-full min-w-[560px] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-xs text-slate-500 dark:border-slate-800">
@@ -1623,7 +1624,7 @@ function SalesTab() {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableBox>
       )}
       {summaryFor && <SalesSummaryModal user={summaryFor} onClose={() => setSummaryFor(null)} />}
     </Card>

@@ -8,6 +8,7 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, Input, Label, Modal, Select, Spinner } from '../../components/ui'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
+import TableBox from '../../components/TableBox'
 
 const STATUS_STYLE: Record<CrmAsset['status'], string> = {
   in_stock: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-400',
@@ -127,7 +128,7 @@ export default function CrmAssetsPage() {
         ) : !data || data.data.length === 0 ? (
           <EmptyState title="No assets found" hint={manages ? 'Add the first items — they land in stock.' : 'Nothing allocated to you yet.'} />
         ) : (
-          <div className="-mx-4 overflow-x-auto px-4">
+          <TableBox>
             <table className="w-full min-w-[900px] text-sm">
               <thead>
                 <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
@@ -198,7 +199,7 @@ export default function CrmAssetsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableBox>
         )}
       </Card>
 
