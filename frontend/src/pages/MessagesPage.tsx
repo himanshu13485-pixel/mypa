@@ -409,6 +409,30 @@ export default function MessagesPage() {
   const [pickedChat, setSelected] = useState<ConversationItem | null>(null)
   const [draft, setDraft] = useState('')
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
+
+  /**
+   * Back to the message a reply is answering.
+   *
+   * Scrolled to and lit for a moment, because landing somewhere in a wall
+   * of messages without being told which one is barely better than not
+   * moving at all.
+   *
+   * A thread opens on its last thirty messages, so a reply to something
+   * older has nothing here to point at - and saying so is the honest
+   * answer, rather than a tap that silently does nothing.
+   */
+  const goToSource = (uuid: string) => {
+    const el = document.getElementById('msg-' + uuid)
+    if (!el) {
+      toast('That message is further back than this thread has loaded.', 'info')
+
+      return
+    }
+
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('msg-found')
+    window.setTimeout(() => el.classList.remove('msg-found'), 1600)
+  }
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [reactFor, setReactFor] = useState<string | null>(null)
   /*
@@ -2354,6 +2378,8 @@ export default function MessagesPage() {
               {messages?.map((m) => (
                 <div
                   key={m.uuid}
+                  // Named, so a reply has somewhere to point at - see goToSource.
+                  id={'msg-' + m.uuid}
                   onPointerEnter={(e) => decideActionSide(e.currentTarget, m.uuid)}
                   className={clsx(
                     'group flex',
@@ -2402,11 +2428,24 @@ export default function MessagesPage() {
                           {m.sender?.name ?? 'Deleted account'}
                         </p>
                       )}
+                      {/* The quote is the way back to what was answered.
+                          A reply half a screen below its source reads as a
+                          remark about nothing; every messenger lets you tap
+                          the quote and lands you on the message it quotes,
+                          and people try it here whether or not it works. */}
                       {m.reply_to && (
-                        <p className={clsx('mb-1 rounded-lg border-l-2 px-2 py-1 text-xs opacity-80', m.is_own ? 'border-white/50 bg-white/10' : 'border-brand-400 bg-white dark:bg-slate-900')}>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); goToSource(m.reply_to!.uuid) }}
+                          title="Go to the message this answers"
+                          className={clsx(
+                            'mb-1 block w-full rounded-lg border-l-2 px-2 py-1 text-left text-xs opacity-80 transition-opacity hover:opacity-100',
+                            m.is_own ? 'border-white/50 bg-white/10' : 'border-brand-400 bg-white dark:bg-slate-900',
+                          )}
+                        >
                           <span className="font-medium">{m.reply_to.sender_name ?? 'Deleted account'}: </span>
-                          {m.reply_to.body ?? '…'}
-                        </p>
+                          <span className="line-clamp-2">{m.reply_to.body ?? '…'}</span>
+                        </button>
                       )}
                       {m.is_deleted ? (
                         <p className="italic opacity-60">Message deleted</p>

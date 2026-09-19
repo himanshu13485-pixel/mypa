@@ -515,6 +515,36 @@ h3 {
 }
 
 /*
+ * "This one" - the message a reply was pointing at.
+ *
+ * Scrolling somebody to a message is only half the job; a wall of bubbles
+ * looks the same wherever it stops. The one that was asked for holds a tint
+ * for a moment and lets go, which is enough to find it by and not enough to
+ * be left wondering what the colour means.
+ */
+.msg-found > div {
+  animation: msg-found 1.6s ease-out;
+  border-radius: 1rem;
+}
+
+@keyframes msg-found {
+  0%, 55% {
+    box-shadow: 0 0 0 3px rgb(16 185 129 / 0.55);
+  }
+  100% {
+    box-shadow: 0 0 0 3px rgb(16 185 129 / 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Still findable, just not animated: it holds and then stops. */
+  .msg-found > div {
+    animation: none;
+    box-shadow: 0 0 0 3px rgb(16 185 129 / 0.55);
+  }
+}
+
+/*
  * A filter bar that fits the screen it is on.
  *
  * The bars were laid out for a desk and left to wrap: a date box is as wide
@@ -677,6 +707,33 @@ h3 {
   /* A cell with nothing in it is a line about nothing. */
   .table-box tbody td:empty {
     display: none;
+  }
+
+  /*
+   * No columns, so no lines between them.
+   *
+   * The person column is pinned to the left on a desk, with a rule down its
+   * right-hand side to separate it from the figures that scroll past. In a
+   * card there is nothing to separate and nothing to pin: the rule became a
+   * stray vertical line down the middle of every row.
+   */
+  .table-box tbody td {
+    position: relative !important;
+    border-left: 0 !important;
+    border-right: 0 !important;
+  }
+
+  /*
+   * A control takes the line it is on.
+   *
+   * Widths on these were chosen to sit in a column - a number box a dozen
+   * characters wide, a dropdown as wide as "Clients" - and left alone they
+   * float in the middle of the card with the heading stranded beside them.
+   */
+  .table-box tbody td select,
+  .table-box tbody td input:not([type='checkbox']):not([type='radio']) {
+    width: 100%;
+    max-width: 11rem;
   }
 
   /*

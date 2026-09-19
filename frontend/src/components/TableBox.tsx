@@ -42,8 +42,20 @@ export default function TableBox({ children, className }: { children: ReactNode;
 
         cells.forEach((cell, i) => {
           const heading = cell.colSpan > 1 ? '' : (heads[i] ?? '')
-          // A checkbox or an icon column has no heading worth repeating.
-          if (heading && cell.textContent?.trim()) cell.setAttribute('data-label', heading)
+          /*
+           * "Has something in it" includes a box you type in.
+           *
+           * Text was the only test, and a cell holding nothing but a
+           * dropdown or a number box has no text at all - so the two cells
+           * that matter most on the targets screen, the kind and the number
+           * being set, were the two that lost their headings and sat there
+           * unexplained.
+           */
+          const filled = cell.textContent?.trim() || cell.querySelector('input, select, textarea')
+          // A lone tick box still needs no heading: it labels itself.
+          const bare = cell.querySelector(':scope > input[type="checkbox"], :scope > input[type="radio"]')
+
+          if (heading && filled && !bare) cell.setAttribute('data-label', heading)
           else cell.removeAttribute('data-label')
         })
       }
