@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -391,6 +391,15 @@ const MAX_UPLOAD_MB = 25
 const SENDING_PREFIX = 'sending:'
 const isSending = (m: ChatMessage) => m.uuid.startsWith(SENDING_PREFIX)
 
+/**
+ * What one page of history holds.
+ *
+ * The server's own window (MessageController::index), repeated here for one
+ * reason: a page that comes back shorter than this is the beginning of the
+ * conversation, and that is how the reader is told there is no more.
+ */
+const MESSAGES_PER_PAGE = 30
+
 export default function MessagesPage() {
   const queryClient = useQueryClient()
 
@@ -421,17 +430,44 @@ export default function MessagesPage() {
    * older has nothing here to point at - and saying so is the honest
    * answer, rather than a tap that silently does nothing.
    */
-  const goToSource = (uuid: string) => {
+  const flashMessage = (uuid: string): boolean => {
     const el = document.getElementById('msg-' + uuid)
-    if (!el) {
-      toast('That message is further back than this thread has loaded.', 'info')
-
-      return
-    }
+    if (!el) return false
 
     el.scrollIntoView({ behavior: 'smooth', block: 'center' })
     el.classList.add('msg-found')
     window.setTimeout(() => el.classList.remove('msg-found'), 1600)
+
+    return true
+  }
+
+  const goToSource = async (uuid: string) => {
+    if (flashMessage(uuid)) return
+
+    /*
+     * Not on screen, so go and get it.
+     *
+     * A reply is often an answer to something said well before the last
+     * thirty messages, and a tap that shrugs is worse than no tap at all.
+     * The thread is walked backwards a page at a time until the message
+     * turns up - bounded, because "somewhere in four years of chat" is a
+     * search rather than a jump.
+     */
+    for (let page = 0; page < 8; page += 1) {
+      const got = await loadOlder()
+      if (!got) break
+      // A beat for the rows to be laid out before looking for one of them.
+      await new Promise((resolve) => window.setTimeout(resolve, 60))
+      if (flashMessage(uuid)) return
+      if (atStartRef.current) break
+    }
+
+    toast(
+      atStartRef.current
+        ? 'That message is no longer in this conversation.'
+        : 'That message is a long way back — keep loading earlier messages to reach it.',
+      'info',
+    )
   }
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [reactFor, setReactFor] = useState<string | null>(null)
@@ -740,9 +776,91 @@ export default function MessagesPage() {
     refetchInterval: query ? false : 15_000,
   })
 
+  /*
+   * Everything before the page the server sent.
+   *
+   * A thread opens on its last thirty messages and there was no way past
+   * that: not by scrolling, not by tapping a reply that quoted something
+   * older. Pages fetched backwards are kept here rather than in the query,
+   * because the query is the live window - it refetches, it takes arrivals
+   * from the socket, and a page of history has no business being thrown
+   * away every time somebody says hello.
+   */
+  const [older, setOlder] = useState<ChatMessage[]>([])
+  /** Set once a backward page comes up short: there is nothing behind it. */
+  const [atStart, setAtStart] = useState(false)
+  const atStartRef = useRef(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  /** How far from the bottom the reader was, so prepending does not move them. */
+  const keepFromBottom = useRef<number | null>(null)
+
+  // A different conversation - or a search, which is its own window - starts again.
+  useEffect(() => {
+    setOlder([])
+    setAtStart(false)
+    atStartRef.current = false
+  }, [selected?.uuid, query])
+
+  const thread = useMemo(
+    () => (older.length ? [...older, ...(messages ?? [])] : (messages ?? [])),
+    [older, messages],
+  )
+
+  /*
+   * Older messages arrive above the reader, so the reader must not move.
+   *
+   * Prepending leaves scrollTop where it was, which means the view slides
+   * down into the history that was just added - the one thing somebody
+   * reading is not asking for. Measured from the bottom instead, which does
+   * not change when something is added to the top.
+   */
+  useLayoutEffect(() => {
+    const el = listRef.current
+    if (!el || keepFromBottom.current === null) return
+    el.scrollTop = el.scrollHeight - keepFromBottom.current
+    keepFromBottom.current = null
+  }, [older])
+
+  /**
+   * One page further back, or null when there is no more of it.
+   *
+   * The server answers with a fixed window, so a short page means the
+   * beginning of the conversation: it is remembered, and the button that
+   * asks for more goes away rather than sitting there doing nothing.
+   */
+  const loadOlder = async (): Promise<ChatMessage[] | null> => {
+    const first = older[0] ?? messages?.[0]
+    // Not while searching: that window is "messages matching this word", and
+    // a page of ordinary history prepended to it would be a lie about the
+    // search rather than more of it.
+    if (!selected || !first || query || atStartRef.current) return null
+
+    const el = listRef.current
+    if (el) keepFromBottom.current = el.scrollHeight - el.scrollTop
+
+    setLoadingOlder(true)
+    try {
+      const page = await chat.messages(selected.uuid, { before: first.uuid })
+      if (page.length < MESSAGES_PER_PAGE) {
+        atStartRef.current = true
+        setAtStart(true)
+      }
+      if (page.length) setOlder((prev) => [...page, ...prev])
+      else keepFromBottom.current = null
+
+      return page
+    } catch {
+      keepFromBottom.current = null
+
+      return null
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
+
   /* The ticked messages, in the order the thread holds them — a Set remembers
      the order things were tapped, which is not the order they were said. */
-  const picked = selectedIn(messages ?? [], selection)
+  const picked = selectedIn(thread, selection)
 
   /*
    * The newest message's identity.
@@ -1805,7 +1923,7 @@ export default function MessagesPage() {
                     aria-label="Copy selected"
                     disabled={!picked.some((m) => m.body)}
                     onClick={() => {
-                      navigator.clipboard.writeText(copyTextOf(messages ?? [], selection))
+                      navigator.clipboard.writeText(copyTextOf(thread, selection))
                         .then(() => { toast('Copied.', 'success'); clearSelection() })
                         .catch(() => toastError('This browser would not let the app copy.'))
                     }}
@@ -1946,7 +2064,7 @@ export default function MessagesPage() {
       {deletingMany && (
         <Modal title={`Delete ${selection.size} messages`} onClose={() => setDeletingMany(false)}>
           <div className="space-y-3">
-            {!canUnsendAll(messages ?? [], selection) && (
+            {!canUnsendAll(thread, selection) && (
               <p className="text-xs text-amber-600">
                 Some of these are older than {DELETE_WINDOW_HOURS} hours or are not yours, so they
                 cannot be taken back for everyone. You can still remove all of them from your own
@@ -1957,7 +2075,7 @@ export default function MessagesPage() {
             <div className="flex flex-wrap justify-end gap-2">
               <Button variant="secondary" onClick={() => setDeletingMany(false)}>Cancel</Button>
               <Button variant="secondary" onClick={() => bulkDelete('me')}>Delete for me</Button>
-              {canUnsendAll(messages ?? [], selection) && (
+              {canUnsendAll(thread, selection) && (
                 <Button variant="danger" onClick={() => bulkDelete('everyone')}>
                   Delete for everyone
                 </Button>
@@ -2375,7 +2493,24 @@ export default function MessagesPage() {
                   read once the cache answers instantly and this never shows;
                   before, every switch blanked the panel either way. */}
               {loadingThread && !messages && <SkeletonMessages />}
-              {messages?.map((m) => (
+
+              {/* The way further back.
+                  Only when there is further back to go: a conversation whose
+                  beginning is already on screen says so by not asking. */}
+              {!query && thread.length > 0 && !atStart && (
+                <div className="flex justify-center pb-1">
+                  <button
+                    type="button"
+                    onClick={() => loadOlder()}
+                    disabled={loadingOlder}
+                    className="tap rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-slate-600 shadow-sm ring-1 ring-slate-200 hover:bg-white disabled:opacity-60 dark:bg-slate-800/80 dark:text-slate-300 dark:ring-slate-700"
+                  >
+                    {loadingOlder ? 'Loading…' : 'Earlier messages'}
+                  </button>
+                </div>
+              )}
+
+              {thread.map((m) => (
                 <div
                   key={m.uuid}
                   // Named, so a reply has somewhere to point at - see goToSource.
