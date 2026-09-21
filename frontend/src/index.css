@@ -515,6 +515,33 @@ h3 {
 }
 
 /*
+ * Selected text that can be seen.
+ *
+ * The browser's highlight is blue, and your own bubbles are blue: dragging
+ * across one of them selected the text perfectly well and showed nothing,
+ * so it looked as though selecting did not work at all. Inside your own
+ * bubble the highlight is a near-white band with the text turned dark;
+ * inside theirs it is a clear light blue.
+ */
+.msg-own ::selection,
+.msg-own::selection {
+  background: rgb(255 255 255 / 0.92);
+  color: #1e3a8a;
+}
+
+.msg-theirs ::selection,
+.msg-theirs::selection {
+  background: rgb(147 197 253 / 0.75);
+  color: #0f172a;
+}
+
+.dark .msg-theirs ::selection,
+.dark .msg-theirs::selection {
+  background: rgb(96 165 250 / 0.55);
+  color: #fff;
+}
+
+/*
  * "This one" - the message a reply was pointing at.
  *
  * Scrolling somebody to a message is only half the job; a wall of bubbles

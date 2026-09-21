@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef } from 'react'
-import { LONG_PRESS_MS, movedTooFar } from './longPress'
+import {
+  LONG_PRESS_MS, SWIPE_REPLY_PX, isDoubleTap, movedTooFar, swipeOffset, type Tap,
+} from './longPress'
 
 /**
  * Press and hold, the way a messaging app is expected to behave.
@@ -38,6 +40,12 @@ export function useLongPress() {
   const origin = useRef<{ x: number; y: number } | null>(null)
   /** Set when our own press fired, so the context menu it provokes is eaten. */
   const fired = useRef(false)
+  /** The last clean tap, for telling a double tap from two single ones. */
+  const lastTap = useRef<Tap | null>(null)
+  /** How far the bubble under the finger has been dragged, if it is a swipe. */
+  const swiped = useRef(0)
+  /** Once any movement has happened, the lift at the end is not a tap. */
+  const moved = useRef(false)
 
   const clear = useCallback(() => {
     if (timer.current) clearTimeout(timer.current)
@@ -45,15 +53,35 @@ export function useLongPress() {
     origin.current = null
   }, [])
 
+  /** Put a swiped bubble back where it lives, gently. */
+  const settle = (el: HTMLElement) => {
+    el.style.transition = 'transform 160ms ease-out'
+    el.style.transform = ''
+    window.setTimeout(() => { el.style.transition = '' }, 170)
+  }
+
   // A press still in flight when the list goes away must not land on nothing.
   useEffect(() => clear, [clear])
 
+  /*
+   * Two more gestures, on the same handlers.
+   *
+   * A double tap and a swipe to the right are what every messenger has
+   * taught people to try on a bubble, and they share the press's problem:
+   * each one looks like the start of something else for the first few
+   * pixels. So they live here, where the one set of handlers can decide -
+   * a stationary finger that stays is a long press, one that lifts quickly
+   * twice is a double tap, and one that travels sideways is a swipe - rather
+   * than three handlers on one element each deciding for themselves.
+   */
   return useCallback(
-    (onLongPress: () => void) => ({
+    (onLongPress: () => void, extra: { onDoubleTap?: () => void; onSwipeRight?: () => void } = {}) => ({
       onPointerDown: (e: React.PointerEvent) => {
         // Primary button only. A mouse user has hover and does not need this.
         if (e.button !== 0) return
         fired.current = false
+        moved.current = false
+        swiped.current = 0
         origin.current = { x: e.clientX, y: e.clientY }
         timer.current = setTimeout(() => {
           fired.current = true
@@ -62,11 +90,62 @@ export function useLongPress() {
       },
       onPointerMove: (e: React.PointerEvent) => {
         if (!origin.current) return
-        if (movedTooFar(origin.current, { x: e.clientX, y: e.clientY })) clear()
+        const dx = e.clientX - origin.current.x
+        const dy = e.clientY - origin.current.y
+
+        if (extra.onSwipeRight) {
+          const offset = swipeOffset(dx, dy)
+          if (offset !== null) {
+            if (timer.current) clearTimeout(timer.current)
+            timer.current = null
+            moved.current = true
+            swiped.current = offset
+            ;(e.currentTarget as HTMLElement).style.transform = `translateX(${offset}px)`
+
+            return
+          }
+        }
+
+        if (movedTooFar(origin.current, { x: e.clientX, y: e.clientY })) {
+          moved.current = true
+          clear()
+        }
       },
-      onPointerUp: clear,
-      onPointerCancel: clear,
-      onPointerLeave: clear,
+      onPointerUp: (e: React.PointerEvent) => {
+        const el = e.currentTarget as HTMLElement
+        const wasSwipe = swiped.current
+        const clean = !fired.current && !moved.current
+
+        clear()
+
+        if (wasSwipe) {
+          settle(el)
+          swiped.current = 0
+          if (wasSwipe >= SWIPE_REPLY_PX) extra.onSwipeRight?.()
+
+          return
+        }
+
+        // Only a clean tap - no hold, no travel - can be half of a double tap.
+        if (!clean || !extra.onDoubleTap) return
+        const tap = { t: e.timeStamp, x: e.clientX, y: e.clientY }
+        if (isDoubleTap(lastTap.current, tap)) {
+          lastTap.current = null
+          extra.onDoubleTap()
+        } else {
+          lastTap.current = tap
+        }
+      },
+      onPointerCancel: (e: React.PointerEvent) => {
+        if (swiped.current) settle(e.currentTarget as HTMLElement)
+        swiped.current = 0
+        clear()
+      },
+      onPointerLeave: (e: React.PointerEvent) => {
+        if (swiped.current) settle(e.currentTarget as HTMLElement)
+        swiped.current = 0
+        clear()
+      },
       onContextMenu: (e: React.MouseEvent) => {
         if (fired.current) e.preventDefault()
       },

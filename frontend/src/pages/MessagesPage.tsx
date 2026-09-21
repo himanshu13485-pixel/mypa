@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   Archive, ArrowDown, Bell, BellOff, Camera, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Eraser, Flag, Forward, Megaphone, Mic, MoreVertical, Palette, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
-  Smile, Square, Trash2, Video, X,
+  Smile, Square, TextSelect, Trash2, Video, X,
 } from 'lucide-react'
 import { badges as badgesApi, conversationMembers, removeConversationMember, reportsApi } from '../api/endpoints'
 import type { ConversationMember } from '../api/endpoints'
@@ -430,6 +430,44 @@ export default function MessagesPage() {
    * older has nothing here to point at - and saying so is the honest
    * answer, rather than a tap that silently does nothing.
    */
+  /*
+   * Which bubble has been handed back to the phone for selecting.
+   *
+   * On a touch screen the bubbles refuse text selection, because a press
+   * and hold is how the actions sheet opens and the two cannot share the
+   * gesture. "Select text" lifts that for one message - the phone's own
+   * handles appear, and any part of it can be copied - until Done, or until
+   * the conversation changes.
+   */
+  const [selectableFor, setSelectableFor] = useState<string | null>(null)
+  // pickedChat rather than `selected`, which is derived further down.
+  useEffect(() => { setSelectableFor(null) }, [pickedChat?.uuid])
+
+  /**
+   * The whole message on the clipboard, and on screen as selected.
+   *
+   * What a double tap - or a mouse's double click - does. Copying half a
+   * message by dragging across it is fiddly on a desk and near impossible
+   * on a phone, and "the whole thing" is what somebody wants nine times in
+   * ten: an address, a script to read out, a list to paste elsewhere.
+   */
+  const copyWhole = (m: ChatMessage) => {
+    if (!m.body || m.is_deleted) return
+
+    // Shown as well as copied, so the copy can be seen to have happened.
+    const body = document.querySelector(`#msg-${CSS.escape(m.uuid)} [data-msg-body]`)
+    if (body && !noHover) window.getSelection()?.selectAllChildren(body)
+    const row = document.getElementById('msg-' + m.uuid)
+    if (row) {
+      row.classList.add('msg-found')
+      window.setTimeout(() => row.classList.remove('msg-found'), 900)
+    }
+
+    navigator.clipboard.writeText(m.body)
+      .then(() => toast('Message copied.', 'success'))
+      .catch(() => toastError('This browser would not let the app copy. Use Select text instead.'))
+  }
+
   const flashMessage = (uuid: string): boolean => {
     const el = document.getElementById('msg-' + uuid)
     if (!el) return false
@@ -1602,10 +1640,26 @@ export default function MessagesPage() {
       key: 'copy',
       icon: <Copy className="size-3.5" />,
       label: 'Copy text',
+      run: () => copyWhole(m),
+    }] : []),
+    /*
+     * Part of a message, on a phone.
+     *
+     * Copy takes the lot; this is for the line in the middle - an address in
+     * a paragraph, one number out of a list. Only offered where it is needed:
+     * a mouse can already drag across any bubble.
+     */
+    ...(m.body && noHover ? [{
+      key: 'select-text',
+      icon: <TextSelect className="size-3.5" />,
+      label: 'Select text',
       run: () => {
-        navigator.clipboard.writeText(m.body ?? '')
-          .then(() => toast('Copied.', 'success'))
-          .catch(() => toastError('This browser would not let the app copy. Select the text by hand.'))
+        setSelectableFor(m.uuid)
+        // Start with all of it chosen, so the handles are there to drag in.
+        window.setTimeout(() => {
+          const body = document.querySelector(`#msg-${CSS.escape(m.uuid)} [data-msg-body]`)
+          if (body) window.getSelection()?.selectAllChildren(body)
+        }, 50)
       },
     }] : []),
     {
@@ -2529,13 +2583,18 @@ export default function MessagesPage() {
                     <div
                       className={clsx(
                         'rounded-2xl px-3 py-2 text-sm',
+                        // Hooks for the selection colours in index.css: a
+                        // highlight has to read against the bubble it is in.
+                        m.is_own ? 'msg-own' : 'msg-theirs',
                         m.is_own
                           ? clsx('rounded-br-sm', theme.own)
                           : clsx('rounded-bl-sm', theme.theirs),
                         // Only where the gesture is the way in. A mouse has
                         // hover, and suppressing its text selection to catch
                         // a press it will never make would be a plain loss.
-                        noHover && 'select-none',
+                        // "Select text" hands this one bubble back to the
+                        // phone's own selection handles.
+                        noHover && selectableFor !== m.uuid && 'select-none touch-pan-y',
                         // While picking, a tap anywhere on the bubble is the
                         // tick — so the whole thing has to look pressable,
                         // and nothing inside may answer the tap first. A link
@@ -2546,12 +2605,20 @@ export default function MessagesPage() {
                       onClick={selecting
                         ? (e) => { e.preventDefault(); setSelection(toggleSelected(selection, m.uuid)) }
                         : undefined}
+                      // A mouse's double click: the whole message, not a word of it.
+                      onDoubleClick={!noHover && !selecting && !m.is_deleted ? () => copyWhole(m) : undefined}
                       {...(
                         // Not while it is still on its way: every one of those
                         // actions names the message by a uuid the server has
                         // never heard of, so all any of them could do is fail.
-                        noHover && !m.is_deleted && !selecting && !isSending(m)
-                          ? bindLongPress(() => { setActionsFor(m.uuid); setReactFor(null) })
+                        noHover && !m.is_deleted && !selecting && !isSending(m) && selectableFor !== m.uuid
+                          ? bindLongPress(
+                            () => { setActionsFor(m.uuid); setReactFor(null) },
+                            {
+                              onDoubleTap: () => copyWhole(m),
+                              onSwipeRight: () => { setReplyTo(m); setEditing(null) },
+                            },
+                          )
                           : {}
                       )}
                     >
@@ -2586,7 +2653,18 @@ export default function MessagesPage() {
                         <p className="italic opacity-60">Message deleted</p>
                       ) : (
                         <>
-                          {m.body && <p className="whitespace-pre-wrap break-words">{linkify(m.body, m.is_own)}</p>}
+                          {m.body && <p data-msg-body className="whitespace-pre-wrap break-words">{linkify(m.body, m.is_own)}</p>}
+                          {/* The way out of "Select text": the phone's own
+                              handles have no Done button of their own. */}
+                          {selectableFor === m.uuid && (
+                            <button
+                              type="button"
+                              onClick={() => { setSelectableFor(null); window.getSelection()?.removeAllRanges() }}
+                              className="mt-1.5 rounded-full bg-black/15 px-2.5 py-0.5 text-[11px] font-medium"
+                            >
+                              Done selecting
+                            </button>
+                          )}
                           {m.attachments.map((a) => (
                             <div key={a.id} className="mt-1">
                               {(m.type === 'voice' || m.type === 'audio') ? (
