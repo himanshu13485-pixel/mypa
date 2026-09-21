@@ -240,17 +240,17 @@ class MessageForwardTest extends TestCase
     }
 
     /**
-     * Thirty messages to fifty chats is fifteen hundred copies in one
+     * Thirty messages to twenty chats is six hundred copies in one
      * request. Refused before any of them is made, with the way out named.
      */
     public function test_too_many_copies_are_refused_before_any_is_made(): void
     {
-        $targets = collect(range(1, 21))
+        $targets = collect(range(1, 20))
             ->map(fn () => $this->chatBetween($this->me, $this->person())->uuid)
             ->all();
-        $messages = collect(range(1, 10))->map(fn ($i) => $this->message(body: 'line ' . $i)->uuid)->all();
+        $messages = collect(range(1, 11))->map(fn ($i) => $this->message(body: 'line ' . $i)->uuid)->all();
 
-        // Ten messages to twenty-one chats: 210 copies, past the 200.
+        // Eleven messages to twenty chats: 220 copies, past the 200.
         $this->actingAs($this->me)->postJson(
             "/api/v1/conversations/{$this->source->uuid}/messages/forward",
             ['message_uuids' => $messages, 'conversation_uuids' => $targets],

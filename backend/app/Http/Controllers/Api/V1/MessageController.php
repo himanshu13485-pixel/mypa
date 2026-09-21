@@ -39,16 +39,16 @@ class MessageController extends Controller
      * ceiling is set where it stops being a forward and starts being a
      * broadcast, which has a screen of its own.
      */
-    public const MAX_FORWARD_TARGETS = 50;
+    public const MAX_FORWARD_TARGETS = 20;
 
     /*
      * What one forward may cost, whatever its shape.
      *
-     * Fifty chats is fine for one message and absurd for thirty: every
+     * Twenty chats is fine for one message and absurd for thirty: every
      * message is copied into every chat, so the work is the product of the
-     * two, and thirty by fifty is fifteen hundred inserts inside a single
+     * two, and thirty by twenty is six hundred inserts inside a single
      * request. Attachments are worse, because they are copied on disk - a
-     * fifty-megabyte video to fifty chats is two and a half gigabytes
+     * fifty-megabyte video to twenty chats is a gigabyte
      * written before the response goes back. Both are refused up front, in
      * words that say which way to make the send smaller, rather than
      * discovered half way through as a timeout.

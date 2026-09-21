@@ -401,7 +401,7 @@ const isSending = (m: ChatMessage) => m.uuid.startsWith(SENDING_PREFIX)
 const MESSAGES_PER_PAGE = 30
 
 /** How many chats one forward may reach - MessageController::MAX_FORWARD_TARGETS. */
-const MAX_FORWARD_TARGETS = 50
+const MAX_FORWARD_TARGETS = 20
 
 export default function MessagesPage() {
   const queryClient = useQueryClient()
@@ -587,10 +587,10 @@ export default function MessagesPage() {
   /*
    * Where this forward has already gone, and where it could not.
    *
-   * Sixty chats is two sends - fifty, then ten - and the second has to know
-   * about the first: the fifty already sent are shown as sent and locked,
+   * Thirty chats is two sends - twenty, then ten - and the second has to know
+   * about the first: the twenty already sent are shown as sent and locked,
    * so Select all reaches for the ten that are left instead of offering the
-   * fifty again, and nobody gets the same message twice.
+   * twenty again, and nobody gets the same message twice.
    */
   const [forwardDone, setForwardDone] = useState<Record<string, 'sent' | 'refused'>>({})
   /** Set when Select all was stopped by the ceiling - the dialog then stays for round two. */
@@ -1678,8 +1678,8 @@ export default function MessagesPage() {
    * Everything showing, or nothing showing.
    *
    * Capped at the server's own ceiling, and said out loud when it bites: a
-   * Select all that ticked sixty boxes and then had the send refused would
-   * be worse than one that ticks fifty and says why.
+   * Select all that ticked thirty boxes and then had the send refused would
+   * be worse than one that ticks twenty and says why.
    */
   const toggleAllShown = () => {
     const next = new Set(pickedChats)
