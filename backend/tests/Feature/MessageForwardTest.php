@@ -202,4 +202,40 @@ class MessageForwardTest extends TestCase
             [],
         )->assertStatus(422)->assertJsonValidationErrors('conversation_uuids');
     }
+
+    /**
+     * "Every group I am in" is an ordinary forward inside one company.
+     *
+     * The old ceiling was ten, which a Select all over an ordinary chat list
+     * went straight past.
+     */
+    public function test_a_message_can_go_to_more_than_ten_conversations(): void
+    {
+        $targets = collect(range(1, 12))
+            ->map(fn () => $this->chatBetween($this->me, $this->person())->uuid)
+            ->all();
+
+        $this->forward($this->message(), $targets)->assertCreated();
+
+        foreach ($targets as $uuid) {
+            $this->assertSame(1, Conversation::where('uuid', $uuid)->firstOrFail()->messages()->count());
+        }
+    }
+
+    /** Past the ceiling it is a broadcast, and the refusal says so. */
+    public function test_past_the_ceiling_the_refusal_points_at_broadcast(): void
+    {
+        $targets = collect(range(1, \App\Http\Controllers\Api\V1\MessageController::MAX_FORWARD_TARGETS + 1))
+            ->map(fn () => (string) \Illuminate\Support\Str::uuid())
+            ->all();
+
+        $this->forward($this->message(), $targets)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('conversation_uuids');
+
+        $this->assertStringContainsString(
+            'broadcast',
+            $this->forward($this->message(), $targets)->json('errors.conversation_uuids.0'),
+        );
+    }
 }

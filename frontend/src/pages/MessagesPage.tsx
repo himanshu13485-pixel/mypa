@@ -400,6 +400,9 @@ const isSending = (m: ChatMessage) => m.uuid.startsWith(SENDING_PREFIX)
  */
 const MESSAGES_PER_PAGE = 30
 
+/** How many chats one forward may reach - MessageController::MAX_FORWARD_TARGETS. */
+const MAX_FORWARD_TARGETS = 50
+
 export default function MessagesPage() {
   const queryClient = useQueryClient()
 
@@ -579,6 +582,10 @@ export default function MessagesPage() {
   const [deletingMany, setDeletingMany] = useState(false)
   const [deleting, setDeleting] = useState<ChatMessage | null>(null)
   const [pickedChats, setPickedChats] = useState<Set<string>>(new Set())
+  /** What the forward list is narrowed to, if anything. */
+  const [forwardFilter, setForwardFilter] = useState('')
+  // A new forward starts with the whole list, not the last one's search.
+  useEffect(() => { if (!forwarding) setForwardFilter('') }, [forwarding])
   /*
    * The messages known to have been seen, by uuid.
    *
@@ -1611,6 +1618,39 @@ export default function MessagesPage() {
    * hovering, and as a sheet of labelled rows a finger opens - where 14px
    * icons in a row floating over the text were never going to be the answer.
    */
+  // ---- Forward: who it can go to, and Select all ----------------------------
+
+  /** Every chat a forward can reach - all of them but the one it came from. */
+  const forwardTargets = (conversations?.data ?? []).filter((c) => c.uuid !== selected?.uuid)
+  const shownTargets = forwardFilter.trim()
+    ? forwardTargets.filter((c) => (c.name ?? '').toLowerCase().includes(forwardFilter.trim().toLowerCase()))
+    : forwardTargets
+  const allShownPicked = shownTargets.length > 0 && shownTargets.every((c) => pickedChats.has(c.uuid))
+  const someShownPicked = shownTargets.some((c) => pickedChats.has(c.uuid))
+
+  /*
+   * Everything showing, or nothing showing.
+   *
+   * Capped at the server's own ceiling, and said out loud when it bites: a
+   * Select all that ticked sixty boxes and then had the send refused would
+   * be worse than one that ticks fifty and says why.
+   */
+  const toggleAllShown = () => {
+    const next = new Set(pickedChats)
+    if (allShownPicked) {
+      shownTargets.forEach((c) => next.delete(c.uuid))
+    } else {
+      for (const c of shownTargets) {
+        if (next.size >= MAX_FORWARD_TARGETS) {
+          toast(`${MAX_FORWARD_TARGETS} chats at a time is the limit — use a broadcast for more.`, 'info')
+          break
+        }
+        next.add(c.uuid)
+      }
+    }
+    setPickedChats(next)
+  }
+
   const messageActions = (m: ChatMessage) => [
     {
       key: 'reply',
@@ -2223,9 +2263,47 @@ export default function MessagesPage() {
                   : `${forwarding[0]?.attachments?.length ?? 0} attachment(s)`}
             </p>
 
+            {/*
+              * Find one, or take them all.
+              *
+              * A long list of chats with no way to narrow it meant scrolling
+              * to find the one wanted, and no way at all to say "every group".
+              * Select all works on what the filter is showing, so "every
+              * group with Payment in the name" is two moves rather than a
+              * dozen ticks.
+              */}
+            {forwardTargets.length > 6 && (
+              <Input
+                value={forwardFilter}
+                onChange={(e) => setForwardFilter(e.target.value)}
+                placeholder="Find a chat or group…"
+                className="w-full"
+              />
+            )}
+
+            {shownTargets.length > 1 && (
+              <label className="flex items-center gap-2 border-b border-slate-100 px-1 pb-2 text-sm font-medium dark:border-slate-800">
+                <input
+                  type="checkbox"
+                  className="size-4 accent-brand-600"
+                  checked={allShownPicked}
+                  ref={(el) => { if (el) el.indeterminate = someShownPicked && !allShownPicked }}
+                  onChange={() => toggleAllShown()}
+                />
+                <span>
+                  {allShownPicked ? 'Deselect all' : 'Select all'}
+                  <span className="ml-1 font-normal text-slate-400">
+                    ({shownTargets.length}{forwardFilter.trim() ? ' shown' : ''})
+                  </span>
+                </span>
+              </label>
+            )}
+
             <div className="max-h-64 space-y-1 overflow-y-auto">
-              {(conversations?.data ?? [])
-                .filter((c) => c.uuid !== selected?.uuid)
+              {shownTargets.length === 0 && (
+                <p className="px-1 py-3 text-sm text-slate-400">No chat or group by that name.</p>
+              )}
+              {shownTargets
                 .map((c) => (
                   <label key={c.uuid} className="flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm">
                     <input

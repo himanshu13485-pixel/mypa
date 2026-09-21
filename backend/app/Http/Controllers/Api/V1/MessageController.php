@@ -30,6 +30,17 @@ class MessageController extends Controller
      */
     public const MAX_FORWARD_AT_ONCE = 30;
 
+    /*
+     * How many conversations one forward may reach.
+     *
+     * It was ten, which is a stranger-spam limit borrowed from public
+     * messengers. Inside one company "send this to every group" is an
+     * ordinary thing to want - and the list gained a Select all - so the
+     * ceiling is set where it stops being a forward and starts being a
+     * broadcast, which has a screen of its own.
+     */
+    public const MAX_FORWARD_TARGETS = 50;
+
     public function index(Request $request, Conversation $conversation): JsonResponse
     {
         $me = $request->user();
@@ -292,8 +303,10 @@ class MessageController extends Controller
         abort_if($original->trashed(), 404, 'That message is no longer here.');
 
         $data = $request->validate([
-            'conversation_uuids' => ['required', 'array', 'min:1', 'max:10'],
+            'conversation_uuids' => ['required', 'array', 'min:1', 'max:' . self::MAX_FORWARD_TARGETS],
             'conversation_uuids.*' => ['uuid'],
+        ], [
+            'conversation_uuids.max' => self::MAX_FORWARD_TARGETS . ' conversations at a time is the limit - use a broadcast for more.',
         ]);
 
         [$sent, $refused] = $this->deliverForwards($me, $data['conversation_uuids'], collect([$original]));
@@ -329,10 +342,11 @@ class MessageController extends Controller
         $data = $request->validate([
             'message_uuids' => ['required', 'array', 'min:1', 'max:' . self::MAX_FORWARD_AT_ONCE],
             'message_uuids.*' => ['uuid'],
-            'conversation_uuids' => ['required', 'array', 'min:1', 'max:10'],
+            'conversation_uuids' => ['required', 'array', 'min:1', 'max:' . self::MAX_FORWARD_TARGETS],
             'conversation_uuids.*' => ['uuid'],
         ], [
             'message_uuids.max' => self::MAX_FORWARD_AT_ONCE . ' messages at a time is the limit.',
+            'conversation_uuids.max' => self::MAX_FORWARD_TARGETS . ' conversations at a time is the limit - use a broadcast for more.',
         ]);
 
         /*
