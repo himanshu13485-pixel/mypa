@@ -584,8 +584,24 @@ export default function MessagesPage() {
   const [pickedChats, setPickedChats] = useState<Set<string>>(new Set())
   /** What the forward list is narrowed to, if anything. */
   const [forwardFilter, setForwardFilter] = useState('')
-  // A new forward starts with the whole list, not the last one's search.
-  useEffect(() => { if (!forwarding) setForwardFilter('') }, [forwarding])
+  /*
+   * Where this forward has already gone, and where it could not.
+   *
+   * Sixty chats is two sends - fifty, then ten - and the second has to know
+   * about the first: the fifty already sent are shown as sent and locked,
+   * so Select all reaches for the ten that are left instead of offering the
+   * fifty again, and nobody gets the same message twice.
+   */
+  const [forwardDone, setForwardDone] = useState<Record<string, 'sent' | 'refused'>>({})
+  /** Set when Select all was stopped by the ceiling - the dialog then stays for round two. */
+  const forwardCapped = useRef(false)
+  // A new forward starts with the whole list, not the last one's search or sends.
+  useEffect(() => {
+    if (forwarding) return
+    setForwardFilter('')
+    setForwardDone({})
+    forwardCapped.current = false
+  }, [forwarding])
   /*
    * The messages known to have been seen, by uuid.
    *
@@ -1331,10 +1347,37 @@ export default function MessagesPage() {
       [...pickedChats],
     ),
     onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['conversations'] })
+
+      const done = { ...forwardDone }
+      res.data.sent.forEach((uuid) => { done[uuid] = 'sent' })
+      res.data.refused.forEach((uuid) => { done[uuid] = 'refused' })
+      const left = forwardTargets.filter((c) => !done[c.uuid]).length
+
+      /*
+       * A capped Select all is round one of two, so the dialog stays.
+       *
+       * Everything just sent is marked Sent and locked, whatever could not
+       * be posted to says so, and the chats still waiting are one Select all
+       * away. An ordinary forward - two or three chats picked by hand -
+       * closes as it always did.
+       */
+      if (forwardCapped.current && left > 0) {
+        forwardCapped.current = false
+        setForwardDone(done)
+        setPickedChats(new Set())
+        setForwardFilter('')
+        toast(
+          `${res.message}${res.data.refused.length ? ` ${res.data.refused.length} could not be posted to.` : ''} ${left} chat${left === 1 ? '' : 's'} left \u2014 Select all picks them.`,
+          res.data.refused.length ? 'error' : 'success',
+        )
+
+        return
+      }
+
       setForwarding(null)
       setPickedChats(new Set())
       clearSelection()
-      queryClient.invalidateQueries({ queryKey: ['conversations'] })
       // Named, not swallowed: an announcement group refuses quietly on the
       // server, and a silent no here would read as a send that worked.
       toast(
@@ -1625,8 +1668,11 @@ export default function MessagesPage() {
   const shownTargets = forwardFilter.trim()
     ? forwardTargets.filter((c) => (c.name ?? '').toLowerCase().includes(forwardFilter.trim().toLowerCase()))
     : forwardTargets
-  const allShownPicked = shownTargets.length > 0 && shownTargets.every((c) => pickedChats.has(c.uuid))
-  const someShownPicked = shownTargets.some((c) => pickedChats.has(c.uuid))
+  /** What Select all can still reach: showing, and not already dealt with. */
+  const openTargets = shownTargets.filter((c) => !forwardDone[c.uuid])
+  const allShownPicked = openTargets.length > 0 && openTargets.every((c) => pickedChats.has(c.uuid))
+  const someShownPicked = openTargets.some((c) => pickedChats.has(c.uuid))
+  const doneCount = Object.keys(forwardDone).length
 
   /*
    * Everything showing, or nothing showing.
@@ -1638,11 +1684,15 @@ export default function MessagesPage() {
   const toggleAllShown = () => {
     const next = new Set(pickedChats)
     if (allShownPicked) {
-      shownTargets.forEach((c) => next.delete(c.uuid))
+      openTargets.forEach((c) => next.delete(c.uuid))
     } else {
-      for (const c of shownTargets) {
+      for (const c of openTargets) {
         if (next.size >= MAX_FORWARD_TARGETS) {
-          toast(`${MAX_FORWARD_TARGETS} chats at a time is the limit — use a broadcast for more.`, 'info')
+          forwardCapped.current = true
+          toast(
+            `${MAX_FORWARD_TARGETS} chats at a time is the limit. Send these, and the rest stay here for a second round.`,
+            'info',
+          )
           break
         }
         next.add(c.uuid)
@@ -2281,7 +2331,17 @@ export default function MessagesPage() {
               />
             )}
 
-            {shownTargets.length > 1 && (
+            {doneCount > 0 && (
+              <p className="rounded-lg bg-emerald-50 px-2 py-1.5 text-xs text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                Already sent to {Object.values(forwardDone).filter((v) => v === 'sent').length} of these
+                {Object.values(forwardDone).includes('refused')
+                  ? ` \u00b7 ${Object.values(forwardDone).filter((v) => v === 'refused').length} could not be posted to`
+                  : ''}
+                . Pick the rest and send again, or close.
+              </p>
+            )}
+
+            {openTargets.length > 1 && (
               <label className="flex items-center gap-2 border-b border-slate-100 px-1 pb-2 text-sm font-medium dark:border-slate-800">
                 <input
                   type="checkbox"
@@ -2293,7 +2353,7 @@ export default function MessagesPage() {
                 <span>
                   {allShownPicked ? 'Deselect all' : 'Select all'}
                   <span className="ml-1 font-normal text-slate-400">
-                    ({shownTargets.length}{forwardFilter.trim() ? ' shown' : ''})
+                    ({openTargets.length}{doneCount ? ' left' : forwardFilter.trim() ? ' shown' : ''})
                   </span>
                 </span>
               </label>
@@ -2305,24 +2365,45 @@ export default function MessagesPage() {
               )}
               {shownTargets
                 .map((c) => (
-                  <label key={c.uuid} className="flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm">
+                  <label
+                    key={c.uuid}
+                    className={clsx(
+                      'flex items-center gap-2 rounded-lg px-1 py-1.5 text-sm',
+                      forwardDone[c.uuid] && 'opacity-60',
+                    )}
+                  >
                     <input
                       type="checkbox"
                       className="size-4 accent-brand-600"
-                      checked={pickedChats.has(c.uuid)}
+                      // Sent is sent: ticked-off and locked, so it cannot go twice.
+                      checked={forwardDone[c.uuid] === 'sent' || pickedChats.has(c.uuid)}
+                      disabled={!!forwardDone[c.uuid]}
                       onChange={() => {
                         const next = new Set(pickedChats)
                         if (!next.delete(c.uuid)) next.add(c.uuid)
                         setPickedChats(next)
                       }}
                     />
-                    <span className="truncate">{c.name}</span>
+                    <span className="min-w-0 flex-1 truncate">{c.name}</span>
+                    {forwardDone[c.uuid] === 'sent' && (
+                      <span className="shrink-0 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">Sent</span>
+                    )}
+                    {forwardDone[c.uuid] === 'refused' && (
+                      <span
+                        className="shrink-0 text-[11px] font-medium text-red-500"
+                        title="Only admins can post there, or one of you has blocked the other."
+                      >
+                        Couldn't forward
+                      </span>
+                    )}
                   </label>
                 ))}
             </div>
 
             <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setForwarding(null)}>Cancel</Button>
+              <Button variant="secondary" onClick={() => { setForwarding(null); if (doneCount) clearSelection() }}>
+                {doneCount ? 'Done' : 'Cancel'}
+              </Button>
               <Button
                 disabled={pickedChats.size === 0 || forwardMutation.isPending}
                 onClick={() => forwardMutation.mutate()}

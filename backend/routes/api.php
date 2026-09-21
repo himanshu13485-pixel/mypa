@@ -542,11 +542,13 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::put('/conversations/{conversation}/messages/{message}', [MessageController::class, 'update']);
         Route::delete('/conversations/{conversation}/messages/{messageUuid}', [MessageController::class, 'destroy']);
         // The same message again, in somebody else's thread.
-        Route::post('/conversations/{conversation}/messages/{messageUuid}/forward', [MessageController::class, 'forward']);
+        Route::post('/conversations/{conversation}/messages/{messageUuid}/forward', [MessageController::class, 'forward'])
+            ->middleware('throttle:forward');
         // A selection, passed on together. A collection-level action, so it
         // sits a segment shorter than the single forward above and cannot be
         // confused with it.
-        Route::post('/conversations/{conversation}/messages/forward', [MessageController::class, 'forwardMany']);
+        Route::post('/conversations/{conversation}/messages/forward', [MessageController::class, 'forwardMany'])
+            ->middleware('throttle:forward');
         // Kept privately, or held up for everyone.
         // Who has read what you wrote - the question a tick cannot answer.
         Route::get('/conversations/{conversation}/messages/{messageUuid}/seen', [MessageController::class, 'seenBy']);

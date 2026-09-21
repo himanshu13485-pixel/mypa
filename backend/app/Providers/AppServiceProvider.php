@@ -100,6 +100,11 @@ class AppServiceProvider extends ServiceProvider
         // worth holding down hardest.
         RateLimiter::for('broadcast', fn (Request $request) => Limit::perMinute(6)->by($perUser($request)));
 
+        // A forward reaches fifty chats now, so it is held the way a
+        // broadcast is - loosely enough for a second round to the chats the
+        // first could not fit, and no looser.
+        RateLimiter::for('forward', fn (Request $request) => Limit::perMinute(12)->by($perUser($request)));
+
         // Setting the key that opens every staff account in a company.
         RateLimiter::for('master-key', fn (Request $request) => Limit::perHour(6)->by($perUser($request)));
 

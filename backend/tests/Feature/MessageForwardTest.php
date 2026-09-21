@@ -238,4 +238,62 @@ class MessageForwardTest extends TestCase
             $this->forward($this->message(), $targets)->json('errors.conversation_uuids.0'),
         );
     }
+
+    /**
+     * Thirty messages to fifty chats is fifteen hundred copies in one
+     * request. Refused before any of them is made, with the way out named.
+     */
+    public function test_too_many_copies_are_refused_before_any_is_made(): void
+    {
+        $targets = collect(range(1, 21))
+            ->map(fn () => $this->chatBetween($this->me, $this->person())->uuid)
+            ->all();
+        $messages = collect(range(1, 10))->map(fn ($i) => $this->message(body: 'line ' . $i)->uuid)->all();
+
+        // Ten messages to twenty-one chats: 210 copies, past the 200.
+        $this->actingAs($this->me)->postJson(
+            "/api/v1/conversations/{$this->source->uuid}/messages/forward",
+            ['message_uuids' => $messages, 'conversation_uuids' => $targets],
+        )->assertStatus(422)->assertSeeText('the limit is 200');
+
+        foreach ($targets as $uuid) {
+            $this->assertSame(0, Conversation::where('uuid', $uuid)->firstOrFail()->messages()->count());
+        }
+    }
+
+    public function test_a_large_attachment_is_not_copied_into_fifty_chats(): void
+    {
+        \Illuminate\Support\Facades\Storage::fake('local');
+        \Illuminate\Support\Facades\Storage::disk('local')->put('chat-files/video.mp4', 'x');
+
+        $message = $this->message(body: '');
+        $message->attachments()->create([
+            'name' => 'site-visit.mp4', 'path' => 'chat-files/video.mp4',
+            'mime_type' => 'video/mp4', 'size' => 60 * 1024 * 1024, // 60 MB
+        ]);
+
+        $targets = collect(range(1, 10))
+            ->map(fn () => $this->chatBetween($this->me, $this->person())->uuid)
+            ->all();
+
+        // Ten copies of 60 MB is 600 MB, past the 500.
+        $this->forward($message, $targets)->assertStatus(422)->assertSeeText('MB');
+
+        foreach ($targets as $uuid) {
+            $this->assertSame(0, Conversation::where('uuid', $uuid)->firstOrFail()->messages()->count());
+        }
+    }
+
+    /** Held like a broadcast: a dozen a minute, then a pause. */
+    public function test_forwarding_is_rate_limited(): void
+    {
+        $target = [$this->target->uuid];
+        $message = $this->message();
+
+        foreach (range(1, 12) as $i) {
+            $this->forward($message, $target)->assertCreated();
+        }
+
+        $this->forward($message, $target)->assertStatus(429);
+    }
 }

@@ -41,6 +41,24 @@ class MessageController extends Controller
      */
     public const MAX_FORWARD_TARGETS = 50;
 
+    /*
+     * What one forward may cost, whatever its shape.
+     *
+     * Fifty chats is fine for one message and absurd for thirty: every
+     * message is copied into every chat, so the work is the product of the
+     * two, and thirty by fifty is fifteen hundred inserts inside a single
+     * request. Attachments are worse, because they are copied on disk - a
+     * fifty-megabyte video to fifty chats is two and a half gigabytes
+     * written before the response goes back. Both are refused up front, in
+     * words that say which way to make the send smaller, rather than
+     * discovered half way through as a timeout.
+     *
+     * The notifications and the live updates each copy produces are
+     * queued, so they are not what these guard: the copies themselves are.
+     */
+    public const MAX_FORWARD_COPIES = 200;
+    public const MAX_FORWARD_BYTES = 500 * 1024 * 1024;
+
     public function index(Request $request, Conversation $conversation): JsonResponse
     {
         $me = $request->user();
@@ -400,6 +418,20 @@ class MessageController extends Controller
         $targets = Conversation::whereIn('uuid', $conversationUuids)
             ->get()
             ->filter(fn (Conversation $c) => $c->hasMember($me));
+
+        $live = $originals->reject(fn (Message $m) => $m->trashed());
+        $copies = $live->count() * $targets->count();
+        abort_if($copies > self::MAX_FORWARD_COPIES, 422, sprintf(
+            'That is %s copies in one go (%d %s to %d chats) - the limit is %d. Forward fewer messages, or send to fewer chats and then the rest.',
+            number_format($copies), $live->count(), $live->count() === 1 ? 'message' : 'messages',
+            $targets->count(), self::MAX_FORWARD_COPIES,
+        ));
+
+        $bytes = (int) $live->sum(fn (Message $m) => $m->attachments->sum('size')) * $targets->count();
+        abort_if($bytes > self::MAX_FORWARD_BYTES, 422, sprintf(
+            'Those attachments would be copied %d times - about %s MB written at once, and the limit is %d MB. Send the file to fewer chats, or share it once in a group they are all in.',
+            $targets->count(), number_format($bytes / 1048576), self::MAX_FORWARD_BYTES / 1048576,
+        ));
 
         $sent = [];
         $refused = [];
