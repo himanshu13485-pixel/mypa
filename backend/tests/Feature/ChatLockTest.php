@@ -140,7 +140,7 @@ class ChatLockTest extends TestCase
         $this->thread($token)->assertOk();
     }
 
-    public function test_unhiding_asks_for_the_password_and_makes_it_an_ordinary_chat(): void
+    public function test_unhiding_asks_for_the_password_and_brings_it_back_to_the_list(): void
     {
         $this->setPassword();
         $this->actingAs($this->me)->postJson("/api/v1/conversations/{$this->chat->uuid}/hide", ['password' => '123456']);
@@ -155,6 +155,25 @@ class ChatLockTest extends TestCase
         $this->assertFalse($row['is_hidden']);
         $this->assertFalse($row['is_locked']);
         $this->thread()->assertOk();
+    }
+
+    /** Hidden and locked are two things a chat can be at once. */
+    public function test_a_chat_can_be_hidden_and_locked_and_unhiding_keeps_the_lock(): void
+    {
+        $this->setPassword();
+        $this->actingAs($this->me)->postJson("/api/v1/conversations/{$this->chat->uuid}/hide", ['password' => '123456'])->assertOk();
+        $this->actingAs($this->me)->postJson("/api/v1/conversations/{$this->chat->uuid}/lock", ['password' => '123456'])->assertOk();
+
+        $token = $this->actingAs($this->me)->postJson('/api/v1/chat-lock/unlock', ['password' => '123456'])->json('data.token');
+        $row = collect($this->list(['hidden' => 1], $token)->json('data'))->firstWhere('uuid', $this->chat->uuid);
+        $this->assertTrue($row['is_hidden']);
+        $this->assertTrue($row['is_locked']);
+
+        $this->actingAs($this->me)->deleteJson("/api/v1/conversations/{$this->chat->uuid}/hide", ['password' => '123456'])->assertOk();
+
+        $row = collect($this->list()->json('data'))->firstWhere('uuid', $this->chat->uuid);
+        $this->assertFalse($row['is_hidden']);
+        $this->assertTrue($row['is_locked']);
     }
 
     public function test_a_hidden_chat_adds_nothing_to_the_unread_badge(): void

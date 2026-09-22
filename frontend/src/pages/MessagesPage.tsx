@@ -855,7 +855,49 @@ export default function MessagesPage() {
    * Every read of it waits - the server would refuse them anyway, with a
    * 423 - and the thread shows the lock instead of the messages.
    */
-  const threadSealed = !!selected && !!(selected.is_locked || selected.is_hidden) && !unlockToken
+  /*
+   * Which locked chats have had the password typed at them since they were
+   * opened.
+   *
+   * A locked chat asks every time it is opened, not once per quarter of an
+   * hour: leave it and come back and it asks again. That is what "locked"
+   * looked like it promised, and what it did not do - the unlock covered
+   * every chat, so a chat locked a moment ago opened straight back up.
+   */
+  const [openedLocked, setOpenedLocked] = useState<Set<string>>(new Set())
+  useEffect(() => { if (!unlockToken) setOpenedLocked(new Set()) }, [unlockToken])
+
+  const threadSealed = !!selected && (
+    (!!selected.is_locked && !openedLocked.has(selected.uuid))
+    || (!!(selected.is_locked || selected.is_hidden) && !unlockToken)
+  )
+
+  /*
+   * Leaving a locked chat locks it again.
+   *
+   * And leaving the locked chats altogether - opening an ordinary one,
+   * outside the hidden folder - forgets the password entirely, so nothing
+   * locked is left open behind somebody's back.
+   */
+  const previousChat = useRef<string | null>(null)
+  useEffect(() => {
+    const was = previousChat.current
+    previousChat.current = selected?.uuid ?? null
+    if (!was || was === selected?.uuid) return
+    setOpenedLocked((prev) => {
+      if (!prev.has(was)) return prev
+      const next = new Set(prev)
+      next.delete(was)
+      return next
+    })
+    if (!hiddenMode && selected && !selected.is_locked && !selected.is_hidden) {
+      useChatUnlock.getState().clear()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected?.uuid])
+
+  // Leaving Messages leaves nothing unlocked.
+  useEffect(() => () => useChatUnlock.getState().clear(), [])
 
   // Closing the hidden folder takes its open chat with it.
   useEffect(() => {
@@ -1821,6 +1863,14 @@ export default function MessagesPage() {
   const afterLockChange = (message?: string, action?: LockAction) => {
     refreshChats()
     void refetchLock()
+    // Locked means locked now, not in a quarter of an hour.
+    if (action && (action.kind === 'lock' || action.kind === 'hide')) {
+      setOpenedLocked((prev) => {
+        const next = new Set(prev)
+        next.delete(action.chat.uuid)
+        return next
+      })
+    }
     // A chat just hidden leaves the list; it should not stay open on screen.
     if (action?.kind === 'hide' && pickedChat?.uuid === action.chat.uuid) setSelected(null)
     toast(message ?? 'Done.', 'success')
@@ -1844,7 +1894,7 @@ export default function MessagesPage() {
     },
     unhide: {
       title: 'Unhide chat',
-      hint: 'It goes back to your chat list as an ordinary chat - not hidden, not locked.',
+      hint: 'It goes back to your chat list. If it is also locked, it stays locked.',
       action: 'Unhide',
     },
   }
@@ -2121,7 +2171,12 @@ export default function MessagesPage() {
               <button type="button" onClick={() => setLockSettingsOpen(true)} className="opacity-80 hover:opacity-100 hover:underline">
                 Password
               </button>
-              <button type="button" onClick={() => setHiddenMode(false)} className="font-medium hover:underline">
+              {/* Closing the folder forgets the password too - it is not left open behind the list. */}
+              <button
+                type="button"
+                onClick={() => { setHiddenMode(false); useChatUnlock.getState().clear() }}
+                className="font-medium hover:underline"
+              >
                 Close
               </button>
             </span>
@@ -2270,26 +2325,17 @@ export default function MessagesPage() {
                       onClick={() => { setRowMenu(null); archiveMutation.mutate(c) }}
                     />
                     {/* Behind the password: kept in the list locked, or out of it altogether. */}
-                    {c.is_hidden ? (
-                      <ChatMenuItem
-                        icon={<Eye className="size-3.5" />}
-                        label="Unhide chat…"
-                        onClick={() => protect('unhide', c)}
-                      />
-                    ) : (
-                      <>
-                        <ChatMenuItem
-                          icon={c.is_locked ? <LockOpen className="size-3.5" /> : <Lock className="size-3.5" />}
-                          label={c.is_locked ? 'Remove lock…' : 'Lock chat…'}
-                          onClick={() => protect(c.is_locked ? 'unlock' : 'lock', c)}
-                        />
-                        <ChatMenuItem
-                          icon={<EyeOff className="size-3.5" />}
-                          label="Hide chat…"
-                          onClick={() => protect('hide', c)}
-                        />
-                      </>
-                    )}
+                    {/* Two separate things a chat can be, together or apart. */}
+                    <ChatMenuItem
+                      icon={c.is_locked ? <LockOpen className="size-3.5" /> : <Lock className="size-3.5" />}
+                      label={c.is_locked ? 'Remove lock…' : 'Lock chat…'}
+                      onClick={() => protect(c.is_locked ? 'unlock' : 'lock', c)}
+                    />
+                    <ChatMenuItem
+                      icon={c.is_hidden ? <Eye className="size-3.5" /> : <EyeOff className="size-3.5" />}
+                      label={c.is_hidden ? 'Unhide chat…' : 'Hide chat…'}
+                      onClick={() => protect(c.is_hidden ? 'unhide' : 'hide', c)}
+                    />
                     <ChatMenuItem
                       danger
                       icon={<Eraser className="size-3.5" />}
@@ -3072,7 +3118,7 @@ export default function MessagesPage() {
             {threadSealed ? (
               <LockedThread
                 name={selected.name}
-                onUnlocked={() => undefined}
+                onUnlocked={() => setOpenedLocked((prev) => new Set(prev).add(selected.uuid))}
                 onForgot={() => setForgotOpen(true)}
               />
             ) : (

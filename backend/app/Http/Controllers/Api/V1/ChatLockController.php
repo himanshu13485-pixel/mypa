@@ -166,10 +166,16 @@ class ChatLockController extends Controller
         return $this->mark($request, $conversation, ['hidden_at' => now()], 'Chat hidden. Type #your password# in search to find it.');
     }
 
-    /** Back into the list as an ordinary chat - not locked, not hidden. */
+    /*
+     * Back into the list.
+     *
+     * Hiding and locking are two separate things a chat can be, and one can
+     * be undone without the other: a chat both hidden and locked comes back
+     * into the list still locked.
+     */
     public function unhide(Request $request, Conversation $conversation): JsonResponse
     {
-        return $this->mark($request, $conversation, ['hidden_at' => null, 'locked_at' => null], 'Chat moved back to your chats.');
+        return $this->mark($request, $conversation, ['hidden_at' => null], 'Chat moved back to your chats.');
     }
 
     private function mark(Request $request, Conversation $conversation, array $changes, string $said): JsonResponse
