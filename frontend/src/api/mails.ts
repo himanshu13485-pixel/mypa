@@ -82,6 +82,36 @@ export interface MailAutoReply {
   until?: string | null
 }
 
+export interface MailDnsCheck {
+  ok: boolean
+  record?: string | null
+  note: string
+  selector?: string
+  policy?: string
+}
+
+export interface MailDnsResult {
+  domain: string
+  spf: MailDnsCheck
+  dkim: MailDnsCheck
+  dmarc: MailDnsCheck
+  score: number
+  checked_at: string
+}
+
+export interface MailShare {
+  uuid: string
+  name: string | null
+  can_send: boolean
+}
+
+export interface MailPerson {
+  uuid: string
+  name: string | null
+  email: string | null
+  has_mails: boolean
+}
+
 export interface MailAccountInfo {
   uuid: string
   label: string | null
@@ -108,6 +138,73 @@ export interface MailAccountInfo {
   last_synced_at: string | null
   last_error: string | null
   status: string
+  /** A short badge the Admin writes, e.g. "Reports" or "Support desk". */
+  tag: string | null
+  is_shared: boolean
+  shared_with: MailShare[]
+  daily_cap: number | null
+  sent_today: number
+  sends_left: number | null
+  dkim_selector: string | null
+  dns: MailDnsResult | null
+  /** Set when the account was disconnected - its mail is still here. */
+  detached_at: string | null
+  created_by_admin: boolean
+  /** Mine to use, and mine to change? Shared mailboxes are neither. */
+  is_mine?: boolean
+  can_manage?: boolean
+  owner?: string | null
+}
+
+export interface MailArchiveStatus {
+  folder: string
+  absolute: string
+  files: number
+  bytes: number
+  stored: number
+  last_backup_at: string | null
+}
+
+export interface MailBackupRow {
+  uuid: string
+  email: string
+  label: string | null
+  can_manage: boolean
+  archive: MailArchiveStatus
+  destinations: {
+    server: true
+    remote: {
+      enabled: boolean
+      driver: 's3' | 'webdav' | 'gdrive'
+      bucket: string | null
+      region: string | null
+      endpoint: string | null
+      key: string | null
+      url: string | null
+      username: string | null
+      folder_id: string | null
+      path: string | null
+      has_secret: boolean
+      last_run_at: string | null
+      last_error: string | null
+    }
+    local: { enabled: boolean; hint: string | null }
+  }
+  last_error: string | null
+}
+
+export interface MailBackupRunRow {
+  uuid: string
+  kind: 'backup' | 'export' | 'import'
+  destination: string
+  status: 'running' | 'done' | 'failed'
+  messages: number
+  bytes: number
+  path: string | null
+  error: string | null
+  started_at: string | null
+  finished_at: string | null
+  mailbox: string | null
 }
 
 export interface MailPrefs {
@@ -222,12 +319,24 @@ export const mails = {
   sendNow: (uuid: string) => api.post<{ message: string }>(`${base}/messages/${uuid}/send-now`).then((r) => r.data),
 
   accounts: () =>
-    api.get<{ data: MailAccountInfo[]; limit: number; providers: MailProvider[] }>(`${base}/accounts`).then((r) => r.data),
+    api.get<{ data: MailAccountInfo[]; limit: number; used: number; is_admin: boolean; providers: MailProvider[]; people: MailPerson[] }>(`${base}/accounts`)
+      .then((r) => r.data),
   addAccount: (body: Record<string, unknown>) =>
     api.post<{ message: string; data: MailAccountInfo }>(`${base}/accounts`, body).then((r) => r.data),
   saveAccount: (uuid: string, body: Record<string, unknown>) =>
     api.put<{ message: string; data: MailAccountInfo }>(`${base}/accounts/${uuid}`, body).then((r) => r.data),
-  removeAccount: (uuid: string) => api.delete<{ message: string }>(`${base}/accounts/${uuid}`).then((r) => r.data),
+  /** Disconnect by default; `purge` (with the address typed back) removes its mail too. */
+  removeAccount: (uuid: string, purge?: { confirm: string }) =>
+    api.delete<{ message: string }>(`${base}/accounts/${uuid}`, purge ? { data: { purge: true, confirm: purge.confirm } } : undefined)
+      .then((r) => r.data),
+  testInbox: (uuid: string) =>
+    api.post<{ data: { ok: boolean; folders: string[]; message: string } }>(`${base}/accounts/${uuid}/inbox-test`).then((r) => r.data.data),
+  testEmail: (uuid: string, to?: string) =>
+    api.post<{ data: { ok: boolean; message: string } }>(`${base}/accounts/${uuid}/test-email`, { to }).then((r) => r.data.data),
+  checkDns: (uuid: string, selector?: string) =>
+    api.post<{ data: MailDnsResult }>(`${base}/accounts/${uuid}/dns`, { selector }).then((r) => r.data.data),
+  replicate: (uuid: string, body: Record<string, unknown>) =>
+    api.post<{ message: string; data: MailAccountInfo }>(`${base}/accounts/${uuid}/replicate`, body).then((r) => r.data),
   testAccount: (uuid: string) =>
     api.post<{ data: { imap: { ok: boolean; message: string }; smtp: { ok: boolean; message: string } } }>(`${base}/accounts/${uuid}/test`)
       .then((r) => r.data.data),
@@ -254,6 +363,24 @@ export const mails = {
       .then((r) => r.data.data),
   saveAi: (body: { enabled: boolean; provider: string; model: string; api_key?: string }) =>
     api.put<{ message: string }>(`${base}/settings/ai`, body).then((r) => r.data),
+
+  backups: () =>
+    api.get<{ data: MailBackupRow[]; runs: MailBackupRunRow[]; is_admin: boolean; drivers: string[] }>(`${base}/backups`).then((r) => r.data),
+  saveBackup: (uuid: string, body: Record<string, unknown>) =>
+    api.put<{ message: string }>(`${base}/backups/${uuid}`, body).then((r) => r.data),
+  testBackup: (uuid: string) =>
+    api.post<{ data: { ok: boolean; message: string } }>(`${base}/backups/${uuid}/test`).then((r) => r.data.data),
+  runBackup: (uuid: string, full = false) =>
+    api.post<{ message: string; data: MailBackupRunRow }>(`${base}/backups/${uuid}/run`, { now: true, full }).then((r) => r.data),
+  exportArchive: (uuid: string, folder?: string) =>
+    api.get(`${base}/backups/${uuid}/export`, { params: folder ? { folder } : {}, responseType: 'blob' }).then((r) => r.data as Blob),
+  importArchive: (uuid: string, file: File, folder?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (folder) form.append('folder', folder)
+
+    return api.post<{ message: string; data: { added: number; skipped: number } }>(`${base}/backups/${uuid}/import`, form).then((r) => r.data)
+  },
 
   write: (body: { mode: 'compose' | 'reply' | 'improve'; instruction?: string; tone?: string; to?: string; text?: string; action?: string; message_uuid?: string }) =>
     api.post<{ data: { subject: string | null; body: string } }>(`${base}/ai`, body).then((r) => r.data.data),

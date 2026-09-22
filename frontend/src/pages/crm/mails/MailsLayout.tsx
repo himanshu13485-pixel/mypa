@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -11,6 +12,7 @@ import { Spinner } from '../../../components/ui'
 import MailCompose, { UndoSendBar } from './MailCompose'
 import { useComposer, useMailView } from './composeStore'
 import { ACCENTS, FOLDER_TITLES } from './mailUtils'
+import { localFoldersSupported, localSyncDue, markLocalSync, writeToFolder } from './localArchive'
 
 const FOLDERS = [
   { key: 'inbox', icon: Inbox },
@@ -51,6 +53,44 @@ export default function MailsLayout() {
     enabled: allowed,
     refetchInterval: 60_000,
   })
+
+  /*
+   * The copy on this computer, kept up without anybody pressing anything.
+   *
+   * Only for mailboxes whose owner asked for it, only where the browser
+   * still holds permission to that folder, and only once a day. Anything
+   * missing - no permission, no folder, another browser - is simply skipped:
+   * the server's own archive is unaffected either way.
+   */
+  const { data: backups } = useQuery({
+    queryKey: ['mails', 'backups'],
+    queryFn: mails.backups,
+    enabled: allowed && localFoldersSupported(),
+    staleTime: 10 * 60_000,
+  })
+
+  useEffect(() => {
+    if (!backups) return
+    const due = backups.data.filter((row) => row.destinations.local.enabled && localSyncDue(row.uuid))
+    if (!due.length) return
+
+    let cancelled = false
+    void (async () => {
+      for (const row of due) {
+        if (cancelled) return
+        try {
+          const blob = await mails.exportArchive(row.uuid)
+          const name = `mails-${row.email}-${new Date().toISOString().slice(0, 10)}.zip`
+          if (await writeToFolder(row.uuid, name, blob)) markLocalSync(row.uuid)
+        } catch {
+          // A folder that has gone, or permission withdrawn: the person is
+          // told when they next open the Backup tab, not with a popup here.
+        }
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [backups])
 
   if (isLoading) return <div className="flex h-full items-center justify-center"><Spinner /></div>
 

@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Plus, RefreshCw, Star, Trash2, XCircle } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { mails, type MailAccountInfo, type MailPrefs, type MailProvider } from '../../../api/mails'
+import { mails, type MailAccountInfo, type MailPrefs } from '../../../api/mails'
 import { errorMessage } from '../../../api/client'
 import { useToast } from '../../../components/Toast'
-import { Button, Input, Label, LoadError, Modal, Select, Spinner, Textarea } from '../../../components/ui'
+import { Button, Input, Label, LoadError, Select, Spinner, Textarea } from '../../../components/ui'
+import BackupTab from './BackupTab'
+import MailboxesTab from './MailboxesTab'
 import RichEditor from './RichEditor'
-import { ACCENTS, mailDate } from './mailUtils'
+import { ACCENTS } from './mailUtils'
 
-type Tab = 'mailboxes' | 'preferences' | 'signatures' | 'autoreply' | 'labels' | 'ai' | 'team'
+type Tab = 'mailboxes' | 'preferences' | 'signatures' | 'autoreply' | 'backup' | 'labels' | 'ai' | 'team'
 
 const LABEL_COLORS = ['#2563eb', '#16a34a', '#dc2626', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#475569']
 
@@ -42,6 +44,7 @@ export default function CrmMailSettingsPage() {
     ['preferences', 'Preferences & theme'],
     ['signatures', 'Signatures'],
     ['autoreply', 'Auto-reply & forwarding'],
+    ['backup', 'Backup & archive'],
     ['labels', 'Labels'],
     ...(settings.is_admin ? ([['ai', 'AI assistant'], ['team', 'Team access']] as [Tab, string][]) : []),
   ]
@@ -72,289 +75,12 @@ export default function CrmMailSettingsPage() {
         {tab === 'preferences' && <PreferencesTab prefs={settings.prefs} />}
         {tab === 'signatures' && <SignaturesTab />}
         {tab === 'autoreply' && <AutoReplyTab />}
+        {tab === 'backup' && <BackupTab />}
         {tab === 'labels' && <LabelsTab />}
         {tab === 'ai' && settings.is_admin && <AiTab />}
         {tab === 'team' && settings.is_admin && <TeamTab />}
       </div>
     </div>
-  )
-}
-
-/* ------------------------------------------------------------ Mailboxes */
-
-type AccountForm = {
-  label: string
-  email: string
-  from_name: string
-  reply_to: string
-  provider: string
-  imap_host: string
-  imap_port: number
-  imap_encryption: string
-  imap_username: string
-  imap_password: string
-  smtp_host: string
-  smtp_port: number
-  smtp_encryption: string
-  smtp_username: string
-  smtp_password: string
-  is_default: boolean
-}
-
-const blankForm = (p?: MailProvider): AccountForm => ({
-  label: '', email: '', from_name: '', reply_to: '',
-  provider: p?.key ?? 'custom',
-  imap_host: p?.imap_host ?? '', imap_port: p?.imap_port ?? 993, imap_encryption: p?.imap_encryption ?? 'ssl', imap_username: '', imap_password: '',
-  smtp_host: p?.smtp_host ?? '', smtp_port: p?.smtp_port ?? 587, smtp_encryption: p?.smtp_encryption ?? 'tls', smtp_username: '', smtp_password: '',
-  is_default: false,
-})
-
-function MailboxesTab() {
-  const queryClient = useQueryClient()
-  const { toast, toastError } = useToast()
-  const { data, isLoading } = useQuery({ queryKey: ['mails', 'accounts'], queryFn: mails.accounts })
-  const [editing, setEditing] = useState<MailAccountInfo | 'new' | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [tests, setTests] = useState<Record<string, { imap: { ok: boolean; message: string }; smtp: { ok: boolean; message: string } }>>({})
-
-  if (isLoading || !data) return <Spinner />
-  const atLimit = data.data.length >= data.limit
-
-  const run = async (key: string, fn: () => Promise<unknown>) => {
-    setBusy(key)
-    try {
-      await fn()
-    } catch (err) {
-      toastError(errorMessage(err))
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <p className="text-sm text-slate-500">
-          {data.data.length} of {data.limit} mailbox{data.limit === 1 ? '' : 'es'} used.
-          {atLimit && ' To add more, ask your Company Admin to raise your limit.'}
-        </p>
-        <Button className="ml-auto" disabled={atLimit} onClick={() => setEditing('new')}><Plus className="size-4" /> Add mailbox</Button>
-      </div>
-
-      {data.data.length === 0 && <div className={clsx(card, 'text-center text-sm text-slate-500')}>No mailboxes yet.</div>}
-
-      {data.data.map((a) => {
-        const test = tests[a.uuid]
-        return (
-          <div key={a.uuid} className={card}>
-            <div className="flex flex-wrap items-start gap-3">
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-2 font-semibold text-slate-900 dark:text-white">
-                  {a.label || a.email}
-                  {a.is_default && <span className="rounded-full bg-brand-50 px-2 py-0.5 text-[11px] font-medium text-brand-700 dark:bg-brand-500/10 dark:text-brand-300">Default</span>}
-                </p>
-                <p className="text-sm text-slate-500">{a.email} · {data.providers.find((p) => p.key === a.provider)?.label ?? a.provider}</p>
-                <p className="mt-1 text-xs text-slate-400">
-                  Incoming: {a.can_receive ? `${a.imap_host}:${a.imap_port}` : 'not set'} · Outgoing: {a.can_send ? `${a.smtp_host}:${a.smtp_port}` : 'not set'}
-                  {a.last_synced_at && <> · checked {mailDate(a.last_synced_at)}</>}
-                </p>
-                {a.last_error && <p className="mt-1 text-xs text-red-600">{a.last_error}</p>}
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run(`test${a.uuid}`, async () => {
-                  const res = await mails.testAccount(a.uuid)
-                  setTests((t) => ({ ...t, [a.uuid]: res }))
-                })}>
-                  {busy === `test${a.uuid}` ? 'Testing…' : 'Test connection'}
-                </Button>
-                {a.can_receive && (
-                  <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run(`sync${a.uuid}`, async () => {
-                    const res = await mails.syncAccount(a.uuid, true)
-                    toast(res.message, 'success')
-                    queryClient.invalidateQueries({ queryKey: ['mails'] })
-                  })}>
-                    <RefreshCw className={clsx('size-3.5', busy === `sync${a.uuid}` && 'animate-spin')} /> Sync now
-                  </Button>
-                )}
-                {!a.is_default && (
-                  <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => run(`def${a.uuid}`, async () => {
-                    await mails.saveAccount(a.uuid, { is_default: true })
-                    queryClient.invalidateQueries({ queryKey: ['mails'] })
-                  })}>
-                    <Star className="size-3.5" /> Make default
-                  </Button>
-                )}
-                <Button size="sm" variant="secondary" onClick={() => setEditing(a)}>Edit</Button>
-                <Button size="sm" variant="ghost" className="text-red-600" disabled={busy !== null} onClick={() => {
-                  if (!window.confirm(`Remove ${a.email}? Its mail is removed from Netvork - nothing is deleted on the mail server.`)) return
-                  void run(`del${a.uuid}`, async () => {
-                    const res = await mails.removeAccount(a.uuid)
-                    toast(res.message, 'success')
-                    queryClient.invalidateQueries({ queryKey: ['mails'] })
-                  })
-                }}>
-                  <Trash2 className="size-3.5" />
-                </Button>
-              </div>
-            </div>
-            {test && (
-              <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
-                {(['imap', 'smtp'] as const).map((k) => (
-                  <p key={k} className={clsx('flex items-start gap-1.5 rounded-lg p-2', test[k].ok ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200' : 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-200')}>
-                    {test[k].ok ? <CheckCircle2 className="size-4 shrink-0" /> : <XCircle className="size-4 shrink-0" />}
-                    <span><b>{k === 'imap' ? 'Incoming (IMAP)' : 'Outgoing (SMTP)'}:</b> {test[k].message}</span>
-                  </p>
-                ))}
-              </div>
-            )}
-          </div>
-        )
-      })}
-
-      {editing && (
-        <AccountModal
-          account={editing === 'new' ? null : editing}
-          providers={data.providers}
-          onClose={() => setEditing(null)}
-        />
-      )}
-    </div>
-  )
-}
-
-function AccountModal({ account, providers, onClose }: { account: MailAccountInfo | null; providers: MailProvider[]; onClose: () => void }) {
-  const queryClient = useQueryClient()
-  const { toast, toastError } = useToast()
-  const [form, setForm] = useState<AccountForm>(() => account
-    ? {
-        label: account.label ?? '', email: account.email, from_name: account.from_name ?? '', reply_to: account.reply_to ?? '',
-        provider: account.provider,
-        imap_host: account.imap_host ?? '', imap_port: account.imap_port, imap_encryption: account.imap_encryption, imap_username: account.imap_username ?? '', imap_password: '',
-        smtp_host: account.smtp_host ?? '', smtp_port: account.smtp_port, smtp_encryption: account.smtp_encryption, smtp_username: account.smtp_username ?? '', smtp_password: '',
-        is_default: account.is_default,
-      }
-    : blankForm(providers.find((p) => p.key === 'gmail')))
-  // Only ticked when the two logins really are one - an SES mailbox, say,
-  // signs in to send with credentials of its own.
-  const [sameLogin, setSameLogin] = useState(() => !account || !account.smtp_username || account.smtp_username === account.imap_username)
-  const provider = providers.find((p) => p.key === form.provider)
-  const set = <K extends keyof AccountForm>(k: K, v: AccountForm[K]) => setForm((f) => ({ ...f, [k]: v }))
-
-  const pickProvider = (key: string) => {
-    const p = providers.find((x) => x.key === key)
-    setForm((f) => ({
-      ...f,
-      provider: key,
-      ...(p && key !== 'custom' ? {
-        imap_host: p.imap_host, imap_port: p.imap_port, imap_encryption: p.imap_encryption,
-        smtp_host: p.smtp_host, smtp_port: p.smtp_port, smtp_encryption: p.smtp_encryption,
-      } : {}),
-    }))
-  }
-
-  const save = useMutation({
-    mutationFn: () => {
-      const body: Record<string, unknown> = { ...form }
-      if (!form.imap_username) body.imap_username = form.email
-      if (sameLogin) {
-        body.smtp_username = form.imap_username || form.email
-        if (form.imap_password) body.smtp_password = form.imap_password
-      }
-      if (!body.imap_password) delete body.imap_password
-      if (!body.smtp_password) delete body.smtp_password
-      return account ? mails.saveAccount(account.uuid, body) : mails.addAccount(body)
-    },
-    onSuccess: (res) => {
-      toast(res.message, 'success')
-      queryClient.invalidateQueries({ queryKey: ['mails'] })
-      onClose()
-    },
-    onError: (err) => toastError(errorMessage(err)),
-  })
-
-  const encryption = (value: string, onChange: (v: string) => void) => (
-    <Select value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="ssl">SSL</option>
-      <option value="tls">STARTTLS</option>
-      <option value="none">None</option>
-    </Select>
-  )
-
-  return (
-    <Modal title={account ? `Edit ${account.email}` : 'Add a mailbox'} onClose={onClose} wide>
-      <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate() }}>
-        <div>
-          <Label>Provider</Label>
-          <div className="flex flex-wrap gap-1.5">
-            {providers.map((p) => (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => pickProvider(p.key)}
-                className={clsx('rounded-full px-3 py-1 text-xs font-medium ring-1', form.provider === p.key ? 'bg-brand-600 text-white ring-brand-600' : 'text-slate-600 ring-slate-200 hover:bg-slate-50 dark:text-slate-300 dark:ring-slate-700 dark:hover:bg-slate-800')}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-          {provider?.note && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">{provider.note}</p>}
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div><Label>Email address</Label><Input type="email" required value={form.email} onChange={(e) => set('email', e.target.value)} /></div>
-          <div><Label>Name on sent mail</Label><Input value={form.from_name} onChange={(e) => set('from_name', e.target.value)} placeholder="e.g. Priya from Acme" /></div>
-          <div><Label>Label (optional)</Label><Input value={form.label} onChange={(e) => set('label', e.target.value)} placeholder="e.g. Sales" /></div>
-          <div><Label>Reply-To (optional)</Label><Input type="email" value={form.reply_to} onChange={(e) => set('reply_to', e.target.value)} /></div>
-        </div>
-
-        <fieldset className="rounded-xl p-3 ring-1 ring-slate-200 dark:ring-slate-700">
-          <legend className="px-1 text-sm font-semibold text-slate-700 dark:text-slate-200">Incoming mail (IMAP)</legend>
-          <div className="grid gap-3 sm:grid-cols-4">
-            <div className="sm:col-span-2"><Label>Server</Label><Input value={form.imap_host} onChange={(e) => set('imap_host', e.target.value)} placeholder="imap.example.com" /></div>
-            <div><Label>Port</Label><Input type="number" value={form.imap_port} onChange={(e) => set('imap_port', Number(e.target.value))} /></div>
-            <div><Label>Security</Label>{encryption(form.imap_encryption, (v) => set('imap_encryption', v))}</div>
-            <div className="sm:col-span-2"><Label>Username</Label><Input value={form.imap_username} onChange={(e) => set('imap_username', e.target.value)} placeholder={form.email || 'Usually the email address'} /></div>
-            <div className="sm:col-span-2">
-              <Label>Password {account?.has_imap_password && <span className="font-normal text-slate-400">(leave blank to keep)</span>}</Label>
-              <Input type="password" autoComplete="new-password" value={form.imap_password} onChange={(e) => set('imap_password', e.target.value)} />
-            </div>
-          </div>
-          <p className="mt-2 text-xs text-slate-400">Leave the server blank for a send-only mailbox (e.g. Amazon SES). POP3 is not supported - use IMAP, which every major provider offers.</p>
-        </fieldset>
-
-        <fieldset className="rounded-xl p-3 ring-1 ring-slate-200 dark:ring-slate-700">
-          <legend className="px-1 text-sm font-semibold text-slate-700 dark:text-slate-200">Outgoing mail (SMTP)</legend>
-          <div className="grid gap-3 sm:grid-cols-4">
-            <div className="sm:col-span-2"><Label>Server</Label><Input value={form.smtp_host} onChange={(e) => set('smtp_host', e.target.value)} placeholder="smtp.example.com" /></div>
-            <div><Label>Port</Label><Input type="number" value={form.smtp_port} onChange={(e) => set('smtp_port', Number(e.target.value))} /></div>
-            <div><Label>Security</Label>{encryption(form.smtp_encryption, (v) => set('smtp_encryption', v))}</div>
-          </div>
-          <label className="mt-3 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-            <input type="checkbox" checked={sameLogin} onChange={(e) => setSameLogin(e.target.checked)} />
-            Same username and password as incoming
-          </label>
-          {!sameLogin && (
-            <div className="mt-3 grid gap-3 sm:grid-cols-2">
-              <div><Label>Username</Label><Input value={form.smtp_username} onChange={(e) => set('smtp_username', e.target.value)} placeholder="SMTP username (for SES: the SMTP credential)" /></div>
-              <div>
-                <Label>Password {account?.has_smtp_password && <span className="font-normal text-slate-400">(leave blank to keep)</span>}</Label>
-                <Input type="password" autoComplete="new-password" value={form.smtp_password} onChange={(e) => set('smtp_password', e.target.value)} />
-              </div>
-            </div>
-          )}
-        </fieldset>
-
-        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-          <input type="checkbox" checked={form.is_default} onChange={(e) => set('is_default', e.target.checked)} />
-          Use this mailbox by default when writing
-        </label>
-
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Saving…' : account ? 'Save' : 'Add mailbox'}</Button>
-        </div>
-      </form>
-    </Modal>
   )
 }
 
