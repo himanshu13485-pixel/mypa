@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { listReturnPath } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, ArrowLeft, ArrowRightLeft, Ban, Copy, CreditCard, Download, Eye, ExternalLink, FileDiff, Lock, Paperclip, Pencil, Percent, Plus, Printer, Repeat, Send, Trash2, X } from 'lucide-react'
@@ -26,6 +26,16 @@ const LETTERHEAD_KEY = 'crm-print-on-letterhead'
 export default function CrmInvoiceViewPage() {
   const { uuid } = useParams()
   const navigate = useNavigate()
+  /*
+   * Back goes where the person came from.
+   *
+   * An invoice is opened from the invoice list, but also from Payments -
+   * and Back from there used to land on the invoice list, a page they had
+   * never been on. A link that knows where it lives says so; without one,
+   * Back is the invoice list as it was last left.
+   */
+  const location = useLocation()
+  const cameFrom = (location.state as { back?: string } | null)?.back
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
   const [showPayment, setShowPayment] = useState(false)
@@ -192,7 +202,7 @@ export default function CrmInvoiceViewPage() {
     onSuccess: (res) => {
       toast(res.message, 'success')
       queryClient.invalidateQueries({ queryKey: ['crm', 'invoices'] })
-      navigate(listReturnPath(`invoices:${inv?.kind ?? 'invoice'}`, crmPath(`/crm/invoices?kind=${inv?.kind ?? 'invoice'}`)))
+      navigate(cameFrom ?? listReturnPath(`invoices:${inv?.kind ?? 'invoice'}`, crmPath(`/crm/invoices?kind=${inv?.kind ?? 'invoice'}`)))
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -217,7 +227,7 @@ export default function CrmInvoiceViewPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(listReturnPath(`invoices:${inv.kind}`, crmPath(`/crm/invoices?kind=${inv.kind}`)))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(cameFrom ?? listReturnPath(`invoices:${inv.kind}`, crmPath(`/crm/invoices?kind=${inv.kind}`)))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>

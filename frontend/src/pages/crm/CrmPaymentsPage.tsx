@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { listFromParam, listParamOf, rememberList } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, ArrowRightLeft, Banknote, Check, FileSpreadsheet, Link2, Link2Off, Mail, Phone, Plus, Search, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -46,23 +47,53 @@ const EMPTY = {
 export default function CrmPaymentsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
+  /*
+   * The filters live in the address, as the other lists' do - so opening
+   * an invoice from here and coming Back finds this page exactly as it was
+   * left, on the same tab, with the same people and dates.
+   */
+  const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const fromAddress = (key: string) => listFromParam(params.get(key))
   // Two halves of the same job: money that landed, and money still owed.
-  const params = new URLSearchParams(window.location.search)
   const [tab, setTab] = useState<'inbox' | 'outstanding'>(
-    params.get('tab') === 'outstanding' ? 'outstanding' : 'inbox',
+    () => (params.get('tab') === 'outstanding' ? 'outstanding' : 'inbox'),
   )
-  const [bucket, setBucket] = useState('')
+  const [bucket, setBucket] = useState(() => params.get('bucket') ?? '')
   // Whose money, out of either ledger. Checkbox filters: null is everyone.
-  const [owedMember, setOwedMember] = useState<string[] | null>(null)
-  const [inboxMember, setInboxMember] = useState<string[] | null>(null)
-  const [owedSearch, setOwedSearch] = useState(params.get('invoice') ?? '')
+  const [owedMember, setOwedMember] = useState<string[] | null>(() => fromAddress('owed_by'))
+  const [inboxMember, setInboxMember] = useState<string[] | null>(() => fromAddress('received_by'))
+  const [owedSearch, setOwedSearch] = useState(() => params.get('invoice') ?? '')
   const [chasing, setChasing] = useState<CrmOutstandingRow | null>(null)
-  const [status, setStatus] = useState<string[] | null>(null)
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [page, setPage] = useState(1)
+  const [status, setStatus] = useState<string[] | null>(() => fromAddress('status'))
+  const [search, setSearch] = useState(() => params.get('q') ?? '')
+  const [applied, setApplied] = useState(() => params.get('q') ?? '')
+  const [dateFrom, setDateFrom] = useState(() => params.get('from') ?? '')
+  const [dateTo, setDateTo] = useState(() => params.get('to') ?? '')
+  const [page, setPage] = useState(() => Math.max(1, Number(params.get('page')) || 1))
+
+  // Written back as they change, replacing the entry rather than adding one.
+  useEffect(() => {
+    const next = new URLSearchParams(params)
+    const put = (key: string, value: string | null) => {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }
+    put('tab', tab === 'outstanding' ? 'outstanding' : null)
+    put('bucket', bucket || null)
+    put('owed_by', listParamOf(owedMember))
+    put('received_by', listParamOf(inboxMember))
+    put('invoice', owedSearch.trim() || null)
+    put('status', listParamOf(status))
+    put('q', applied.trim() || null)
+    put('from', dateFrom || null)
+    put('to', dateTo || null)
+    put('page', page > 1 ? String(page) : null)
+
+    if (next.toString() !== params.toString()) setParams(next, { replace: true })
+    rememberList('payments', location.pathname + (next.toString() ? `?${next}` : ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, bucket, owedMember, inboxMember, owedSearch, status, applied, dateFrom, dateTo, page])
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmPaymentEntry | null>(null)
   const [claiming, setClaiming] = useState<CrmPaymentEntry | null>(null)
@@ -435,7 +466,12 @@ export default function CrmPaymentsPage() {
                     <td className="py-2.5 pr-3">
                       {e.claimed_invoice ? (
                         <span className="text-xs">
-                          <Link to={crmPath(`/crm/invoices/${e.claimed_invoice.uuid}`)} className="font-medium text-emerald-600 hover:underline">
+                          <Link
+                            to={crmPath(`/crm/invoices/${e.claimed_invoice.uuid}`)}
+                            // So the invoice's Back comes here, not to the invoice list.
+                            state={{ back: location.pathname + location.search }}
+                            className="font-medium text-emerald-600 hover:underline"
+                          >
                             {e.claimed_invoice.number}
                           </Link>
                           {/* Money in against a proforma keeps saying so. */}
@@ -752,6 +788,8 @@ function OutstandingLedger({ data, isLoading, bucket, onBucket, member, onMember
   onChase: (row: CrmOutstandingRow) => void
 }) {
   const [typed, setTyped] = useState(search)
+  // Where this ledger is, so an invoice opened from it can come back.
+  const here = useLocation()
   const summary = data?.summary
 
   return (
@@ -834,7 +872,13 @@ function OutstandingLedger({ data, isLoading, bucket, onBucket, member, onMember
                 {data.data.map((row) => (
                   <tr key={row.uuid} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60 dark:border-slate-800/50 dark:hover:bg-slate-800/40">
                     <td className="py-2.5 pr-3">
-                      <Link to={crmPath(`/crm/invoices/${row.uuid}`)} className="font-medium text-emerald-600 hover:underline">{row.number}</Link>
+                      <Link
+                        to={crmPath(`/crm/invoices/${row.uuid}`)}
+                        state={{ back: here.pathname + here.search }}
+                        className="font-medium text-emerald-600 hover:underline"
+                      >
+                        {row.number}
+                      </Link>
                       <div className="text-xs text-slate-400">{row.invoice_date}</div>
                     </td>
                     <td className="max-w-[200px] py-2.5 pr-3">
