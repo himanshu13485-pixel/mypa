@@ -33,6 +33,13 @@ import {
   CalendarClock, CalendarDays,
   CalendarOff,
   CheckSquare,
+  Clock,
+  FileEdit,
+  Inbox,
+  Send,
+  Tag,
+  Trash2,
+  Upload,
   ClipboardCheck,
   FileCheck2,
   FileText,
@@ -91,6 +98,8 @@ interface NavItem {
   capability?: string
   /** Which attend-counter this entry wears as its (n) number. */
   badge?: string
+  /** Shown only to people the Mails module is switched on for. */
+  mails?: boolean
 }
 
 /**
@@ -100,6 +109,21 @@ interface NavItem {
  * modules land.
  */
 const SECTIONS: { label: string; items: NavItem[] }[] = [
+  // Mail inside the CRM - only for companies the Super Admin switched it
+  // on for, and only for the people their Admin gave it to. Everybody else
+  // never sees this group at all.
+  { label: 'Mails', items: [
+    { label: 'Mail dashboard', icon: LayoutDashboard, to: '/crm/mails', mails: true },
+    { label: 'Inbox', icon: Inbox, to: '/crm/mails/inbox', mails: true },
+    { label: 'Drafts', icon: FileEdit, to: '/crm/mails/drafts', mails: true },
+    { label: 'Scheduled', icon: Clock, to: '/crm/mails/scheduled', mails: true },
+    { label: 'Outbox', icon: Upload, to: '/crm/mails/outbox', mails: true },
+    { label: 'Sent', icon: Send, to: '/crm/mails/sent', mails: true },
+    { label: 'Spam / Junk', icon: ShieldAlert, to: '/crm/mails/spam', mails: true },
+    { label: 'Trash', icon: Trash2, to: '/crm/mails/trash', mails: true },
+    { label: 'Manage labels', icon: Tag, to: '/crm/mails/labels', mails: true },
+    { label: 'Mail settings', icon: Settings2, to: '/crm/mails/settings', mails: true },
+  ]},
   { label: 'Work', items: [
     { label: 'Dashboard', icon: LayoutDashboard, to: '/crm' },
     // Who is here and what is running — company-wide, so admins only.
@@ -175,6 +199,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
 
 function visible(me: CrmMe | undefined, item: NavItem): boolean {
   if (!me?.enabled) return false
+  if (item.mails) return !!me.mails?.allowed
   if (item.adminOnly) {
     return me.member?.crm_role === 'admin'
   }
@@ -292,7 +317,10 @@ export default function CrmLayout() {
    * came out taller than the space it had, so the page scrolled and the
    * lobby box, centred in a box too tall to see, sat below the fold.
    */
+  // Mails is an app of its own panes - list, reader, folders - so it too
+  // takes the whole area and pads only what needs padding.
   const immersive = /\/(meetings\/room|screen\/session)\//.test(location.pathname)
+    || /\/mails(\/|$)/.test(location.pathname)
 
   /*
    * Which section is on screen, so its badge can be marked seen.
@@ -401,7 +429,7 @@ export default function CrmLayout() {
         <nav className="scroll-pane mt-2 flex-1 overflow-y-auto px-3 pb-3">
           {SECTIONS.map((section) => {
             const items = section.items.filter((i) => !i.to || visible(me, i))
-            if (!me?.enabled) return null
+            if (!me?.enabled || !items.length) return null
             return (
               <div key={section.label}>
                 <p className="mb-0.5 mt-3 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">

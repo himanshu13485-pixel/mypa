@@ -112,6 +112,10 @@ const CrmPlPage = lazyRoute('CrmPlPage', () => import('./pages/crm/CrmPlPage'))
 const CrmAssetsPage = lazyRoute('CrmAssetsPage', () => import('./pages/crm/CrmAssetsPage'))
 const CrmChurnPage = lazyRoute('CrmChurnPage', () => import('./pages/crm/CrmChurnPage'))
 const CrmCommunicationPage = lazyRoute('CrmCommunicationPage', () => import('./pages/crm/CrmCommunicationPage'))
+const MailsLayout = lazyRoute('MailsLayout', () => import('./pages/crm/mails/MailsLayout'))
+const CrmMailsDashboard = lazyRoute('CrmMailsDashboard', () => import('./pages/crm/mails/CrmMailsDashboard'))
+const CrmMailsPage = lazyRoute('CrmMailsPage', () => import('./pages/crm/mails/CrmMailsPage'))
+const CrmMailSettingsPage = lazyRoute('CrmMailSettingsPage', () => import('./pages/crm/mails/CrmMailSettingsPage'))
 
 /*
  * The CRM's screens, declared once and mounted twice: under /crm/:company,
@@ -135,6 +139,15 @@ const crmScreens = (
     <Route path="leads/:uuid" element={<CrmLeadDetailPage />} />
     <Route path="lead-log" element={<CrmLeadLogPage />} />
     <Route path="targets" element={<CrmTargetsPage />} />
+    {/* Mails: one layout around every folder, so the compose window
+        survives moving between them. */}
+    <Route path="mails" element={<MailsLayout />}>
+      <Route index element={<CrmMailsDashboard />} />
+      <Route path="settings" element={<CrmMailSettingsPage />} />
+      <Route path="labels" element={<CrmMailSettingsPage />} />
+      <Route path="label/:label" element={<CrmMailsPage />} />
+      <Route path=":folder" element={<CrmMailsPage />} />
+    </Route>
     <Route path="dwr" element={<CrmDwrPage />} />
     <Route path="punch" element={<CrmPunchPage />} />
     <Route path="payments" element={<CrmPaymentsPage />} />

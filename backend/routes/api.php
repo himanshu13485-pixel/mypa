@@ -769,6 +769,49 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
 
             Route::middleware('crm.member')->group(function () {
                 Route::get('/masters', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'masters']);
+
+                /*
+                 * Mails: a mail client inside the CRM.
+                 *
+                 * Behind its own door as well as the CRM's - the platform has
+                 * to have switched it on for the company, and the company has
+                 * to have given this person the Mails right (see MailAccess).
+                 */
+                Route::prefix('mails')->middleware('mails')->group(function () {
+                    $mail = 'App\\Http\\Controllers\\Api\\V1\\Crm\\Mail\\';
+                    Route::get('/dashboard', [$mail . 'MailboxController', 'dashboard']);
+                    Route::get('/counts', [$mail . 'MailboxController', 'counts']);
+                    Route::get('/messages', [$mail . 'MailboxController', 'index']);
+                    Route::post('/messages/bulk', [$mail . 'MailboxController', 'bulk']);
+                    Route::post('/empty', [$mail . 'MailboxController', 'emptyTrash']);
+                    Route::get('/messages/{uuid}', [$mail . 'MailboxController', 'show']);
+                    Route::patch('/messages/{uuid}', [$mail . 'MailboxController', 'update']);
+                    Route::get('/messages/{uuid}/attachments/{id}', [$mail . 'MailboxController', 'attachment']);
+                    Route::post('/messages/{uuid}/cancel', [$mail . 'MailComposeController', 'cancel']);
+                    Route::post('/messages/{uuid}/send-now', [$mail . 'MailComposeController', 'sendNow']);
+                    Route::post('/compose', [$mail . 'MailComposeController', 'compose'])->middleware('throttle:mail-compose');
+
+                    Route::get('/accounts', [$mail . 'MailAccountController', 'index']);
+                    Route::post('/accounts', [$mail . 'MailAccountController', 'store']);
+                    Route::put('/accounts/{account}', [$mail . 'MailAccountController', 'update']);
+                    Route::delete('/accounts/{account}', [$mail . 'MailAccountController', 'destroy']);
+                    Route::post('/accounts/{account}/test', [$mail . 'MailAccountController', 'test'])->middleware('throttle:mail-connect');
+                    Route::post('/accounts/{account}/sync', [$mail . 'MailAccountController', 'sync'])->middleware('throttle:mail-connect');
+
+                    Route::get('/labels', [$mail . 'MailLabelController', 'index']);
+                    Route::post('/labels', [$mail . 'MailLabelController', 'store']);
+                    Route::put('/labels/{uuid}', [$mail . 'MailLabelController', 'update']);
+                    Route::delete('/labels/{uuid}', [$mail . 'MailLabelController', 'destroy']);
+
+                    Route::get('/settings', [$mail . 'MailSettingsController', 'show']);
+                    Route::put('/settings/prefs', [$mail . 'MailSettingsController', 'savePrefs']);
+                    Route::get('/settings/team', [$mail . 'MailSettingsController', 'team']);
+                    Route::put('/settings/team/{uuid}', [$mail . 'MailSettingsController', 'saveTeam']);
+                    Route::get('/settings/ai', [$mail . 'MailSettingsController', 'ai']);
+                    Route::put('/settings/ai', [$mail . 'MailSettingsController', 'saveAi']);
+
+                    Route::post('/ai', [$mail . 'MailAiController', 'write'])->middleware('throttle:mail-ai');
+                });
                 Route::get('/dashboard', [\App\Http\Controllers\Api\V1\Crm\CrmController::class, 'dashboard']);
                 /*
                  * The company as it is right now: who is here, what is

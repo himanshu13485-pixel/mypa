@@ -100,6 +100,8 @@ export interface CrmMe {
     /** Set when this session is itself a borrowed one. */
     impersonating?: { level: 'crm_read' | 'crm' | 'account' } | null
   } | null
+  /** Mails: switched on for the company by the Super Admin, and for this person by their Admin. */
+  mails?: { org_enabled: boolean; allowed: boolean; limit: number } | null
   organization: {
     uuid: string
     /** The company's own segment in the URL: /crm/bhavya-steel/leads. */
@@ -2339,6 +2341,9 @@ export interface CrmOrganizationRow {
   status: string
   /** How far this company's Admin may sit in a member's seat. */
   impersonation_level?: 'none' | 'crm_read' | 'crm' | 'account'
+  /** Mails, granted by the platform: whether this company has it, and the most mailboxes a person may add. */
+  mails_enabled?: boolean
+  mails_mailbox_cap?: number
   members: number
   active_members: number
   admins: { name: string | null; email: string | null }[]

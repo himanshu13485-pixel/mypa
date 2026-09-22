@@ -95,3 +95,11 @@ Schedule::command('crm:close-served-dispatches')->dailyAt('01:30')->withoutOverl
  * about on its way out.
  */
 Schedule::command('crm:warn-renewals')->dailyAt('02:00')->withoutOverlapping();
+
+/*
+ * Mails. Due mail is swept up every minute - the delayed job normally sends
+ * it to the second, and this is the net under it - and every mailbox is
+ * brought up to date every five, one queued job each.
+ */
+Schedule::command('mails:tick dispatch')->everyMinute()->withoutOverlapping();
+Schedule::command('mails:tick sync')->everyFiveMinutes()->withoutOverlapping();

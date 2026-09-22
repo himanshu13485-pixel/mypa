@@ -105,6 +105,12 @@ class AppServiceProvider extends ServiceProvider
         // first could not fit, and no looser.
         RateLimiter::for('forward', fn (Request $request) => Limit::perMinute(12)->by($perUser($request)));
 
+        // Mails: sending, signing in to mail servers, and AI drafts - each
+        // on its own counter, so none refuses early for the others' use.
+        RateLimiter::for('mail-compose', fn (Request $request) => Limit::perMinute(60)->by($perUser($request)));
+        RateLimiter::for('mail-connect', fn (Request $request) => Limit::perMinute(20)->by($perUser($request)));
+        RateLimiter::for('mail-ai', fn (Request $request) => Limit::perMinute(20)->by($perUser($request)));
+
         /*
          * The chat password, tried.
          *

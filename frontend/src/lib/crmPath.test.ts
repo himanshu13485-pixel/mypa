@@ -61,9 +61,12 @@ describe('the screen list against the routes themselves', () => {
     // Every CRM screen: the shared crmScreens fragment, plus the two the
     // Super Admin's own routes add beside it.
     const screens = appSource.slice(appSource.indexOf('const crmScreens = ('))
-    const routes = screens.slice(0, screens.indexOf('</Route>'))
+    // To the end of the fragment - Mails nests its folders, so the first
+    // closing </Route> no longer marks the end of the list.
+    const routes = screens.slice(0, screens.indexOf('</>'))
 
-    const segments = [...routes.matchAll(/<Route path="([^"]+)"/g)]
+    // Top level only: a nested child (Mails' folders) is not a first segment.
+    const segments = [...routes.matchAll(/^ {4}<Route path="([^"]+)"/gm)]
       .map((m) => m[1]!.split('/')[0]!)
       .filter((seg) => seg && !seg.startsWith(':'))
 

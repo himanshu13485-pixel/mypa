@@ -36,6 +36,8 @@ class OrganizationAdminController extends Controller
                 'code' => $o->code,
                 'status' => $o->status,
                 'impersonation_level' => $o->impersonation_level,
+                'mails_enabled' => (bool) $o->mails_enabled,
+                'mails_mailbox_cap' => (int) ($o->mails_mailbox_cap ?: 3),
                 'members' => $o->members_count,
                 'active_members' => $o->active_members_count,
                 'admins' => Member::visible()->with('user:id,name,email')
@@ -223,13 +225,22 @@ class OrganizationAdminController extends Controller
              * editing it.
              */
             'impersonation_level' => ['nullable', \Illuminate\Validation\Rule::in(Organization::IMPERSONATION_LEVELS)],
+            /*
+             * Mails, and how many mailboxes anybody at this company may hold.
+             *
+             * Set here, by the platform, for the same reason as the level
+             * above: the company can hand these out to its people, but cannot
+             * grant them to itself.
+             */
+            'mails_enabled' => ['nullable', 'boolean'],
+            'mails_mailbox_cap' => ['nullable', 'integer', 'min:1', 'max:' . \App\Services\Mail\MailAccess::HARD_CAP],
             // Resetting an org admin's password: pick the admin by email.
             'admin_email' => ['nullable', 'email', 'required_with:admin_password'],
             'admin_password' => ['nullable', PasswordRule::min(8)->letters()->numbers()],
         ]);
 
         $organization->update(array_filter(
-            collect($data)->only(['name', 'code', 'slug', 'status', 'impersonation_level'])->all(),
+            collect($data)->only(['name', 'code', 'slug', 'status', 'impersonation_level', 'mails_enabled', 'mails_mailbox_cap'])->all(),
             fn ($v) => $v !== null,
         ));
 

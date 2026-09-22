@@ -31,6 +31,7 @@ export const CRM_SECTIONS = new Set([
   'cms', 'user-log', 'reports', 'workspace-fields', 'field-requests', 'contests',
   'invoices', 'invoice-log', 'tds-certificates', 'spam-reports', 'birthdays', 'recurring', 'commissions', 'overview', 'settings',
   'connect', 'pl', 'assets', 'churn', 'communication', 'theme', 'offline-employees',
+  'mails',
 ])
 
 /**
@@ -139,8 +140,8 @@ export function navMatches(to: string, pathname: string, search: string): boolea
   const company = companyIn(pathname)
   const [path, query] = withCompany(to, company).split('?')
 
-  // The dashboard is the one entry that must not match its own children.
-  if (path === withCompany('/crm', company)) return pathname === path
+  // The dashboards are the entries that must not match their own children.
+  if (path === withCompany('/crm', company) || path === withCompany('/crm/mails', company)) return pathname === path
 
   if (pathname !== path && !pathname.startsWith(path + '/')) return false
   if (!query) return true

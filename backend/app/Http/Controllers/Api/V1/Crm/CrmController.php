@@ -72,6 +72,13 @@ class CrmController extends Controller
                 'name' => $member->organization->name,
                 'code' => $member->organization->code,
             ] : null,
+            // Mails, as far as this person is concerned: switched on for the
+            // company, open to them, and how many mailboxes they may hold.
+            'mails' => $enabled ? [
+                'org_enabled' => \App\Services\Mail\MailAccess::orgEnabled($member->organization),
+                'allowed' => \App\Services\Mail\MailAccess::allows($member),
+                'limit' => \App\Services\Mail\MailAccess::limitFor($member),
+            ] : null,
         ]]);
     }
 

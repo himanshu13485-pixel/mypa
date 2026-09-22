@@ -79,6 +79,8 @@ class Member extends Model
         // other. Nobody holds it until the Admin says so.
         'communication' => 'Communication — the mailboxes the company writes from',
         'user_log' => 'User log',
+        // Only means something once the platform has switched Mails on for the company.
+        'mails' => 'Mails - email inside the CRM',
     ];
 
     /**
@@ -193,6 +195,7 @@ class Member extends Model
         'personal_email', 'joined_at', 'probation_days', 'late_waived', 'punch_waived', 'resigned_at', 'is_salesperson', 'incentive_needs_payment', 'pf_no',
         'esi_no', 'pan_no', 'aadhaar_no', 'bank_name', 'bank_account_no',
         'bank_ifsc', 'bank_account_name', 'reporting_to', 'rights', 'note',
+        'mail_mailbox_limit', 'mail_prefs',
         'target_kind',
     ];
 
@@ -200,6 +203,7 @@ class Member extends Model
     {
         return [
             'dob' => 'date',
+            'mail_prefs' => 'array',
             'joined_at' => 'date',
             'resigned_at' => 'date',
             'is_salesperson' => 'boolean',

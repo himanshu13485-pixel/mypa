@@ -360,6 +360,8 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
   const [adminEmail, setAdminEmail] = useState(org.admins[0]?.email ?? '')
   const [newPassword, setNewPassword] = useState('')
   const [impersonation, setImpersonation] = useState(org.impersonation_level ?? 'none')
+  const [mailsEnabled, setMailsEnabled] = useState(!!org.mails_enabled)
+  const [mailboxCap, setMailboxCap] = useState(org.mails_mailbox_cap ?? 3)
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -368,6 +370,8 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
         code,
         slug,
         impersonation_level: impersonation,
+        mails_enabled: mailsEnabled,
+        mails_mailbox_cap: mailboxCap,
         ...(newPassword ? { admin_email: adminEmail, admin_password: newPassword } : {}),
       }),
     onSuccess: (res: { message?: string }) => { toast(res.message ?? 'Organization updated.', 'success'); onDone() },
@@ -436,6 +440,36 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
               </p>
             )}
           </div>
+        </div>
+
+        {/*
+          * Mails - the platform's grant, like the one above: a company
+          * cannot switch it on for itself. With it on, the Company Admin
+          * decides which of their people get it and how many mailboxes each,
+          * never more than the cap set here.
+          */}
+        <div className="border-t border-slate-100 pt-3 dark:border-slate-800">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Mails</h3>
+          <label className="mt-2 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+            <input type="checkbox" checked={mailsEnabled} onChange={(e) => setMailsEnabled(e.target.checked)} />
+            Give this company the Mails module
+          </label>
+          <p className="mt-1 text-xs text-slate-400">
+            Their Admin then chooses which users get Mails. Users without it see the CRM exactly as now.
+          </p>
+          {mailsEnabled && (
+            <div className="mt-2">
+              <Label>Most mailboxes one person may add</Label>
+              <select
+                value={mailboxCap}
+                onChange={(e) => setMailboxCap(Number(e.target.value))}
+                className="w-32 rounded-xl bg-white px-3 py-2 text-sm ring-1 ring-inset ring-slate-200 dark:bg-slate-800 dark:ring-slate-700"
+              >
+                {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-slate-400">Default 3. Their Admin may give each person any number up to this.</p>
+            </div>
+          )}
         </div>
 
         <div className="border-t border-slate-100 pt-3 dark:border-slate-800">

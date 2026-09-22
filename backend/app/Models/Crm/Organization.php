@@ -12,7 +12,7 @@ class Organization extends Model
 
     protected $table = 'crm_organizations';
 
-    protected $fillable = ['name', 'code', 'slug', 'status', 'impersonation_level', 'settings', 'created_by'];
+    protected $fillable = ['name', 'code', 'slug', 'status', 'impersonation_level', 'settings', 'created_by', 'mails_enabled', 'mails_mailbox_cap'];
 
     /**
      * Words the CRM's own screens answer to, and so words no company may
@@ -29,7 +29,7 @@ class Organization extends Model
         'vendors', 'expenses', 'salary', 'leaves', 'leave-log', 'tasks', 'approvals', 'newsletters',
         'cms', 'user-log', 'reports', 'workspace-fields', 'field-requests', 'contests',
         'invoices', 'invoice-log', 'tds-certificates', 'spam-reports', 'birthdays', 'recurring', 'commissions', 'overview', 'settings',
-        'connect', 'pl', 'assets', 'churn', 'communication', 'theme', 'offline-employees', 'new', 'edit',
+        'connect', 'pl', 'assets', 'churn', 'communication', 'theme', 'offline-employees', 'mails', 'new', 'edit',
     ];
 
     /**
@@ -99,6 +99,8 @@ class Organization extends Model
     {
         return [
             'settings' => 'array',
+            'mails_enabled' => 'boolean',
+            'mails_mailbox_cap' => 'integer',
             /*
              * Encrypted rather than hashed, and never fillable.
              *

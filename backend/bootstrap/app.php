@@ -77,6 +77,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'crm.manager' => \App\Http\Middleware\EnsureCrmManager::class,
             'service.account' => \App\Http\Middleware\EnsureServiceAccount::class,
             'chat.unlocked' => \App\Http\Middleware\EnsureChatUnlocked::class,
+            'mails' => \App\Http\Middleware\EnsureMailsAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
