@@ -517,6 +517,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
 
         // Chat
         Route::get('/conversations', [ConversationController::class, 'index']);
+        // Words said anywhere, across every conversation this person is in.
+        Route::get('/messages/search', [MessageController::class, 'search'])->middleware('throttle:60,1');
         Route::post('/conversations', [ConversationController::class, 'store']);
         Route::get('/groups/{group}/conversation', [ConversationController::class, 'forGroup']);
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markRead']);

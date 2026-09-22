@@ -662,6 +662,18 @@ export const groups = {
 
 // --- Chat -------------------------------------------------------------------
 
+/** One message found by the search across all chats. */
+export interface ChatSearchHit {
+  uuid: string
+  conversation_uuid: string
+  conversation_name: string
+  conversation_type: string
+  sender_name: string
+  /** The stretch of the message around the match, not its opening. */
+  snippet: string
+  created_at: string | null
+}
+
 export const chat = {
   /**
    * My chats. Archived ones are kept out of the way until asked for by
@@ -676,6 +688,9 @@ export const chat = {
     api.post<{ data: ConversationItem }>('/conversations', { app_id }).then((r) => r.data.data),
   groupConversation: (groupUuid: string) =>
     api.get<{ data: ConversationItem }>(`/groups/${groupUuid}/conversation`).then((r) => r.data.data),
+  /** Words said anywhere, across every conversation this person is in. */
+  searchMessages: (q: string) =>
+    api.get<{ data: ChatSearchHit[] }>('/messages/search', { params: { q } }).then((r) => r.data.data),
   messages: (uuid: string, params: Record<string, unknown> = {}) =>
     api.get<{ data: ChatMessage[] }>(`/conversations/${uuid}/messages`, { params }).then((r) => r.data.data),
   send: (uuid: string, payload: FormData | Record<string, unknown>) =>

@@ -20,7 +20,7 @@ import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
 import { clsx } from 'clsx'
-import { chat } from '../api/endpoints'
+import { chat, type ChatSearchHit } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { DELETE_WINDOW_HOURS, withinEditWindow } from '../lib/editWindow'
 import { countUnseen, seenIdsOf } from '../lib/unseenMessages'
@@ -392,6 +392,37 @@ const SENDING_PREFIX = 'sending:'
 const isSending = (m: ChatMessage) => m.uuid.startsWith(SENDING_PREFIX)
 
 /**
+ * The search words picked out inside a result.
+ *
+ * Case-insensitive, and escaped: somebody searching for "5%" or "(0172)"
+ * is searching for those characters, not for a pattern.
+ */
+function highlight(text: string, needle: string) {
+  if (!needle) return text
+  const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const parts = text.split(new RegExp(`(${escaped})`, 'ig'))
+
+  return parts.map((part, i) => (part.toLowerCase() === needle.toLowerCase()
+    ? <mark key={i} className="rounded bg-amber-200/80 px-0.5 text-slate-900 dark:bg-amber-400/40 dark:text-white">{part}</mark>
+    : part))
+}
+
+/** When a result was said: the time today, the day this week, the date before that. */
+function hitDate(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+  if (now.getTime() - d.getTime() < 6 * 86_400_000) {
+    return d.toLocaleDateString([], { weekday: 'short' })
+  }
+
+  return d.toLocaleDateString([], { day: 'numeric', month: 'short' })
+}
+
+/**
  * What one page of history holds.
  *
  * The server's own window (MessageController::index), repeated here for one
@@ -582,6 +613,29 @@ export default function MessagesPage() {
   const [deletingMany, setDeletingMany] = useState(false)
   const [deleting, setDeleting] = useState<ChatMessage | null>(null)
   const [pickedChats, setPickedChats] = useState<Set<string>>(new Set())
+  /*
+   * The search above the chat list.
+   *
+   * Chats are matched on the spot, from the list already loaded; what was
+   * said inside them is asked of the server, a moment after typing stops,
+   * because nobody wants a request per keystroke and the answer to "that
+   * account number" is rarely in the first two letters.
+   */
+  const [chatSearch, setChatSearch] = useState('')
+  const [chatSearchQ, setChatSearchQ] = useState('')
+  useEffect(() => {
+    const t = window.setTimeout(() => setChatSearchQ(chatSearch.trim()), 300)
+    return () => window.clearTimeout(t)
+  }, [chatSearch])
+  const { data: messageHits, isFetching: searchingMessages } = useQuery({
+    queryKey: ['message-search', chatSearchQ],
+    queryFn: () => chat.searchMessages(chatSearchQ),
+    enabled: chatSearchQ.length >= 2,
+    staleTime: 30_000,
+  })
+  /** A message to land on once its conversation has opened. */
+  const [pendingJump, setPendingJump] = useState<string | null>(null)
+
   /** What the forward list is narrowed to, if anything. */
   const [forwardFilter, setForwardFilter] = useState('')
   /*
@@ -881,6 +935,23 @@ export default function MessagesPage() {
     el.scrollTop = el.scrollHeight - keepFromBottom.current
     keepFromBottom.current = null
   }, [older])
+
+  /*
+   * Landing on a search result.
+   *
+   * Opening the chat is half of it; the message could be anywhere in it.
+   * So once the thread has loaded, the same walk a reply's quote does takes
+   * over - scroll to it if it is on screen, fetch backwards until it is if
+   * it is not - and lights it when it gets there.
+   */
+  useEffect(() => {
+    if (!pendingJump || !messages || loadingThread) return
+    const uuid = pendingJump
+    setPendingJump(null)
+    // A beat for the rows to be laid out before looking for one of them.
+    window.setTimeout(() => { void goToSource(uuid) }, 120)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingJump, messages, loadingThread])
 
   /**
    * One page further back, or null when there is no more of it.
@@ -1661,6 +1732,30 @@ export default function MessagesPage() {
    * hovering, and as a sheet of labelled rows a finger opens - where 14px
    * icons in a row floating over the text were never going to be the answer.
    */
+  // ---- Search above the chat list ------------------------------------------
+
+  const searchText = chatSearch.trim()
+  /** The chat list, narrowed to names that match while a search is typed. */
+  const listedChats = !searchText
+    ? (conversations?.data ?? [])
+    : (conversations?.data ?? []).filter((c) => {
+      const needle = searchText.toLowerCase()
+      return [c.name, c.other_user?.username, c.other_user?.app_id]
+        .some((v) => (v ?? '').toLowerCase().includes(needle))
+    })
+
+  /** Open the chat a result came from, and land on the message. */
+  const openHit = (hit: ChatSearchHit) => {
+    const conversation = conversations?.data.find((c) => c.uuid === hit.conversation_uuid)
+    if (!conversation) {
+      // Only archived chats are missing from the list.
+      toast('That message is in an archived chat \u2014 open Archived to find it.', 'info')
+      return
+    }
+    setSelected(conversation)
+    setPendingJump(hit.uuid)
+  }
+
   // ---- Forward: who it can go to, and Select all ----------------------------
 
   /** Every chat a forward can reach - all of them but the one it came from. */
@@ -1839,6 +1934,30 @@ export default function MessagesPage() {
             </Button>
           </div>
         </div>
+        {/* Chats by name, and anything said in them. */}
+        <div className="relative mb-2 shrink-0">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+          <input
+            type="search"
+            value={chatSearch}
+            onChange={(e) => setChatSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') setChatSearch('') }}
+            placeholder="Search chats and messages"
+            aria-label="Search chats and messages"
+            className="w-full rounded-xl bg-white/80 py-2 pl-9 pr-8 text-sm text-slate-900 shadow-sm ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:bg-slate-800/80 dark:text-slate-100 dark:ring-slate-700"
+          />
+          {chatSearch && (
+            <button
+              type="button"
+              onClick={() => setChatSearch('')}
+              aria-label="Clear search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+
         {/*
           * The way into the archive, and the way back out.
           *
@@ -1868,7 +1987,10 @@ export default function MessagesPage() {
           />
         ) : (
           <div className="scroll-pane min-h-0 flex-1 space-y-1 overflow-y-auto">
-            {conversations.data.map((c) => (
+            {searchText && listedChats.length > 0 && (
+              <p className="px-1 pb-1 pt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Chats</p>
+            )}
+            {listedChats.map((c) => (
               <div key={c.uuid} className="group relative">
               <button
                 onClick={() => setSelected(c)}
@@ -1992,6 +2114,46 @@ export default function MessagesPage() {
               )}
               </div>
             ))}
+
+            {/*
+              * What was said, under the chats it was said in.
+              *
+              * Each hit names the chat, who said it and when, and shows the
+              * stretch of the message around the match rather than its
+              * opening line. Tapping one opens that chat on that message.
+              */}
+            {searchText && (
+              <div className="pt-2">
+                {searchText.length >= 2 && (
+                  <p className="px-1 pb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    Messages{searchingMessages ? ' \u00b7 searching\u2026' : ''}
+                  </p>
+                )}
+                {(messageHits ?? []).map((hit) => (
+                  <button
+                    key={hit.uuid}
+                    type="button"
+                    onClick={() => openHit(hit)}
+                    className="tap block w-full rounded-lg px-2 py-2 text-left transition-colors hover:bg-white/60 dark:hover:bg-slate-800/60"
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-sm font-medium">{hit.conversation_name}</span>
+                      <span className="shrink-0 text-[11px] text-slate-400">{hitDate(hit.created_at)}</span>
+                    </div>
+                    <p className="line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                      <span className="font-medium text-slate-600 dark:text-slate-300">{hit.sender_name}: </span>
+                      {highlight(hit.snippet, searchText)}
+                    </p>
+                  </button>
+                ))}
+                {searchText.length >= 2 && !searchingMessages && listedChats.length === 0 && (messageHits ?? []).length === 0 && (
+                  <p className="px-2 py-6 text-center text-sm text-slate-400">Nothing found for “{searchText}”.</p>
+                )}
+                {searchText.length === 1 && listedChats.length === 0 && (
+                  <p className="px-2 py-6 text-center text-sm text-slate-400">Keep typing to search messages too.</p>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

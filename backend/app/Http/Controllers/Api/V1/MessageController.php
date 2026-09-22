@@ -59,6 +59,79 @@ class MessageController extends Controller
     public const MAX_FORWARD_COPIES = 200;
     public const MAX_FORWARD_BYTES = 500 * 1024 * 1024;
 
+    /**
+     * Words said anywhere, in any conversation this person is part of.
+     *
+     * Search only ever worked inside the thread already open, which is no
+     * help when the question is "who sent me that account number, and where"
+     * - the answer to which is the thread you do not know to open. This one
+     * looks across all of them.
+     *
+     * Only what this person can see: conversations they are a member of,
+     * never a message they deleted for themselves, never one unsent for
+     * everybody. Newest first and a page long, because a search box is asked
+     * for the one message somebody half-remembers, not for an export.
+     */
+    public function search(Request $request): JsonResponse
+    {
+        $me = $request->user();
+        $q = trim((string) $request->query('q', ''));
+
+        // One letter matches everything and finds nothing.
+        if (mb_strlen($q) < 2) {
+            return response()->json(['data' => []]);
+        }
+
+        $mine = Conversation::visibleTo($me)->pluck('id');
+        $hidden = MessageDeletion::where('user_id', $me->id)->pluck('message_id');
+        // "5%" means five per cent, not "5 and anything". Escaped with ! rather
+        // than a backslash, which MySQL and SQLite do not read the same way.
+        $like = '%' . str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $q) . '%';
+
+        $found = Message::query()
+            ->whereIn('conversation_id', $mine)
+            ->whereNotIn('id', $hidden)
+            ->whereNull('deleted_at')
+            ->whereRaw("body LIKE ? ESCAPE '!'", [$like])
+            ->with(['user:id,uuid,name', 'conversation.group', 'conversation.members:id,uuid,name'])
+            ->orderByDesc('id')
+            ->limit(30)
+            ->get();
+
+        return response()->json(['data' => $found->map(fn (Message $m) => [
+            'uuid' => $m->uuid,
+            'conversation_uuid' => $m->conversation->uuid,
+            'conversation_name' => $m->conversation->type === 'direct'
+                ? ($m->conversation->members->firstWhere('id', '!=', $me->id)?->name ?? 'Direct chat')
+                : ($m->conversation->name ?? $m->conversation->group?->name ?? 'Group chat'),
+            'conversation_type' => $m->conversation->type,
+            'sender_name' => $m->user_id === $me->id ? 'You' : ($m->user?->name ?? 'Deleted account'),
+            'snippet' => self::around((string) $m->body, $q),
+            'created_at' => $m->created_at?->toIso8601String(),
+        ])->values()]);
+    }
+
+    /**
+     * The part of a long message that holds the match.
+     *
+     * A search result is read at a glance, and a result showing the first
+     * eighty characters of a message whose match is in the fourth paragraph
+     * shows everything except the reason it was found.
+     */
+    private static function around(string $body, string $q, int $reach = 60): string
+    {
+        $flat = trim(preg_replace('/\s+/u', ' ', $body) ?? $body);
+        $at = mb_stripos($flat, $q);
+        if ($at === false || mb_strlen($flat) <= $reach * 2 + mb_strlen($q)) {
+            return mb_strimwidth($flat, 0, $reach * 2 + mb_strlen($q), '…');
+        }
+
+        $start = max(0, $at - $reach);
+        $piece = mb_substr($flat, $start, $reach * 2 + mb_strlen($q));
+
+        return ($start > 0 ? '…' : '') . $piece . ($start + mb_strlen($piece) < mb_strlen($flat) ? '…' : '');
+    }
+
     public function index(Request $request, Conversation $conversation): JsonResponse
     {
         $me = $request->user();
