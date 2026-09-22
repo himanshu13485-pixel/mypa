@@ -536,6 +536,25 @@ class MailsTest extends TestCase
         $this->assertStringContainsString('Could not read the mailbox', $said);
     }
 
+    public function test_signing_in_clears_the_complaint_the_card_was_showing(): void
+    {
+        $box = $this->mailbox($this->admin);
+        $box->forceFill(['last_error' => 'Peer certificate did not match', 'status' => 'error'])->save();
+
+        // Changing what failed retires the old message on its own.
+        $this->actingAs($this->adminUser)->putJson("/api/v1/crm/mails/accounts/{$box->uuid}", [
+            'imap_host' => 'server123.web-hosting.test',
+        ])->assertOk();
+        $this->assertNull($box->fresh()->last_error);
+
+        // And so does a check that succeeds. The fake connector refuses IMAP,
+        // so this mailbox is send-only for the purpose of the test.
+        $box->forceFill(['imap_host' => null, 'last_error' => 'Something older', 'status' => 'error'])->save();
+        $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/test")->assertOk();
+        $this->assertNull($box->fresh()->last_error);
+        $this->assertSame('active', $box->fresh()->status);
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

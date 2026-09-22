@@ -118,7 +118,17 @@ class MailAccountController extends Controller
         }
 
         $moved = isset($data['imap_host']) && $data['imap_host'] !== $account->imap_host;
+
+        // Changing how it connects retires the old complaint: what failed was
+        // the settings that are being replaced.
+        $wires = ['imap_host', 'imap_port', 'imap_encryption', 'imap_username', 'imap_password',
+            'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_username', 'smtp_password', 'verify_cert'];
+        $rewired = collect($wires)->contains(fn ($f) => array_key_exists($f, $data) && $data[$f] != $account->{$f});
+
         $account->fill($data);
+        if ($rewired) {
+            $account->last_error = null;
+        }
         // A different server is a different mailbox as far as its numbering goes.
         if ($moved) {
             $account->sync_state = null;
@@ -191,10 +201,18 @@ class MailAccountController extends Controller
     {
         $this->reachable($request, $account);
 
-        return response()->json(['data' => [
-            'imap' => $this->connector->testImap($account),
-            'smtp' => $this->connector->testSmtp($account),
-        ]]);
+        $imap = $this->connector->testImap($account);
+        $smtp = $this->connector->testSmtp($account);
+
+        // Signing in settles the old complaint. Without this the card kept
+        // showing the error from the last failed sync - and the reason people
+        // press Test connection is to find out whether they have fixed it.
+        // Settled when every half this mailbox actually has signed in - a
+        // send-only mailbox is not in trouble for having no inbox.
+        $working = ($account->canReceive() ? $imap['ok'] : true) && ($account->canSend() ? $smtp['ok'] : true);
+        $this->settled($account, $working && ($account->canReceive() || $account->canSend()));
+
+        return response()->json(['data' => ['imap' => $imap, 'smtp' => $smtp]]);
     }
 
     /** A closer look at the incoming half: the folders, and what is in the inbox. */
@@ -210,6 +228,7 @@ class MailAccountController extends Controller
             $newest = $inbox?->query()->leaveUnread()->setFetchBody(false)->softFail()
                 ->all()->setFetchOrderDesc()->limit(1)->get()->first();
             $client->disconnect();
+            $this->settled($account, true);
 
             return response()->json(['data' => [
                 'ok' => true,
@@ -423,6 +442,14 @@ class MailAccountController extends Controller
                 'email' => $m->user?->email,
                 'has_mails' => $m->crm_role === 'admin' || $m->can('mails'),
             ])->values()->all();
+    }
+
+    /** A mailbox that just signed in has nothing left to complain about. */
+    private function settled(MailAccount $account, bool $ok): void
+    {
+        if ($ok && ($account->last_error || $account->status !== 'active')) {
+            $account->forceFill(['last_error' => null, 'status' => 'active'])->save();
+        }
     }
 
     private function member(Request $request): Member
