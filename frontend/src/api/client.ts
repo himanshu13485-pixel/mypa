@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { unlockHeaders, useChatUnlock } from '../lib/chatUnlock'
 import { useAuthStore } from '../stores/auth'
 import { disconnectEcho } from '../lib/echo'
 import { clearGuestPass, guestRequestPath, readGuestPass } from '../lib/guestPass'
@@ -10,6 +11,18 @@ export const api = axios.create({
 })
 
 api.interceptors.request.use((config) => {
+  /*
+   * The chat password's proof, on the requests that read chats.
+   *
+   * Only those: it opens locked conversations, and the rest of the app
+   * has no business carrying it about.
+   */
+  // Not the badge poll: it runs every few seconds in the background, and
+  // background traffic must never be what keeps a chat unlocked.
+  if (/^\/(conversations|messages|people)\b/.test(config.url ?? '')) {
+    Object.assign(config.headers, unlockHeaders())
+  }
+
   /*
    * This browser's proof that it has answered a sign-in code before.
    *
@@ -77,6 +90,12 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     const body = error.response?.data as { code?: string } | undefined
+
+    // The unlock ran out on the server: forget it here too, so every locked
+    // screen goes back to asking instead of failing quietly.
+    if (error.response?.status === 423) {
+      useChatUnlock.getState().clear()
+    }
 
     // A guest's half hour is up. Say so where they are, rather than letting it
     // fall through to the session handling below and look like a failure —

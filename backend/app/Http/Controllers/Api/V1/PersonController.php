@@ -172,7 +172,14 @@ class PersonController extends Controller
         $starred = [];
         $pinned = [];
 
-        if ($conversation) {
+        // The profile would otherwise be a way round the chat's password.
+        $locks = app(\App\Services\ChatLock::class);
+        $sealed = $conversation
+            && $locks->sealed($me, $conversation)
+            && ! $locks->isOpen($me, request()->header(\App\Services\ChatLock::HEADER));
+        $hiddenFromMe = $conversation && $locks->hiddenIds($me)->contains($conversation->id) && $sealed;
+
+        if ($conversation && ! $sealed) {
             $with = ['user:id,uuid,name', 'attachments', 'reactions', 'stars'];
 
             $pinned = $conversation->messages()->whereNotNull('pinned_at')
@@ -188,7 +195,8 @@ class PersonController extends Controller
         }
 
         return [
-            'conversation_uuid' => $conversation?->uuid,
+            // A hidden chat is not even pointed at until the password is in.
+            'conversation_uuid' => $hiddenFromMe ? null : $conversation?->uuid,
             'groups' => $groups->map(fn ($g) => [
                 'uuid' => $g->uuid, 'name' => $g->name, 'type' => $g->type,
             ])->values(),

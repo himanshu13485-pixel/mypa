@@ -13,12 +13,13 @@ class Conversation extends Model
 {
     use HasUuids;
 
-    protected $fillable = ['type', 'group_id', 'name', 'auto_delete_hours', 'theme', 'background', 'created_by', 'last_message_at'];
+    protected $fillable = ['type', 'group_id', 'name', 'auto_delete_hours', 'theme', 'background', 'created_by', 'last_message_at', 'is_self'];
 
     protected function casts(): array
     {
         return [
             'last_message_at' => 'datetime',
+            'is_self' => 'boolean',
         ];
     }
 
@@ -40,7 +41,7 @@ class Conversation extends Model
     public function members(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'conversation_members')
-            ->withPivot(['last_read_at', 'muted_at', 'archived_at', 'pinned_at', 'theme', 'background'])
+            ->withPivot(['last_read_at', 'muted_at', 'archived_at', 'pinned_at', 'theme', 'background', 'locked_at', 'hidden_at'])
             ->withTimestamps();
     }
 
@@ -122,9 +123,35 @@ class Conversation extends Model
     }
 
     /** Find or create the direct conversation between two users. */
+    /**
+     * The conversation somebody has with themselves.
+     *
+     * For the notes, links and drafts people otherwise send to a colleague
+     * and ask them to ignore. One per person, made the first time it is
+     * asked for. Found by its flag, never by searching for a direct chat
+     * holding the same person twice - which is what directBetween would do,
+     * and which would match every direct chat they are in.
+     */
+    public static function selfFor(User $user): self
+    {
+        $existing = self::where('is_self', true)
+            ->whereHas('members', fn ($m) => $m->where('users.id', $user->id))
+            ->first();
+
+        if ($existing) {
+            return $existing;
+        }
+
+        $conversation = self::create(['type' => 'direct', 'is_self' => true, 'created_by' => $user->id]);
+        $conversation->members()->attach([$user->id]);
+
+        return $conversation;
+    }
+
     public static function directBetween(User $a, User $b): self
     {
         $existing = self::where('type', 'direct')
+            ->where('is_self', false)
             ->whereHas('members', fn ($m) => $m->where('users.id', $a->id))
             ->whereHas('members', fn ($m) => $m->where('users.id', $b->id))
             ->first();

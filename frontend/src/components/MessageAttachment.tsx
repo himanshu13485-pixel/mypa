@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Download, FileText } from 'lucide-react'
 import { clsx } from 'clsx'
 import { chat } from '../api/endpoints'
-import { useAuthStore } from '../stores/auth'
+import { attachmentHeaders } from '../lib/chatUnlock'
 import { fileSize, shortName } from '../lib/attachmentLabels'
 
 /**
@@ -30,10 +30,9 @@ function useAttachmentUrl(conversationUuid: string, attachmentId: number, enable
     let revoked: string | null = null
     let cancelled = false
 
-    const token = useAuthStore.getState().token
-
     fetch(chat.attachmentUrl(conversationUuid, attachmentId), {
-      headers: { Authorization: `Bearer ${token}` },
+      // With the chat password's proof, or a locked chat's photos stay blank.
+      headers: attachmentHeaders(),
     })
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('unavailable'))))
       .then((blob) => {
@@ -78,9 +77,8 @@ export default function MessageAttachment({
   const url = useAttachmentUrl(conversationUuid, attachment.id, isImage)
 
   const download = async () => {
-    const token = useAuthStore.getState().token
     const res = await fetch(chat.attachmentUrl(conversationUuid, attachment.id), {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: attachmentHeaders(),
     })
     const blob = await res.blob()
     const href = URL.createObjectURL(blob)

@@ -5,6 +5,7 @@ import {
   Archive, ArrowDown, Bell, BellOff, Camera, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Eraser, Flag, Forward, Megaphone, Mic, MoreVertical, Palette, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
   Smile, Square, TextSelect, Trash2, Video, X,
+  Eye, EyeOff, Lock, LockOpen, StickyNote,
 } from 'lucide-react'
 import { badges as badgesApi, conversationMembers, removeConversationMember, reportsApi } from '../api/endpoints'
 import type { ConversationMember } from '../api/endpoints'
@@ -20,7 +21,9 @@ import { PickUserModal } from '../components/UserSuggest'
 import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
 import { clsx } from 'clsx'
-import { chat, type ChatSearchHit } from '../api/endpoints'
+import { chat, chatLock, type ChatSearchHit } from '../api/endpoints'
+import { attachmentHeaders, hiddenFolderPassword, searchMeansMe, useChatUnlock } from '../lib/chatUnlock'
+import { ChatLockSettings, ChatPasswordPrompt, ForgotChatPassword, LockedThread, SetChatPassword } from '../components/ChatLockDialogs'
 import { errorMessage } from '../api/client'
 import { DELETE_WINDOW_HOURS, withinEditWindow } from '../lib/editWindow'
 import { countUnseen, seenIdsOf } from '../lib/unseenMessages'
@@ -624,8 +627,40 @@ export default function MessagesPage() {
   const [chatSearch, setChatSearch] = useState('')
   const [chatSearchQ, setChatSearchQ] = useState('')
   useEffect(() => {
+    // "#password#" is a key, not a query: it must never reach the search
+    // endpoint, where it would sit in the server's access log.
+    if (hiddenFolderPassword(chatSearch)) {
+      setChatSearchQ('')
+      return
+    }
     const t = window.setTimeout(() => setChatSearchQ(chatSearch.trim()), 300)
     return () => window.clearTimeout(t)
+  }, [chatSearch])
+
+  /*
+   * "#123456#" opens the hidden folder.
+   *
+   * Tried once per distinct password as soon as the closing # is typed. A
+   * wrong one says nothing at all - it simply looks like a search that
+   * found no chats - so the box does not confirm to anybody else that a
+   * hidden folder exists.
+   */
+  const triedKey = useRef<string | null>(null)
+  useEffect(() => {
+    const key = hiddenFolderPassword(chatSearch)
+    if (!key || triedKey.current === key) return
+    triedKey.current = key
+    chatLock.unlock(key)
+      .then((res) => {
+        useChatUnlock.getState().set(res.data.token)
+        setShowArchived(false)
+        setHiddenMode(true)
+        setChatSearch('')
+        triedKey.current = null
+        toast('Hidden chats', 'success')
+      })
+      .catch(() => undefined)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chatSearch])
   const { data: messageHits, isFetching: searchingMessages } = useQuery({
     queryKey: ['message-search', chatSearchQ],
@@ -779,9 +814,24 @@ export default function MessagesPage() {
    */
   const [showArchived, setShowArchived] = useState(false)
 
+  /*
+   * The hidden folder: open only while the chat password's unlock is live.
+   *
+   * Losing the unlock - fifteen minutes unused, or a reload - closes it,
+   * because a folder left open is not hidden.
+   */
+  const [hiddenMode, setHiddenMode] = useState(false)
+  const unlockToken = useChatUnlock((st) => st.token)
+  useEffect(() => { if (!unlockToken) setHiddenMode(false) }, [unlockToken])
+  const { data: lockStatus, refetch: refetchLock } = useQuery({
+    queryKey: ['chat-lock'],
+    queryFn: chatLock.status,
+    staleTime: 60_000,
+  })
+
   const { data: conversations, isLoading } = useQuery({
-    queryKey: ['conversations', showArchived],
-    queryFn: () => chat.conversations(showArchived),
+    queryKey: ['conversations', showArchived, hiddenMode],
+    queryFn: () => chat.conversations(showArchived, hiddenMode),
     refetchInterval: 20_000,
   })
 
@@ -798,6 +848,20 @@ export default function MessagesPage() {
   const selected = pickedChat
     ? conversations?.data.find((c) => c.uuid === pickedChat.uuid) ?? pickedChat
     : null
+
+  /*
+   * This chat is behind the password, and the password has not been given.
+   *
+   * Every read of it waits - the server would refuse them anyway, with a
+   * 423 - and the thread shows the lock instead of the messages.
+   */
+  const threadSealed = !!selected && !!(selected.is_locked || selected.is_hidden) && !unlockToken
+
+  // Closing the hidden folder takes its open chat with it.
+  useEffect(() => {
+    if (!hiddenMode && pickedChat?.is_hidden) setSelected(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hiddenMode])
 
   /** Which row's ⋮ menu is open, and which chat is choosing its colours. */
   const [rowMenu, setRowMenu] = useState<string | null>(null)
@@ -887,7 +951,7 @@ export default function MessagesPage() {
   const { data: messages, isLoading: loadingThread } = useQuery({
     queryKey: ['messages', selected?.uuid, query],
     queryFn: () => chat.messages(selected!.uuid, query ? { q: query } : undefined),
-    enabled: !!selected,
+    enabled: !!selected && !threadSealed,
     refetchInterval: query ? false : 15_000,
   })
 
@@ -1012,7 +1076,7 @@ export default function MessagesPage() {
   const { data: pinnedMessages } = useQuery({
     queryKey: ['pinned', selected?.uuid],
     queryFn: () => chat.pinned(selected!.uuid),
-    enabled: !!selected,
+    enabled: !!selected && !threadSealed,
   })
 
   /**
@@ -1297,13 +1361,14 @@ export default function MessagesPage() {
 
   // Mark read + scroll on open/new messages
   useEffect(() => {
-    if (selected) {
+    // Not before the password: reading it is exactly what has not happened.
+    if (selected && !threadSealed) {
       chat.markRead(selected.uuid).then(() =>
         queryClient.invalidateQueries({ queryKey: ['conversations'] }),
-      )
+      ).catch(() => undefined)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected?.uuid])
+  }, [selected?.uuid, threadSealed])
 
   // Scroll only the message list (never the page), and only when the reader
   // is already near the bottom — don't yank them down while reading history.
@@ -1635,7 +1700,7 @@ export default function MessagesPage() {
   const { data: roomMembers } = useQuery({
     queryKey: ['conversation-members', selected?.uuid],
     queryFn: () => conversationMembers(selected!.uuid),
-    enabled: !!selected && mention !== null,
+    enabled: !!selected && mention !== null && !threadSealed,
     staleTime: 5 * 60_000,
   })
 
@@ -1732,6 +1797,80 @@ export default function MessagesPage() {
    * hovering, and as a sheet of labelled rows a finger opens - where 14px
    * icons in a row floating over the text were never going to be the answer.
    */
+  // ---- The chat password: lock, hide, and the screens that ask for it -------
+
+  type LockAction = { kind: 'lock' | 'unlock' | 'hide' | 'unhide'; chat: ConversationItem }
+  const [lockAction, setLockAction] = useState<LockAction | null>(null)
+  const [settingPassword, setSettingPassword] = useState<null | { change?: boolean; then?: LockAction }>(null)
+  const [forgotOpen, setForgotOpen] = useState(false)
+  const [lockSettingsOpen, setLockSettingsOpen] = useState(false)
+
+  /*
+   * Lock or hide one chat - after setting a password first, if there is not
+   * one yet, and then carrying on with what was asked for.
+   */
+  const protect = (kind: LockAction['kind'], c: ConversationItem) => {
+    setRowMenu(null)
+    if (!lockStatus?.has_password) {
+      setSettingPassword({ then: { kind, chat: c } })
+      return
+    }
+    setLockAction({ kind, chat: c })
+  }
+
+  const afterLockChange = (message?: string, action?: LockAction) => {
+    refreshChats()
+    void refetchLock()
+    // A chat just hidden leaves the list; it should not stay open on screen.
+    if (action?.kind === 'hide' && pickedChat?.uuid === action.chat.uuid) setSelected(null)
+    toast(message ?? 'Done.', 'success')
+  }
+
+  const lockCopy: Record<LockAction['kind'], { title: string; hint: string; action: string }> = {
+    lock: {
+      title: 'Lock chat',
+      hint: 'It stays in your list with a lock, and opens only with your chat password. The others in it are not told.',
+      action: 'Lock',
+    },
+    unlock: {
+      title: 'Remove lock',
+      hint: 'It becomes an ordinary chat again.',
+      action: 'Remove lock',
+    },
+    hide: {
+      title: 'Hide chat',
+      hint: 'It leaves your chat list. To find it, type #your password# in the chat search.',
+      action: 'Hide',
+    },
+    unhide: {
+      title: 'Unhide chat',
+      hint: 'It goes back to your chat list as an ordinary chat - not hidden, not locked.',
+      action: 'Unhide',
+    },
+  }
+
+  const runLock = (a: LockAction) => (password: string) => {
+    switch (a.kind) {
+      case 'lock': return chatLock.lockChat(a.chat.uuid, password)
+      case 'unlock': return chatLock.unlockChat(a.chat.uuid, password)
+      case 'hide': return chatLock.hideChat(a.chat.uuid, password)
+      default: return chatLock.unhideChat(a.chat.uuid, password)
+    }
+  }
+
+  /** Open - or make, the first time - the chat with yourself. */
+  const openSelfChat = async () => {
+    try {
+      const c = await chat.selfChat()
+      setChatSearch('')
+      setHiddenMode(false)
+      setSelected(c)
+      refreshChats()
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
+  }
+
   // ---- Search above the chat list ------------------------------------------
 
   const searchText = chatSearch.trim()
@@ -1929,6 +2068,15 @@ export default function MessagesPage() {
             >
               <Megaphone className="size-3.5" />
             </Button>
+            {/* The chat password: set it the first time, manage it after. */}
+            <Button
+              size="sm"
+              variant="secondary"
+              title={lockStatus?.has_password ? 'Chat password' : 'Set a chat password to lock or hide chats'}
+              onClick={() => (lockStatus?.has_password ? setLockSettingsOpen(true) : setSettingPassword({}))}
+            >
+              <Lock className="size-3.5" />
+            </Button>
             <Button size="sm" onClick={startNewChat}>
               <Plus className="size-3.5" /> New
             </Button>
@@ -1964,7 +2112,22 @@ export default function MessagesPage() {
           * Only shown once there is something in it: an empty archive is a
           * row that explains a feature nobody has used.
           */}
-        {(showArchived || (conversations?.archived_count ?? 0) > 0) && (
+        {hiddenMode && (
+          <div className="mb-2 flex shrink-0 items-center justify-between gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs text-white dark:bg-slate-700">
+            <span className="flex items-center gap-1.5 font-medium">
+              <EyeOff className="size-3.5" /> Hidden chats
+            </span>
+            <span className="flex items-center gap-3">
+              <button type="button" onClick={() => setLockSettingsOpen(true)} className="opacity-80 hover:opacity-100 hover:underline">
+                Password
+              </button>
+              <button type="button" onClick={() => setHiddenMode(false)} className="font-medium hover:underline">
+                Close
+              </button>
+            </span>
+          </div>
+        )}
+        {!hiddenMode && (showArchived || (conversations?.archived_count ?? 0) > 0) && (
           <button
             type="button"
             onClick={() => setShowArchived((v) => !v)}
@@ -1980,8 +2143,10 @@ export default function MessagesPage() {
           <SkeletonList rows={8} />
         ) : !conversations?.data.length ? (
           <EmptyState
-            title={showArchived ? 'Nothing archived' : 'No conversations'}
-            hint={showArchived
+            title={hiddenMode ? 'No hidden chats' : showArchived ? 'Nothing archived' : 'No conversations'}
+            hint={hiddenMode
+              ? 'Hide a chat from its ⋮ menu and it will be kept here.'
+              : showArchived
               ? 'Archived chats are kept here, out of the main list.'
               : "Start a chat with a connection's App ID."}
           />
@@ -2016,7 +2181,7 @@ export default function MessagesPage() {
                     avatar={c.type === 'direct' ? c.other_user?.avatar : null}
                     size={38}
                   />
-                  {c.type === 'direct' && (
+                  {c.type === 'direct' && !c.is_self && (
                     <PresenceDot
                       state={resolvePresence(livePresence, c.other_user?.uuid, c.other_user?.presence)}
                     />
@@ -2029,12 +2194,13 @@ export default function MessagesPage() {
                         is held at the top, and this one will not ring. */}
                     {c.is_pinned && <Pin className="size-3 shrink-0 text-brand-500" />}
                     {c.is_muted && <BellOff className="size-3 shrink-0 text-slate-400" />}
+                    {c.is_locked && <Lock className="size-3 shrink-0 text-slate-400" aria-label="Locked" />}
                   </p>
                   <p className="truncate text-xs text-slate-400">
                     {/* The App ID, always — the dot on the avatar says where
                         they are, and this line used to lose the one identifier
                         on the row to a word repeating it. */}
-                    {c.type === 'group' ? `${c.members_count} members` : c.other_user?.app_id}
+                    {c.is_self ? 'Message yourself' : c.type === 'group' ? `${c.members_count} members` : c.other_user?.app_id}
                   </p>
                 </div>
                 {c.unread_count > 0 && (
@@ -2103,6 +2269,27 @@ export default function MessagesPage() {
                       label={c.is_archived ? 'Unarchive' : 'Archive chat'}
                       onClick={() => { setRowMenu(null); archiveMutation.mutate(c) }}
                     />
+                    {/* Behind the password: kept in the list locked, or out of it altogether. */}
+                    {c.is_hidden ? (
+                      <ChatMenuItem
+                        icon={<Eye className="size-3.5" />}
+                        label="Unhide chat…"
+                        onClick={() => protect('unhide', c)}
+                      />
+                    ) : (
+                      <>
+                        <ChatMenuItem
+                          icon={c.is_locked ? <LockOpen className="size-3.5" /> : <Lock className="size-3.5" />}
+                          label={c.is_locked ? 'Remove lock…' : 'Lock chat…'}
+                          onClick={() => protect(c.is_locked ? 'unlock' : 'lock', c)}
+                        />
+                        <ChatMenuItem
+                          icon={<EyeOff className="size-3.5" />}
+                          label="Hide chat…"
+                          onClick={() => protect('hide', c)}
+                        />
+                      </>
+                    )}
                     <ChatMenuItem
                       danger
                       icon={<Eraser className="size-3.5" />}
@@ -2122,6 +2309,24 @@ export default function MessagesPage() {
               * stretch of the message around the match rather than its
               * opening line. Tapping one opens that chat on that message.
               */}
+            {/* The chat with yourself has no name to search for: it is offered
+                for your own name, handle or ID, and for "me", "self", "notes". */}
+            {searchText && !hiddenMode && searchMeansMe(searchText, me) && (
+              <button
+                type="button"
+                onClick={openSelfChat}
+                className="tap flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <span className="flex size-[38px] shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-300">
+                  <StickyNote className="size-4" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-medium">Message yourself</span>
+                  <span className="block truncate text-xs text-slate-400">Notes, links and drafts - only you can see them</span>
+                </span>
+              </button>
+            )}
+
             {searchText && (
               <div className="pt-2">
                 {searchText.length >= 2 && (
@@ -2299,7 +2504,9 @@ export default function MessagesPage() {
                   ) : (
                     <p className="truncate text-sm font-semibold">{selected.name}</p>
                   )}
-                  {selected.type === 'group' ? (
+                  {selected.is_self ? (
+                    <p className="text-xs text-slate-400">Notes, links and drafts - only you see them</p>
+                  ) : selected.type === 'group' ? (
                     <button
                       className="text-xs text-slate-400 hover:text-brand-600 hover:underline"
                       onClick={() => setShowMembers(true)}
@@ -2667,6 +2874,9 @@ export default function MessagesPage() {
                   <Clock className="size-4" />
                 </Button>
                 </div>
+                {/* Nobody to ring in a chat with yourself. */}
+                {!selected.is_self && (
+                <>
                 <Button
                   size="sm"
                   variant="ghost"
@@ -2701,6 +2911,8 @@ export default function MessagesPage() {
                 >
                   <Video className="size-4" />
                 </Button>
+                </>
+                )}
 
                 {/*
                   * Everything about the chat itself, in one place.
@@ -2856,6 +3068,15 @@ export default function MessagesPage() {
               </div>
             )}
 
+            {/* A locked chat shows the lock, and nothing of what is in it. */}
+            {threadSealed ? (
+              <LockedThread
+                name={selected.name}
+                onUnlocked={() => undefined}
+                onForgot={() => setForgotOpen(true)}
+              />
+            ) : (
+            <>
             {/* The chat's background, as a rule with a dark variant so it
                 follows the mode switch without waiting for a re-render. */}
             {selected.background && <style>{backgroundRule('data-chat-bg', selected.background)}</style>}
@@ -3469,6 +3690,8 @@ export default function MessagesPage() {
                 </Button>
               </div>
             </div>
+            </>
+            )}
           </>
         )}
       </div>
@@ -3489,6 +3712,54 @@ export default function MessagesPage() {
           onSent={() => queryClient.invalidateQueries({ queryKey: ['conversations'] })}
         />
       )}
+      {/* ---- The chat password's screens ---- */}
+      {settingPassword && (
+        <SetChatPassword
+          change={settingPassword.change}
+          onClose={() => setSettingPassword(null)}
+          onDone={() => {
+            const then = settingPassword.then
+            setSettingPassword(null)
+            void refetchLock()
+            toast(settingPassword.change ? 'Chat password changed.' : 'Chat password set.', 'success')
+            // Straight on to what they were doing when they found they had none.
+            if (then) setLockAction(then)
+          }}
+        />
+      )}
+      {lockAction && (
+        <ChatPasswordPrompt
+          title={lockCopy[lockAction.kind].title}
+          hint={lockCopy[lockAction.kind].hint}
+          action={lockCopy[lockAction.kind].action}
+          run={runLock(lockAction)}
+          onDone={(message) => { const a = lockAction; setLockAction(null); afterLockChange(message, a) }}
+          onForgot={() => { setLockAction(null); setForgotOpen(true) }}
+          onClose={() => setLockAction(null)}
+        />
+      )}
+      {forgotOpen && (
+        <ForgotChatPassword
+          onClose={() => setForgotOpen(false)}
+          onDone={() => { setForgotOpen(false); void refetchLock(); toast('Chat password reset.', 'success') }}
+        />
+      )}
+      {lockSettingsOpen && lockStatus && (
+        <ChatLockSettings
+          status={lockStatus}
+          onClose={() => setLockSettingsOpen(false)}
+          onChange={() => { setLockSettingsOpen(false); setSettingPassword({ change: true }) }}
+          onForgot={() => { setLockSettingsOpen(false); setForgotOpen(true) }}
+          onChanged={(message) => {
+            setLockSettingsOpen(false)
+            setHiddenMode(false)
+            refreshChats()
+            void refetchLock()
+            toast(message, 'success')
+          }}
+        />
+      )}
+
       {showNewChat && (
         <PickUserModal
           title="Start a conversation"
@@ -3510,9 +3781,8 @@ function AudioAttachment({ conversationUuid, attachmentId, duration, own }: {
   const [src, setSrc] = useState<string | null>(null)
 
   const load = async () => {
-    const token = useAuthStore.getState().token
     const res = await fetch(chat.attachmentUrl(conversationUuid, attachmentId), {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: attachmentHeaders(),
     })
     const blob = await res.blob()
     setSrc(URL.createObjectURL(blob))

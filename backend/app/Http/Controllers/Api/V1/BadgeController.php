@@ -24,7 +24,13 @@ class BadgeController extends Controller
         $hidden = MessageDeletion::where('user_id', $me->id)->pluck('message_id');
         $messages = 0;
         Conversation::visibleTo($me)->with('members')->get()->each(function ($conversation) use ($me, $hidden, &$messages) {
-            $lastRead = $conversation->members->firstWhere('id', $me->id)?->pivot->last_read_at;
+            $pivot = $conversation->members->firstWhere('id', $me->id)?->pivot;
+            // A hidden chat's unread count would be the one thing that gave
+            // it away: a badge on Messages with nothing visible to explain it.
+            if ($pivot?->hidden_at !== null) {
+                return;
+            }
+            $lastRead = $pivot?->last_read_at;
             $messages += $conversation->messages()
                 ->where('user_id', '!=', $me->id)
                 ->whereNotIn('id', $hidden)

@@ -49,6 +49,8 @@ class CallController extends Controller
         $me = $request->user();
         abort_unless($conversation->hasMember($me), 403);
 
+        abort_if($conversation->is_self, 422, 'You cannot call yourself.');
+
         $data = $request->validate(['type' => ['required', 'in:audio,video']]);
 
         $callees = $conversation->type === 'direct'

@@ -577,6 +577,12 @@ export interface ConversationItem {
   unread_count: number
   is_muted: boolean
   is_archived: boolean
+  /** This person has put the chat behind their chat password. Nobody else sees it. */
+  is_locked?: boolean
+  /** Out of the list, in the folder only the password opens. */
+  is_hidden?: boolean
+  /** The conversation with yourself: notes, links, drafts. Cannot be called. */
+  is_self?: boolean
   /** Kept at the top of my list. Mine alone - the other side has their own. */
   is_pinned?: boolean
   /** The colours I read this chat in: my own if I chose one, else the chat's. */

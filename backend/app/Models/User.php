@@ -73,6 +73,8 @@ class User extends Authenticatable implements MustVerifyEmail
     protected $hidden = [
         'password',
         'remember_token',
+        // The chat password, hashed, and still never sent anywhere.
+        'chat_lock_hash',
     ];
 
     protected function casts(): array
@@ -86,6 +88,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'password' => 'hashed',
             'guest_expires_at' => 'datetime',
             'last_active_at' => 'datetime',
+            'chat_lock_set_at' => 'datetime',
             'presence_updated_at' => 'datetime',
             // Deliberately not fillable: this is set by mypa:service-account,
             // never by anything a request can reach.

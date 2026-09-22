@@ -30,6 +30,21 @@ class ConversationController extends Controller
 
         $wantArchived = $request->boolean('archived');
 
+        /*
+         * The hidden folder, or everything but it.
+         *
+         * Hidden chats are simply absent from the ordinary list - not
+         * greyed, not counted - and only this request, carrying a live
+         * unlock, can name them.
+         */
+        $locks = app(\App\Services\ChatLock::class);
+        $wantHidden = $request->boolean('hidden');
+        abort_if(
+            $wantHidden && ! $locks->isOpen($me, $request->header(\App\Services\ChatLock::HEADER)),
+            423,
+            'Enter your chat password to open hidden chats.',
+        );
+
         $conversations = Conversation::visibleTo($me)
             // Joined rather than queried per row: the ordering is by MY
             // membership, so it has to be in the same query that sorts.
@@ -39,9 +54,13 @@ class ConversationController extends Controller
             })
             ->select('conversations.*')
             ->when(
-                $wantArchived,
-                fn ($q) => $q->whereNotNull('mine.archived_at'),
-                fn ($q) => $q->whereNull('mine.archived_at'),
+                $wantHidden,
+                fn ($q) => $q->whereNotNull('mine.hidden_at'),
+                fn ($q) => $q->whereNull('mine.hidden_at')->when(
+                    $wantArchived,
+                    fn ($q) => $q->whereNotNull('mine.archived_at'),
+                    fn ($q) => $q->whereNull('mine.archived_at'),
+                ),
             )
             ->with(['members.profile', 'members.settings', 'group:id,uuid,name'])
             ->withCount('members')
@@ -58,6 +77,8 @@ class ConversationController extends Controller
         $archivedCount = \Illuminate\Support\Facades\DB::table('conversation_members')
             ->where('user_id', $me->id)
             ->whereNotNull('archived_at')
+            // A hidden chat is not "in the archive", it is nowhere.
+            ->whereNull('hidden_at')
             ->count();
 
         return response()->json(array_merge($conversations->toArray(), [
@@ -66,6 +87,24 @@ class ConversationController extends Controller
     }
 
     /** Start (or reopen) a direct conversation with a user by App ID. */
+    /**
+     * The conversation you have with yourself - notes, links, drafts.
+     *
+     * Everything a chat does except ring: there is nobody on the other end.
+     */
+    public function selfChat(Request $request): JsonResponse
+    {
+        $conversation = Conversation::selfFor($request->user());
+
+        return response()->json([
+            'message' => 'Conversation ready.',
+            'data' => $this->serialize(
+                $conversation->load(['members.profile', 'members.settings'])->loadCount('members'),
+                $request,
+            ),
+        ], 201);
+    }
+
     public function store(Request $request, AppIdService $appIds): JsonResponse
     {
         $data = $request->validate(['app_id' => ['required', 'string', 'max:32']]);
@@ -73,8 +112,13 @@ class ConversationController extends Controller
         $me = $request->user();
         $target = $appIds->findVisibleUser($data['app_id'], $me);
 
-        if (! $target || $target->id === $me->id) {
+        if (! $target) {
             return response()->json(['message' => 'No user found for that username, email, or App ID.'], 404);
+        }
+
+        // Your own ID is not a mistake to refuse: it is the notepad.
+        if ($target->id === $me->id) {
+            return $this->selfChat($request);
         }
 
         // Privacy: who can message me
@@ -532,9 +576,11 @@ class ConversationController extends Controller
         return [
             'uuid' => $conversation->uuid,
             'type' => $conversation->type,
-            'name' => $conversation->type === 'direct'
+            'name' => $conversation->is_self
+                ? 'You'
+                : ($conversation->type === 'direct'
                 ? ($other?->name ?? 'Unknown user')
-                : ($conversation->name ?? $conversation->group?->name ?? 'Group chat'),
+                : ($conversation->name ?? $conversation->group?->name ?? 'Group chat')),
             'group_uuid' => $conversation->group?->uuid,
             'other_user' => $other ? [
                 'uuid' => $other->uuid,
@@ -573,6 +619,10 @@ class ConversationController extends Controller
             'unread_count' => $unread,
             'is_muted' => $myPivot?->muted_at !== null,
             'is_archived' => $myPivot?->archived_at !== null,
+            // One person's own arrangement: the others in the chat never see these.
+            'is_locked' => $myPivot?->locked_at !== null,
+            'is_hidden' => $myPivot?->hidden_at !== null,
+            'is_self' => (bool) $conversation->is_self,
             'is_pinned' => $myPivot?->pinned_at !== null,
             // What this person sees: their own colour if they chose one,
             // otherwise the chat's shared theme.

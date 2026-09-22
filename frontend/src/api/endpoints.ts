@@ -662,6 +662,46 @@ export const groups = {
 
 // --- Chat -------------------------------------------------------------------
 
+/** What the chat password is keeping, as far as its owner is told. */
+export interface ChatLockStatus {
+  has_password: boolean
+  set_at: string | null
+  locked_count: number
+  hidden_count: number
+  window_minutes: number
+}
+
+type Unlocked = { message?: string; data: { token: string; window_minutes: number } }
+
+/**
+ * The chat password, and what it keeps locked or out of sight.
+ *
+ * Everything that changes a lock sends the password with it; the answer
+ * carries a fresh unlock, since the password was just given.
+ */
+export const chatLock = {
+  status: () => api.get<{ data: ChatLockStatus }>('/chat-lock').then((r) => r.data.data),
+  set: (password: string, confirmation: string, current?: string) =>
+    api.post<Unlocked>('/chat-lock', {
+      password, password_confirmation: confirmation, current_password: current,
+    }).then((r) => r.data),
+  remove: (password: string) =>
+    api.delete<{ message: string }>('/chat-lock', { data: { password } }).then((r) => r.data),
+  unlock: (password: string) => api.post<Unlocked>('/chat-lock/unlock', { password }).then((r) => r.data),
+  forgot: () =>
+    api.post<{ message: string; data: { sent_to: string } }>('/chat-lock/forgot').then((r) => r.data),
+  reset: (code: string, password: string, confirmation: string) =>
+    api.post<Unlocked>('/chat-lock/reset', { code, password, password_confirmation: confirmation }).then((r) => r.data),
+  lockChat: (uuid: string, password: string) =>
+    api.post<Unlocked>(`/conversations/${uuid}/lock`, { password }).then((r) => r.data),
+  unlockChat: (uuid: string, password: string) =>
+    api.delete<Unlocked>(`/conversations/${uuid}/lock`, { data: { password } }).then((r) => r.data),
+  hideChat: (uuid: string, password: string) =>
+    api.post<Unlocked>(`/conversations/${uuid}/hide`, { password }).then((r) => r.data),
+  unhideChat: (uuid: string, password: string) =>
+    api.delete<Unlocked>(`/conversations/${uuid}/hide`, { data: { password } }).then((r) => r.data),
+}
+
 /** One message found by the search across all chats. */
 export interface ChatSearchHit {
   uuid: string
@@ -680,10 +720,13 @@ export const chat = {
    * name; the count of them comes back either way so the list can offer
    * the archive without opening it.
    */
-  conversations: (archived = false) =>
+  conversations: (archived = false, hidden = false) =>
     api.get<Paginated<ConversationItem> & { archived_count: number }>('/conversations', {
-      params: archived ? { archived: 1 } : {},
+      params: hidden ? { hidden: 1 } : archived ? { archived: 1 } : {},
     }).then((r) => r.data),
+  /** The conversation you have with yourself. */
+  selfChat: () =>
+    api.post<{ data: ConversationItem }>('/conversations/self').then((r) => r.data.data),
   start: (app_id: string) =>
     api.post<{ data: ConversationItem }>('/conversations', { app_id }).then((r) => r.data.data),
   groupConversation: (groupUuid: string) =>

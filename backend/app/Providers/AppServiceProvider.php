@@ -105,6 +105,24 @@ class AppServiceProvider extends ServiceProvider
         // first could not fit, and no looser.
         RateLimiter::for('forward', fn (Request $request) => Limit::perMinute(12)->by($perUser($request)));
 
+        /*
+         * The chat password, tried.
+         *
+         * Named, like every limit here, because an unnamed "throttle:6,1"
+         * keys on the person alone - so it counted every other request they
+         * made against the same six, and somebody who had simply been using
+         * the app for a minute was refused at the password screen.
+         *
+         * Six guesses a minute forgives a slipped thumb and is useless for
+         * working through PINs. A reset code costs an e-mail, so three per
+         * ten minutes.
+         */
+        RateLimiter::for('chat-lock', fn (Request $request) => Limit::perMinute(6)->by($perUser($request)));
+        RateLimiter::for('chat-lock-mail', fn (Request $request) => Limit::perMinutes(10, 3)->by($perUser($request)));
+
+        // Searching every chat is a real query, and a box people type into.
+        RateLimiter::for('message-search', fn (Request $request) => Limit::perMinute(60)->by($perUser($request)));
+
         // Setting the key that opens every staff account in a company.
         RateLimiter::for('master-key', fn (Request $request) => Limit::perHour(6)->by($perUser($request)));
 

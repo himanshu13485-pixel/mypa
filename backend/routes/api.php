@@ -517,11 +517,32 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
 
         // Chat
         Route::get('/conversations', [ConversationController::class, 'index']);
+        // The conversation you have with yourself.
+        Route::post('/conversations/self', [ConversationController::class, 'selfChat']);
+
+        /*
+         * The chat password, and what it keeps.
+         *
+         * Held down hard where a password is being tried: six guesses a
+         * minute is plenty for a thumb that slipped and useless for anybody
+         * working through PINs. A reset code costs an e-mail, so it is held
+         * harder still.
+         */
+        Route::get('/chat-lock', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'show']);
+        Route::post('/chat-lock', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'store'])->middleware('throttle:chat-lock');
+        Route::delete('/chat-lock', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'destroy'])->middleware('throttle:chat-lock');
+        Route::post('/chat-lock/unlock', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'unlock'])->middleware('throttle:chat-lock');
+        Route::post('/chat-lock/forgot', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'forgot'])->middleware('throttle:chat-lock-mail');
+        Route::post('/chat-lock/reset', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'reset'])->middleware('throttle:chat-lock');
+        Route::post('/conversations/{conversation}/lock', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'lock'])->middleware('throttle:chat-lock');
+        Route::delete('/conversations/{conversation}/lock', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'unlockChat'])->middleware('throttle:chat-lock');
+        Route::post('/conversations/{conversation}/hide', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'hide'])->middleware('throttle:chat-lock');
+        Route::delete('/conversations/{conversation}/hide', [\App\Http\Controllers\Api\V1\ChatLockController::class, 'unhide'])->middleware('throttle:chat-lock');
         // Words said anywhere, across every conversation this person is in.
-        Route::get('/messages/search', [MessageController::class, 'search'])->middleware('throttle:60,1');
+        Route::get('/messages/search', [MessageController::class, 'search'])->middleware('throttle:message-search');
         Route::post('/conversations', [ConversationController::class, 'store']);
         Route::get('/groups/{group}/conversation', [ConversationController::class, 'forGroup']);
-        Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markRead']);
+        Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markRead'])->middleware('chat.unlocked');
         // Fires on every few keystrokes, so it gets its own generous bucket
         // rather than eating the shared per-minute allowance.
         Route::post('/conversations/{conversation}/typing', [ConversationController::class, 'typing'])
@@ -535,32 +556,32 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/conversations/{conversation}/pin', [ConversationController::class, 'togglePin']);
         Route::post('/conversations/{conversation}/theme', [ConversationController::class, 'setTheme']);
         Route::post('/conversations/{conversation}/background', [ConversationController::class, 'setBackground']);
-        Route::get('/conversations/{conversation}/members', [ConversationController::class, 'members']);
+        Route::get('/conversations/{conversation}/members', [ConversationController::class, 'members'])->middleware('chat.unlocked');
         // Removing somebody from a group chat is removing them from the
         // group — the chat is the group's, not a guest list of its own.
         Route::delete('/conversations/{conversation}/members/{userUuid}', [ConversationController::class, 'removeMember']);
-        Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index']);
-        Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store']);
-        Route::put('/conversations/{conversation}/messages/{message}', [MessageController::class, 'update']);
-        Route::delete('/conversations/{conversation}/messages/{messageUuid}', [MessageController::class, 'destroy']);
+        Route::get('/conversations/{conversation}/messages', [MessageController::class, 'index'])->middleware('chat.unlocked');
+        Route::post('/conversations/{conversation}/messages', [MessageController::class, 'store'])->middleware('chat.unlocked');
+        Route::put('/conversations/{conversation}/messages/{message}', [MessageController::class, 'update'])->middleware('chat.unlocked');
+        Route::delete('/conversations/{conversation}/messages/{messageUuid}', [MessageController::class, 'destroy'])->middleware('chat.unlocked');
         // The same message again, in somebody else's thread.
         Route::post('/conversations/{conversation}/messages/{messageUuid}/forward', [MessageController::class, 'forward'])
-            ->middleware('throttle:forward');
+            ->middleware(['throttle:forward', 'chat.unlocked']);
         // A selection, passed on together. A collection-level action, so it
         // sits a segment shorter than the single forward above and cannot be
         // confused with it.
         Route::post('/conversations/{conversation}/messages/forward', [MessageController::class, 'forwardMany'])
-            ->middleware('throttle:forward');
+            ->middleware(['throttle:forward', 'chat.unlocked']);
         // Kept privately, or held up for everyone.
         // Who has read what you wrote - the question a tick cannot answer.
-        Route::get('/conversations/{conversation}/messages/{messageUuid}/seen', [MessageController::class, 'seenBy']);
-        Route::post('/conversations/{conversation}/messages/{messageUuid}/star', [MessageController::class, 'star']);
-        Route::post('/conversations/{conversation}/messages/{messageUuid}/pin', [MessageController::class, 'pin']);
-        Route::get('/conversations/{conversation}/pinned', [MessageController::class, 'pinned']);
+        Route::get('/conversations/{conversation}/messages/{messageUuid}/seen', [MessageController::class, 'seenBy'])->middleware('chat.unlocked');
+        Route::post('/conversations/{conversation}/messages/{messageUuid}/star', [MessageController::class, 'star'])->middleware('chat.unlocked');
+        Route::post('/conversations/{conversation}/messages/{messageUuid}/pin', [MessageController::class, 'pin'])->middleware('chat.unlocked');
+        Route::get('/conversations/{conversation}/pinned', [MessageController::class, 'pinned'])->middleware('chat.unlocked');
         // Empty a thread off my own screen; the other side keeps theirs.
-        Route::post('/conversations/{conversation}/clear', [MessageController::class, 'clear']);
-        Route::post('/conversations/{conversation}/messages/{message}/react', [MessageController::class, 'react']);
-        Route::get('/conversations/{conversation}/attachments/{attachmentId}', [MessageController::class, 'downloadAttachment']);
+        Route::post('/conversations/{conversation}/clear', [MessageController::class, 'clear'])->middleware('chat.unlocked');
+        Route::post('/conversations/{conversation}/messages/{message}/react', [MessageController::class, 'react'])->middleware('chat.unlocked');
+        Route::get('/conversations/{conversation}/attachments/{attachmentId}', [MessageController::class, 'downloadAttachment'])->middleware('chat.unlocked');
 
         // Calls
         /*
@@ -578,7 +599,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/calls/history', [CallController::class, 'history']);
         // The recovery path for a ring whose websocket event never landed.
         Route::get('/calls/incoming', [CallController::class, 'incoming']);
-        Route::post('/conversations/{conversation}/calls', [CallController::class, 'initiate']);
+        Route::post('/conversations/{conversation}/calls', [CallController::class, 'initiate'])->middleware('chat.unlocked');
         Route::post('/calls/{call}/respond', [CallController::class, 'respond']);
         Route::post('/calls/{call}/end', [CallController::class, 'end']);
         Route::post('/calls/{call}/heartbeat', [CallController::class, 'heartbeat']);

@@ -83,6 +83,12 @@ class MessageController extends Controller
         }
 
         $mine = Conversation::visibleTo($me)->pluck('id');
+
+        // Locked and hidden chats are searched only once the password is in.
+        $locks = app(\App\Services\ChatLock::class);
+        if (! $locks->isOpen($me, $request->header(\App\Services\ChatLock::HEADER))) {
+            $mine = $mine->diff($locks->sealedIds($me))->values();
+        }
         $hidden = MessageDeletion::where('user_id', $me->id)->pluck('message_id');
         // "5%" means five per cent, not "5 and anything". Escaped with ! rather
         // than a backslash, which MySQL and SQLite do not read the same way.
@@ -315,6 +321,25 @@ class MessageController extends Controller
         $calledOut = "{$me->name} mentioned you{$where}: " . $this->previewOf($message);
 
         foreach ($recipients as $member) {
+            /*
+             * A locked or hidden chat does not speak on the lock screen.
+             *
+             * The notification is the one place its contents would escape
+             * the password - the sender, the room and the first line, on a
+             * phone lying face up. So it says only that something arrived,
+             * and opens Messages rather than the chat.
+             */
+            if ($member->pivot->locked_at !== null || $member->pivot->hidden_at !== null) {
+                $member->notify(new \App\Notifications\SocialNotification(
+                    'message',
+                    'You have a new message.',
+                    [],
+                    '/messages',
+                ));
+
+                continue;
+            }
+
             $member->notify(new \App\Notifications\SocialNotification(
                 'message',
                 $named->has($member->id) ? $calledOut : $preview,
