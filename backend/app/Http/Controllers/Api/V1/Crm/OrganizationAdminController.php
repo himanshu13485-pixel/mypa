@@ -38,6 +38,8 @@ class OrganizationAdminController extends Controller
                 'impersonation_level' => $o->impersonation_level,
                 'mails_enabled' => (bool) $o->mails_enabled,
                 'mails_mailbox_cap' => (int) ($o->mails_mailbox_cap ?: 3),
+                // Null is unlimited; the number is gigabytes per person.
+                'mails_storage_gb' => $o->mails_storage_gb === null ? null : (float) $o->mails_storage_gb,
                 'members' => $o->members_count,
                 'active_members' => $o->active_members_count,
                 'admins' => Member::visible()->with('user:id,name,email')
@@ -234,13 +236,14 @@ class OrganizationAdminController extends Controller
              */
             'mails_enabled' => ['nullable', 'boolean'],
             'mails_mailbox_cap' => ['nullable', 'integer', 'min:1', 'max:' . \App\Services\Mail\MailAccess::HARD_CAP],
+            'mails_storage_gb' => ['nullable', 'numeric', 'min:0.1', 'max:10000'],
             // Resetting an org admin's password: pick the admin by email.
             'admin_email' => ['nullable', 'email', 'required_with:admin_password'],
             'admin_password' => ['nullable', PasswordRule::min(8)->letters()->numbers()],
         ]);
 
         $organization->update(array_filter(
-            collect($data)->only(['name', 'code', 'slug', 'status', 'impersonation_level', 'mails_enabled', 'mails_mailbox_cap'])->all(),
+            collect($data)->only(['name', 'code', 'slug', 'status', 'impersonation_level', 'mails_enabled', 'mails_mailbox_cap', 'mails_storage_gb'])->all(),
             fn ($v) => $v !== null,
         ));
 

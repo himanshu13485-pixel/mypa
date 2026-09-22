@@ -30,6 +30,8 @@ export interface MailSummary {
   subject: string | null
   snippet: string | null
   has_attachments: boolean
+  /** 0-100. Past 30 the links are held back; past 60 it went to Spam. */
+  spam_score?: number
   is_read: boolean
   is_starred: boolean
   date: string | null
@@ -60,6 +62,10 @@ export interface MailFull extends MailSummary {
   body_html: string | null
   body_text: string | null
   attachments: MailAttachmentInfo[]
+  /** Why this message was doubted, in words a person can act on. */
+  spam_reasons?: string[]
+  /** True when its links were shown as text rather than links. */
+  links_held?: boolean
 }
 
 export interface MailProvider {
@@ -224,6 +230,8 @@ export interface MailPrefs {
   accent: 'brand' | 'emerald' | 'violet' | 'rose' | 'amber' | 'slate'
   load_images: 'ask' | 'always'
   default_account: string | null
+  /** How many mails a page of the list holds. */
+  page_size: 25 | 50 | 100
 }
 
 export interface MailDashboard {
@@ -257,6 +265,9 @@ export interface MailTeamRow {
   locked: boolean
   limit: number
   mailboxes: number
+  /** Room for their mail, in megabytes; null follows the company's own. */
+  storage_mb: number | null
+  used_mb: number
 }
 
 /** A company mailbox on the Team access screen: who owns it, who else opens it. */
@@ -383,14 +394,15 @@ export const mails = {
   removeLabel: (uuid: string) => api.delete(`${base}/labels/${uuid}`),
 
   settings: () =>
-    api.get<{ data: { prefs: MailPrefs; limit: number; cap: number; is_admin: boolean; ai_available: boolean } }>(`${base}/settings`)
+    api.get<{ data: { prefs: MailPrefs; limit: number; cap: number; is_admin: boolean; ai_available: boolean
+      storage: { used_mb: number; limit_mb: number | null; ceiling_mb: number | null } } }>(`${base}/settings`)
       .then((r) => r.data.data),
   savePrefs: (prefs: Partial<MailPrefs>) =>
     api.put<{ data: MailPrefs }>(`${base}/settings/prefs`, prefs).then((r) => r.data.data),
   team: () =>
     api.get<{ data: MailTeamRow[]; cap: number; mailboxes: MailTeamMailbox[] }>(`${base}/settings/team`).then((r) => r.data),
-  saveTeam: (uuid: string, enabled: boolean, limit?: number) =>
-    api.put<{ message: string }>(`${base}/settings/team/${uuid}`, { enabled, limit }).then((r) => r.data),
+  saveTeam: (uuid: string, enabled: boolean, limit?: number, storageMb?: number | null) =>
+    api.put<{ message: string }>(`${base}/settings/team/${uuid}`, { enabled, limit, storage_mb: storageMb }).then((r) => r.data),
   ai: () =>
     api.get<{ data: { enabled: boolean; provider: 'anthropic' | 'openai'; model: string; has_key: boolean; default_claude_model: string; available: boolean } }>(`${base}/settings/ai`)
       .then((r) => r.data.data),

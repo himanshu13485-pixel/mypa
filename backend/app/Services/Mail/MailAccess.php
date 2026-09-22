@@ -2,6 +2,8 @@
 
 namespace App\Services\Mail;
 
+use App\Models\Crm\MailAccount;
+use App\Models\Crm\MailMessage;
 use App\Models\Crm\Member;
 use App\Models\Crm\Organization;
 
@@ -55,6 +57,49 @@ class MailAccess
     }
 
     /**
+     * The room one person's mail may take, in megabytes - null for unlimited.
+     *
+     * The platform sets the company's ceiling; the Admin shares it out and
+     * can never give anybody more than the ceiling. A company with no
+     * ceiling set has none to enforce.
+     */
+    public static function storageFor(Member $member): ?int
+    {
+        $ceiling = self::storageCeiling($member->organization);
+        $given = $member->mail_storage_mb ? (int) $member->mail_storage_mb : null;
+
+        if ($ceiling === null) {
+            return $given;
+        }
+
+        return $given === null ? $ceiling : min($given, $ceiling);
+    }
+
+    /** The company's ceiling per person, in megabytes, or null for unlimited. */
+    public static function storageCeiling(?Organization $org): ?int
+    {
+        $gb = (float) ($org?->mails_storage_gb ?? 0);
+
+        return $gb > 0 ? (int) round($gb * 1024) : null;
+    }
+
+    /** What this person's mail actually takes up, in megabytes. */
+    public static function storageUsed(Member $member): float
+    {
+        $bytes = (int) MailMessage::whereIn('mail_account_id', MailAccount::ownedBy($member)->pluck('id'))->sum('size');
+
+        return round($bytes / 1048576, 2);
+    }
+
+    /** Full? - asked before new mail is fetched, never mid-message. */
+    public static function isFull(Member $member): bool
+    {
+        $limit = self::storageFor($member);
+
+        return $limit !== null && self::storageUsed($member) >= $limit;
+    }
+
+    /**
      * A person's own reading preferences, with the defaults filled in.
      *
      * undo_seconds  - how long a sent mail waits in the outbox, stoppable
@@ -74,6 +119,7 @@ class MailAccess
             'accent' => 'brand',
             'load_images' => 'ask',
             'default_account' => null,
+            'page_size' => 50,
         ], (array) ($member->mail_prefs ?? []));
     }
 }

@@ -30,6 +30,11 @@ class MailSettingsController extends Controller
             'cap' => MailAccess::cap($me->organization),
             'is_admin' => $me->crm_role === 'admin',
             'ai_available' => $assistant->available($me->organization),
+            'storage' => [
+                'used_mb' => MailAccess::storageUsed($me),
+                'limit_mb' => MailAccess::storageFor($me),
+                'ceiling_mb' => MailAccess::storageCeiling($me->organization),
+            ],
         ]]);
     }
 
@@ -44,6 +49,7 @@ class MailSettingsController extends Controller
             'accent' => ['sometimes', Rule::in(['brand', 'emerald', 'violet', 'rose', 'amber', 'slate'])],
             'load_images' => ['sometimes', Rule::in(['ask', 'always'])],
             'default_account' => ['sometimes', 'nullable', 'uuid'],
+            'page_size' => ['sometimes', Rule::in([25, 50, 100])],
         ]);
 
         $me->update(['mail_prefs' => array_merge(MailAccess::prefs($me), $data)]);
@@ -71,6 +77,8 @@ class MailSettingsController extends Controller
                 'locked' => $m->crm_role === 'admin',
                 'limit' => MailAccess::limitFor($m),
                 'mailboxes' => MailAccount::ownedBy($m)->count(),
+                'storage_mb' => MailAccess::storageFor($m),
+                'used_mb' => MailAccess::storageUsed($m),
             ])->values();
 
         /*
@@ -100,13 +108,23 @@ class MailSettingsController extends Controller
     {
         $me = $this->admin($request);
         $cap = MailAccess::cap($me->organization);
+        $ceiling = MailAccess::storageCeiling($me->organization);
         $data = $request->validate([
             'enabled' => ['required', 'boolean'],
             'limit' => ['nullable', 'integer', 'min:1', "max:{$cap}"],
-        ], ['limit.max' => "Your company may allow at most {$cap} mailboxes per person."]);
+            // Megabytes, never past what the platform gave the company.
+            'storage_mb' => array_merge(['nullable', 'integer', 'min:50'], $ceiling ? ["max:{$ceiling}"] : []),
+        ], [
+            'limit.max' => "Your company may allow at most {$cap} mailboxes per person.",
+            'storage_mb.max' => 'Your company was given ' . round((int) $ceiling / 1024, 2) . ' GB per person - nobody can be given more.',
+        ]);
 
         $member = Member::where('organization_id', $me->organization_id)->where('uuid', $uuid)->firstOrFail();
         abort_if($member->crm_role === 'admin', 422, 'The Company Admin always has Mails.');
+
+        if (array_key_exists('storage_mb', $data)) {
+            $member->mail_storage_mb = $data['storage_mb'] ?: null;
+        }
 
         $rights = (array) ($member->rights ?? []);
         if ($data['enabled']) {

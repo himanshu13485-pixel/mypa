@@ -32,7 +32,7 @@ class MailSync
         'archive' => ['archive', 'archives'],
     ];
 
-    public function __construct(private MailConnector $connector, private MailSender $sender)
+    public function __construct(private MailConnector $connector, private MailSender $sender, private MailGuard $guard)
     {
     }
 
@@ -70,6 +70,20 @@ class MailSync
     {
         if (! $account->canReceive()) {
             return ['fetched' => 0, 'error' => null];
+        }
+
+        /*
+         * Room to put it.
+         *
+         * Checked before a run rather than mid-message, so a mailbox never
+         * holds half of one. Nothing is deleted to make space - the person
+         * is told, and either clears some out or is given more.
+         */
+        if ($account->member && MailAccess::isFull($account->member)) {
+            $limit = MailAccess::storageFor($account->member);
+            $account->update(['last_error' => "This mailbox is full ({$limit} MB). Empty the trash or ask your Admin for more room - nothing new is being fetched."]);
+
+            return ['fetched' => 0, 'error' => 'Mailbox full'];
         }
 
         $fetched = 0;
@@ -187,7 +201,34 @@ class MailSync
             $date = null;
         }
 
-        return DB::transaction(function () use ($account, $folder, $path, $remote, $flags, $html, $text, $subject, $messageId, $inReplyTo, $references, $from, $date) {
+        /*
+         * What is wrong with this one?
+         *
+         * Weighed before it is filed, so a message that is pretending to be
+         * somebody else lands in Spam with its reasons rather than in the
+         * inbox looking ordinary. Mail we sent, and mail the server already
+         * filed in Spam or Junk, is not weighed again.
+         */
+        $verdict = ['score' => 0, 'reasons' => [], 'spam' => false];
+        if ($folder === 'inbox') {
+            $verdict = $this->guard->weigh([
+                'subject' => (string) $subject,
+                'from_email' => (string) ($from['email'] ?? ''),
+                'from_name' => (string) ($from['name'] ?? ''),
+                'reply_to' => self::addresses($remote->reply_to)[0]['email'] ?? null,
+                'html' => (string) $html,
+                'text' => (string) $text,
+                'attachments' => collect($remote->getAttachments())->map(fn ($a) => (string) ($a->filename ?: $a->name))->all(),
+                'headers' => (string) ($remote->getHeader()?->raw ?? ''),
+                'flagged_spam' => $flags->contains('junk'),
+            ], $account);
+
+            if ($verdict['spam']) {
+                $folder = 'spam';
+            }
+        }
+
+        return DB::transaction(function () use ($account, $folder, $path, $remote, $flags, $html, $text, $subject, $messageId, $inReplyTo, $references, $from, $date, $verdict) {
             $message = MailMessage::create([
                 'organization_id' => $account->organization_id,
                 'mail_account_id' => $account->id,
@@ -212,6 +253,8 @@ class MailSync
                 'is_starred' => $flags->contains('flagged'),
                 'date' => $date ? Carbon::instance($date) : now(),
                 'size' => (int) ($remote->size ?? 0) ?: null,
+                'spam_score' => (int) $verdict['score'],
+                'spam_reasons' => $verdict['reasons'] ?: null,
             ]);
 
             foreach ($remote->getAttachments() as $attachment) {

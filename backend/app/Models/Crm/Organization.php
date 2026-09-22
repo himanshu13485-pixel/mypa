@@ -12,7 +12,7 @@ class Organization extends Model
 
     protected $table = 'crm_organizations';
 
-    protected $fillable = ['name', 'code', 'slug', 'status', 'impersonation_level', 'settings', 'created_by', 'mails_enabled', 'mails_mailbox_cap'];
+    protected $fillable = ['name', 'code', 'slug', 'status', 'impersonation_level', 'settings', 'created_by', 'mails_enabled', 'mails_mailbox_cap', 'mails_storage_gb'];
 
     /**
      * Words the CRM's own screens answer to, and so words no company may

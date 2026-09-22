@@ -671,6 +671,61 @@ class MailsTest extends TestCase
         $this->assertSame('<p>P.</p>', $saved['signature_reply_html']);
     }
 
+    // ---- Room, and what happens when it runs out ------------------------------------
+
+    public function test_the_platform_sets_the_room_and_the_admin_shares_it_out(): void
+    {
+        // The platform gives this company 2 GB a person.
+        $this->org->forceFill(['mails_storage_gb' => 2])->save();
+        $this->assertSame(2048, \App\Services\Mail\MailAccess::storageCeiling($this->org->fresh()));
+
+        $this->actingAs($this->adminUser)->putJson("/api/v1/crm/mails/settings/team/{$this->staff->uuid}", [
+            'enabled' => true, 'storage_mb' => 500,
+        ])->assertOk();
+        $this->assertSame(500, $this->staff->fresh()->mail_storage_mb);
+
+        // Never more than the platform gave.
+        $this->actingAs($this->adminUser)->putJson("/api/v1/crm/mails/settings/team/{$this->staff->uuid}", [
+            'enabled' => true, 'storage_mb' => 5000,
+        ])->assertStatus(422);
+
+        // Nobody set anything for this person, so they have the company's own.
+        $this->assertSame(2048, \App\Services\Mail\MailAccess::storageFor($this->admin->fresh()));
+    }
+
+    public function test_a_full_mailbox_stops_fetching_and_says_so(): void
+    {
+        $this->org->forceFill(['mails_storage_gb' => 0.001])->save();  // ~1 MB
+        $box = $this->mailbox($this->admin);
+        $this->arrived($box, 'A big one', ['size' => 5 * 1048576]);
+
+        $this->assertTrue(\App\Services\Mail\MailAccess::isFull($this->admin->fresh()));
+
+        $result = app(\App\Services\Mail\MailSync::class)->sync($box->fresh());
+        $this->assertSame(0, $result['fetched']);
+        $this->assertSame('Mailbox full', $result['error']);
+        $this->assertStringContainsString('full', (string) $box->fresh()->last_error);
+    }
+
+    public function test_the_list_holds_as_many_as_the_reader_asked_for(): void
+    {
+        $box = $this->mailbox($this->admin);
+        foreach (range(1, 30) as $n) {
+            $this->arrived($box, "Message {$n}");
+        }
+
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/mails/settings/prefs', ['page_size' => 25, 'conversation' => false])->assertOk();
+        $page = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/mails/messages?folder=inbox')->assertOk()->json();
+        $this->assertCount(25, $page['data']);
+
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/mails/settings/prefs', ['page_size' => 100])->assertOk();
+        $page = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/mails/messages?folder=inbox')->assertOk()->json();
+        $this->assertCount(30, $page['data']);
+
+        // Anything else is refused rather than quietly obeyed.
+        $this->actingAs($this->adminUser)->putJson('/api/v1/crm/mails/settings/prefs', ['page_size' => 7])->assertStatus(422);
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

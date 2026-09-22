@@ -72,6 +72,31 @@ function ThreadItem({ mail, open, onToggle, prefs, onReply }: {
 
       {open && (
         <div className="px-4 pb-4 sm:pl-16">
+          {/*
+            * Why this message is doubted, in words.
+            *
+            * A warning that only says "suspicious" teaches nobody anything.
+            * These are the same things a careful person would have noticed -
+            * the name showing one address and the mail coming from another,
+            * a link that says one place and goes to another - so the reader
+            * can judge it rather than guess.
+            */}
+          {(mail.spam_reasons?.length ?? 0) > 0 && (
+            <div className="mb-3 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-100 dark:ring-amber-500/30">
+              <p className="flex items-center gap-1.5 font-semibold">
+                <ShieldAlert className="size-4" />
+                {mail.folder === 'spam' ? 'This was put in Spam' : 'Be careful with this one'}
+              </p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {mail.spam_reasons?.map((why) => <li key={why}>{why}</li>)}
+              </ul>
+              {mail.links_held && (
+                <p className="mt-1.5">
+                  Its links are shown as text, not links. If you know the sender, copy the address and check it before opening it.
+                </p>
+              )}
+            </div>
+          )}
           <div className="mb-2 flex flex-wrap items-center gap-2">
             {blocked && !images && (
               <button type="button" onClick={() => setImages(true)} className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">

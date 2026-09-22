@@ -154,6 +154,10 @@ function PreferencesTab({ prefs }: { prefs: MailPrefs }) {
         <Label>Remote images in mail</Label>
         {choice('load_images', [['ask', 'Ask first (safer)'], ['always', 'Always show']])}
       </div>
+      <div>
+        <Label>Mails on a page</Label>
+        {choice('page_size', [[25, '25'], [50, '50'], [100, '100']])}
+      </div>
       <div className="max-w-sm">
         <Label>Write from</Label>
         <Select value={form.default_account ?? ''} onChange={(e) => setForm({ ...form, default_account: e.target.value || null })}>
@@ -161,7 +165,41 @@ function PreferencesTab({ prefs }: { prefs: MailPrefs }) {
           {(accounts?.data ?? []).map((a) => <option key={a.uuid} value={a.uuid}>{a.email}</option>)}
         </Select>
       </div>
+      <Storage />
+
       <Button onClick={() => save.mutate()} disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save preferences'}</Button>
+    </div>
+  )
+}
+
+/** How much room this person's mail takes, and how much they were given. */
+function Storage() {
+  const { data } = useQuery({ queryKey: ['mails', 'settings'], queryFn: mails.settings })
+  const storage = data?.storage
+  if (!storage) return null
+
+  const limit = storage.limit_mb
+  const share = limit ? Math.min(100, Math.round((storage.used_mb / limit) * 100)) : 0
+
+  return (
+    <div>
+      <Label>Room used</Label>
+      {limit ? (
+        <>
+          <div className="h-2 w-full max-w-sm overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+            <div
+              className={clsx('h-full rounded-full', share >= 90 ? 'bg-red-500' : share >= 70 ? 'bg-amber-500' : 'bg-emerald-500')}
+              style={{ width: `${Math.max(2, share)}%` }}
+            />
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            {storage.used_mb} MB of {limit >= 1024 ? `${(limit / 1024).toFixed(limit % 1024 === 0 ? 0 : 1)} GB` : `${limit} MB`} used
+            {share >= 90 && ' - nearly full. Empty the trash, or ask your Admin for more.'}
+          </p>
+        </>
+      ) : (
+        <p className="text-xs text-slate-500">{storage.used_mb} MB used. No limit has been set for your mailboxes.</p>
+      )}
     </div>
   )
 }
@@ -603,9 +641,9 @@ function TeamTab() {
   if (!data) return <Spinner />
   const rows = data.data.filter((r) => !filter || `${r.name} ${r.email}`.toLowerCase().includes(filter.toLowerCase()))
 
-  const save = async (uuid: string, enabled: boolean, limit?: number) => {
+  const save = async (uuid: string, enabled: boolean, limit?: number, storageMb?: number | null) => {
     try {
-      const res = await mails.saveTeam(uuid, enabled, limit)
+      const res = await mails.saveTeam(uuid, enabled, limit, storageMb)
       toast(res.message, 'success')
       queryClient.invalidateQueries({ queryKey: ['mails', 'team'] })
     } catch (err) {
@@ -628,7 +666,8 @@ function TeamTab() {
               <th className="py-2 pr-3">Person</th>
               <th className="py-2 pr-3">Mails</th>
               <th className="py-2 pr-3">Mailboxes allowed</th>
-              <th className="py-2">In use</th>
+              <th className="py-2 pr-3">In use</th>
+              <th className="py-2">Room (MB)</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -658,7 +697,23 @@ function TeamTab() {
                     {Array.from({ length: data.cap }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
                   </Select>
                 </td>
-                <td className="py-2 tabular-nums text-slate-500">{r.mailboxes}</td>
+                <td className="py-2 pr-3 tabular-nums text-slate-500">{r.mailboxes}</td>
+                <td className="py-2">
+                  <Input
+                    type="number"
+                    min={50}
+                    step={50}
+                    defaultValue={r.storage_mb ?? ''}
+                    placeholder="company's"
+                    disabled={!r.has_mails && !r.locked}
+                    onBlur={(e) => {
+                      const value = e.target.value ? Number(e.target.value) : null
+                      if (value !== (r.storage_mb ?? null)) void save(r.uuid, r.has_mails || r.locked, r.limit, value)
+                    }}
+                    className="w-28"
+                  />
+                  <span className="block text-[11px] text-slate-400">{r.used_mb} MB used</span>
+                </td>
               </tr>
             ))}
           </tbody>

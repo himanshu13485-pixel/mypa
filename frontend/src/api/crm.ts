@@ -2344,6 +2344,8 @@ export interface CrmOrganizationRow {
   /** Mails, granted by the platform: whether this company has it, and the most mailboxes a person may add. */
   mails_enabled?: boolean
   mails_mailbox_cap?: number
+  /** Room per person, in gigabytes. Null is unlimited. */
+  mails_storage_gb?: number | null
   members: number
   active_members: number
   admins: { name: string | null; email: string | null }[]

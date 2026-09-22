@@ -29,6 +29,7 @@ class MailMessage extends Model
         'in_reply_to', 'reference_ids', 'thread_key', 'from_name', 'from_email', 'to', 'cc', 'bcc',
         'reply_to', 'subject', 'snippet', 'body_html', 'body_text', 'has_attachments', 'is_read',
         'is_starred', 'date', 'scheduled_for', 'send_after', 'status', 'error', 'size', 'trashed_from',
+        'spam_score', 'spam_reasons',
     ];
 
     protected function casts(): array
@@ -44,6 +45,8 @@ class MailMessage extends Model
             'scheduled_for' => 'datetime',
             'send_after' => 'datetime',
             'uid' => 'integer',
+            'spam_reasons' => 'array',
+            'spam_score' => 'integer',
         ];
     }
 
@@ -123,6 +126,7 @@ class MailMessage extends Model
             'status' => $this->status,
             'error' => $this->error,
             'account_uuid' => $this->account?->uuid,
+            'spam_score' => (int) $this->spam_score,
             'labels' => $this->relationLoaded('labels')
                 ? $this->labels->map(fn (MailLabel $l) => ['uuid' => $l->uuid, 'name' => $l->name, 'color' => $l->color])->values()
                 : [],
@@ -132,13 +136,24 @@ class MailMessage extends Model
     /** Everything the reader needs. */
     public function full(): array
     {
+        /*
+         * A message that looks like a fake is shown with its links held
+         * back: the address stays readable as text, so somebody who knows
+         * the sender can still see where it would have gone, but nothing is
+         * one careless click away. Certain spam is in the Spam folder
+         * already; this is for what is only suspicious.
+         */
+        $held = (int) $this->spam_score >= \App\Services\Mail\MailGuard::SUSPICIOUS_AT;
+
         return $this->summary() + [
             'cc' => $this->cc ?? [],
             'bcc' => $this->bcc ?? [],
             'reply_to' => $this->reply_to,
             'message_id' => $this->message_id,
-            'body_html' => $this->body_html,
+            'body_html' => $held ? \App\Services\Mail\MailGuard::disarm($this->body_html) : $this->body_html,
             'body_text' => $this->body_text,
+            'spam_reasons' => $this->spam_reasons ?: [],
+            'links_held' => $held,
             'attachments' => $this->attachments->map(fn (MailAttachment $a) => [
                 'id' => $a->id,
                 'filename' => $a->filename,

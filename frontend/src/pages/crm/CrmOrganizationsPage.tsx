@@ -362,6 +362,7 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
   const [impersonation, setImpersonation] = useState(org.impersonation_level ?? 'none')
   const [mailsEnabled, setMailsEnabled] = useState(!!org.mails_enabled)
   const [mailboxCap, setMailboxCap] = useState(org.mails_mailbox_cap ?? 3)
+  const [storageGb, setStorageGb] = useState(org.mails_storage_gb ?? null)
 
   const mutation = useMutation({
     mutationFn: () =>
@@ -372,6 +373,7 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
         impersonation_level: impersonation,
         mails_enabled: mailsEnabled,
         mails_mailbox_cap: mailboxCap,
+        mails_storage_gb: storageGb,
         ...(newPassword ? { admin_email: adminEmail, admin_password: newPassword } : {}),
       }),
     onSuccess: (res: { message?: string }) => { toast(res.message ?? 'Organization updated.', 'success'); onDone() },
@@ -468,6 +470,29 @@ function EditOrgModal({ org, onClose, onDone }: { org: CrmOrganizationRow; onClo
                 {Array.from({ length: 20 }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
               <p className="mt-1 text-xs text-slate-400">Default 3. Their Admin may give each person any number up to this.</p>
+
+              <div className="mt-3">
+                <Label>Room for each person&rsquo;s mail</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0.1}
+                    step={0.5}
+                    value={storageGb ?? ''}
+                    placeholder="Unlimited"
+                    onChange={(e) => setStorageGb(e.target.value ? Number(e.target.value) : null)}
+                    className="w-32"
+                  />
+                  <span className="text-sm text-slate-500">GB</span>
+                  {storageGb !== null && (
+                    <button type="button" className="text-xs text-brand-600" onClick={() => setStorageGb(null)}>Make it unlimited</button>
+                  )}
+                </div>
+                <p className="mt-1 text-xs text-slate-400">
+                  Blank is unlimited. Their Admin shares this out per person and can never give anybody more.
+                  A full mailbox stops fetching new mail; nothing is ever deleted to make space.
+                </p>
+              </div>
             </div>
           )}
         </div>

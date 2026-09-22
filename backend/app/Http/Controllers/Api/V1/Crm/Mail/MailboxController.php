@@ -130,11 +130,16 @@ class MailboxController extends Controller
          * how many are unread. Not for drafts, the outbox or the scheduled
          * folder, where each mail is its own piece of work.
          */
-        $threaded = MailAccess::prefs($me)['conversation'] && ! in_array($folder, ['drafts', 'outbox', 'scheduled'], true);
+        // How many rows a page holds is the reader's own choice.
+        $prefs = MailAccess::prefs($me);
+        $per = (int) ($prefs['page_size'] ?? 50);
+        $per = in_array($per, [25, 50, 100], true) ? $per : 50;
+
+        $threaded = $prefs['conversation'] && ! in_array($folder, ['drafts', 'outbox', 'scheduled'], true);
         if ($threaded) {
             $latest = (clone $query)->selectRaw('max(id) as id')->groupBy('mail_account_id', 'thread_key');
             $page = MailMessage::whereIn('id', $latest)->with(['account', 'labels'])
-                ->orderByDesc('date')->orderByDesc('id')->paginate(50);
+                ->orderByDesc('date')->orderByDesc('id')->paginate($per);
 
             $threads = (clone $query)->whereIn('thread_key', $page->getCollection()->pluck('thread_key'))
                 ->selectRaw('mail_account_id, thread_key, count(*) as total, sum(case when is_read = 0 then 1 else 0 end) as unread')
@@ -149,7 +154,7 @@ class MailboxController extends Controller
         } else {
             $order = $folder === 'scheduled' ? 'scheduled_for' : 'date';
             $page = $query->with(['account', 'labels'])->orderBy($order, $folder === 'scheduled' ? 'asc' : 'desc')
-                ->orderByDesc('id')->paginate(50);
+                ->orderByDesc('id')->paginate($per);
             $page->getCollection()->transform(fn (MailMessage $m) => $m->summary() + ['thread_count' => 1, 'thread_unread' => $m->is_read ? 0 : 1]);
         }
 

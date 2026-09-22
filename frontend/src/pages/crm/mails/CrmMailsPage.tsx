@@ -353,6 +353,10 @@ export default function CrmMailsPage() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       {row.status === 'failed' && <AlertTriangle className="size-3.5 shrink-0 text-red-500" />}
+                      {/* Doubted, wherever it is sitting. */}
+                      {(row.spam_score ?? 0) >= 30 && (
+                        <ShieldAlert className="size-3.5 shrink-0 text-amber-500" aria-label="Looks suspicious" />
+                      )}
                       {row.labels.map((l) => (
                         <span key={l.uuid} className="shrink-0 rounded px-1.5 text-[10px] font-medium text-white" style={{ background: l.color }}>{l.name}</span>
                       ))}
