@@ -62,6 +62,7 @@ class MailBackupController extends Controller
                             'bucket' => $remote['bucket'] ?? null,
                             'region' => $remote['region'] ?? null,
                             'endpoint' => $remote['endpoint'] ?? null,
+                            'key' => $remote['key'] ?? null,
                             'url' => $remote['url'] ?? null,
                             'username' => $remote['username'] ?? null,
                             'folder_id' => $remote['folder_id'] ?? null,

@@ -478,6 +478,33 @@ class MailsTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_a_server_error_reaches_the_screen_in_plain_words(): void
+    {
+        $raw = new \RuntimeException(
+            "stream_socket_client(): [<a href='/phpmanual/function.stream-socket-client.html'>function.stream-socket-client.html</a>]: "
+            . 'Unable to connect to ssl://zma.app:993 (A connection attempt failed because the connected party did not properly respond)'
+        );
+
+        $plain = \App\Services\Mail\MailConnector::plain($raw);
+        $this->assertStringNotContainsString('<a href', $plain, 'no HTML reaches the screen');
+        $this->assertStringNotContainsString('phpmanual', $plain);
+        $this->assertStringNotContainsString('stream_socket_client', $plain);
+        $this->assertStringContainsString('Unable to connect to ssl://zma.app:993', $plain);
+
+        // Nothing there: say which host and port, and where people usually look.
+        $timeout = \App\Services\Mail\MailConnector::explain($raw, 'zma.app', 993, 'incoming');
+        $this->assertStringContainsString('Nothing answered on zma.app:993', $timeout);
+        $this->assertStringContainsString('mail.yourdomain.com', $timeout);
+
+        // A name that does not exist, and the SES spelling everybody gets wrong.
+        $unknown = new \RuntimeException('php_network_getaddresses: getaddrinfo for smtp.us-east-1.amazonaws.com failed: No such host');
+        $advice = \App\Services\Mail\MailConnector::explain($unknown, 'smtp.us-east-1.amazonaws.com', 465, 'outgoing');
+        $this->assertStringContainsString('email-smtp.us-east-1.amazonaws.com', $advice);
+
+        $refused = new \RuntimeException('535 5.7.8 Authentication credentials invalid');
+        $this->assertStringContainsString('app password', \App\Services\Mail\MailConnector::explain($refused, 'smtp.gmail.com', 587, 'outgoing'));
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

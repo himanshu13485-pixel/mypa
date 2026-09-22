@@ -77,7 +77,7 @@ class MailConnector
 
             return ['ok' => true, 'message' => "Signed in to {$account->imap_host} - {$count} folders found."];
         } catch (Throwable $e) {
-            return ['ok' => false, 'message' => 'Could not read the mailbox: ' . self::plain($e)];
+            return ['ok' => false, 'message' => self::explain($e, $account->imap_host, (int) $account->imap_port, 'incoming')];
         }
     }
 
@@ -97,7 +97,7 @@ class MailConnector
 
             return ['ok' => true, 'message' => "Signed in to {$account->smtp_host} - ready to send."];
         } catch (Throwable $e) {
-            return ['ok' => false, 'message' => 'Could not sign in to send: ' . self::plain($e)];
+            return ['ok' => false, 'message' => self::explain($e, $account->smtp_host, (int) $account->smtp_port, 'outgoing')];
         }
     }
 
@@ -116,6 +116,47 @@ class MailConnector
             }
         }
 
-        return mb_substr(trim(preg_replace('/\s+/', ' ', $message) ?? $message), 0, 300);
+        /*
+         * PHP's socket warnings arrive with a link to the manual inside them
+         * - literal HTML, in a message that ends up on screen. Out it goes,
+         * along with the function name nobody reading this screen knows.
+         */
+        $message = (string) preg_replace('/\s*\[<a href=[^\]]*\]/i', '', $message);
+        $message = html_entity_decode(strip_tags($message), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $message = ltrim((string) preg_replace('/(stream_socket_client|fsockopen)\(\):?/i', '', $message), ": 	");
+
+        return mb_substr(trim((string) preg_replace('/\s+/', ' ', $message)), 0, 300);
+    }
+
+    /**
+     * The server's complaint, and what to do about it.
+     *
+     * A mail server that will not answer says so in the language of sockets.
+     * These are the four things that are actually wrong when it does, in the
+     * order they happen: the name does not exist, nothing answers on that
+     * port, the certificate is wrong, or the sign-in was refused.
+     */
+    public static function explain(Throwable $e, ?string $host, int $port, string $side): string
+    {
+        $raw = self::plain($e);
+        $lower = mb_strtolower($raw);
+        $where = $side === 'incoming' ? 'Could not read the mailbox' : 'Could not sign in to send';
+        $hint = null;
+
+        if (str_contains($lower, 'getaddrinfo') || str_contains($lower, 'no such host') || str_contains($lower, 'name or service not known')) {
+            $hint = "There is no server called \"{$host}\" - check the spelling with whoever hosts the mailbox.";
+            // The one everybody gets wrong: Amazon SES is email-smtp, not smtp.
+            if ($host && preg_match('/^smtp\.([a-z0-9-]+)\.amazonaws\.com$/i', $host, $m)) {
+                $hint .= " Amazon SES is \"email-smtp.{$m[1]}.amazonaws.com\", not \"smtp.\".";
+            }
+        } elseif (str_contains($lower, 'did not properly respond') || str_contains($lower, 'timed out') || str_contains($lower, 'timeout') || str_contains($lower, 'connection refused')) {
+            $hint = "Nothing answered on {$host}:{$port}. Either that is not the right server for this mailbox - many hosts read mail at mail.yourdomain.com rather than the domain itself - or the port is blocked between this server and it.";
+        } elseif (str_contains($lower, 'certificate') || (str_contains($lower, 'ssl') && str_contains($lower, 'verify'))) {
+            $hint = "The server's certificate did not match {$host}. Use the host name the certificate is issued for.";
+        } elseif (str_contains($lower, 'authenticat') || str_contains($lower, 'login') || str_contains($lower, 'credential') || str_contains($lower, '535')) {
+            $hint = 'The server took the connection but refused the sign-in. Gmail, Outlook and Yahoo need an app password rather than the everyday one, and Amazon SES needs its own SMTP credentials - not your AWS keys.';
+        }
+
+        return $where . ': ' . $raw . ($hint ? ' — ' . $hint : '');
     }
 }
