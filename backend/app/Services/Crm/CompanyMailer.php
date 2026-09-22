@@ -119,11 +119,17 @@ class CompanyMailer
      * mailbox at all — an unambiguous answer or none, never a guess between
      * two.
      */
+    /** A mailbox with an address to send from - the screen's "Active". */
+    public static function isSetUp(mixed $sender): bool
+    {
+        return is_array($sender) && filled($sender['from_address'] ?? null);
+    }
+
     public function houseMailbox(): ?array
     {
         $senders = (array) ($this->settings()['company_senders'] ?? []);
 
-        $chosen = collect($senders)->first(fn ($s) => ! empty($s['is_report_sender']));
+        $chosen = collect($senders)->first(fn ($s) => ! empty($s['is_report_sender']) && self::isSetUp($s));
 
         if (! $chosen) {
             $employer = \App\Models\Crm\IssuingCompany::where('organization_id', $this->org->id)
@@ -172,6 +178,21 @@ class CompanyMailer
         $sender = $issuingCompanyId !== null
             ? ((array) ($comm['company_senders'] ?? []))[(string) $issuingCompanyId] ?? null
             : null;
+
+        /*
+         * The company's own mailbox only once it is actually set up.
+         *
+         * A company gets a row on the Communication screen the moment it
+         * exists, long before anybody fills its mailbox in - and that empty
+         * row was being taken as its sender. So a company "Not set up" sent
+         * its invoices through the platform's plain server instead of the
+         * report sender's mailbox, which is the one place its mail was meant
+         * to go until it had one of its own. "Set up" here means what it
+         * means on that screen: an address to send from.
+         */
+        if (! self::isSetUp($sender)) {
+            $sender = null;
+        }
 
         $sender ??= $this->houseMailbox();
 

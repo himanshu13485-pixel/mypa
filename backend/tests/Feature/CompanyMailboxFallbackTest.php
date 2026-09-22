@@ -157,4 +157,61 @@ class CompanyMailboxFallbackTest extends TestCase
         $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
         (new CompanyMailer($this->org->fresh()))->resolve(null);
     }
+
+    /**
+     * A company whose own mailbox is not set up sends through the report
+     * sender's mailbox - not through the platform's plain server.
+     *
+     * Every company has a row on the Communication screen from the start,
+     * and the empty row was being taken as its sender: so a company "Not set
+     * up" had its invoices leave from a server that is not the group's.
+     */
+    public function test_a_company_not_set_up_sends_from_the_report_sender(): void
+    {
+        $house = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'GrapOut Admin']);
+        $cgpl = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'CGPL']);
+
+        $this->org->update(['settings' => ['communication' => [
+            'email_enabled' => true,
+            'company_senders' => [
+                (string) $house->id => [
+                    'mailer' => 'smtp', 'from_address' => 'admin@grapout.com', 'from_name' => 'GrapOut',
+                    'smtp_host' => 'smtp.grapout.com', 'is_report_sender' => true,
+                ],
+                // The row exists; nobody has filled it in.
+                (string) $cgpl->id => ['mailer' => 'default', 'from_address' => '', 'from_name' => ''],
+            ],
+        ]]]);
+
+        $resolved = (new CompanyMailer($this->org->fresh()))->resolve($cgpl->id, 'invoice');
+
+        $this->assertSame('admin@grapout.com', $resolved['address']);
+        $this->assertSame('GrapOut', $resolved['name']);
+    }
+
+    /** And a company that has set its own up sends from it. */
+    public function test_a_company_set_up_sends_from_its_own_mailbox(): void
+    {
+        $house = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'GrapOut Admin']);
+        $corpcio = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Corpcio Global LLC']);
+
+        $this->org->update(['settings' => ['communication' => [
+            'email_enabled' => true,
+            'company_senders' => [
+                (string) $house->id => [
+                    'mailer' => 'smtp', 'from_address' => 'admin@grapout.com', 'smtp_host' => 'smtp.grapout.com',
+                    'is_report_sender' => true,
+                ],
+                (string) $corpcio->id => [
+                    'mailer' => 'smtp', 'from_address' => 'accounts@corpcio.com', 'from_name' => 'Corpcio Global LLC',
+                    'smtp_host' => 'smtp.corpcio.com',
+                ],
+            ],
+        ]]]);
+
+        $resolved = (new CompanyMailer($this->org->fresh()))->resolve($corpcio->id, 'invoice');
+
+        $this->assertSame('accounts@corpcio.com', $resolved['address']);
+        $this->assertSame('Corpcio Global LLC', $resolved['name']);
+    }
 }
