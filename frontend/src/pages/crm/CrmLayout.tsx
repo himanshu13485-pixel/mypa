@@ -115,7 +115,6 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
   // on for, and only for the people their Admin gave it to. Everybody else
   // never sees this group at all.
   { label: 'Mails', items: [
-    { label: 'Mail dashboard', icon: LayoutDashboard, to: '/crm/mails', mails: true },
     { label: 'Inbox', icon: Inbox, to: '/crm/mails/inbox', mails: true },
     { label: 'Drafts', icon: FileEdit, to: '/crm/mails/drafts', mails: true },
     { label: 'Scheduled', icon: Clock, to: '/crm/mails/scheduled', mails: true },
