@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, Download, Plus, Search, Wand2 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -10,6 +10,7 @@ import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select
 import { PhoneLink } from '../../components/ContactLink'
 import { companyCase, emailCase, nameCase } from './textCase'
 import { describeParsed, parseLeadText } from '../../lib/leadText'
+import { listFromParam, listParamOf, rememberList } from '../../lib/listReturn'
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
@@ -38,26 +39,66 @@ const EMPTY_FORM = {
 export default function CrmLeadsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
+  /*
+   * The filters live in the address.
+   *
+   * They used to live in this page's memory alone, so opening a lead and
+   * pressing Back rebuilt the list from nothing - the dates, the statuses,
+   * the person it was narrowed to, all to be set up again for the next
+   * lead. Read from the address on the way in and written back as they
+   * change, the list comes back exactly as it was left, whether by the
+   * browser's Back, the lead's own Back button, or a reload.
+   */
+  const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const [search, setSearch] = useState(() => params.get('q') ?? '')
+  const [applied, setApplied] = useState(() => params.get('q') ?? '')
   /** The export is a stream the server builds; the button says so meanwhile. */
   const [exporting, setExporting] = useState(false)
   // Checkbox filters: null is everything ticked, the default.
-  const [status, setStatus] = useState<string[] | null>(null)
-  const [source, setSource] = useState<string[] | null>(null)
-  const [assigned, setAssigned] = useState<string[] | null>(null)
-  const [dueOnly, setDueOnly] = useState(false)
+  const [status, setStatus] = useState<string[] | null>(() => listFromParam(params.get('status')))
+  const [source, setSource] = useState<string[] | null>(() => listFromParam(params.get('source')))
+  const [assigned, setAssigned] = useState<string[] | null>(() => listFromParam(params.get('assigned')))
+  const [dueOnly, setDueOnly] = useState(() => params.get('due') === '1')
   /*
    * Two dates, asked separately because they are two questions: when the
    * lead came in, and when it is next owed a call. Narrowing by one used to
    * mean narrowing by neither — a month's intake and a week's follow-ups
    * were both a scroll through everything.
    */
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [fuFrom, setFuFrom] = useState('')
-  const [fuTo, setFuTo] = useState('')
-  const [page, setPage] = useState(1)
+  const [from, setFrom] = useState(() => params.get('from') ?? '')
+  const [to, setTo] = useState(() => params.get('to') ?? '')
+  const [fuFrom, setFuFrom] = useState(() => params.get('fu_from') ?? '')
+  const [fuTo, setFuTo] = useState(() => params.get('fu_to') ?? '')
+  const [page, setPage] = useState(() => Math.max(1, Number(params.get('page')) || 1))
+
+  /*
+   * Written back as they change - replacing the current entry rather than
+   * adding one, so ticking three filters does not cost three presses of
+   * Back to get off the page.
+   */
+  useEffect(() => {
+    const next = new URLSearchParams(params)
+    const put = (key: string, value: string | null) => {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }
+    put('q', applied.trim() || null)
+    put('status', listParamOf(status))
+    put('source', listParamOf(source))
+    put('assigned', listParamOf(assigned))
+    put('due', dueOnly ? '1' : null)
+    put('from', from || null)
+    put('to', to || null)
+    put('fu_from', fuFrom || null)
+    put('fu_to', fuTo || null)
+    put('page', page > 1 ? String(page) : null)
+
+    if (next.toString() !== params.toString()) setParams(next, { replace: true })
+    // Remembered too, for the lead's own Back button, which cannot know how it was reached.
+    rememberList('leads', location.pathname + (next.toString() ? `?${next}` : ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applied, status, source, assigned, dueOnly, from, to, fuFrom, fuTo, page])
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmLead | null>(null)
   const [form, setForm] = useState({ ...EMPTY_FORM })

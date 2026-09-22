@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { listReturnPath } from '../../lib/listReturn'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ArrowRightLeft, Flag, Pencil, PhoneCall, Send, Trash2, Users, RotateCcw } from 'lucide-react'
@@ -74,6 +75,9 @@ export function LogEntry({ log }: { log: CrmLeadLogEntry }) {
 export default function CrmLeadDetailPage() {
   const { uuid } = useParams()
   const navigate = useNavigate()
+  // Back to the list as it was left - its dates, statuses and people -
+  // not to the plain list with every filter undone.
+  const backToLeads = () => listReturnPath('leads', crmPath('/crm/leads'))
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 
@@ -235,7 +239,7 @@ export default function CrmLeadDetailPage() {
     mutationFn: () => crm.leads.remove(uuid!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm', 'leads'] })
-      navigate(crmPath('/crm/leads'))
+      navigate(backToLeads())
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -263,7 +267,7 @@ export default function CrmLeadDetailPage() {
         <p className="max-w-sm text-xs text-slate-400">
           It may have been deleted, or it belongs to a colleague and has not been shared with you.
         </p>
-        <Button size="sm" variant="secondary" onClick={() => navigate(crmPath('/crm/leads'))}>
+        <Button size="sm" variant="secondary" onClick={() => navigate(backToLeads())}>
           <ArrowLeft className="size-3.5" /> Back to leads
         </Button>
       </div>
@@ -274,7 +278,7 @@ export default function CrmLeadDetailPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(crmPath('/crm/leads'))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(backToLeads())} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>
