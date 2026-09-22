@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { NotebookPen, Send } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -45,9 +46,12 @@ export default function CrmDwrPage() {
   const [values, setValues] = useState<Record<number, string>>({})
   const [note, setNote] = useState('')
   // Checkbox filters: null is everything ticked, the default.
-  const [member, setMember] = useState<string[] | null>(null)
-  const [band, setBand] = useState<string[] | null>(null)
-  const [page, setPage] = useState(1)
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [member, setMember] = useState<string[] | null>(() => address.list('member'))
+  const [band, setBand] = useState<string[] | null>(() => address.list('band'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('dwr', { member: asList(member), band: asList(band), page: page > 1 ? String(page) : null })
   const [detail, setDetail] = useState<CrmDwrRow | null>(null)
 
   const { data: myKpis } = useQuery({ queryKey: ['crm', 'dwr', 'my-kpis'], queryFn: crm.dwr.myKpis })

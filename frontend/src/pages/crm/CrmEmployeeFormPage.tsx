@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { listReturnPath } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, CheckCircle2, Download, FileText, KeyRound, Pencil, Plus, RotateCcw, Search, Trash2, UserX, Users } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -421,7 +422,7 @@ export default function CrmEmployeeFormPage() {
     mutationFn: () => crm.employees.deactivate(uuid!),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['crm'] })
-      navigate(crmPath('/crm/employees'))
+      navigate(listReturnPath('employees', crmPath('/crm/employees')))
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -466,7 +467,7 @@ export default function CrmEmployeeFormPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(crmPath('/crm/employees'))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(listReturnPath('employees', crmPath('/crm/employees')))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>

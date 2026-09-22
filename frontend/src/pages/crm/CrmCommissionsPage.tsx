@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { HandCoins, Plus, Search, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -22,9 +23,12 @@ const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN
 export default function CrmCommissionsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
-  const [page, setPage] = useState(1)
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [search, setSearch] = useState(() => address.text('q'))
+  const [applied, setApplied] = useState(() => address.text('q'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('commissions', { q: applied.trim() || null, page: page > 1 ? String(page) : null })
   const [showForm, setShowForm] = useState(false)
 
   const { data: me } = useQuery(crmMeQuery())

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
+import { useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Trash2, Trophy } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -38,7 +39,10 @@ export default function CrmContestsPage() {
   const canManage = me?.member?.crm_role === 'admin' || me?.member?.crm_role === 'subadmin'
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [page, setPage] = useState(1)
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('contests', { page: page > 1 ? String(page) : null })
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<string | null>(null)
 

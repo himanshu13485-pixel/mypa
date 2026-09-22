@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -64,15 +65,18 @@ const describe = (action: string) =>
   }
 
 export default function CrmLeaveLogPage() {
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [search, setSearch] = useState(() => address.text('q'))
+  const [applied, setApplied] = useState(() => address.text('q'))
   // Checkbox filters: null is everything ticked, the default.
-  const [action, setAction] = useState<string[] | null>(null)
-  const [employee, setEmployee] = useState<string[] | null>(null)
-  const [member, setMember] = useState<string[] | null>(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [page, setPage] = useState(1)
+  const [action, setAction] = useState<string[] | null>(() => address.list('action'))
+  const [employee, setEmployee] = useState<string[] | null>(() => address.list('employee'))
+  const [member, setMember] = useState<string[] | null>(() => address.list('member'))
+  const [dateFrom, setDateFrom] = useState(() => address.text('from'))
+  const [dateTo, setDateTo] = useState(() => address.text('to'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('leave-log', { q: applied.trim() || null, action: asList(action), employee: asList(employee), member: asList(member), from: dateFrom || null, to: dateTo || null, page: page > 1 ? String(page) : null })
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data, isLoading } = useQuery({

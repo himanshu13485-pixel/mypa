@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useOutletContext, useSearchParams } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlarmClock, Check, CheckSquare, FileText, MessageSquare, Pencil, Play, Plus,
@@ -61,17 +62,24 @@ export default function CrmTasksPage() {
   const { toast, toastError } = useToast()
   const [params, setParams] = useSearchParams()
 
+  // The filters come from the address and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
   // Checkbox filters: null is everything ticked. A link can still name one status.
-  const [status, setStatus] = useState<string[] | null>(() => {
-    const linked = params.get('status')
-    return linked ? [linked] : null
+  const [status, setStatus] = useState<string[] | null>(() => address.list('status'))
+  const [member, setMember] = useState<string[] | null>(() => address.list('member'))
+  const [kind, setKind] = useState<string[] | null>(() => address.list('kind'))
+  const [mine, setMine] = useState(() => address.flag('mine'))
+  const [search, setSearch] = useState(() => address.text('q'))
+  const [query, setQuery] = useState(() => address.text('q'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('tasks', {
+    status: asList(status),
+    member: asList(member),
+    kind: asList(kind),
+    mine: mine ? '1' : null,
+    q: query.trim() || null,
+    page: page > 1 ? String(page) : null,
   })
-  const [member, setMember] = useState<string[] | null>(null)
-  const [kind, setKind] = useState<string[] | null>(null)
-  const [mine, setMine] = useState(false)
-  const [search, setSearch] = useState('')
-  const [query, setQuery] = useState('')
-  const [page, setPage] = useState(1)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmTask | null>(null)
   const [form, setForm] = useState<TaskForm>(emptyForm)
@@ -404,7 +412,12 @@ export default function CrmTasksPage() {
           me={me}
           onClose={() => {
             setOpenTask(null)
-            if (params.get('task')) setParams(new URLSearchParams(), { replace: true })
+            // Only its own key: the filters live in the address too.
+            if (params.get('task')) {
+              const next = new URLSearchParams(params)
+              next.delete('task')
+              setParams(next, { replace: true })
+            }
           }}
           onChanged={refresh}
           onEdit={(task) => { setOpenTask(null); openEdit(task) }}

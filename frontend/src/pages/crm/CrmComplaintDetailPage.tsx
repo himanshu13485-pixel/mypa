@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useOutletContext, useParams } from 'react-router-dom'
+import { listReturnPath } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   ArrowLeft, Building2, Clock, Download, Lock, Paperclip, Send, Trash2, UserCheck,
@@ -73,7 +74,7 @@ export default function CrmComplaintDetailPage() {
     <div className="mx-auto max-w-6xl space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <button onClick={() => navigate(crmPath('/crm/complaints'))} className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
+          <button onClick={() => navigate(listReturnPath('complaints', crmPath('/crm/complaints')))} className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">
             <ArrowLeft className="size-3.5" /> All complaints
           </button>
           <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold text-slate-900 dark:text-white">

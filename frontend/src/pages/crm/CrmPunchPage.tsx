@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Fingerprint, LogIn, LogOut } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -76,12 +77,15 @@ export default function CrmPunchPage() {
    */
   // Named for the date, not the day's punch — `today` below is that.
   const todayDate = new Date().toLocaleDateString('en-CA')
-  const [dateFrom, setDateFrom] = useState(todayDate)
-  const [dateTo, setDateTo] = useState(todayDate)
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [dateFrom, setDateFrom] = useState(() => address.text('from', todayDate))
+  const [dateTo, setDateTo] = useState(() => address.text('to', todayDate))
   // Checkbox filters: null is everything ticked, the default.
-  const [member, setMember] = useState<string[] | null>(null)
-  const [status, setStatus] = useState<string[] | null>(null)
-  const [page, setPage] = useState(1)
+  const [member, setMember] = useState<string[] | null>(() => address.list('member'))
+  const [status, setStatus] = useState<string[] | null>(() => address.list('status'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('punch', { from: dateFrom !== todayDate ? dateFrom : null, to: dateTo !== todayDate ? dateTo : null, member: asList(member), status: asList(status), page: page > 1 ? String(page) : null })
 
   const { data: today } = useQuery({ queryKey: ['crm', 'punch', 'today'], queryFn: crm.punch.today })
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters, enabled: teamView })

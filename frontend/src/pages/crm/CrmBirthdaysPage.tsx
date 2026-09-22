@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Cake, Clock, Heart, Send } from 'lucide-react'
 import { crm, type CrmMe } from '../../api/crm'
@@ -30,9 +31,12 @@ export default function CrmBirthdaysPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 
-  const [year, setYear] = useState('')
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [year, setYear] = useState(() => address.text('year'))
   const [direction, setDirection] = useState('')
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('birthdays', { year: year || null, page: page > 1 ? String(page) : null })
   const [answering, setAnswering] = useState<string | null>(null)
   const [reply, setReply] = useState('')
 

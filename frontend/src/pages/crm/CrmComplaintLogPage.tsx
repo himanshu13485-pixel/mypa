@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
+import { listFromParam } from '../../lib/listReturn'
 import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -21,12 +23,28 @@ const FILTER_CLASS = 'min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:b
  * turned out to be.
  */
 export default function CrmComplaintLogPage() {
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
-  const [filters, setFilters] = useState<Record<string, string>>({})
+  /*
+   * The filters come from the address and go back to it - see
+   * useFiltersInAddress. These are the company's own form fields, so they
+   * are named at run time and carried under prefixes: f_ for a typed value,
+   * p_ for a set of ticks.
+   */
+  const address = useFilterAddress()
+  const [search, setSearch] = useState(() => address.text('q'))
+  const [applied, setApplied] = useState(() => address.text('q'))
+  const [filters, setFilters] = useState<Record<string, string>>(() => address.prefixed('f_'))
   // Checkbox filters, by param: missing or null is everything ticked.
-  const [picks, setPicks] = useState<Record<string, string[] | null>>({})
-  const [page, setPage] = useState(1)
+  const [picks, setPicks] = useState<Record<string, string[] | null>>(() => Object.fromEntries(
+    Object.entries(address.prefixed('p_')).map(([key, value]) => [key, value === 'all' ? null : listFromParam(value)]),
+  ))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('complaint-log', {
+    q: applied.trim() || null,
+    ...Object.fromEntries(Object.entries(filters).map(([key, value]) => [`f_${key}`, value || null])),
+    ...Object.fromEntries(Object.entries(picks).map(([key, value]) => [`p_${key}`, asList(value)])),
+    page: page > 1 ? String(page) : null,
+  }, ['f_', 'p_'])
+
 
   const { data: options } = useQuery({ queryKey: ['crm', 'complaint-options'], queryFn: crm.complaints.options })
   const { data, isLoading } = useQuery({

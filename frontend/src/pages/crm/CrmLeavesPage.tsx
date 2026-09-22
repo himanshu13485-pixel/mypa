@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarOff, Check, Plus, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -34,11 +35,14 @@ export default function CrmLeavesPage() {
   const { toast, toastError } = useToast()
 
   // Checkbox filters: null is everything ticked, the default.
-  const [status, setStatus] = useState<string[] | null>(null)
-  const [category, setCategory] = useState<string[] | null>(null)
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [status, setStatus] = useState<string[] | null>(() => address.list('status'))
+  const [category, setCategory] = useState<string[] | null>(() => address.list('category'))
   /* Asked for in advance, or after the fact. */
-  const [timing, setTiming] = useState<string[] | null>(null)
-  const [page, setPage] = useState(1)
+  const [timing, setTiming] = useState<string[] | null>(() => address.list('timing'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('leaves', { status: asList(status), category: asList(category), timing: asList(timing), page: page > 1 ? String(page) : null })
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ category: '', duration: 'full', date_from: '', date_to: '', reason: '' })
   const [error, setError] = useState<string | null>(null)

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { crm } from '../../api/crm'
@@ -14,15 +15,18 @@ import { listParam } from '../../lib/multiFilter'
  * old CRM's audit screen, fed by the shared activity trail.
  */
 export default function CrmLeadLogPage() {
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
-  const [leadNo, setLeadNo] = useState('')
-  const [appliedNo, setAppliedNo] = useState('')
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [search, setSearch] = useState(() => address.text('q'))
+  const [applied, setApplied] = useState(() => address.text('q'))
+  const [leadNo, setLeadNo] = useState(() => address.text('lead'))
+  const [appliedNo, setAppliedNo] = useState(() => address.text('lead'))
   // Checkbox filter: null is everyone ticked, the default.
-  const [member, setMember] = useState<string[] | null>(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [page, setPage] = useState(1)
+  const [member, setMember] = useState<string[] | null>(() => address.list('member'))
+  const [dateFrom, setDateFrom] = useState(() => address.text('from'))
+  const [dateTo, setDateTo] = useState(() => address.text('to'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('lead-log', { q: applied.trim() || null, lead: appliedNo.trim() || null, member: asList(member), from: dateFrom || null, to: dateTo || null, page: page > 1 ? String(page) : null })
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data, isLoading } = useQuery({

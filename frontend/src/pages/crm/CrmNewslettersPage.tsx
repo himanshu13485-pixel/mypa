@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Mail, Pencil, Plus, Send, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -17,7 +18,10 @@ const AUDIENCE_LABELS: Record<string, string> = {
 export default function CrmNewslettersPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [page, setPage] = useState(1)
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('newsletters', { page: page > 1 ? String(page) : null })
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmNewsletter | null>(null)
   const [form, setForm] = useState({ subject: '', body: '', audience: 'active_clients', custom: '' })

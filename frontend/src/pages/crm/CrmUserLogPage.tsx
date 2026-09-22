@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useQuery } from '@tanstack/react-query'
 import { Search } from 'lucide-react'
 import { crm } from '../../api/crm'
@@ -17,13 +18,16 @@ const ACTION_GROUPS = [
 
 export default function CrmUserLogPage() {
   // Checkbox filters: null is everything ticked, the default.
-  const [member, setMember] = useState<string[] | null>(null)
-  const [action, setAction] = useState<string[] | null>(null)
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [page, setPage] = useState(1)
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [member, setMember] = useState<string[] | null>(() => address.list('member'))
+  const [action, setAction] = useState<string[] | null>(() => address.list('action'))
+  const [search, setSearch] = useState(() => address.text('q'))
+  const [applied, setApplied] = useState(() => address.text('q'))
+  const [dateFrom, setDateFrom] = useState(() => address.text('from'))
+  const [dateTo, setDateTo] = useState(() => address.text('to'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('user-log', { member: asList(member), action: asList(action), q: applied.trim() || null, from: dateFrom || null, to: dateTo || null, page: page > 1 ? String(page) : null })
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data, isLoading } = useQuery({

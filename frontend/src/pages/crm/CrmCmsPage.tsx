@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Megaphone, Pin, Plus, Pencil, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -23,7 +24,10 @@ const KIND_STYLES: Record<string, string> = {
 export default function CrmCmsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [page, setPage] = useState(1)
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('cms', { page: page > 1 ? String(page) : null })
   // Checkbox filter: null is every kind ticked, the default.
   const [kind, setKind] = useState<string[] | null>(null)
   const [showForm, setShowForm] = useState(false)

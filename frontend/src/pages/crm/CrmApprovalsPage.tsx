@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useOutletContext } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarOff, Check, CheckSquare, ClipboardCheck, FileDiff, Plus, Search, Trash2, Users, X } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -25,11 +26,14 @@ export default function CrmApprovalsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 
-  const [tab, setTab] = useState<'register' | 'invoice_updates'>('register')
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [tab, setTab] = useState<'register' | 'invoice_updates'>(() => (address.text('tab') === 'invoice_updates' ? 'invoice_updates' : 'register'))
   // Checkbox filters: null is everything ticked, the default.
-  const [status, setStatus] = useState<string[] | null>(null)
-  const [type, setType] = useState<string[] | null>(null)
-  const [page, setPage] = useState(1)
+  const [status, setStatus] = useState<string[] | null>(() => address.list('status'))
+  const [type, setType] = useState<string[] | null>(() => address.list('type'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('approvals', { tab: tab === 'invoice_updates' ? tab : null, status: asList(status), type: asList(type), page: page > 1 ? String(page) : null })
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ type: '', scope: 'general', approval_date: new Date().toISOString().slice(0, 10), amount: '', invoice_uuid: '', client_uuid: '', details: '' })
   // What this member may point a request at: their own sales, nobody else's.

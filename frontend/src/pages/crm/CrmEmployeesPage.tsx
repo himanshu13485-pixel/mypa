@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { KeyRound, Plus, RotateCcw, Search, UserCog } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -18,13 +19,16 @@ const ROLE_LABELS: Record<string, string> = { admin: 'Admin', subadmin: 'Subadmi
 
 export default function CrmEmployeesPage() {
   const navigate = useNavigate()
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [search, setSearch] = useState(() => address.text('q'))
+  const [applied, setApplied] = useState(() => address.text('q'))
   // Checkbox filters: null is everything ticked. Status still opens on the active people.
-  const [role, setRole] = useState<string[] | null>(null)
-  const [reportsTo, setReportsTo] = useState<string[] | null>(null)
-  const [status, setStatus] = useState<string[] | null>(['active'])
-  const [page, setPage] = useState(1)
+  const [role, setRole] = useState<string[] | null>(() => address.list('role'))
+  const [reportsTo, setReportsTo] = useState<string[] | null>(() => address.list('reports_to'))
+  const [status, setStatus] = useState<string[] | null>(() => address.list('status', ['active']))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('employees', { q: applied.trim() || null, role: asList(role), reports_to: asList(reportsTo), status: asList(status, false), page: page > 1 ? String(page) : null })
   /** The row being opened, so its button says so and the rest go quiet. */
   const [entering, setEntering] = useState<string | null>(null)
   const { confirm } = usePrompt()

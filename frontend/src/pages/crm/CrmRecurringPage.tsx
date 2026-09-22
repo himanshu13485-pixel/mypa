@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Ban, CalendarClock, Pause, Play, Zap } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -30,8 +31,11 @@ export default function CrmRecurringPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
   // Checkbox filter: null is every schedule, the default.
-  const [status, setStatus] = useState<string[] | null>(null)
-  const [page, setPage] = useState(1)
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [status, setStatus] = useState<string[] | null>(() => address.list('status'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('recurring', { status: asList(status), page: page > 1 ? String(page) : null })
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'recurring', status, page],

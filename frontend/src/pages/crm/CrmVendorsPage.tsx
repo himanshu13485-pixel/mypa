@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { asList, useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAddress'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Building2, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -29,12 +30,15 @@ export default function CrmVendorsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
 
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
+  // The filters come from the address, and go back to it - see useFiltersInAddress.
+  const address = useFilterAddress()
+  const [search, setSearch] = useState(() => address.text('q'))
+  const [applied, setApplied] = useState(() => address.text('q'))
   // Checkbox filters: null is everything ticked, the default.
-  const [status, setStatus] = useState<string[] | null>(null)
-  const [category, setCategory] = useState<string[] | null>(null)
-  const [page, setPage] = useState(1)
+  const [status, setStatus] = useState<string[] | null>(() => address.list('status'))
+  const [category, setCategory] = useState<string[] | null>(() => address.list('category'))
+  const [page, setPage] = useState(() => address.page())
+  useFiltersInAddress('vendors', { q: applied.trim() || null, status: asList(status), category: asList(category), page: page > 1 ? String(page) : null })
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmVendor | null>(null)
   const [detail, setDetail] = useState<CrmVendor | null>(null)
