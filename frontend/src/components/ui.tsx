@@ -409,6 +409,7 @@ export function Modal({
   children,
   wide,
   size,
+  sticky,
 }: {
   title: string
   onClose: () => void
@@ -422,6 +423,14 @@ export function Modal({
    * exactly the width it had.
    */
   size?: 'md' | 'lg' | 'xl'
+  /**
+   * A dialog that only the X and Cancel may close.
+   *
+   * For long settings forms, where the click that lands beside the panel is
+   * never the one somebody meant - a mail server half typed in is worth more
+   * than the convenience of dismissing by missing.
+   */
+  sticky?: boolean
 }) {
   /*
    * Has anybody typed anything in here?
@@ -441,6 +450,7 @@ export function Modal({
   const dirty = useRef(false)
 
   const leave = () => {
+    if (sticky) return
     if (dirty.current && !window.confirm('Discard what you have typed?')) return
     onClose()
   }

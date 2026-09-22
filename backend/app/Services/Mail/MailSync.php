@@ -243,11 +243,17 @@ class MailSync
             || $from === strtolower($account->email)
             || preg_match('/(no-?reply|do-?not-?reply|mailer-daemon|postmaster|bounce|notifications?@)/i', $from);
 
-        if ($account->forward_to && ! $robot) {
+        // Only addresses that answered their code. An unverified one is a
+        // typo until proved otherwise, and a typo that receives a company's
+        // mail for a year is the reason this is checked at all.
+        foreach (MailAccount::verifiedForwards($account) as $address) {
+            if ($robot) {
+                break;
+            }
             try {
-                $this->sender->forward($account, $message, $account->forward_to);
+                $this->sender->forward($account, $message, $address);
             } catch (Throwable $e) {
-                Log::info('[mails] forward failed', ['account' => $account->id, 'error' => $e->getMessage()]);
+                Log::info('[mails] forward failed', ['account' => $account->id, 'to' => $address, 'error' => $e->getMessage()]);
             }
         }
 

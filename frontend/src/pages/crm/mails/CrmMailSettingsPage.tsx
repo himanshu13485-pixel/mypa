@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2 } from 'lucide-react'
+import { ImagePlus, Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { mails, type MailAccountInfo, type MailPrefs } from '../../../api/mails'
+import { mails, type MailAccountInfo, type MailPrefs, type MailTeamMailbox, type MailTeamRow } from '../../../api/mails'
 import { errorMessage } from '../../../api/client'
 import { useToast } from '../../../components/Toast'
 import { Button, Input, Label, LoadError, Select, Spinner, Textarea } from '../../../components/ui'
@@ -179,16 +179,117 @@ function SignatureCard({ account }: { account: MailAccountInfo }) {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
   const [html, setHtml] = useState(account.signature_html ?? '')
+  const [replyHtml, setReplyHtml] = useState(account.signature_reply_html ?? '')
+  const [separate, setSeparate] = useState(!!account.signature_reply_html)
+  const [on, setOn] = useState<'new' | 'all' | 'none'>(account.signature_on ?? 'all')
+  const [beforeQuote, setBeforeQuote] = useState(account.signature_before_quote !== false)
+  const [uploading, setUploading] = useState(false)
+  const picture = useRef<HTMLInputElement>(null)
+
   const save = useMutation({
-    mutationFn: () => mails.saveAccount(account.uuid, { signature_html: html }),
+    mutationFn: () => mails.saveAccount(account.uuid, {
+      signature_html: html,
+      signature_reply_html: separate ? replyHtml : null,
+      signature_on: on,
+      signature_before_quote: beforeQuote,
+    }),
     onSuccess: () => { toast('Signature saved.', 'success'); queryClient.invalidateQueries({ queryKey: ['mails', 'accounts'] }) },
     onError: (err) => toastError(errorMessage(err)),
   })
+
+  /*
+   * A logo goes in as a picture at an address, not as embedded data: mail
+   * programs refuse data: images, so an embedded one arrives as a blank
+   * square in every inbox that receives it.
+   */
+  const addPicture = async (file: File, into: 'main' | 'reply') => {
+    setUploading(true)
+    try {
+      const { url } = await mails.signatureImage(account.uuid, file)
+      const tag = '<p><img src="' + url + '" alt="" style="max-width:220px;height:auto"></p>'
+      if (into === 'main') setHtml((h) => h + tag)
+      else setReplyHtml((h) => h + tag)
+      toast('Picture added to the signature. Save to keep it.', 'success')
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const choice = (value: typeof on, label: string, hint: string) => (
+    <label key={value} className="flex items-start gap-2 text-sm">
+      <input type="radio" className="mt-1" checked={on === value} onChange={() => setOn(value)} />
+      <span>
+        {label}
+        <span className="block text-xs text-slate-400">{hint}</span>
+      </span>
+    </label>
+  )
+
   return (
-    <div className={card}>
-      <p className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">{account.email}</p>
-      <RichEditor value={html} onChange={setHtml} minHeight={110} placeholder="Name, title, phone - added under every mail from this mailbox" />
-      <Button className="mt-3" size="sm" onClick={() => save.mutate()} disabled={save.isPending}>Save signature</Button>
+    <div className={clsx(card, 'space-y-3')}>
+      <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">{account.email}</p>
+
+      <RichEditor value={html} onChange={setHtml} minHeight={110} placeholder="Name, title, phone - added under mail from this mailbox" />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="secondary" disabled={uploading} onClick={() => picture.current?.click()}>
+          <ImagePlus className="size-3.5" /> {uploading ? 'Adding…' : 'Add logo or picture'}
+        </Button>
+        <input
+          ref={picture}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            e.target.value = ''
+            if (file) void addPicture(file, 'main')
+          }}
+        />
+        <span className="text-xs text-slate-400">
+          PNG or JPG up to 1 MB. The &lt;/&gt; button in the editor opens the HTML itself.
+        </span>
+      </div>
+
+      <div className="space-y-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+        <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Where it goes</p>
+        {choice('all', 'On everything I send', 'New mail, replies and forwards.')}
+        {choice('new', 'On new mail only', 'Replies and forwards go without it - what most people prefer on a long thread.')}
+        {choice('none', 'Nowhere', 'Kept here, but never added on its own.')}
+
+        {on !== 'none' && (
+          <>
+            <label className="flex items-start gap-2 pt-1 text-sm">
+              <input type="checkbox" className="mt-1" checked={beforeQuote} onChange={(e) => setBeforeQuote(e.target.checked)} />
+              <span>
+                Put it above the quoted mail in a reply
+                <span className="block text-xs text-slate-400">Off puts it at the very bottom, under everything that was quoted.</span>
+              </span>
+            </label>
+
+            {on === 'all' && (
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={separate} onChange={(e) => setSeparate(e.target.checked)} />
+                <span>
+                  Use a shorter signature on replies
+                  <span className="block text-xs text-slate-400">A name and a number is usually enough once a conversation is going.</span>
+                </span>
+              </label>
+            )}
+          </>
+        )}
+      </div>
+
+      {separate && on === 'all' && (
+        <div>
+          <Label>Signature on replies and forwards</Label>
+          <RichEditor value={replyHtml} onChange={setReplyHtml} minHeight={80} placeholder="e.g. Priya - 98xxxxxx21" />
+        </div>
+      )}
+
+      <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>Save signature</Button>
     </div>
   )
 }
@@ -220,11 +321,9 @@ function AutoReplyCard({ account }: { account: MailAccountInfo }) {
     from: account.auto_reply?.from ?? '',
     until: account.auto_reply?.until ?? '',
   })
-  const [forward, setForward] = useState(account.forward_to ?? '')
   const save = useMutation({
     mutationFn: () => mails.saveAccount(account.uuid, {
       auto_reply: { ...reply, from: reply.from || null, until: reply.until || null },
-      forward_to: forward.trim() || null,
     }),
     onSuccess: () => { toast('Saved.', 'success'); queryClient.invalidateQueries({ queryKey: ['mails', 'accounts'] }) },
     onError: (err) => toastError(errorMessage(err)),
@@ -246,11 +345,130 @@ function AutoReplyCard({ account }: { account: MailAccountInfo }) {
           <div className="sm:col-span-2"><Label>Message</Label><Textarea rows={4} value={reply.body} onChange={(e) => setReply({ ...reply, body: e.target.value })} placeholder="Thanks for your mail. I am away until Monday and will reply then." /></div>
         </div>
       )}
-      <div className="max-w-md">
-        <Label>Forward a copy of new mail to</Label>
-        <Input type="email" value={forward} onChange={(e) => setForward(e.target.value)} placeholder="someone@example.com (blank = off)" />
-      </div>
-      <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>Save</Button>
+      <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>Save auto-reply</Button>
+
+      <Forwarding account={account} />
+    </div>
+  )
+}
+
+/**
+ * Forwarding, to addresses that have said yes.
+ *
+ * Adding one sends it a six-figure code, and nothing is forwarded there
+ * until somebody types the code back - a mailbox quietly copying a
+ * company's mail to a typo is not a mistake anybody notices on their own.
+ */
+function Forwarding({ account }: { account: MailAccountInfo }) {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const [address, setAddress] = useState('')
+  const [codeFor, setCodeFor] = useState<string | null>(null)
+  const [code, setCode] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const refresh = () => queryClient.invalidateQueries({ queryKey: ['mails', 'accounts'] })
+
+  const run = async (fn: () => Promise<{ message: string }>) => {
+    setBusy(true)
+    try {
+      const res = await fn()
+      toast(res.message, 'success')
+      refresh()
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // The single address from before codes existed still forwards, and is
+  // shown here so it can be seen and removed like any other.
+  const legacy = account.forward_to && !account.forwards.some((f) => f.address === account.forward_to)
+    ? [{ address: account.forward_to, verified: true, sent_at: null }]
+    : []
+
+  return (
+    <div className="space-y-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+      <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Forward a copy of new mail to</p>
+
+      {[...legacy, ...account.forwards].map((f) => (
+        <div key={f.address} className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="font-medium text-slate-800 dark:text-slate-100">{f.address}</span>
+          {f.verified ? (
+            <span className="flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+              <ShieldCheck className="size-3" /> Verified
+            </span>
+          ) : (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/20 dark:text-amber-200">
+              Waiting for its code
+            </span>
+          )}
+          {!f.verified && (
+            <>
+              <button type="button" className="text-xs text-brand-600" onClick={() => { setCodeFor(f.address); setCode('') }}>
+                Enter code
+              </button>
+              <button type="button" className="text-xs text-slate-500" disabled={busy} onClick={() => run(() => mails.addForward(account.uuid, f.address))}>
+                Send again
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            className="text-xs text-red-600"
+            disabled={busy}
+            onClick={() => { if (window.confirm('Stop forwarding to ' + f.address + '?')) void run(() => mails.removeForward(account.uuid, f.address)) }}
+          >
+            Remove
+          </button>
+
+          {codeFor === f.address && (
+            <span className="flex w-full items-center gap-2">
+              <Input
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 6))}
+                placeholder="6-figure code"
+                inputMode="numeric"
+                className="w-40"
+              />
+              <Button size="sm" disabled={busy || code.length < 6} onClick={() => run(async () => {
+                const res = await mails.verifyForward(account.uuid, f.address, code)
+                setCodeFor(null)
+
+                return res
+              })}>
+                Verify
+              </Button>
+            </span>
+          )}
+        </div>
+      ))}
+
+      {account.forwards.length === 0 && legacy.length === 0 && (
+        <p className="text-xs text-slate-400">Nothing is forwarded from this mailbox.</p>
+      )}
+
+      <form
+        className="flex flex-wrap items-end gap-2 pt-1"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (!address.trim()) return
+          void run(async () => {
+            const res = await mails.addForward(account.uuid, address.trim())
+            setCodeFor(address.trim().toLowerCase())
+            setAddress('')
+
+            return res
+          })
+        }}
+      >
+        <Input type="email" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="someone@example.com" className="max-w-xs flex-1" />
+        <Button size="sm" type="submit" disabled={busy}>Send code</Button>
+      </form>
+      <p className="text-xs text-slate-400">
+        Up to five addresses. Each is sent a code from this mailbox, and starts receiving only once the code is typed back.
+      </p>
     </div>
   )
 }
@@ -396,6 +614,7 @@ function TeamTab() {
   }
 
   return (
+    <div className="space-y-4">
     <div className={clsx(card, 'space-y-3')}>
       <p className="text-sm text-slate-500">
         Choose who in the company uses Mails and how many mailboxes each may connect (up to {data.cap}, the limit set for your company).
@@ -445,6 +664,76 @@ function TeamTab() {
           </tbody>
         </table>
       </div>
+    </div>
+
+    <MailboxAccess mailboxes={data.mailboxes} people={data.data} />
+    </div>
+  )
+}
+
+/**
+ * Who opens which mailbox.
+ *
+ * Sharing decided in one place rather than inside each mailbox's own
+ * settings: a company mailbox - sales@, accounts@ - is read by whoever is
+ * ticked here, and they can answer from it without being able to change,
+ * share or delete it.
+ */
+function MailboxAccess({ mailboxes, people }: { mailboxes: MailTeamMailbox[]; people: MailTeamRow[] }) {
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const share = async (box: MailTeamMailbox, uuid: string, on: boolean) => {
+    setBusy(box.uuid)
+    const next = on ? [...box.shared_with, uuid] : box.shared_with.filter((u) => u !== uuid)
+    try {
+      await mails.saveAccount(box.uuid, { shared_with: next })
+      toast(on ? 'Access given.' : 'Access removed.', 'success')
+      queryClient.invalidateQueries({ queryKey: ['mails'] })
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className={clsx(card, 'space-y-3')}>
+      <div>
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Mailbox access</h3>
+        <p className="text-sm text-slate-500">
+          Everybody ticked reads and answers from that mailbox. They cannot change its settings, share it, or delete it -
+          and its owner keeps it whatever you tick.
+        </p>
+      </div>
+
+      {mailboxes.length === 0 && <p className="text-sm text-slate-400">No mailboxes in the company yet.</p>}
+
+      {mailboxes.map((box) => (
+        <div key={box.uuid} className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+          <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
+            {box.label || box.email}
+            <span className="ml-2 font-normal text-slate-500">{box.email}</span>
+            {box.owner && <span className="ml-2 text-xs text-slate-400">owner: {box.owner}</span>}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
+            {people.filter((p) => p.uuid !== box.owner_uuid).map((p) => (
+              <label key={p.uuid} className="flex items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  disabled={busy === box.uuid || !p.has_mails}
+                  checked={box.shared_with.includes(p.uuid)}
+                  onChange={(e) => share(box, p.uuid, e.target.checked)}
+                />
+                <span className={clsx(!p.has_mails && 'text-slate-400')}>
+                  {p.name || p.email}{!p.has_mails && ' (no Mails yet)'}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

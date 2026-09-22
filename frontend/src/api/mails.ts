@@ -130,6 +130,13 @@ export interface MailAccountInfo {
   smtp_username: string | null
   has_smtp_password: boolean
   signature_html: string | null
+  /** A shorter one for replies; blank means the same as the main signature. */
+  signature_reply_html: string | null
+  /** new | all | none - where the signature is put. */
+  signature_on: 'new' | 'all' | 'none'
+  signature_before_quote: boolean
+  /** Addresses this mailbox forwards to, and whether each has answered its code. */
+  forwards: { address: string; verified: boolean; sent_at: string | null }[]
   auto_reply: MailAutoReply
   forward_to: string | null
   is_default: boolean
@@ -252,6 +259,16 @@ export interface MailTeamRow {
   mailboxes: number
 }
 
+/** A company mailbox on the Team access screen: who owns it, who else opens it. */
+export interface MailTeamMailbox {
+  uuid: string
+  email: string
+  label: string | null
+  owner: string | null
+  owner_uuid: string | null
+  shared_with: string[]
+}
+
 export interface MailListPage {
   data: MailSummary[]
   current_page: number
@@ -345,6 +362,19 @@ export const mails = {
   syncAccount: (uuid: string, now = false) =>
     api.post<{ message: string }>(`${base}/accounts/${uuid}/sync`, { now }).then((r) => r.data),
 
+  addForward: (uuid: string, address: string) =>
+    api.post<{ message: string; data: MailAccountInfo }>(`${base}/accounts/${uuid}/forwards`, { address }).then((r) => r.data),
+  verifyForward: (uuid: string, address: string, code: string) =>
+    api.post<{ message: string; data: MailAccountInfo }>(`${base}/accounts/${uuid}/forwards/verify`, { address, code }).then((r) => r.data),
+  removeForward: (uuid: string, address: string) =>
+    api.delete<{ message: string; data: MailAccountInfo }>(`${base}/accounts/${uuid}/forwards`, { data: { address } }).then((r) => r.data),
+  signatureImage: (uuid: string, file: File) => {
+    const form = new FormData()
+    form.append('image', file)
+
+    return api.post<{ data: { path: string; url: string } }>(`${base}/accounts/${uuid}/signature-image`, form).then((r) => r.data.data)
+  },
+
   labels: () => api.get<{ data: MailLabelTag[] }>(`${base}/labels`).then((r) => r.data.data),
   addLabel: (name: string, color: string) =>
     api.post<{ data: MailLabelTag }>(`${base}/labels`, { name, color }).then((r) => r.data.data),
@@ -357,7 +387,8 @@ export const mails = {
       .then((r) => r.data.data),
   savePrefs: (prefs: Partial<MailPrefs>) =>
     api.put<{ data: MailPrefs }>(`${base}/settings/prefs`, prefs).then((r) => r.data.data),
-  team: () => api.get<{ data: MailTeamRow[]; cap: number }>(`${base}/settings/team`).then((r) => r.data),
+  team: () =>
+    api.get<{ data: MailTeamRow[]; cap: number; mailboxes: MailTeamMailbox[] }>(`${base}/settings/team`).then((r) => r.data),
   saveTeam: (uuid: string, enabled: boolean, limit?: number) =>
     api.put<{ message: string }>(`${base}/settings/team/${uuid}`, { enabled, limit }).then((r) => r.data),
   ai: () =>

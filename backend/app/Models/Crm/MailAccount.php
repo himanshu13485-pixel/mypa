@@ -72,7 +72,8 @@ class MailAccount extends Model
         'organization_id', 'member_id', 'created_by_member_id', 'is_shared', 'label', 'tag', 'email', 'from_name', 'reply_to', 'provider',
         'imap_host', 'imap_port', 'imap_encryption', 'imap_username', 'imap_password',
         'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_username', 'smtp_password',
-        'signature_html', 'auto_reply', 'forward_to', 'is_default',
+        'signature_html', 'signature_reply_html', 'signature_on', 'signature_before_quote',
+        'auto_reply', 'forward_to', 'forwards', 'is_default',
         'daily_cap', 'sent_today', 'cap_date', 'dkim_selector', 'dns', 'verify_cert',
         'sync_state', 'last_synced_at', 'last_error', 'status', 'detached_at', 'backup',
     ];
@@ -85,6 +86,8 @@ class MailAccount extends Model
             'imap_password' => 'encrypted',
             'smtp_password' => 'encrypted',
             'auto_reply' => 'array',
+            'forwards' => 'array',
+            'signature_before_quote' => 'boolean',
             'sync_state' => 'array',
             'dns' => 'array',
             // Cloud keys live in here, so the whole lot is encrypted at rest.
@@ -183,6 +186,26 @@ class MailAccount extends Model
         return true;
     }
 
+    /**
+     * The addresses this mailbox actually forwards to.
+     *
+     * The verified entries in `forwards`, plus the older single `forward_to`
+     * where a mailbox was set up before codes existed - so nothing anybody
+     * already relies on stops arriving.
+     */
+    public static function verifiedForwards(self $account): array
+    {
+        $list = collect((array) $account->forwards)
+            ->filter(fn ($f) => ! empty($f['verified_at']) && ! empty($f['address']))
+            ->pluck('address');
+
+        if ($account->forward_to) {
+            $list->push($account->forward_to);
+        }
+
+        return $list->map(fn ($a) => strtolower(trim((string) $a)))->unique()->values()->all();
+    }
+
     /** How many are left today, or null when nothing limits it. */
     public function sendsLeft(): ?int
     {
@@ -220,6 +243,16 @@ class MailAccount extends Model
             'smtp_username' => $this->smtp_username,
             'has_smtp_password' => filled($this->smtp_password),
             'signature_html' => $this->signature_html,
+            'signature_reply_html' => $this->signature_reply_html,
+            'signature_on' => $this->signature_on ?: 'all',
+            'signature_before_quote' => $this->signature_before_quote === null ? true : (bool) $this->signature_before_quote,
+            // Addresses, and whether each has proved it wants the mail. The
+            // codes themselves never leave the server.
+            'forwards' => collect((array) $this->forwards)->map(fn (array $f) => [
+                'address' => $f['address'] ?? '',
+                'verified' => ! empty($f['verified_at']),
+                'sent_at' => $f['code_sent_at'] ?? null,
+            ])->values()->all(),
             'auto_reply' => $this->auto_reply ?: ['enabled' => false],
             'forward_to' => $this->forward_to,
             'is_default' => $this->is_default,

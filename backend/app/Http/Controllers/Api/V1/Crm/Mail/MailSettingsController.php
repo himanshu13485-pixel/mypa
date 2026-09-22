@@ -73,7 +73,26 @@ class MailSettingsController extends Controller
                 'mailboxes' => MailAccount::ownedBy($m)->count(),
             ])->values();
 
-        return response()->json(['data' => $members, 'cap' => $cap]);
+        /*
+         * Every mailbox in the company, and who may open it.
+         *
+         * Sharing is decided here rather than inside each mailbox's own
+         * settings: access is a question about people, and the Admin wants to
+         * see all of it at once rather than opening six dialogs.
+         */
+        $mailboxes = MailAccount::where('organization_id', $me->organization_id)
+            ->with(['member.user:id,name,email', 'sharedMembers:id,uuid'])
+            ->orderBy('email')->get()
+            ->map(fn (MailAccount $a) => [
+                'uuid' => $a->uuid,
+                'email' => $a->email,
+                'label' => $a->label,
+                'owner' => $a->member?->user?->name ?: $a->member?->user?->email,
+                'owner_uuid' => $a->member?->uuid,
+                'shared_with' => $a->sharedMembers->pluck('uuid')->all(),
+            ])->values();
+
+        return response()->json(['data' => $members, 'cap' => $cap, 'mailboxes' => $mailboxes]);
     }
 
     /** Give or take Mails from one person, and set how many mailboxes they may add. */

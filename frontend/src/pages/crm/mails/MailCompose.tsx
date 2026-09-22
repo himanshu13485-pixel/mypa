@@ -25,6 +25,20 @@ const IMPROVE = [
 const signatureBlock = (html: string | null | undefined) =>
   html ? `<br><div class="mail-signature">-- <br>${html}</div>` : ''
 
+/**
+ * The signature this mailbox wants here, or nothing.
+ *
+ * "New mail only" is the setting most people end up on: a signature under
+ * every message of a twenty-message thread is twenty copies of a phone
+ * number nobody reads.
+ */
+const signatureFor = (account: MailAccountInfo | undefined, answering: boolean) => {
+  const mode = account?.signature_on ?? 'all'
+  if (!account || mode === 'none' || (answering && mode === 'new')) return ''
+
+  return signatureBlock(answering ? (account.signature_reply_html || account.signature_html) : account.signature_html)
+}
+
 /** Where the compose window starts from: blank, a reply, a forward, or a saved draft. */
 function start(init: ComposeInit, accounts: MailAccountInfo[], defaultAccount: string | null) {
   const mine = accounts.map((a) => a.email)
@@ -48,14 +62,21 @@ function start(init: ComposeInit, accounts: MailAccountInfo[], defaultAccount: s
 
   const src = init.source
   const account = accountFor(init.account ?? src?.account_uuid)
-  const sig = signatureBlock(account?.signature_html)
+  const answering = init.mode !== 'new'
+  const sig = signatureFor(account, answering)
+  // Above the quoted mail, or under everything - the mailbox's own choice.
+  const below = account?.signature_before_quote === false
 
   if (src && (init.mode === 'reply' || init.mode === 'replyAll')) {
     const { to, cc } = replyRecipients(src, mine, init.mode === 'replyAll')
-    return { account: account?.uuid ?? '', to, cc, bcc: [], subject: replySubject(src.subject, 'Re'), body: `<p><br></p>${sig}${quoteForReply(src)}`, draft: null, attachments: [] }
+    const quote = quoteForReply(src)
+
+    return { account: account?.uuid ?? '', to, cc, bcc: [], subject: replySubject(src.subject, 'Re'), body: `<p><br></p>${below ? quote + sig : sig + quote}`, draft: null, attachments: [] }
   }
   if (src && init.mode === 'forward') {
-    return { account: account?.uuid ?? '', to: [], cc: [], bcc: [], subject: replySubject(src.subject, 'Fwd'), body: `<p><br></p>${sig}${forwardBlock(src)}`, draft: null, attachments: [] }
+    const quote = forwardBlock(src)
+
+    return { account: account?.uuid ?? '', to: [], cc: [], bcc: [], subject: replySubject(src.subject, 'Fwd'), body: `<p><br></p>${below ? quote + sig : sig + quote}`, draft: null, attachments: [] }
   }
 
   return { account: account?.uuid ?? '', to: init.to ?? [], cc: [], bcc: [], subject: '', body: `<p><br></p>${sig}`, draft: null, attachments: [] }
@@ -124,8 +145,9 @@ export default function MailCompose() {
   const changeAccount = (uuid: string) => {
     if (!form) return
     const next = accounts.find((a) => a.uuid === uuid)
+    const answering = current?.mode !== 'new' && current?.mode !== 'draft'
     const body = form.body.includes('class="mail-signature"')
-      ? form.body.replace(/<br><div class="mail-signature">[\s\S]*?<\/div>/, signatureBlock(next?.signature_html))
+      ? form.body.replace(/<br><div class="mail-signature">[\s\S]*?<\/div>/, signatureFor(next, answering))
       : form.body
     setForm({ ...form, account: uuid, body })
     dirty.current = true
@@ -285,14 +307,35 @@ export default function MailCompose() {
         <div className="relative">
           <AddressInput label="To" value={form.to} onChange={(v) => set('to', v)} autoFocus={current.mode === 'new' || current.mode === 'forward'} />
           {!showCc && (
-            <button type="button" onClick={() => setShowCc(true)} className="absolute right-1 top-2.5 text-xs text-slate-400 hover:text-slate-600">
+            <button
+              type="button"
+              // The mouse press is swallowed, so the address half typed into
+              // To keeps both the focus and the text - opening Cc must never
+              // cost somebody what they were in the middle of writing.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setShowCc(true)}
+              className="absolute right-1 top-2.5 text-xs text-slate-400 hover:text-slate-600"
+            >
               Cc / Bcc
             </button>
           )}
         </div>
         {showCc && (
           <>
-            <AddressInput label="Cc" value={form.cc} onChange={(v) => set('cc', v)} />
+            <div className="relative">
+              <AddressInput label="Cc" value={form.cc} onChange={(v) => set('cc', v)} />
+              {/* Opened by mistake, and empty: it can go away again. */}
+              {form.cc.length === 0 && form.bcc.length === 0 && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setShowCc(false)}
+                  className="absolute right-1 top-2.5 text-xs text-slate-400 hover:text-slate-600"
+                >
+                  Hide
+                </button>
+              )}
+            </div>
             <AddressInput label="Bcc" value={form.bcc} onChange={(v) => set('bcc', v)} />
           </>
         )}

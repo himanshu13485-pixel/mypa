@@ -318,7 +318,6 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
   // signs in to send with credentials of its own.
   const [sameLogin, setSameLogin] = useState(() => !account || !account.smtp_username || account.smtp_username === account.imap_username)
   const [owner, setOwner] = useState('')
-  const [shared, setShared] = useState<string[]>(account?.shared_with.map((s) => s.uuid) ?? [])
   const provider = providers.find((p) => p.key === form.provider)
   const set = <K extends keyof AccountForm>(k: K, v: AccountForm[K]) => setForm((f) => ({ ...f, [k]: v }))
 
@@ -344,9 +343,10 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
       }
       if (!body.imap_password) delete body.imap_password
       if (!body.smtp_password) delete body.smtp_password
-      if (isAdmin) {
-        body.shared_with = shared
-        if (!account && owner) body.member = owner
+      // Who else opens this mailbox is settled under Team access, where all
+      // of a company's sharing can be seen at once.
+      if (isAdmin && !account && owner) {
+        body.member = owner
       }
 
       return account ? mails.saveAccount(account.uuid, body) : mails.addAccount(body)
@@ -368,7 +368,7 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
   )
 
   return (
-    <Modal title={account ? `Edit ${account.email}` : 'Add a mailbox'} onClose={onClose} wide>
+    <Modal title={account ? `Edit ${account.email}` : 'Add a mailbox'} onClose={onClose} wide sticky>
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); save.mutate() }}>
         <div>
           <Label>Provider</Label>
@@ -416,25 +416,6 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
                 <p className="mt-1 text-xs text-slate-400">Over the limit, mail waits for tomorrow instead of failing.</p>
               </div>
               <div><Label>DKIM selector (optional)</Label><Input value={form.dkim_selector} onChange={(e) => set('dkim_selector', e.target.value)} placeholder="e.g. default, google, s1" /></div>
-              <div className="sm:col-span-2">
-                <Label>Share it with</Label>
-                <div className="flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-xl bg-white p-2 ring-1 ring-slate-200 dark:bg-slate-900 dark:ring-slate-700">
-                  {people.length === 0 && <p className="text-xs text-slate-400">Nobody else has Mails yet.</p>}
-                  {people.map((p) => (
-                    <label key={p.uuid} className="flex items-center gap-1.5 text-sm">
-                      <input
-                        type="checkbox"
-                        checked={shared.includes(p.uuid)}
-                        onChange={() => setShared(shared.includes(p.uuid) ? shared.filter((u) => u !== p.uuid) : [...shared, p.uuid])}
-                      />
-                      <span className={clsx(!p.has_mails && 'text-slate-400')}>{p.name}{!p.has_mails && ' (no Mails yet)'}</span>
-                    </label>
-                  ))}
-                </div>
-                <p className="mt-1 text-xs text-slate-400">
-                  Everybody ticked reads and answers from this mailbox. They cannot change its settings, share it, or delete it.
-                </p>
-              </div>
             </div>
           </fieldset>
         )}

@@ -14,6 +14,7 @@ use App\Services\Mail\MailDns;
 use App\Services\Mail\MailSync;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\Rule;
 use Throwable;
@@ -351,6 +352,32 @@ class MailAccountController extends Controller
         return response()->json(['message' => 'Mailbox copied.', 'data' => $copy->fresh(['sharedMembers.user'])->serialize()], 201);
     }
 
+    /**
+     * A picture for a signature - a logo, usually.
+     *
+     * Kept on the public disk and referenced by its address, because a
+     * signature image has to be fetchable by whoever receives the mail. Mail
+     * programs refuse embedded data: images, so a URL is the only kind that
+     * actually shows.
+     */
+    public function signatureImage(Request $request, MailAccount $account): JsonResponse
+    {
+        $me = $this->reachable($request, $account);
+        abort_unless($this->mayManage($me, $account), 403, 'Ask your Admin to change a shared mailbox.');
+
+        $request->validate([
+            'image' => ['required', 'image', 'mimes:png,jpg,jpeg,gif,webp', 'max:1024'],
+        ], [], ['image' => 'picture']);
+
+        $file = $request->file('image');
+        $path = $file->store('mail-signatures/' . $account->uuid, 'public');
+
+        return response()->json(['data' => [
+            'path' => $path,
+            'url' => rtrim((string) config('app.url'), '/') . Storage::disk('public')->url($path),
+        ]]);
+    }
+
     /** Bring it up to date now, rather than at the next five minutes. */
     public function sync(Request $request, MailAccount $account, MailSync $sync): JsonResponse
     {
@@ -392,6 +419,9 @@ class MailAccountController extends Controller
             'smtp_username' => ['nullable', 'string', 'max:255'],
             'smtp_password' => ['nullable', 'string', 'max:512'],
             'signature_html' => ['nullable', 'string', 'max:20000'],
+            'signature_reply_html' => ['nullable', 'string', 'max:20000'],
+            'signature_on' => ['nullable', Rule::in(['new', 'all', 'none'])],
+            'signature_before_quote' => ['boolean'],
             'auto_reply' => ['nullable', 'array'],
             'auto_reply.enabled' => ['boolean'],
             'auto_reply.subject' => ['nullable', 'string', 'max:255'],

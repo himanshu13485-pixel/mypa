@@ -599,6 +599,78 @@ class MailsTest extends TestCase
         $this->assertSame('Rates', \App\Services\Mail\MailHtml::header('Rates'));
     }
 
+    // ---- Forwarding, once the address says yes --------------------------------------
+
+    public function test_nothing_is_forwarded_until_the_address_answers_its_code(): void
+    {
+        $box = $this->mailbox($this->admin);
+
+        $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/forwards", [
+            'address' => 'archive@partner.test',
+        ])->assertOk();
+
+        // The code went to the address itself, and nowhere else.
+        $sent = $this->sent()->last()->getOriginalMessage();
+        $this->assertSame('archive@partner.test', $sent->getTo()[0]->getAddress());
+        preg_match('/(\d{6})/', $sent->getHtmlBody(), $m);
+        $code = $m[1] ?? '';
+        $this->assertNotEmpty($code);
+
+        // Unverified addresses are not forwarded to.
+        $this->assertSame([], \App\Models\Crm\MailAccount::verifiedForwards($box->fresh()));
+        $shown = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/mails/accounts')->json('data.0.forwards.0');
+        $this->assertFalse($shown['verified']);
+        $this->assertArrayNotHasKey('code', $shown, 'the code never comes back out');
+
+        // A wrong code is refused; the right one turns it on.
+        $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/forwards/verify", [
+            'address' => 'archive@partner.test', 'code' => '000000',
+        ])->assertStatus(422);
+
+        $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/forwards/verify", [
+            'address' => 'archive@partner.test', 'code' => $code,
+        ])->assertOk();
+
+        $this->assertSame(['archive@partner.test'], \App\Models\Crm\MailAccount::verifiedForwards($box->fresh()));
+
+        // And it can be taken off again.
+        $this->actingAs($this->adminUser)->deleteJson("/api/v1/crm/mails/accounts/{$box->uuid}/forwards", [
+            'address' => 'archive@partner.test',
+        ])->assertOk();
+        $this->assertSame([], \App\Models\Crm\MailAccount::verifiedForwards($box->fresh()));
+    }
+
+    public function test_a_mailbox_does_not_forward_to_itself_or_to_a_crowd(): void
+    {
+        $box = $this->mailbox($this->admin);
+
+        $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/forwards", [
+            'address' => $box->email,
+        ])->assertStatus(422);
+
+        foreach (['a@x.test', 'b@x.test', 'c@x.test', 'd@x.test', 'e@x.test'] as $address) {
+            $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/forwards", ['address' => $address])->assertOk();
+        }
+        $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/forwards", ['address' => 'f@x.test'])
+            ->assertStatus(422);
+    }
+
+    public function test_a_signature_knows_where_it_belongs(): void
+    {
+        $box = $this->mailbox($this->admin);
+
+        $saved = $this->actingAs($this->adminUser)->putJson("/api/v1/crm/mails/accounts/{$box->uuid}", [
+            'signature_html' => '<p>Priya</p>',
+            'signature_reply_html' => '<p>P.</p>',
+            'signature_on' => 'new',
+            'signature_before_quote' => false,
+        ])->assertOk()->json('data');
+
+        $this->assertSame('new', $saved['signature_on']);
+        $this->assertFalse($saved['signature_before_quote']);
+        $this->assertSame('<p>P.</p>', $saved['signature_reply_html']);
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage
