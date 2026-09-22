@@ -56,7 +56,7 @@ class MailComposeController extends Controller
             'attachments.*' => ['file', 'max:25600'],
         ]);
 
-        $account = MailAccount::where('member_id', $me->id)->where('uuid', $data['account'])->firstOrFail();
+        $account = MailAccount::for($me)->where('uuid', $data['account'])->firstOrFail();
 
         $to = self::recipients($data['to'] ?? [], 'to');
         $cc = self::recipients($data['cc'] ?? [], 'cc');
@@ -101,7 +101,7 @@ class MailComposeController extends Controller
         $source = null;
         if (! empty($data['reply_to_uuid']) || ! empty($data['forward_uuid'])) {
             $source = MailMessage::where('uuid', $data['reply_to_uuid'] ?? $data['forward_uuid'])
-                ->whereIn('mail_account_id', MailAccount::where('member_id', $me->id)->pluck('id'))->first();
+                ->whereIn('mail_account_id', MailAccount::for($me)->pluck('id'))->first();
         }
         if ($source && ! empty($data['reply_to_uuid'])) {
             $message->in_reply_to = $source->message_id;
@@ -250,7 +250,7 @@ class MailComposeController extends Controller
     private function own(Request $request, string $uuid): MailMessage
     {
         return MailMessage::where('uuid', $uuid)
-            ->whereIn('mail_account_id', MailAccount::where('member_id', $this->member($request)->id)->pluck('id'))
+            ->whereIn('mail_account_id', MailAccount::for($this->member($request))->pluck('id'))
             ->firstOrFail();
     }
 

@@ -34,7 +34,7 @@ class MailboxController extends Controller
     public function dashboard(Request $request): JsonResponse
     {
         $me = $this->member($request);
-        $accounts = MailAccount::where('member_id', $me->id)->orderByDesc('is_default')->get();
+        $accounts = MailAccount::for($me)->orderByDesc('is_default')->get();
         $ids = $accounts->pluck('id');
         $mine = fn () => MailMessage::whereIn('mail_account_id', $ids);
 
@@ -325,7 +325,7 @@ class MailboxController extends Controller
     /** The person's own mail - optionally one mailbox of theirs. */
     private function scope(Request $request, Member $me): Builder
     {
-        $accounts = MailAccount::where('member_id', $me->id);
+        $accounts = MailAccount::for($me);
         if ($request->filled('account') && $request->input('account') !== 'all') {
             $accounts->where('uuid', $request->input('account'));
         }
@@ -336,7 +336,7 @@ class MailboxController extends Controller
     private function find(Request $request, Member $me, string $uuid): MailMessage
     {
         return MailMessage::where('uuid', $uuid)
-            ->whereIn('mail_account_id', MailAccount::where('member_id', $me->id)->pluck('id'))
+            ->whereIn('mail_account_id', MailAccount::for($me)->pluck('id'))
             ->firstOrFail();
     }
 

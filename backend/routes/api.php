@@ -797,6 +797,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                     Route::delete('/accounts/{account}', [$mail . 'MailAccountController', 'destroy']);
                     Route::post('/accounts/{account}/test', [$mail . 'MailAccountController', 'test'])->middleware('throttle:mail-connect');
                     Route::post('/accounts/{account}/sync', [$mail . 'MailAccountController', 'sync'])->middleware('throttle:mail-connect');
+                    Route::post('/accounts/{account}/inbox-test', [$mail . 'MailAccountController', 'testInbox'])->middleware('throttle:mail-connect');
+                    Route::post('/accounts/{account}/test-email', [$mail . 'MailAccountController', 'testEmail'])->middleware('throttle:mail-connect');
+                    Route::post('/accounts/{account}/dns', [$mail . 'MailAccountController', 'dns'])->middleware('throttle:mail-connect');
+                    Route::post('/accounts/{account}/replicate', [$mail . 'MailAccountController', 'replicate']);
+
+                    Route::get('/backups', [$mail . 'MailBackupController', 'index']);
+                    Route::put('/backups/{account}', [$mail . 'MailBackupController', 'save']);
+                    Route::post('/backups/{account}/test', [$mail . 'MailBackupController', 'test'])->middleware('throttle:mail-connect');
+                    Route::post('/backups/{account}/run', [$mail . 'MailBackupController', 'run'])->middleware('throttle:mail-connect');
+                    Route::get('/backups/{account}/export', [$mail . 'MailBackupController', 'export']);
+                    Route::post('/backups/{account}/import', [$mail . 'MailBackupController', 'import'])->middleware('throttle:mail-connect');
 
                     Route::get('/labels', [$mail . 'MailLabelController', 'index']);
                     Route::post('/labels', [$mail . 'MailLabelController', 'store']);

@@ -4,7 +4,9 @@ namespace App\Models\Crm;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
@@ -67,11 +69,12 @@ class MailAccount extends Model
     ];
 
     protected $fillable = [
-        'organization_id', 'member_id', 'label', 'email', 'from_name', 'reply_to', 'provider',
+        'organization_id', 'member_id', 'created_by_member_id', 'is_shared', 'label', 'tag', 'email', 'from_name', 'reply_to', 'provider',
         'imap_host', 'imap_port', 'imap_encryption', 'imap_username', 'imap_password',
         'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_username', 'smtp_password',
         'signature_html', 'auto_reply', 'forward_to', 'is_default',
-        'sync_state', 'last_synced_at', 'last_error', 'status',
+        'daily_cap', 'sent_today', 'cap_date', 'dkim_selector', 'dns',
+        'sync_state', 'last_synced_at', 'last_error', 'status', 'detached_at', 'backup',
     ];
 
     protected $hidden = ['imap_password', 'smtp_password'];
@@ -83,7 +86,15 @@ class MailAccount extends Model
             'smtp_password' => 'encrypted',
             'auto_reply' => 'array',
             'sync_state' => 'array',
+            'dns' => 'array',
+            // Cloud keys live in here, so the whole lot is encrypted at rest.
+            'backup' => 'encrypted:array',
             'is_default' => 'boolean',
+            'is_shared' => 'boolean',
+            'cap_date' => 'date',
+            'detached_at' => 'datetime',
+            'daily_cap' => 'integer',
+            'sent_today' => 'integer',
             'last_synced_at' => 'datetime',
             'imap_port' => 'integer',
             'smtp_port' => 'integer',
@@ -105,6 +116,35 @@ class MailAccount extends Model
         return $this->belongsTo(Member::class);
     }
 
+    public function organization(): BelongsTo
+    {
+        return $this->belongsTo(Organization::class);
+    }
+
+    /** Everybody else the Admin let into this mailbox. */
+    public function sharedMembers(): BelongsToMany
+    {
+        return $this->belongsToMany(Member::class, 'crm_mail_account_member', 'mail_account_id', 'member_id')
+            ->withPivot('can_send')->withTimestamps();
+    }
+
+    /**
+     * Every mailbox this person may open: the ones they own, and the shared
+     * ones they were let into. The one question every Mails screen asks.
+     */
+    public function scopeFor(Builder $query, Member $member): Builder
+    {
+        return $query->where(fn (Builder $q) => $q
+            ->where('member_id', $member->id)
+            ->orWhereHas('sharedMembers', fn (Builder $s) => $s->where('crm_members.id', $member->id)));
+    }
+
+    /** Only the owner's own mailboxes count against their allowance. */
+    public function scopeOwnedBy(Builder $query, Member $member): Builder
+    {
+        return $query->where('member_id', $member->id);
+    }
+
     public function messages(): HasMany
     {
         return $this->hasMany(MailMessage::class);
@@ -113,12 +153,44 @@ class MailAccount extends Model
     /** Can it read? Can it send? - the two halves a mailbox can have. */
     public function canReceive(): bool
     {
-        return filled($this->imap_host) && filled($this->imap_password);
+        return ! $this->detached_at && filled($this->imap_host) && filled($this->imap_password);
     }
 
     public function canSend(): bool
     {
-        return filled($this->smtp_host) && filled($this->smtp_password);
+        return ! $this->detached_at && filled($this->smtp_host) && filled($this->smtp_password);
+    }
+
+    /**
+     * Claim one of today's sends.
+     *
+     * A mailbox may be held to a daily limit - the mail servers people rent
+     * impose one anyway, and hitting theirs gets an account suspended, while
+     * hitting ours only delays a mail. The counter starts again each day.
+     */
+    public function claimSend(): bool
+    {
+        $today = now()->toDateString();
+        if ($this->cap_date?->toDateString() !== $today) {
+            $this->forceFill(['cap_date' => $today, 'sent_today' => 0])->save();
+        }
+        if ($this->daily_cap && $this->sent_today >= $this->daily_cap) {
+            return false;
+        }
+        $this->forceFill(['sent_today' => $this->sent_today + 1])->save();
+
+        return true;
+    }
+
+    /** How many are left today, or null when nothing limits it. */
+    public function sendsLeft(): ?int
+    {
+        if (! $this->daily_cap) {
+            return null;
+        }
+        $used = $this->cap_date?->toDateString() === now()->toDateString() ? $this->sent_today : 0;
+
+        return max(0, $this->daily_cap - $used);
     }
 
     /** The address and name mail goes out as. */
@@ -154,7 +226,23 @@ class MailAccount extends Model
             'can_send' => $this->canSend(),
             'last_synced_at' => $this->last_synced_at?->toIso8601String(),
             'last_error' => $this->last_error,
-            'status' => $this->status,
+            'status' => $this->detached_at ? 'detached' : $this->status,
+            'is_shared' => (bool) $this->is_shared,
+            'tag' => $this->tag,
+            'daily_cap' => $this->daily_cap,
+            'sent_today' => $this->cap_date?->toDateString() === now()->toDateString() ? $this->sent_today : 0,
+            'sends_left' => $this->sendsLeft(),
+            'dkim_selector' => $this->dkim_selector,
+            'dns' => $this->dns,
+            'detached_at' => $this->detached_at?->toIso8601String(),
+            'created_by_admin' => (bool) $this->created_by_member_id,
+            'shared_with' => $this->relationLoaded('sharedMembers')
+                ? $this->sharedMembers->map(fn (Member $m) => [
+                    'uuid' => $m->uuid,
+                    'name' => $m->user?->name ?: $m->user?->email,
+                    'can_send' => (bool) ($m->pivot->can_send ?? true),
+                ])->values()->all()
+                : [],
         ];
     }
 }

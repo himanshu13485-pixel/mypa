@@ -70,7 +70,7 @@ class MailSettingsController extends Controller
                 'has_mails' => $m->crm_role === 'admin' || $m->can('mails'),
                 'locked' => $m->crm_role === 'admin',
                 'limit' => MailAccess::limitFor($m),
-                'mailboxes' => MailAccount::where('member_id', $m->id)->count(),
+                'mailboxes' => MailAccount::ownedBy($m)->count(),
             ])->values();
 
         return response()->json(['data' => $members, 'cap' => $cap]);

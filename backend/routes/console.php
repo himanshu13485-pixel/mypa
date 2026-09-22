@@ -103,3 +103,10 @@ Schedule::command('crm:warn-renewals')->dailyAt('02:00')->withoutOverlapping();
  */
 Schedule::command('mails:tick dispatch')->everyMinute()->withoutOverlapping();
 Schedule::command('mails:tick sync')->everyFiveMinutes()->withoutOverlapping();
+
+/*
+ * And once a night, every mailbox is written out as .eml files - to its own
+ * folder on this server, and on to the bucket, share or Drive the company
+ * chose. Late, when nobody is waiting on the queue.
+ */
+Schedule::command('mails:tick backup')->dailyAt('03:10')->withoutOverlapping();

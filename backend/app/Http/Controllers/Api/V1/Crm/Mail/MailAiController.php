@@ -40,7 +40,7 @@ class MailAiController extends Controller
         $input = $data;
         if ($data['mode'] === 'reply') {
             $original = MailMessage::where('uuid', $data['message_uuid'])
-                ->whereIn('mail_account_id', MailAccount::where('member_id', $me->id)->pluck('id'))
+                ->whereIn('mail_account_id', MailAccount::for($me)->pluck('id'))
                 ->firstOrFail();
             $input['from'] = trim(($original->from_name ?? '') . ' <' . $original->from_email . '>');
             $input['subject'] = (string) $original->subject;

@@ -299,6 +299,185 @@ class MailsTest extends TestCase
         ])->assertStatus(422)->assertJsonValidationErrors('to');
     }
 
+    // ---- Company mailboxes, shared and looked after ---------------------------------
+
+    private function giveStaffMails(): void
+    {
+        $this->actingAs($this->adminUser)->putJson("/api/v1/crm/mails/settings/team/{$this->staff->uuid}", ['enabled' => true])->assertOk();
+    }
+
+    public function test_an_admin_makes_a_mailbox_for_somebody_else_and_shares_it(): void
+    {
+        Queue::fake();
+        $this->giveStaffMails();
+
+        $created = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/mails/accounts', [
+            'email' => 'sales@grapout.test', 'label' => 'Sales desk', 'tag' => 'Shared desk',
+            'member' => $this->staff->uuid, 'shared_with' => [$this->admin->uuid],
+            'smtp_host' => 'smtp.grapout.test', 'smtp_password' => 'secret', 'daily_cap' => 200,
+        ])->assertCreated()->json('data');
+
+        $this->assertTrue($created['is_shared']);
+        $this->assertSame(200, $created['daily_cap']);
+
+        $box = MailAccount::where('email', 'sales@grapout.test')->firstOrFail();
+        $this->assertSame($this->staff->id, $box->member_id, 'it belongs to the person it was made for');
+        $this->assertSame($this->admin->id, $box->created_by_member_id);
+
+        // Both of them see it; it is on the staff member's list as their own.
+        $mine = $this->actingAs($this->staffUser)->getJson('/api/v1/crm/mails/accounts')->assertOk()->json();
+        $this->assertSame(['sales@grapout.test'], collect($mine['data'])->pluck('email')->all());
+        $shared = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/mails/accounts')->assertOk()->json('data');
+        $this->assertContains('sales@grapout.test', collect($shared)->pluck('email')->all());
+    }
+
+    public function test_a_user_may_edit_their_mailbox_but_never_delete_or_share_it(): void
+    {
+        Queue::fake();
+        $this->giveStaffMails();
+        $box = $this->mailbox($this->staff);
+
+        $this->actingAs($this->staffUser)->putJson("/api/v1/crm/mails/accounts/{$box->uuid}", ['from_name' => 'Harsh'])->assertOk();
+        $this->assertSame('Harsh', $box->fresh()->from_name);
+
+        // Sharing and the daily cap are the Admin's alone - quietly ignored.
+        $this->actingAs($this->staffUser)->putJson("/api/v1/crm/mails/accounts/{$box->uuid}", [
+            'daily_cap' => 5, 'tag' => 'mine', 'shared_with' => [$this->admin->uuid],
+        ])->assertOk();
+        $this->assertNull($box->fresh()->daily_cap);
+        $this->assertSame(0, $box->fresh()->sharedMembers()->count());
+
+        $this->actingAs($this->staffUser)->deleteJson("/api/v1/crm/mails/accounts/{$box->uuid}")->assertForbidden();
+        $this->assertNotNull($box->fresh());
+    }
+
+    public function test_a_shared_mailbox_is_read_by_everybody_on_it_but_settled_by_its_admin(): void
+    {
+        Queue::fake();
+        $this->giveStaffMails();
+        $box = $this->mailbox($this->admin);
+        $box->sharedMembers()->sync([$this->staff->id]);
+        $mail = $this->arrived($box, 'Order 44');
+
+        // The colleague reads the mailbox's mail...
+        $this->actingAs($this->staffUser)->getJson("/api/v1/crm/mails/messages/{$mail->uuid}")->assertOk();
+        // ...but its settings are not theirs to change.
+        $this->actingAs($this->staffUser)->putJson("/api/v1/crm/mails/accounts/{$box->uuid}", ['from_name' => 'No'])->assertForbidden();
+    }
+
+    public function test_disconnecting_a_mailbox_keeps_its_mail_and_a_new_account_takes_its_place(): void
+    {
+        Queue::fake();
+        $box = $this->mailbox($this->admin);
+        $mail = $this->arrived($box, 'Last year');
+
+        $this->actingAs($this->adminUser)->deleteJson("/api/v1/crm/mails/accounts/{$box->uuid}")->assertOk();
+
+        $box->refresh();
+        $this->assertNotNull($box->detached_at);
+        $this->assertFalse($box->canSend());
+        $this->assertNotNull($mail->fresh(), 'the mail stays');
+        $this->actingAs($this->adminUser)->getJson("/api/v1/crm/mails/messages/{$mail->uuid}")->assertOk();
+
+        // Give it credentials again: same mailbox, same mail, connected once more.
+        $this->actingAs($this->adminUser)->putJson("/api/v1/crm/mails/accounts/{$box->uuid}", [
+            'imap_password' => 'new-secret', 'smtp_password' => 'new-secret',
+        ])->assertOk();
+        $this->assertNull($box->fresh()->detached_at);
+        $this->assertNotNull($mail->fresh());
+    }
+
+    public function test_only_an_admin_purges_a_mailbox_and_only_by_naming_it(): void
+    {
+        Queue::fake();
+        $box = $this->mailbox($this->admin);
+        $mail = $this->arrived($box, 'Gone');
+
+        $this->actingAs($this->adminUser)
+            ->deleteJson("/api/v1/crm/mails/accounts/{$box->uuid}", ['purge' => true, 'confirm' => 'wrong@x.test'])
+            ->assertStatus(422);
+        $this->assertNotNull($mail->fresh());
+
+        $this->actingAs($this->adminUser)
+            ->deleteJson("/api/v1/crm/mails/accounts/{$box->uuid}", ['purge' => true, 'confirm' => $box->email])
+            ->assertOk();
+        $this->assertNull($mail->fresh());
+    }
+
+    public function test_a_daily_limit_holds_mail_back_until_tomorrow(): void
+    {
+        $box = $this->mailbox($this->admin, ['daily_cap' => 1]);
+
+        $this->assertTrue($box->claimSend());
+        $this->assertFalse($box->fresh()->claimSend(), 'the second one is over the limit');
+        $this->assertSame(0, $box->fresh()->sendsLeft());
+
+        $message = MailMessage::create([
+            'organization_id' => $this->org->id, 'mail_account_id' => $box->id, 'folder' => 'outbox',
+            'status' => 'queued', 'to' => [['email' => 'them@client.test']], 'subject' => 'Over the line',
+            'body_html' => '<p>hi</p>', 'thread_key' => 'x', 'send_after' => now()->subMinute(),
+        ]);
+
+        (new \App\Jobs\SendMailMessage($message->id))->handle(app(\App\Services\Mail\MailSender::class));
+
+        $message->refresh();
+        $this->assertSame('queued', $message->status);
+        $this->assertSame('outbox', $message->folder);
+        $this->assertTrue($message->send_after->isFuture(), 'it waits for tomorrow rather than failing');
+        $this->assertStringContainsString('sends for today', (string) $message->error);
+    }
+
+    public function test_the_dns_check_scores_what_the_world_can_see(): void
+    {
+        $box = $this->mailbox($this->admin, ['email' => 'hello@grapout.test']);
+
+        // A resolver that answers from a script, so no test asks the internet.
+        $this->app->instance(\App\Services\Mail\MailDns::class, new class extends \App\Services\Mail\MailDns
+        {
+            public function txt(string $name): array
+            {
+                return match ($name) {
+                    'grapout.test' => ['v=spf1 include:_spf.google.com ~all'],
+                    'google._domainkey.grapout.test' => ['v=DKIM1; k=rsa; p=MIGfMA0G'],
+                    '_dmarc.grapout.test' => ['v=DMARC1; p=quarantine; rua=mailto:dmarc@grapout.test'],
+                    default => [],
+                };
+            }
+        });
+
+        $data = $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/dns")
+            ->assertOk()->json('data');
+
+        $this->assertTrue($data['spf']['ok']);
+        $this->assertTrue($data['dkim']['ok']);
+        $this->assertSame('google', $data['dkim']['selector']);
+        $this->assertSame('quarantine', $data['dmarc']['policy']);
+        $this->assertSame(100, $data['score']);
+        $this->assertSame('google', $box->fresh()->dkim_selector);
+    }
+
+    public function test_replicating_a_mailbox_copies_its_servers_under_a_new_address(): void
+    {
+        Queue::fake();
+        $box = $this->mailbox($this->admin, ['daily_cap' => 50]);
+
+        $copy = $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/replicate", [
+            'email' => 'support@grapout.test', 'label' => 'Support',
+        ])->assertCreated()->json('data');
+
+        $this->assertSame('support@grapout.test', $copy['email']);
+        $this->assertSame($box->smtp_host, $copy['smtp_host']);
+        $this->assertSame(50, $copy['daily_cap']);
+        $this->assertFalse($copy['is_default'], 'a copy never takes over as the default');
+
+        // A user cannot copy one, however it reached them.
+        $this->giveStaffMails();
+        $box->sharedMembers()->sync([$this->staff->id]);
+        $this->actingAs($this->staffUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/replicate", [
+            'email' => 'nope@grapout.test',
+        ])->assertForbidden();
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

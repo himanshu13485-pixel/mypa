@@ -51,6 +51,25 @@ class SendMailMessage implements ShouldQueue
 
         $message->refresh();
 
+        /*
+         * The mailbox's daily limit, if it has one.
+         *
+         * Over it, the mail waits for tomorrow rather than failing: the
+         * limit exists to stay under what the mail provider allows, and a
+         * provider that is pushed past its limit suspends the account.
+         */
+        $account = $message->account;
+        if ($account && ! $account->claimSend()) {
+            $message->update([
+                'status' => 'queued',
+                'folder' => 'outbox',
+                'send_after' => now()->addDay()->startOfDay()->addMinutes(5),
+                'error' => "This mailbox has used its {$account->daily_cap} sends for today. It will go out tomorrow morning.",
+            ]);
+
+            return;
+        }
+
         try {
             $sender->send($message);
             $message->update(['folder' => 'sent', 'status' => 'sent', 'date' => now(), 'error' => null, 'is_read' => true]);
