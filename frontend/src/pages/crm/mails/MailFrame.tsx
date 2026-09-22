@@ -32,7 +32,10 @@ export default function MailFrame({ html, text, allowImages, onBlockedImages }: 
     onBlockedImages?.(hasRemote && !allowImages)
   }, [hasRemote, allowImages, onBlockedImages])
 
-  const images = allowImages ? 'https: http: data: cid:' : 'data: cid:'
+  // blob: too - a picture sent inside the message is fetched through the
+  // signed-in API and handed to the frame as a blob, never as a remote URL,
+  // so it shows even while remote images are held back.
+  const images = allowImages ? 'https: http: data: blob: cid:' : 'data: blob: cid:'
   const doc = `<!doctype html><html><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${images}; style-src 'unsafe-inline'; font-src data:; media-src 'none'">
 <base target="_blank">

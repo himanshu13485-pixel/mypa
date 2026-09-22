@@ -160,6 +160,8 @@ class MailMessage extends Model
                 'mime' => $a->mime,
                 'size' => $a->size,
                 'is_inline' => $a->is_inline,
+                // What an inline <img src="cid:..."> in the body refers to.
+                'content_id' => $a->content_id,
             ])->values(),
         ];
     }

@@ -52,6 +52,8 @@ export interface MailAttachmentInfo {
   mime: string | null
   size: number | null
   is_inline: boolean
+  /** What an inline <img src="cid:..."> in the body points at. */
+  content_id?: string | null
 }
 
 export interface MailFull extends MailSummary {
@@ -344,6 +346,13 @@ export const mails = {
     ;(payload.files ?? []).forEach((f) => form.append('attachments[]', f))
 
     return api.post<{ message: string; data: MailSummary }>(`${base}/compose`, form).then((r) => r.data)
+  },
+  /** A picture to put inside a message being written. */
+  uploadImage: (file: File) => {
+    const form = new FormData()
+    form.append('image', file)
+
+    return api.post<{ data: { path: string; url: string } }>(`${base}/images`, form).then((r) => r.data.data)
   },
   cancel: (uuid: string) => api.post<{ message: string; data: MailFull }>(`${base}/messages/${uuid}/cancel`).then((r) => r.data),
   sendNow: (uuid: string) => api.post<{ message: string }>(`${base}/messages/${uuid}/send-now`).then((r) => r.data),

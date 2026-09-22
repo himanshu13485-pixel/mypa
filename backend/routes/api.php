@@ -790,6 +790,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                     Route::post('/messages/{uuid}/cancel', [$mail . 'MailComposeController', 'cancel']);
                     Route::post('/messages/{uuid}/send-now', [$mail . 'MailComposeController', 'sendNow']);
                     Route::post('/compose', [$mail . 'MailComposeController', 'compose'])->middleware('throttle:mail-compose');
+                    Route::post('/images', [$mail . 'MailboxController', 'uploadImage'])->middleware('throttle:mail-compose');
 
                     Route::get('/accounts', [$mail . 'MailAccountController', 'index']);
                     Route::post('/accounts', [$mail . 'MailAccountController', 'store']);

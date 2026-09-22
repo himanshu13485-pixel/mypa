@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, Copy, Inbox, Plus, RefreshCw, Send, ShieldCheck, Star, Trash2, Unplug, Users, XCircle } from 'lucide-react'
+import { CheckCircle2, Copy, Inbox, KeyRound, Plus, RefreshCw, Send, ShieldCheck, Star, Trash2, Unplug, Users, XCircle } from 'lucide-react'
 import { clsx } from 'clsx'
 import { mails, type MailAccountInfo, type MailPerson, type MailProvider } from '../../../api/mails'
 import { errorMessage } from '../../../api/client'
@@ -177,6 +177,30 @@ export default function MailboxesTab() {
 
               <div className="flex flex-wrap gap-1.5">
                 {a.can_manage && <Button size="sm" variant="secondary" onClick={() => setEditing(a)}>Edit</Button>}
+
+                {/*
+                  * The mailbox's own password, changed here when it has been
+                  * changed at the mail provider - by the person whose mailbox
+                  * it is, or by the Company Admin when somebody has left or
+                  * lost it. It is what we sign in with, not the password at
+                  * the provider itself.
+                  */}
+                {a.can_manage && (
+                  <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => {
+                    const password = window.prompt(`New password for ${a.email}.
+
+This is what Netvork signs in with - change it at your mail provider first, then put the same one here.`)
+                    if (!password) return
+                    void run(`pwd${a.uuid}`, async () => {
+                      const res = await mails.saveAccount(a.uuid, { imap_password: password, smtp_password: password })
+                      toast(res.message, 'success')
+                      said(a.uuid, [{ ok: true, message: 'Password saved. Use Test connection to check it.' }])
+                      refresh()
+                    })
+                  }}>
+                    <KeyRound className="size-3.5" /> Change password
+                  </Button>
+                )}
 
                 {a.can_manage && (
                   <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run(`dns${a.uuid}`, async () => {

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Archive, ArrowLeft, ChevronDown, Code2, Download, Forward, ImageOff, Inbox, Paperclip, Printer,
@@ -40,11 +40,53 @@ function ThreadItem({ mail, open, onToggle, prefs, onReply }: {
 }) {
   const { toastError } = useToast()
   const [images, setImages] = useState(prefs?.load_images === 'always')
+  const [body, setBody] = useState(mail.body_html)
   const [blocked, setBlocked] = useState(false)
   const [plain, setPlain] = useState(false)
   const onBlocked = useCallback((b: boolean) => setBlocked(b), [])
   const sender = who({ name: mail.from_name, email: mail.from_email })
   const files = mail.attachments.filter((a) => !a.is_inline)
+
+  /*
+   * Pictures sent inside the message.
+   *
+   * They arrive as <img src="cid:something">, which points at a part of the
+   * mail rather than anywhere a browser can fetch. Each one is pulled
+   * through the signed-in API and swapped for the copy in memory, so the
+   * message reads as it was written - and so that the attachment list is not
+   * cluttered with the pictures already shown in the body.
+   */
+  useEffect(() => {
+    setBody(mail.body_html)
+    const inline = mail.attachments.filter((a) => a.is_inline && a.content_id)
+    if (!open || !inline.length || !mail.body_html?.includes('cid:')) return
+
+    let alive = true
+    const urls: string[] = []
+
+    void (async () => {
+      let html = mail.body_html ?? ''
+      for (const picture of inline) {
+        try {
+          const blob = await mails.attachment(mail.uuid, picture.id)
+          if (!alive) return
+          const url = URL.createObjectURL(blob)
+          urls.push(url)
+          const id = (picture.content_id ?? '').replace(/^<|>$/g, '')
+          html = html.split('cid:' + id).join(url)
+        } catch {
+          // One picture that will not come is not worth a warning: the rest
+          // of the message is still perfectly readable.
+        }
+      }
+      if (alive) setBody(html)
+    })()
+
+    return () => {
+      alive = false
+      urls.forEach((url) => URL.revokeObjectURL(url))
+    }
+  }, [mail.uuid, mail.body_html, mail.attachments, open])
 
   return (
     <article className="border-b border-slate-100 last:border-b-0 dark:border-slate-800">
@@ -109,7 +151,7 @@ function ThreadItem({ mail, open, onToggle, prefs, onReply }: {
               </button>
             )}
           </div>
-          <MailFrame html={plain ? null : mail.body_html} text={mail.body_text} allowImages={images} onBlockedImages={onBlocked} />
+          <MailFrame html={plain ? null : body} text={mail.body_text} allowImages={images} onBlockedImages={onBlocked} />
 
           {files.length > 0 && (
             <div className="mt-3 flex flex-wrap gap-2">

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarClock, ChevronDown, Maximize2, Minus, Paperclip, Send, Sparkles, Trash2, Undo2, X } from 'lucide-react'
+import { CalendarClock, ChevronDown, ImagePlus, Maximize2, Minus, Paperclip, Send, Sparkles, Trash2, Undo2, X } from 'lucide-react'
 import { clsx } from 'clsx'
 import { mails, type MailAccountInfo, type MailAttachmentInfo } from '../../../api/mails'
 import { errorMessage } from '../../../api/client'
@@ -111,6 +111,7 @@ export default function MailCompose() {
   // rather than leaving a second copy behind in Drafts.
   const saving = useRef<Promise<string | null> | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
+  const imageInput = useRef<HTMLInputElement>(null)
 
   const accounts = useMemo(() => accountsData?.data ?? [], [accountsData])
   const sendable = accounts.filter((a) => a.can_send)
@@ -442,6 +443,34 @@ export default function MailCompose() {
         <button type="button" title="Attach files" aria-label="Attach files" onClick={() => fileInput.current?.click()} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800">
           <Paperclip className="size-4" />
         </button>
+        <button
+          type="button"
+          title="Put a picture in the message"
+          aria-label="Insert picture"
+          onClick={() => imageInput.current?.click()}
+          className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"
+        >
+          <ImagePlus className="size-4" />
+        </button>
+        <input
+          ref={imageInput}
+          type="file"
+          accept="image/png,image/jpeg,image/gif,image/webp"
+          hidden
+          onChange={async (e) => {
+            const file = e.target.files?.[0]
+            e.target.value = ''
+            if (!file) return
+            try {
+              // Pictures inside a message go in by address, not embedded:
+              // mail programs refuse data: images and show a blank square.
+              const { url } = await mails.uploadImage(file)
+              set('body', `${form.body}<p><img src="${url}" alt="" style="max-width:100%;height:auto"></p>`)
+            } catch (err) {
+              toastError(errorMessage(err))
+            }
+          }}
+        />
         <input
           ref={fileInput}
           type="file"

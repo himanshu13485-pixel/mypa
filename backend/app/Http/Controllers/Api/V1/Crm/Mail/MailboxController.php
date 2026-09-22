@@ -14,6 +14,7 @@ use App\Services\Mail\MailConnector;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -377,6 +378,28 @@ class MailboxController extends Controller
         if ($message->remote_folder && $message->uid) {
             MailRemoteChange::dispatch($message->mail_account_id, $message->remote_folder, (int) $message->uid, $action, $to);
         }
+    }
+
+    /**
+     * A picture to put inside a message being written.
+     *
+     * Kept on the public disk and referenced by its address: a picture
+     * embedded as data is refused by most mail programs, so it would arrive
+     * as a blank square for the person receiving it.
+     */
+    public function uploadImage(Request $request): JsonResponse
+    {
+        $me = $this->member($request);
+        $request->validate([
+            'image' => ['required', 'image', 'mimes:png,jpg,jpeg,gif,webp', 'max:5120'],
+        ], [], ['image' => 'picture']);
+
+        $path = $request->file('image')->store('mail-images/' . $me->uuid, 'public');
+
+        return response()->json(['data' => [
+            'path' => $path,
+            'url' => rtrim((string) config('app.url'), '/') . Storage::disk('public')->url($path),
+        ]]);
     }
 
     private function member(Request $request): Member
