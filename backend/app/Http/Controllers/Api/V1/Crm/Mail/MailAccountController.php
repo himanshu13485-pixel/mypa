@@ -374,6 +374,7 @@ class MailAccountController extends Controller
             'is_default' => ['boolean'],
             'daily_cap' => ['nullable', 'integer', 'between:1,100000'],
             'dkim_selector' => ['nullable', 'string', 'max:120'],
+            'verify_cert' => ['boolean'],
             'shared_with' => ['array'],
             'shared_with.*' => ['uuid'],
             'member' => ['nullable', 'uuid'],

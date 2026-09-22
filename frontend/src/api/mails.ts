@@ -146,6 +146,8 @@ export interface MailAccountInfo {
   sent_today: number
   sends_left: number | null
   dkim_selector: string | null
+  /** False when this mailbox accepts a certificate issued for another name. */
+  verify_cert: boolean
   dns: MailDnsResult | null
   /** Set when the account was disconnected - its mail is still here. */
   detached_at: string | null

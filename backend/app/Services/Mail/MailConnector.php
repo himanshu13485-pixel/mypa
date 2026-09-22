@@ -34,7 +34,9 @@ class MailConnector
             'host' => $account->imap_host,
             'port' => $account->imap_port ?: 993,
             'encryption' => $encryption,
-            'validate_cert' => true,
+            // Strict unless this mailbox was told to accept the certificate
+            // its shared host presents. See the note on verify_cert.
+            'validate_cert' => $account->verify_cert === null ? true : (bool) $account->verify_cert,
             'username' => $account->imap_username ?: $account->email,
             'password' => (string) $account->imap_password,
             'protocol' => 'imap',
@@ -60,6 +62,7 @@ class MailConnector
             'username' => $account->smtp_username ?: $account->email,
             'password' => (string) $account->smtp_password,
             'timeout' => 30,
+            'verify_peer' => $account->verify_cert === null ? true : (bool) $account->verify_cert,
         ], fn ($v) => $v !== null));
     }
 
@@ -152,7 +155,20 @@ class MailConnector
         } elseif (str_contains($lower, 'did not properly respond') || str_contains($lower, 'timed out') || str_contains($lower, 'timeout') || str_contains($lower, 'connection refused')) {
             $hint = "Nothing answered on {$host}:{$port}. Either that is not the right server for this mailbox - many hosts read mail at mail.yourdomain.com rather than the domain itself - or the port is blocked between this server and it.";
         } elseif (str_contains($lower, 'certificate') || (str_contains($lower, 'ssl') && str_contains($lower, 'verify'))) {
-            $hint = "The server's certificate did not match {$host}. Use the host name the certificate is issued for.";
+            // Shared hosting answers for a thousand domains with one
+            // certificate, so the name on it is the host to connect to.
+            preg_match('/CN\s*=\s*[`\'"]?([^\'"`\s,]+)/i', $raw, $cn);
+            $named = $cn[1] ?? null;
+            // A wildcard is not a host anybody can connect to - the hosting
+            // company's own server name is the one that matches it, and
+            // cPanel shows it on the mailbox's setup page.
+            $wildcard = $named && str_starts_with($named, '*.');
+            $hint = "The server's certificate is not for {$host}"
+                . ($named ? ", it is for {$named}" : '')
+                . '. Either connect to the name the certificate covers'
+                . ($wildcard ? ' - your host\'s own server name under ' . substr((string) $named, 2) . ', which cPanel shows on the mailbox setup page'
+                    : ($named ? " - try {$named} as the server" : ''))
+                . ", or tick \"Accept this server's certificate\" on the mailbox if your host has no better name to offer.";
         } elseif (str_contains($lower, 'authenticat') || str_contains($lower, 'login') || str_contains($lower, 'credential') || str_contains($lower, '535')) {
             $hint = 'The server took the connection but refused the sign-in. Gmail, Outlook and Yahoo need an app password rather than the everyday one, and Amazon SES needs its own SMTP credentials - not your AWS keys.';
         }

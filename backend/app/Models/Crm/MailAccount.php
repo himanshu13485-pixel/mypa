@@ -73,7 +73,7 @@ class MailAccount extends Model
         'imap_host', 'imap_port', 'imap_encryption', 'imap_username', 'imap_password',
         'smtp_host', 'smtp_port', 'smtp_encryption', 'smtp_username', 'smtp_password',
         'signature_html', 'auto_reply', 'forward_to', 'is_default',
-        'daily_cap', 'sent_today', 'cap_date', 'dkim_selector', 'dns',
+        'daily_cap', 'sent_today', 'cap_date', 'dkim_selector', 'dns', 'verify_cert',
         'sync_state', 'last_synced_at', 'last_error', 'status', 'detached_at', 'backup',
     ];
 
@@ -91,6 +91,7 @@ class MailAccount extends Model
             'backup' => 'encrypted:array',
             'is_default' => 'boolean',
             'is_shared' => 'boolean',
+            'verify_cert' => 'boolean',
             'cap_date' => 'date',
             'detached_at' => 'datetime',
             'daily_cap' => 'integer',
@@ -233,6 +234,7 @@ class MailAccount extends Model
             'sent_today' => $this->cap_date?->toDateString() === now()->toDateString() ? $this->sent_today : 0,
             'sends_left' => $this->sendsLeft(),
             'dkim_selector' => $this->dkim_selector,
+            'verify_cert' => $this->verify_cert === null ? true : (bool) $this->verify_cert,
             'dns' => $this->dns,
             'detached_at' => $this->detached_at?->toIso8601String(),
             'created_by_admin' => (bool) $this->created_by_member_id,

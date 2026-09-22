@@ -505,6 +505,22 @@ class MailsTest extends TestCase
         $this->assertStringContainsString('app password', \App\Services\Mail\MailConnector::explain($refused, 'smtp.gmail.com', 587, 'outgoing'));
     }
 
+    public function test_a_mailbox_can_be_told_to_accept_its_hosts_certificate(): void
+    {
+        $box = $this->mailbox($this->admin);
+        $this->assertTrue($box->fresh()->verify_cert, 'strict by default');
+
+        $cert = new \RuntimeException("Peer certificate CN=`*.web-hosting.com' did not match expected CN=`mail.zma.app'");
+        $advice = \App\Services\Mail\MailConnector::explain($cert, 'mail.zma.app', 993, 'incoming');
+        $this->assertStringContainsString('it is for *.web-hosting.com', $advice);
+        $this->assertStringContainsString('web-hosting.com, which cPanel shows', $advice, 'a wildcard is not offered as a host to dial');
+        $this->assertStringContainsString("Accept this server's certificate", $advice);
+
+        $this->actingAs($this->adminUser)->putJson("/api/v1/crm/mails/accounts/{$box->uuid}", ['verify_cert' => false])
+            ->assertOk()->assertJsonPath('data.verify_cert', false);
+        $this->assertFalse($box->fresh()->verify_cert);
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

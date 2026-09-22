@@ -30,6 +30,7 @@ type AccountForm = {
   is_default: boolean
   daily_cap: string
   dkim_selector: string
+  verify_cert: boolean
 }
 
 const blankForm = (p?: MailProvider): AccountForm => ({
@@ -37,7 +38,7 @@ const blankForm = (p?: MailProvider): AccountForm => ({
   provider: p?.key ?? 'custom',
   imap_host: p?.imap_host ?? '', imap_port: p?.imap_port ?? 993, imap_encryption: p?.imap_encryption ?? 'ssl', imap_username: '', imap_password: '',
   smtp_host: p?.smtp_host ?? '', smtp_port: p?.smtp_port ?? 587, smtp_encryption: p?.smtp_encryption ?? 'tls', smtp_username: '', smtp_password: '',
-  is_default: false, daily_cap: '', dkim_selector: '',
+  is_default: false, daily_cap: '', dkim_selector: '', verify_cert: true,
 })
 
 /** SPF ✓ / DKIM ✗ - what the receiving world can check, at a glance. */
@@ -157,6 +158,12 @@ export default function MailboxesTab() {
                     {a.shared_with.map((s) => (
                       <span key={s.uuid} className="rounded-full bg-slate-100 px-2 py-0.5 dark:bg-slate-800">{s.name}</span>
                     ))}
+                  </p>
+                )}
+
+                {a.verify_cert === false && (
+                  <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                    Certificate checking is off for this mailbox.
                   </p>
                 )}
 
@@ -304,6 +311,7 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
         imap_host: account.imap_host ?? '', imap_port: account.imap_port, imap_encryption: account.imap_encryption, imap_username: account.imap_username ?? '', imap_password: '',
         smtp_host: account.smtp_host ?? '', smtp_port: account.smtp_port, smtp_encryption: account.smtp_encryption, smtp_username: account.smtp_username ?? '', smtp_password: '',
         is_default: account.is_default, daily_cap: account.daily_cap ? String(account.daily_cap) : '', dkim_selector: account.dkim_selector ?? '',
+        verify_cert: account.verify_cert !== false,
       }
     : blankForm(providers.find((p) => p.key === 'gmail')))
   // Only ticked when the two logins really are one - an SES mailbox, say,
@@ -467,6 +475,24 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
             </div>
           )}
         </fieldset>
+
+        {/*
+          * Shared hosting reached by the customer's own domain answers with
+          * the hosting company's certificate, so a mailbox that is otherwise
+          * fine fails a strict check. Connecting to the name on the
+          * certificate is the better answer; this is the one for hosts that
+          * offer nothing better.
+          */}
+        <label className="flex items-start gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <input type="checkbox" className="mt-0.5" checked={!form.verify_cert} onChange={(e) => set('verify_cert', !e.target.checked)} />
+          <span>
+            Accept this server's certificate even if it is issued for another name
+            <span className="block text-xs text-slate-400">
+              For shared hosting that answers with its own certificate (e.g. *.web-hosting.com). The connection stays encrypted,
+              but it no longer proves which server it reached - leave this off unless a certificate error says otherwise.
+            </span>
+          </span>
+        </label>
 
         <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
           <input type="checkbox" checked={form.is_default} onChange={(e) => set('is_default', e.target.checked)} />
