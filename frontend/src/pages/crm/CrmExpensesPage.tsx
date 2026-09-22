@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { listFromParam, listParamOf, rememberList } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Banknote, Download, Paperclip, Pencil, Plus, Search, Trash2, Undo2 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -48,16 +49,44 @@ const atRate = (base: string, rate: string) =>
 export default function CrmExpensesPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
+  /*
+   * The filters live in the address, as the other lists' do - so leaving
+   * for a vendor or a report and coming Back finds the expenses exactly as
+   * they were left, and a reload or a shared link keeps them too.
+   */
+  const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const fromAddress = (key: string) => listFromParam(params.get(key))
+  const [search, setSearch] = useState(() => params.get('q') ?? '')
+  const [applied, setApplied] = useState(() => params.get('q') ?? '')
   // Checkbox filters: null is everything ticked, the default.
-  const [category, setCategory] = useState<string[] | null>(null)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [gstFilter, setGstFilter] = useState<string[] | null>(null)
-  const [payFilter, setPayFilter] = useState<string[] | null>(null)
+  const [category, setCategory] = useState<string[] | null>(() => fromAddress('category'))
+  const [dateFrom, setDateFrom] = useState(() => params.get('from') ?? '')
+  const [dateTo, setDateTo] = useState(() => params.get('to') ?? '')
+  const [gstFilter, setGstFilter] = useState<string[] | null>(() => fromAddress('gst'))
+  const [payFilter, setPayFilter] = useState<string[] | null>(() => fromAddress('payment'))
   const [paying, setPaying] = useState<CrmExpense | null>(null)
-  const [page, setPage] = useState(1)
+  const [page, setPage] = useState(() => Math.max(1, Number(params.get('page')) || 1))
+
+  // Written back as they change, replacing the entry rather than adding one.
+  useEffect(() => {
+    const next = new URLSearchParams(params)
+    const put = (key: string, value: string | null) => {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }
+    put('q', applied.trim() || null)
+    put('category', listParamOf(category))
+    put('from', dateFrom || null)
+    put('to', dateTo || null)
+    put('gst', listParamOf(gstFilter))
+    put('payment', listParamOf(payFilter))
+    put('page', page > 1 ? String(page) : null)
+
+    if (next.toString() !== params.toString()) setParams(next, { replace: true })
+    rememberList('expenses', location.pathname + (next.toString() ? `?${next}` : ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applied, category, dateFrom, dateTo, gstFilter, payFilter, page])
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmExpense | null>(null)
   const [form, setForm] = useState({ ...EMPTY })
