@@ -56,6 +56,22 @@ class MailsTick extends Command
             return self::SUCCESS;
         }
 
+        /*
+         * Mail left mid-send.
+         *
+         * A worker that dies between claiming a message and sending it leaves
+         * it as "sending", which nothing else would ever look at again. After
+         * ten minutes it is presumed dropped and put back in the queue - the
+         * message id it was given is kept, so a message that did go out is
+         * not sent twice under a new one.
+         */
+        $stuck = MailMessage::where('status', 'sending')
+            ->where('updated_at', '<', now()->subMinutes(10))
+            ->update(['status' => 'queued', 'error' => 'Sending was interrupted - trying again.']);
+        if ($stuck > 0) {
+            $this->warn("{$stuck} message(s) were left mid-send and have been queued again.");
+        }
+
         $due = MailMessage::where('status', 'queued')
             ->where(fn ($q) => $q->where('send_after', '<=', now())->orWhere(fn ($q) => $q->whereNull('send_after')->where('scheduled_for', '<=', now())))
             ->pluck('id');

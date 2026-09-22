@@ -177,6 +177,10 @@ export default function CrmMailsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openUuid, rows, account])
 
+  // Waiting far longer than the undo window: something is not collecting it.
+  const stalled = rows.filter((r) => (r.status === 'queued' || r.status === 'sending')
+    && r.send_after && Date.now() - new Date(r.send_after).getTime() > 5 * 60_000).length
+
   const allTicked = rows.length > 0 && rows.every((r) => selected.has(r.uuid))
   const inTrash = folder === 'trash' || folder === 'spam'
   const readerOnly = !!openUuid && pane === 'off'
@@ -269,6 +273,25 @@ export default function CrmMailsPage() {
           </>
         )}
       </div>
+
+      {/*
+        * An outbox that is not emptying.
+        *
+        * Mail goes out through a background worker, and when that worker is
+        * not running there is nothing on screen to say so - the message just
+        * sits there looking sent. If anything is more than five minutes past
+        * its time, say what is probably wrong.
+        */}
+      {folder === 'outbox' && stalled > 0 && (
+        <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            {stalled} message{stalled === 1 ? '' : 's'} {stalled === 1 ? 'has' : 'have'} been waiting more than five minutes.
+            Mail is sent by a background worker - if this is your own server, check that the queue worker and the scheduler are
+            running, then open a message and press <b>Send now</b>.
+          </span>
+        </div>
+      )}
 
       <div className="scroll-pane min-h-0 flex-1 overflow-y-auto">
         {list.isLoading ? (

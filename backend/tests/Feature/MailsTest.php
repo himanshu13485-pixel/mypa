@@ -555,6 +555,37 @@ class MailsTest extends TestCase
         $this->assertSame('active', $box->fresh()->status);
     }
 
+    public function test_mail_left_mid_send_is_not_lost_in_the_outbox(): void
+    {
+        $box = $this->mailbox($this->admin);
+        $make = fn () => MailMessage::create([
+            'organization_id' => $this->org->id, 'mail_account_id' => $box->id, 'folder' => 'outbox',
+            'status' => 'sending', 'to' => [['email' => 'them@client.test']], 'subject' => 'Half sent',
+            'body_html' => '<p>hi</p>', 'thread_key' => 'x', 'send_after' => now()->subMinute(),
+        ]);
+
+        // A job that dies outright hands the message back rather than leaving
+        // it claimed for ever.
+        $died = $make();
+        (new \App\Jobs\SendMailMessage($died->id))->failed(new \RuntimeException('Worker restarted'));
+        $this->assertSame('failed', $died->fresh()->status);
+        $this->assertSame('outbox', $died->fresh()->folder);
+        $this->assertStringContainsString('Worker restarted', (string) $died->fresh()->error);
+
+        // And one claimed by a worker that simply vanished is swept up.
+        $abandoned = $make();
+        $abandoned->timestamps = false;
+        $abandoned->forceFill(['updated_at' => now()->subMinutes(30)])->save();
+
+        // The queue is held here so the sweep's own effect is what is seen -
+        // in life the job it dispatches sends the mail moments later.
+        Queue::fake();
+        $this->artisan('mails:tick dispatch')->assertSuccessful();
+
+        $this->assertSame('queued', $abandoned->fresh()->status, 'it is queued again, not stranded');
+        Queue::assertPushed(\App\Jobs\SendMailMessage::class);
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

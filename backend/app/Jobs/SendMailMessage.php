@@ -31,6 +31,24 @@ class SendMailMessage implements ShouldQueue
     {
     }
 
+    /**
+     * The job died outright - a worker restarted, ran out of memory, or hit
+     * a fault outside the try below.
+     *
+     * Without this the mail would sit in "sending" for ever: the claim is
+     * only released by the code that made it, and neither this job nor the
+     * every-minute sweep looks at anything but "queued". It goes back to the
+     * outbox, said plainly, where Send now can pick it up.
+     */
+    public function failed(?Throwable $e): void
+    {
+        MailMessage::where('id', $this->messageId)->where('status', 'sending')->update([
+            'folder' => 'outbox',
+            'status' => 'failed',
+            'error' => $e ? MailConnector::plain($e) : 'The sending job stopped before it finished.',
+        ]);
+    }
+
     public function handle(MailSender $sender): void
     {
         $message = MailMessage::find($this->messageId);
