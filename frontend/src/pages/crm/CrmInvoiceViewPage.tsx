@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { listReturnPath } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, ArrowLeft, ArrowRightLeft, Ban, Copy, CreditCard, Download, Eye, ExternalLink, FileDiff, Lock, Paperclip, Pencil, Percent, Plus, Printer, Repeat, Send, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -191,7 +192,7 @@ export default function CrmInvoiceViewPage() {
     onSuccess: (res) => {
       toast(res.message, 'success')
       queryClient.invalidateQueries({ queryKey: ['crm', 'invoices'] })
-      navigate(`/crm/invoices?kind=${inv?.kind ?? 'invoice'}`)
+      navigate(listReturnPath(`invoices:${inv?.kind ?? 'invoice'}`, crmPath(`/crm/invoices?kind=${inv?.kind ?? 'invoice'}`)))
     },
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -216,7 +217,7 @@ export default function CrmInvoiceViewPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(crmPath(`/crm/invoices?kind=${inv.kind}`))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(listReturnPath(`invoices:${inv.kind}`, crmPath(`/crm/invoices?kind=${inv.kind}`)))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>

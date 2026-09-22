@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { listFromParam, listParamOf, rememberList } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRightLeft, Plus, Search, Download, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -89,26 +90,47 @@ const PERIODS: [string, string][] = [
   ['all', 'All time'],
 ]
 
+/*
+ * One list per kind.
+ *
+ * Invoices and Proforma are the same page told apart by ?kind=, and the
+ * router keeps a page alive across a change of query - so without the key
+ * the invoices' filters rode along into the proforma list. Keyed, each
+ * starts from its own address.
+ */
 export default function CrmInvoicesPage() {
+  const [params] = useSearchParams()
+
+  return <InvoicesList key={params.get('kind') === 'proforma' ? 'proforma' : 'invoice'} />
+}
+
+function InvoicesList() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [params] = useSearchParams()
+  /*
+   * The filters live in the address, as the leads list's do - so opening a
+   * document and coming Back finds the list exactly as it was left.
+   */
+  const [params, setParams] = useSearchParams()
+  const location = useLocation()
   const kind = params.get('kind') === 'proforma' ? 'proforma' : 'invoice'
+  // A checkbox filter as the address carries it.
+  const fromAddress = (key: string) => listFromParam(params.get(key))
 
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
+  const [search, setSearch] = useState(() => params.get('q') ?? '')
+  const [applied, setApplied] = useState(() => params.get('q') ?? '')
   // Checkbox filters: null is everything ticked, the default.
-  const [paymentStatus, setPaymentStatus] = useState<string[] | null>(null)
+  const [paymentStatus, setPaymentStatus] = useState<string[] | null>(() => fromAddress('payment'))
   // The accountant's cuts: GST-wise, TDS-wise, dispatch-wise, due-wise.
-  const [gst, setGst] = useState<string[] | null>(null)
-  const [tds, setTds] = useState<string[] | null>(null)
-  const [dispatch, setDispatch] = useState<string[] | null>(null)
+  const [gst, setGst] = useState<string[] | null>(() => fromAddress('gst'))
+  const [tds, setTds] = useState<string[] | null>(() => fromAddress('tds'))
+  const [dispatch, setDispatch] = useState<string[] | null>(() => fromAddress('dispatch'))
   // New business against repeat business, the cut a sales review opens with.
-  const [clientStatus, setClientStatus] = useState<string[] | null>(null)
+  const [clientStatus, setClientStatus] = useState<string[] | null>(() => fromAddress('client_status'))
   // What KIND of business it is, which is a different question from whether
   // the client is new - and one only the company's own list can answer.
-  const [clientSegment, setClientSegment] = useState<string[] | null>(null)
+  const [clientSegment, setClientSegment] = useState<string[] | null>(() => fromAddress('segment'))
   /*
    * What was sold, rather than who it was sold to.
    *
@@ -116,12 +138,12 @@ export default function CrmInvoicesPage() {
    * screen had described the client or the money - so "show me everyone on
    * Enterprise-12M" was a question it could not answer.
    */
-  const [membership, setMembership] = useState<string[] | null>(null)
-  const [planName, setPlanName] = useState<string[] | null>(null)
-  const [subscription, setSubscription] = useState<string[] | null>(null)
-  const [dueOnly, setDueOnly] = useState(false)
-  const [dueMin, setDueMin] = useState('')
-  const [dueMax, setDueMax] = useState('')
+  const [membership, setMembership] = useState<string[] | null>(() => fromAddress('membership'))
+  const [planName, setPlanName] = useState<string[] | null>(() => fromAddress('plan'))
+  const [subscription, setSubscription] = useState<string[] | null>(() => fromAddress('type'))
+  const [dueOnly, setDueOnly] = useState(() => params.get('due') === '1')
+  const [dueMin, setDueMin] = useState(() => params.get('due_min') ?? '')
+  const [dueMax, setDueMax] = useState(() => params.get('due_max') ?? '')
   /*
    * How far back the screen is looking.
    *
@@ -131,11 +153,11 @@ export default function CrmInvoicesPage() {
    * boxes below are an escape hatch from the list, not a second answer to
    * the same question.
    */
-  const [period, setPeriod] = useState('this_month')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState('')
-  const [company, setCompany] = useState<string[] | null>(null)
-  const [page, setPage] = useState(1)
+  const [period, setPeriod] = useState(() => params.get('period') ?? 'this_month')
+  const [dateFrom, setDateFrom] = useState(() => params.get('from') ?? '')
+  const [dateTo, setDateTo] = useState(() => params.get('to') ?? '')
+  const [company, setCompany] = useState<string[] | null>(() => fromAddress('company'))
+  const [page, setPage] = useState(() => Math.max(1, Number(params.get('page')) || 1))
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   // The memberships and plans this company has actually sold, for the two
@@ -192,10 +214,45 @@ export default function CrmInvoicesPage() {
   // open on their own, and switch to the combined view on purpose, so the
   // two never mix by accident.
   const teamHead = ownLedger && !!me?.has_team
-  const [scope, setScope] = useState<'mine' | 'team'>('mine')
+  const [scope, setScope] = useState<'mine' | 'team'>(() => (params.get('scope') === 'team' ? 'team' : 'mine'))
   const effectiveScope = teamHead ? scope : 'team'
   // One person's rows out of the combined view — E-1 looking at E-2 alone.
-  const [salespeople, setSalespeople] = useState<string[] | null>(null)
+  const [salespeople, setSalespeople] = useState<string[] | null>(() => fromAddress('salespeople'))
+
+  // Written back as they change, replacing the entry rather than adding one.
+  useEffect(() => {
+    const next = new URLSearchParams(params)
+    const put = (key: string, value: string | null) => {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }
+    put('q', applied.trim() || null)
+    put('payment', listParamOf(paymentStatus))
+    put('gst', listParamOf(gst))
+    put('tds', listParamOf(tds))
+    put('dispatch', listParamOf(dispatch))
+    put('client_status', listParamOf(clientStatus))
+    put('segment', listParamOf(clientSegment))
+    put('membership', listParamOf(membership))
+    put('plan', listParamOf(planName))
+    put('type', listParamOf(subscription))
+    put('company', listParamOf(company))
+    put('due', dueOnly ? '1' : null)
+    put('due_min', dueMin || null)
+    put('due_max', dueMax || null)
+    put('period', period !== 'this_month' ? period : null)
+    put('from', dateFrom || null)
+    put('to', dateTo || null)
+    put('page', page > 1 ? String(page) : null)
+    put('scope', scope === 'team' ? 'team' : null)
+    put('salespeople', listParamOf(salespeople))
+
+    if (next.toString() !== params.toString()) setParams(next, { replace: true })
+    // Remembered per kind: the invoices list and the proforma list are two lists.
+    rememberList(`invoices:${kind}`, location.pathname + (next.toString() ? `?${next}` : ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applied, paymentStatus, gst, tds, dispatch, clientStatus, clientSegment, membership, planName,
+    subscription, company, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, page, scope, salespeople])
 
   const { data, isLoading } = useQuery({
     queryKey: ['crm', 'invoices', kind, applied, paymentStatus, gst, tds, dispatch, clientStatus, clientSegment, membership, planName, subscription, dueOnly, dueMin, dueMax, period, dateFrom, dateTo, company, page, effectiveScope, salespeople],

@@ -1,4 +1,5 @@
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { listReturnPath } from '../../lib/listReturn'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, ReceiptText } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -54,7 +55,7 @@ export default function CrmClientDetailPage() {
     <div className="mx-auto max-w-5xl space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(crmPath('/crm/clients'))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
+          <button onClick={() => navigate(listReturnPath('clients', crmPath('/crm/clients')))} aria-label="Back" className="rounded p-1.5 text-slate-400 hover:bg-slate-200/60 dark:hover:bg-slate-800">
             <ArrowLeft className="size-4" />
           </button>
           <div>

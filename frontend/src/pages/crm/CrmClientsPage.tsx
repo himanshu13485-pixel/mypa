@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useLocation, useSearchParams } from 'react-router-dom'
+import { listFromParam, listParamOf, rememberList } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeftRight, Check, Pencil, Plus, Search, Trash2, Users, X } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -26,12 +27,35 @@ const EMPTY = {
 export default function CrmClientsPage() {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
-  const [search, setSearch] = useState('')
-  const [applied, setApplied] = useState('')
+  /*
+   * The filters live in the address, as the leads list's do - so opening a
+   * client and coming Back finds the list exactly as it was left.
+   */
+  const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const [search, setSearch] = useState(() => params.get('q') ?? '')
+  const [applied, setApplied] = useState(() => params.get('q') ?? '')
   // Checkbox filter: null is everything ticked, the default.
-  const [status, setStatus] = useState<string[] | null>(null)
-  const [category, setCategory] = useState<string[] | null>(null)
-  const [page, setPage] = useState(1)
+  const [status, setStatus] = useState<string[] | null>(() => listFromParam(params.get('status')))
+  const [category, setCategory] = useState<string[] | null>(() => listFromParam(params.get('category')))
+  const [page, setPage] = useState(() => Math.max(1, Number(params.get('page')) || 1))
+
+  // Written back as they change, replacing the entry rather than adding one.
+  useEffect(() => {
+    const next = new URLSearchParams(params)
+    const put = (key: string, value: string | null) => {
+      if (value) next.set(key, value)
+      else next.delete(key)
+    }
+    put('q', applied.trim() || null)
+    put('status', listParamOf(status))
+    put('category', listParamOf(category))
+    put('page', page > 1 ? String(page) : null)
+
+    if (next.toString() !== params.toString()) setParams(next, { replace: true })
+    rememberList('clients', location.pathname + (next.toString() ? `?${next}` : ''))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applied, status, category, page])
   const [editing, setEditing] = useState<CrmClient | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ ...EMPTY })
