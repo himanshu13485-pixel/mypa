@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Archive, Clock, FileEdit, Inbox, LayoutDashboard, Mail, PenSquare, Send, Settings2, ShieldAlert, Star, Tag, Trash2, Upload,
+  Archive, Clock, FileEdit, Inbox, LayoutDashboard, Mail, PenSquare, Send, Settings2, ShieldAlert, Star, Tag, Trash2, Upload, Users,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crmMeQuery } from '../../../api/crm'
@@ -135,6 +135,12 @@ export default function MailsLayout() {
           <NavLink to={crmPath('/crm/mails/settings')} className={({ isActive }) => railLink(isActive)}>
             <Settings2 className="size-4" /> Settings
           </NavLink>
+          {/* The Company Admin's switch: who in the company has Mails. */}
+          {me?.member?.crm_role === 'admin' && (
+            <NavLink to={crmPath('/crm/mails/team')} className={({ isActive }) => railLink(isActive)}>
+              <Users className="size-4" /> Team access
+            </NavLink>
+          )}
         </nav>
       </aside>
 

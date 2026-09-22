@@ -123,6 +123,9 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Spam / Junk', icon: ShieldAlert, to: '/crm/mails/spam', mails: true },
     { label: 'Trash', icon: Trash2, to: '/crm/mails/trash', mails: true },
     { label: 'Manage labels', icon: Tag, to: '/crm/mails/labels', mails: true },
+    // How a Company Admin gives Mails to their people - a line in the menu,
+    // not a tab somebody has to go looking for.
+    { label: 'Team access', icon: Users, to: '/crm/mails/team', mails: true, adminOnly: true },
     { label: 'Mail settings', icon: Settings2, to: '/crm/mails/settings', mails: true },
   ]},
   { label: 'Work', items: [
@@ -219,7 +222,7 @@ function sectionsFor(me: CrmMe | undefined): { label: string; items: NavItem[] }
 
 function visible(me: CrmMe | undefined, item: NavItem): boolean {
   if (!me?.enabled) return false
-  if (item.mails) return !!me.mails?.allowed
+  if (item.mails) return !!me.mails?.allowed && (! item.adminOnly || me.member?.crm_role === 'admin')
   if (item.adminOnly) {
     return me.member?.crm_role === 'admin'
   }

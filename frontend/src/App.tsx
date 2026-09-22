@@ -145,6 +145,7 @@ const crmScreens = (
       <Route index element={<CrmMailsDashboard />} />
       <Route path="settings" element={<CrmMailSettingsPage />} />
       <Route path="labels" element={<CrmMailSettingsPage />} />
+      <Route path="team" element={<CrmMailSettingsPage />} />
       <Route path="label/:label" element={<CrmMailsPage />} />
       <Route path=":folder" element={<CrmMailsPage />} />
     </Route>

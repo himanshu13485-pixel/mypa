@@ -23,13 +23,19 @@ const card = 'rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100 dark:bg-s
  */
 export default function CrmMailSettingsPage() {
   const [search, setSearch] = useSearchParams()
-  // "Manage labels" is its own address, landing on the Labels tab.
-  const initialTab: Tab = useLocation().pathname.endsWith('/mails/labels') ? 'labels' : 'mailboxes'
+  // Manage labels and Team access are their own addresses, each landing on
+  // its own tab - they are what the sidebar points at.
+  const path = useLocation().pathname
+  const initialTab: Tab = path.endsWith('/mails/labels') ? 'labels' : path.endsWith('/mails/team') ? 'team' : 'mailboxes'
   const { data: settings, isLoading, isError, refetch } = useQuery({ queryKey: ['mails', 'settings'], queryFn: mails.settings })
-  const tab = (search.get('tab') as Tab | null) ?? initialTab
+  const asked = (search.get('tab') as Tab | null) ?? initialTab
 
   if (isLoading) return <div className="flex h-full items-center justify-center"><Spinner /></div>
   if (isError || !settings) return <div className="p-6"><LoadError onRetry={() => refetch()} /></div>
+
+  // Someone without the company hat asking for an Admin tab gets the one
+  // everybody has, not an empty page.
+  const tab: Tab = !settings.is_admin && (asked === 'team' || asked === 'ai') ? 'mailboxes' : asked
 
   const tabs: [Tab, string][] = [
     ['mailboxes', 'Mailboxes'],
@@ -43,7 +49,9 @@ export default function CrmMailSettingsPage() {
   return (
     <div className="scroll-pane h-full overflow-y-auto p-4 sm:p-6">
       <h1 className="mb-4 text-xl font-semibold text-slate-900 dark:text-white">Mail settings</h1>
-      <div className="scroll-pane mb-5 flex gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-800">
+      {/* Wrapped, not scrolled: a tab nobody can see is a feature nobody
+          can find - Team access sat off the right-hand edge. */}
+      <div className="mb-5 flex flex-wrap gap-1 border-b border-slate-200 dark:border-slate-800">
         {tabs.map(([key, label]) => (
           <button
             key={key}
