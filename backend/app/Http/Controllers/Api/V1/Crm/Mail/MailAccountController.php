@@ -16,7 +16,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 use Throwable;
 
 /**
@@ -220,7 +219,14 @@ class MailAccountController extends Controller
                     : 'Signed in. ' . count($folders) . ' folder(s), and nothing in the inbox.',
             ]]);
         } catch (Throwable $e) {
-            return response()->json(['data' => ['ok' => false, 'folders' => [], 'message' => MailConnector::plain($e)]], 422);
+            // A diagnosis that comes back bad is still a request that worked:
+            // 200 with ok=false, so the screen shows the reason in place
+            // rather than an HTTP status nobody can act on.
+            return response()->json(['data' => [
+                'ok' => false,
+                'folders' => [],
+                'message' => MailConnector::explain($e, $account->imap_host, (int) $account->imap_port, 'incoming'),
+            ]]);
         }
     }
 
@@ -233,7 +239,7 @@ class MailAccountController extends Controller
         $to = (string) ($request->validate(['to' => ['nullable', 'email']])['to'] ?? '') ?: ($me->user?->email ?? $account->email);
 
         if (! $account->claimSend()) {
-            throw ValidationException::withMessages(['to' => "This mailbox has used its {$account->daily_cap} sends for today."]);
+            return response()->json(['data' => ['ok' => false, 'message' => "This mailbox has used its {$account->daily_cap} sends for today."]]);
         }
 
         try {
@@ -253,7 +259,10 @@ class MailAccountController extends Controller
 
             return response()->json(['data' => ['ok' => true, 'message' => "Test message sent to {$to}."]]);
         } catch (Throwable $e) {
-            return response()->json(['data' => ['ok' => false, 'message' => MailConnector::plain($e)]], 422);
+            return response()->json(['data' => [
+                'ok' => false,
+                'message' => MailConnector::explain($e, $account->smtp_host, (int) $account->smtp_port, 'outgoing'),
+            ]]);
         }
     }
 

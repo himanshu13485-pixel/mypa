@@ -521,6 +521,21 @@ class MailsTest extends TestCase
         $this->assertFalse($box->fresh()->verify_cert);
     }
 
+    public function test_a_failed_check_answers_with_the_reason_not_a_status_code(): void
+    {
+        // The fake connector refuses IMAP, which is what a real one does when
+        // the server is wrong - and the screen must get words, not a 422.
+        $box = $this->mailbox($this->admin);
+
+        $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/inbox-test")
+            ->assertOk()
+            ->assertJsonPath('data.ok', false);
+
+        $said = $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/inbox-test")->json('data.message');
+        $this->assertNotEmpty($said);
+        $this->assertStringContainsString('Could not read the mailbox', $said);
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

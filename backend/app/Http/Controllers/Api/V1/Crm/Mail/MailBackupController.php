@@ -152,7 +152,9 @@ class MailBackupController extends Controller
 
         $result = $this->vault->test($remote);
 
-        return response()->json(['data' => $result], $result['ok'] ? 200 : 422);
+        // Same rule as the mailbox tests: the answer is the answer, not a
+        // failed request.
+        return response()->json(['data' => $result]);
     }
 
     /** Archive it now, rather than tonight. */
