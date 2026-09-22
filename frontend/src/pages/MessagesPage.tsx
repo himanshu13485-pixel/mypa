@@ -1889,7 +1889,7 @@ export default function MessagesPage() {
     },
     hide: {
       title: 'Hide chat',
-      hint: 'It leaves your chat list. To find it, type #your password# in the chat search.',
+      hint: 'It leaves your chat list. You can find it again from the chat search with your chat password.',
       action: 'Hide',
     },
     unhide: {
