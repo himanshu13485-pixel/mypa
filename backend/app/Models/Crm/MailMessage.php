@@ -107,10 +107,12 @@ class MailMessage extends Model
             'uuid' => $this->uuid,
             'folder' => $this->folder,
             'thread_key' => $this->thread_key,
-            'from_name' => $this->from_name,
+            // Decoded on the way out as well as in, so mail already stored
+            // with an encoded header reads properly too.
+            'from_name' => \App\Services\Mail\MailHtml::header($this->from_name),
             'from_email' => $this->from_email,
             'to' => $this->to ?? [],
-            'subject' => $this->subject,
+            'subject' => \App\Services\Mail\MailHtml::header($this->subject),
             'snippet' => $this->snippet,
             'has_attachments' => $this->has_attachments,
             'is_read' => $this->is_read,

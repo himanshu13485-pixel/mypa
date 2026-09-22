@@ -77,6 +77,28 @@ class MailHtml
         return $out;
     }
 
+    /**
+     * A header as a person reads it.
+     *
+     * Anything outside plain ASCII travels in mail as "=?UTF-8?Q?...?=", and
+     * a server that hands it over undecoded leaves a subject line of gibberish
+     * on the screen. Decoded here, whatever the charset, and left alone when
+     * there is nothing encoded in it.
+     */
+    public static function header(?string $raw): ?string
+    {
+        if ($raw === null || ! str_contains($raw, '=?')) {
+            return $raw;
+        }
+
+        $decoded = @iconv_mime_decode($raw, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, 'UTF-8');
+        if ($decoded === false || $decoded === '') {
+            $decoded = function_exists('mb_decode_mimeheader') ? mb_decode_mimeheader($raw) : $raw;
+        }
+
+        return trim((string) preg_replace('/\s+/u', ' ', $decoded)) ?: $raw;
+    }
+
     /** The first line or so of a mail, as the list shows it. */
     public static function snippet(?string $text, ?string $html): string
     {

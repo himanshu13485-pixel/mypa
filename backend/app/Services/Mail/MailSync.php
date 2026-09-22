@@ -176,7 +176,7 @@ class MailSync
 
         $html = $remote->hasHTMLBody() ? MailHtml::sanitize($remote->getHTMLBody()) : null;
         $text = $remote->hasTextBody() ? $remote->getTextBody() : null;
-        $subject = self::first($remote->subject);
+        $subject = MailHtml::header(self::first($remote->subject));
         $inReplyTo = self::first($remote->in_reply_to);
         $references = self::joined($remote->references);
         $from = self::addresses($remote->from)[0] ?? ['email' => null, 'name' => null];

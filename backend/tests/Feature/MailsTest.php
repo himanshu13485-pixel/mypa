@@ -586,6 +586,19 @@ class MailsTest extends TestCase
         Queue::assertPushed(\App\Jobs\SendMailMessage::class);
     }
 
+    public function test_an_encoded_subject_is_read_as_words(): void
+    {
+        $box = $this->mailbox($this->admin);
+        $mail = $this->arrived($box, '=?UTF-8?Q?Amazon_Web_Services_=E2=80=93_Email_Address_Verifica?= =?UTF-8?Q?tion_Request?=');
+
+        $shown = $this->actingAs($this->adminUser)->getJson("/api/v1/crm/mails/messages/{$mail->uuid}")
+            ->assertOk()->json('data.message.subject');
+
+        $this->assertSame('Amazon Web Services – Email Address Verification Request', $shown);
+        // Plain subjects are left exactly as they are.
+        $this->assertSame('Rates', \App\Services\Mail\MailHtml::header('Rates'));
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage
