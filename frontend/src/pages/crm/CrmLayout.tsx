@@ -108,6 +108,8 @@ interface NavItem {
  * disabled — the sidebar is the roadmap, and it never reshuffles as
  * modules land.
  */
+const DASHBOARD: NavItem = { label: 'Dashboard', icon: LayoutDashboard, to: '/crm' }
+
 const SECTIONS: { label: string; items: NavItem[] }[] = [
   // Mail inside the CRM - only for companies the Super Admin switched it
   // on for, and only for the people their Admin gave it to. Everybody else
@@ -125,7 +127,7 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Mail settings', icon: Settings2, to: '/crm/mails/settings', mails: true },
   ]},
   { label: 'Work', items: [
-    { label: 'Dashboard', icon: LayoutDashboard, to: '/crm' },
+    DASHBOARD,
     // Who is here and what is running — company-wide, so admins only.
     { label: 'Overview', icon: Activity, to: '/crm/overview', adminOnly: true },
     { label: 'My DWR', section: 'dwr', icon: NotebookPen, to: '/crm/dwr' },
@@ -196,6 +198,25 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Workspace fields', icon: Sparkles, to: '/crm/workspace-fields', managerOnly: true },
   ]},
 ]
+
+/**
+ * The menu for this person.
+ *
+ * With Mails switched on, the CRM dashboard is lifted out of Work and put
+ * above the Mails group - so the first thing in the sidebar is still the
+ * dashboard, and Work then starts at Overview. Without Mails nothing moves:
+ * Work begins with Dashboard exactly as it always has.
+ */
+function sectionsFor(me: CrmMe | undefined): { label: string; items: NavItem[] }[] {
+  if (!me?.mails?.allowed) return SECTIONS
+
+  return [
+    { label: '', items: [DASHBOARD] },
+    ...SECTIONS.map((section) => section.label === 'Work'
+      ? { ...section, items: section.items.filter((i) => i !== DASHBOARD) }
+      : section),
+  ]
+}
 
 function visible(me: CrmMe | undefined, item: NavItem): boolean {
   if (!me?.enabled) return false
@@ -427,14 +448,17 @@ export default function CrmLayout() {
         )}
 
         <nav className="scroll-pane mt-2 flex-1 overflow-y-auto px-3 pb-3">
-          {SECTIONS.map((section) => {
+          {sectionsFor(me).map((section) => {
             const items = section.items.filter((i) => !i.to || visible(me, i))
             if (!me?.enabled || !items.length) return null
             return (
               <div key={section.label}>
-                <p className="mb-0.5 mt-3 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
-                  {section.label}
-                </p>
+                {/* The lifted dashboard stands on its own, with no heading. */}
+                {section.label && (
+                  <p className="mb-0.5 mt-3 px-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">
+                    {section.label}
+                  </p>
+                )}
                 {items.map((item) =>
                   item.to ? (
                     <NavLink
