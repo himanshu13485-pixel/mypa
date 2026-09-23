@@ -22,6 +22,7 @@ import { REPORT_REASONS } from '../types'
 import { format, isToday } from 'date-fns'
 import { clsx } from 'clsx'
 import { chat, chatLock, type ChatSearchHit } from '../api/endpoints'
+import { useOpenedAttachments } from '../lib/attachmentsOpened'
 import { attachmentHeaders, hiddenFolderPassword, searchMeansMe, useChatUnlock } from '../lib/chatUnlock'
 import { ChatLockSettings, ChatPasswordPrompt, ForgotChatPassword, LockedThread, SetChatPassword } from '../components/ChatLockDialogs'
 import { errorMessage } from '../api/client'
@@ -546,6 +547,8 @@ export default function MessagesPage() {
   }
   const [editing, setEditing] = useState<ChatMessage | null>(null)
   const [reactFor, setReactFor] = useState<string | null>(null)
+  /** Files this person has actually taken down - see notTakenDown below. */
+  const openedAttachments = useOpenedAttachments((state) => state.ids)
   /*
    * Which message has its action row open, on a touchscreen.
    *
@@ -1998,12 +2001,29 @@ export default function MessagesPage() {
     setPickedChats(next)
   }
 
+  /*
+   * A file nobody has looked at cannot be passed on.
+   *
+   * Reply, forward and a reaction all say something about what is in the
+   * message, and on this side nothing is in it yet - it is a chip saying
+   * "tap to view". Whoever sent it is exempt: they have had the file all
+   * along.
+   */
+  const notTakenDown = (m: ChatMessage): boolean =>
+    !m.is_own && (m.attachments ?? []).some((a) => !openedAttachments.has(a.id))
+
+  const askToDownloadFirst = () => toastError('Download it first - then you can reply, forward or react to it.')
+
   const messageActions = (m: ChatMessage) => [
     {
       key: 'reply',
       icon: <Reply className="size-3.5" />,
       label: 'Reply',
-      run: () => { setReplyTo(m); setEditing(null) },
+      run: () => {
+        if (notTakenDown(m)) return askToDownloadFirst()
+        setReplyTo(m)
+        setEditing(null)
+      },
     },
     /*
      * Into selection mode, with this one already ticked.
@@ -2017,7 +2037,10 @@ export default function MessagesPage() {
       key: 'select',
       icon: <CheckSquare className="size-3.5" />,
       label: 'Select messages',
-      run: () => setSelection(new Set([m.uuid])),
+      run: () => {
+        if (notTakenDown(m)) return askToDownloadFirst()
+        setSelection(new Set([m.uuid]))
+      },
     },
     /*
      * Copy, which the long-press took away. Text only: there is nothing to
@@ -3204,7 +3227,11 @@ export default function MessagesPage() {
                         selecting && 'cursor-pointer [&_a]:pointer-events-none [&_button]:pointer-events-none',
                       )}
                       onClick={selecting
-                        ? (e) => { e.preventDefault(); setSelection(toggleSelected(selection, m.uuid)) }
+                        ? (e) => {
+                          e.preventDefault()
+                          if (notTakenDown(m)) return askToDownloadFirst()
+                          setSelection(toggleSelected(selection, m.uuid))
+                        }
                         : undefined}
                       // A mouse's double click: the whole message, not a word of it.
                       onDoubleClick={!noHover && !selecting && !m.is_deleted ? () => copyWhole(m) : undefined}
@@ -3217,7 +3244,11 @@ export default function MessagesPage() {
                             () => { setActionsFor(m.uuid); setReactFor(null) },
                             {
                               onDoubleTap: () => copyWhole(m),
-                              onSwipeRight: () => { setReplyTo(m); setEditing(null) },
+                              onSwipeRight: () => {
+                                if (notTakenDown(m)) return askToDownloadFirst()
+                                setReplyTo(m)
+                                setEditing(null)
+                              },
                             },
                           )
                           : {}
@@ -3408,14 +3439,14 @@ export default function MessagesPage() {
                         <button
                           className="rounded px-1 text-sm leading-none hover:scale-125"
                           title="React with a thumbs up"
-                          onClick={() => react(m, THUMBS_UP)}
+                          onClick={() => (notTakenDown(m) ? askToDownloadFirst() : react(m, THUMBS_UP))}
                         >
                           {THUMBS_UP}
                         </button>
                         <button
                           className="rounded p-1 text-slate-400 hover:text-brand-600"
                           title="React"
-                          onClick={() => setReactFor(reactFor === m.uuid ? null : m.uuid)}
+                          onClick={() => (notTakenDown(m) ? askToDownloadFirst() : setReactFor(reactFor === m.uuid ? null : m.uuid))}
                         >
                           <Smile className="size-3.5" />
                         </button>

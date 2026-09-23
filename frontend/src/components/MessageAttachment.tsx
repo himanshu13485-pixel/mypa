@@ -4,6 +4,7 @@ import { clsx } from 'clsx'
 import { chat } from '../api/endpoints'
 import { attachmentHeaders } from '../lib/chatUnlock'
 import { fileSize, shortName } from '../lib/attachmentLabels'
+import { useOpenedAttachments } from '../lib/attachmentsOpened'
 
 /**
  * What an attachment looks like in a thread.
@@ -20,18 +21,7 @@ import { fileSize, shortName } from '../lib/attachmentLabels'
 
 const IMAGE = /^image\//
 
-/**
- * Which pictures this person has asked to see, for as long as the tab lives.
- *
- * A photo is fetched when it is tapped rather than the moment it scrolls
- * past: a thread with forty screenshots in it used to pull forty files down
- * a phone connection nobody chose to spend. Once tapped it stays loaded, so
- * scrolling back to it costs nothing.
- *
- * Module-level rather than component state because a bubble unmounts as the
- * thread scrolls, and a picture that was opened should not close itself.
- */
-const opened = new Set<number>()
+
 
 /** Fetch an attachment as a blob URL, and let it go when the bubble does. */
 function useAttachmentUrl(conversationUuid: string, attachmentId: number, enabled: boolean) {
@@ -87,15 +77,25 @@ export default function MessageAttachment({
    * which at least downloads.
    */
   const isImage = IMAGE.test(attachment.mime_type ?? '') && !brokenImage
-  const [show, setShow] = useState(() => opened.has(attachment.id))
+
+  /*
+   * Whoever sent it already has it.
+   *
+   * They chose the file off their own disk a moment ago, so their side of
+   * the thread shows it at once. Everybody else asks first - a thread of
+   * screenshots should not spend somebody's data before they have said they
+   * want to look at them.
+   */
+  const markOpened = useOpenedAttachments((state) => state.markOpened)
+  const taken = useOpenedAttachments((state) => state.ids.has(attachment.id))
+  const show = own || taken
   const url = useAttachmentUrl(conversationUuid, attachment.id, isImage && show)
 
-  const reveal = () => {
-    opened.add(attachment.id)
-    setShow(true)
-  }
+  const reveal = () => markOpened(attachment.id)
 
   const download = async () => {
+    // Taking a file down counts as having it, so it can be passed on.
+    markOpened(attachment.id)
     const res = await fetch(chat.attachmentUrl(conversationUuid, attachment.id), {
       headers: attachmentHeaders(),
     })
