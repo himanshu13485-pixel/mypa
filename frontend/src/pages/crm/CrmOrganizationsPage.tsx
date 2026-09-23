@@ -231,15 +231,29 @@ export default function CrmOrganizationsPage() {
   )
 }
 
-/** The Super Admin's read-only window into any company's whole team. */
+/**
+ * The Super Admin's window into any company's whole team - and the one
+ * number they can move there: how much room each person's mail may take.
+ */
 function OrgMembersModal({ org, onClose }: { org: CrmOrganizationRow; onClose: () => void }) {
   const [roleFilter, setRoleFilter] = useState('')
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['crm', 'org-members', org.uuid],
     queryFn: () => crm.organizations.members(org.uuid),
   })
+  const { toast } = useToast()
 
   const rows = (data?.members ?? []).filter((m) => !roleFilter || m.crm_role === roleFilter)
+
+  const setRoom = async (memberUuid: string, mb: number | null) => {
+    try {
+      const res = await crm.organizations.memberStorage(org.uuid, memberUuid, mb)
+      toast(res.message, 'success')
+      refetch()
+    } catch (err) {
+      alert(errorMessage(err))
+    }
+  }
 
   return (
     <Modal title={`${org.name} — employees`} onClose={onClose} wide>
@@ -264,7 +278,8 @@ function OrgMembersModal({ org, onClose }: { org: CrmOrganizationRow; onClose: (
                   <th className="py-2 pr-3 font-medium">Employee</th>
                   <th className="py-2 pr-3 font-medium">Role</th>
                   <th className="py-2 pr-3 font-medium">Reports to</th>
-                  <th className="py-2 font-medium">Status</th>
+                  <th className="py-2 pr-3 font-medium">Status</th>
+                  <th className="py-2 font-medium">Mail room</th>
                 </tr>
               </thead>
               <tbody>
@@ -285,7 +300,7 @@ function OrgMembersModal({ org, onClose }: { org: CrmOrganizationRow; onClose: (
                       </span>
                     </td>
                     <td className="py-2 pr-3">{m.reports_to ?? '—'}</td>
-                    <td className="py-2">
+                    <td className="py-2 pr-3">
                       <span className={clsx(
                         'rounded-full px-2 py-0.5 text-[11px] font-medium',
                         m.status === 'active'
@@ -293,6 +308,32 @@ function OrgMembersModal({ org, onClose }: { org: CrmOrganizationRow; onClose: (
                           : 'bg-red-100 text-red-600 dark:bg-red-500/15 dark:text-red-400',
                       )}>
                         {m.status}
+                      </span>
+                    </td>
+                    {/*
+                      * What this person's mail may take.
+                      *
+                      * Blank follows their own plan and this company's
+                      * ceiling; a number here is the platform saying
+                      * otherwise for them alone. The line underneath says
+                      * what actually applies once all three are weighed.
+                      */}
+                    <td className="py-2">
+                      <Input
+                        type="number"
+                        min={50}
+                        step={100}
+                        defaultValue={m.allocated_mb ?? ''}
+                        placeholder="their plan"
+                        onBlur={(e) => {
+                          const value = e.target.value ? Number(e.target.value) : null
+                          if (value !== (m.allocated_mb ?? null)) void setRoom(m.uuid, value)
+                        }}
+                        className="w-28"
+                      />
+                      <span className="mt-0.5 block text-[11px] text-slate-400">
+                        {m.storage_mb === null ? 'unlimited' : `${m.storage_mb} MB`} · {m.mail_used_mb} MB used
+                        {m.plan && ` · ${m.plan}`}
                       </span>
                     </td>
                   </tr>

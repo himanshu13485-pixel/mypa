@@ -43,6 +43,41 @@ class PlanController extends Controller
     }
 
     /** Manually put a user on a plan (audited via subscription note). */
+    /**
+     * Raise or lower one person's room without inventing a plan for them.
+     *
+     * Everything they keep counts against it - Drive, chat files, meeting
+     * files and their CRM mail - because it is one quota. Blank puts them
+     * back on whatever their plan says.
+     */
+    public function storage(Request $request, User $user): JsonResponse
+    {
+        abort_unless($request->user()?->isSuperAdmin(), 403);
+
+        $data = $request->validate([
+            'gb' => ['nullable', 'numeric', 'min:0.1', 'max:100000'],
+            'note' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $bytes = isset($data['gb']) && $data['gb'] !== null ? (int) round($data['gb'] * 1073741824) : null;
+        $user->forceFill([
+            'storage_override_bytes' => $bytes,
+            'storage_override_note' => $bytes === null ? null : ($data['note'] ?? null),
+        ])->save();
+
+        $service = app(\App\Services\SubscriptionEntitlementService::class);
+
+        return response()->json([
+            'message' => $bytes === null ? "Back to the {$service->planFor($user)->slug} plan's room." : 'Room updated.',
+            'data' => [
+                'limit_bytes' => $service->storageLimitBytes($user),
+                'used_bytes' => $service->usedStorageBytes($user),
+                'override_bytes' => $bytes,
+                'note' => $user->storage_override_note,
+            ],
+        ]);
+    }
+
     public function assign(Request $request, User $user): JsonResponse
     {
         $data = $request->validate([

@@ -65,14 +65,36 @@ class MailAccess
      */
     public static function storageFor(Member $member): ?int
     {
-        $ceiling = self::storageCeiling($member->organization);
-        $given = $member->mail_storage_mb ? (int) $member->mail_storage_mb : null;
+        /*
+         * Three numbers can apply, and the smallest wins:
+         *
+         *   the room this person's plan gives them - the platform may raise
+         *   or lower it for them alone;
+         *   the ceiling the platform set for this company's people;
+         *   what their own Admin allocated them out of it.
+         *
+         * Any of them may be absent, which means it has nothing to say.
+         */
+        $limits = array_filter([
+            self::planLimitMb($member),
+            self::storageCeiling($member->organization),
+            $member->mail_storage_mb ? (int) $member->mail_storage_mb : null,
+        ], fn ($mb) => $mb !== null);
 
-        if ($ceiling === null) {
-            return $given;
+        return $limits ? (int) min($limits) : null;
+    }
+
+    /** What this person's Netvork plan allows, in megabytes. */
+    public static function planLimitMb(Member $member): ?int
+    {
+        $user = $member->user;
+        if (! $user) {
+            return null;
         }
 
-        return $given === null ? $ceiling : min($given, $ceiling);
+        $bytes = app(\App\Services\SubscriptionEntitlementService::class)->storageLimitBytes($user);
+
+        return $bytes === null ? null : (int) floor($bytes / 1048576);
     }
 
     /** The company's ceiling per person, in megabytes, or null for unlimited. */
@@ -91,12 +113,46 @@ class MailAccess
         return round($bytes / 1048576, 2);
     }
 
-    /** Full? - asked before new mail is fetched, never mid-message. */
+    /**
+     * Full? - asked before new mail is fetched, never mid-message.
+     *
+     * Two ways to be full: this mailbox has used the room it was allocated,
+     * or the person has used their whole Netvork quota - mail, Drive, chat
+     * files and all - because it is one quota rather than two.
+     */
     public static function isFull(Member $member): bool
     {
         $limit = self::storageFor($member);
+        if ($limit !== null && self::storageUsed($member) >= $limit) {
+            return true;
+        }
 
-        return $limit !== null && self::storageUsed($member) >= $limit;
+        $user = $member->user;
+        if (! $user) {
+            return false;
+        }
+
+        $service = app(\App\Services\SubscriptionEntitlementService::class);
+        $whole = $service->storageLimitBytes($user);
+
+        return $whole !== null && $service->usedStorageBytes($user) >= $whole;
+    }
+
+    /** What their whole quota looks like, for the screens that show it. */
+    public static function quota(Member $member): array
+    {
+        $user = $member->user;
+        $service = app(\App\Services\SubscriptionEntitlementService::class);
+
+        return [
+            'mail_used_mb' => self::storageUsed($member),
+            'mail_limit_mb' => self::storageFor($member),
+            'account_used_mb' => $user ? round($service->usedStorageBytes($user) / 1048576, 2) : 0,
+            'account_limit_mb' => $user && $service->storageLimitBytes($user) !== null
+                ? (int) floor($service->storageLimitBytes($user) / 1048576)
+                : null,
+            'plan' => $user ? $service->planFor($user)->slug : null,
+        ];
     }
 
     /**

@@ -85,13 +85,56 @@ class SubscriptionEntitlementService
 
         $meetings = (int) \App\Models\MeetingFile::where('user_id', $user->id)->sum('size');
 
-        return $drive + $chat + $meetings;
+        return $drive + $chat + $meetings + $this->mailBytes($user);
     }
 
+    /**
+     * The mail this person keeps in the CRM.
+     *
+     * Mail used to be measured on its own, against a number of its own, so a
+     * person on the 20 GB plan had 20 GB for files and something else
+     * entirely for mail. It is one quota: what arrives in a mailbox takes up
+     * the same room as what is uploaded to Drive.
+     */
+    public function mailBytes(User $user): int
+    {
+        if (! \Illuminate\Support\Facades\Schema::hasTable('crm_mail_messages')) {
+            return 0;
+        }
+
+        $accounts = \App\Models\Crm\MailAccount::whereIn(
+            'member_id',
+            \App\Models\Crm\Member::where('user_id', $user->id)->pluck('id'),
+        )->pluck('id');
+
+        return $accounts->isEmpty()
+            ? 0
+            : (int) \App\Models\Crm\MailMessage::whereIn('mail_account_id', $accounts)->sum('size');
+    }
+
+    /**
+     * How much room this person has, in bytes - null when nothing limits it.
+     *
+     * The platform may raise or lower it for one person without inventing a
+     * plan for them; otherwise it is whatever their plan says. A plan that
+     * names storage_bytes as null means unlimited and is honoured as such -
+     * it used to fall through to the 1 GB default, so "unlimited" was
+     * impossible to express.
+     */
     public function storageLimitBytes(User $user): ?int
     {
-        return $this->planFor($user)->limit('storage_bytes')
-            ?? (int) config('mypa.files.storage_limit_bytes');
+        if ($user->storage_override_bytes !== null) {
+            return (int) $user->storage_override_bytes;
+        }
+
+        $plan = $this->planFor($user);
+        if (array_key_exists('storage_bytes', (array) $plan->limits)) {
+            $limit = $plan->limits['storage_bytes'];
+
+            return $limit === null ? null : (int) $limit;
+        }
+
+        return (int) config('mypa.files.storage_limit_bytes');
     }
 
     public function canCreateGroup(User $user): bool

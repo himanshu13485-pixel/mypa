@@ -600,8 +600,30 @@ function AssignPlanModal({ user, onClose }: { user: User; onClose: () => void })
   const { data: plans } = useQuery({ queryKey: ['admin-plans'], queryFn: adminBilling.plans })
   const [slug, setSlug] = useState('')
   const [months, setMonths] = useState('')
+  const [storageGb, setStorageGb] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  /*
+   * Room, moved for one person.
+   *
+   * Everything they keep counts against it - Drive, chat files, meeting
+   * files and their CRM mail - so this is the one number that decides how
+   * much any of them may hold. Blank puts them back on their plan's own.
+   */
+  const setRoom = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await adminBilling.setStorage(user.uuid, storageGb ? Number(storageGb) : null)
+      alert(res.message)
+      onClose()
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const assign = async () => {
     if (!slug) return
@@ -642,6 +664,28 @@ function AssignPlanModal({ user, onClose }: { user: User; onClose: () => void })
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button onClick={assign} disabled={busy || !slug}>Assign plan</Button>
+        </div>
+
+        <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
+          <Label>Room for this person (GB)</Label>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              min={0.1}
+              step={1}
+              placeholder="Their plan's own"
+              value={storageGb}
+              onChange={(e) => setStorageGb(e.target.value)}
+              className="w-40"
+            />
+            <Button variant="secondary" onClick={setRoom} disabled={busy}>
+              {storageGb ? 'Give this much' : 'Back to their plan'}
+            </Button>
+          </div>
+          <p className="mt-1 text-[11px] text-slate-400">
+            One quota for everything they keep: Drive, chat files, meeting files and their CRM mail.
+            Leave it blank to follow the plan rather than a number of their own.
+          </p>
         </div>
       </div>
     </Modal>

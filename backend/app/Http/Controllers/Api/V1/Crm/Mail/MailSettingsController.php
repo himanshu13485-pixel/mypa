@@ -30,7 +30,7 @@ class MailSettingsController extends Controller
             'cap' => MailAccess::cap($me->organization),
             'is_admin' => $me->crm_role === 'admin',
             'ai_available' => $assistant->available($me->organization),
-            'storage' => [
+            'storage' => MailAccess::quota($me) + [
                 'used_mb' => MailAccess::storageUsed($me),
                 'limit_mb' => MailAccess::storageFor($me),
                 'ceiling_mb' => MailAccess::storageCeiling($me->organization),

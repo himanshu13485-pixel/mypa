@@ -689,8 +689,19 @@ class MailsTest extends TestCase
             'enabled' => true, 'storage_mb' => 5000,
         ])->assertStatus(422);
 
-        // Nobody set anything for this person, so they have the company's own.
-        $this->assertSame(2048, \App\Services\Mail\MailAccess::storageFor($this->admin->fresh()));
+        /*
+         * Nobody set anything for this person, so the smallest of what
+         * applies decides - and that is their own plan, since a company
+         * ceiling can only ever hold somebody back, never give them room
+         * their plan does not have.
+         */
+        $this->adminUser->forceFill(['storage_override_bytes' => 8 * 1073741824])->save();
+        $this->assertSame(2048, \App\Services\Mail\MailAccess::storageFor($this->admin->fresh()),
+            'the company ceiling holds them to 2 GB');
+
+        $this->adminUser->forceFill(['storage_override_bytes' => null])->save();
+        $this->assertSame(1024, \App\Services\Mail\MailAccess::storageFor($this->admin->fresh()),
+            'and without an override, the free plan holds them to 1 GB');
     }
 
     public function test_a_full_mailbox_stops_fetching_and_says_so(): void

@@ -125,6 +125,7 @@ class OrganizationAdminController extends Controller
             ->orderBy('id')
             ->get()
             ->map(fn (Member $m) => [
+                'uuid' => $m->uuid,
                 'name' => $m->user?->name,
                 'email' => $m->user?->email,
                 'employee_code' => $m->employee_code,
@@ -134,12 +135,44 @@ class OrganizationAdminController extends Controller
                 'reports_to' => $m->manager?->user?->name,
                 'status' => $m->status,
                 'joined_at' => $m->joined_at?->toDateString(),
+                // What their mail may take, and what it takes today.
+                'storage_mb' => \App\Services\Mail\MailAccess::storageFor($m),
+                'allocated_mb' => $m->mail_storage_mb ? (int) $m->mail_storage_mb : null,
+                'mail_used_mb' => \App\Services\Mail\MailAccess::storageUsed($m),
+                'plan' => $m->user ? app(\App\Services\SubscriptionEntitlementService::class)->planFor($m->user)->slug : null,
             ]);
 
         return response()->json(['data' => [
             'organization' => ['name' => $organization->name, 'code' => $organization->code],
             'members' => $members,
         ]]);
+    }
+
+    /**
+     * The platform moves one employee's room.
+     *
+     * The same number their own Admin sets, reachable from the platform side
+     * so a company that has run out can be helped without asking them to do
+     * it themselves. Blank gives them back whatever their plan and their
+     * company's ceiling already allow.
+     */
+    public function memberStorage(Request $request, Organization $organization, string $uuid): JsonResponse
+    {
+        $data = $request->validate([
+            'storage_mb' => ['nullable', 'integer', 'min:50', 'max:10485760'],
+        ]);
+
+        $member = Member::where('organization_id', $organization->id)->where('uuid', $uuid)->firstOrFail();
+        $member->update(['mail_storage_mb' => $data['storage_mb'] ?: null]);
+
+        return response()->json([
+            'message' => $data['storage_mb'] ? 'Room updated.' : 'Back to what their plan allows.',
+            'data' => [
+                'uuid' => $member->uuid,
+                'allocated_mb' => $member->mail_storage_mb ? (int) $member->mail_storage_mb : null,
+                'storage_mb' => \App\Services\Mail\MailAccess::storageFor($member->fresh()),
+            ],
+        ]);
     }
 
     /**

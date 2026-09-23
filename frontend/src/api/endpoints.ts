@@ -254,6 +254,11 @@ export const adminBilling = {
     api.put(`/admin/plans/${slug}`, payload).then((r) => r.data),
   assignPlan: (userUuid: string, plan_slug: string, months?: number | null, note?: string) =>
     api.post(`/admin/users/${userUuid}/plan`, { plan_slug, months: months ?? null, note }).then((r) => r.data),
+  /** Raise or lower one person's room without inventing a plan for them; null = back to their plan. */
+  setStorage: (userUuid: string, gb: number | null, note?: string) =>
+    api.put<{ message: string; data: { limit_bytes: number | null; used_bytes: number; override_bytes: number | null } }>(
+      `/admin/users/${userUuid}/storage`, { gb, note },
+    ).then((r) => r.data),
 }
 
 // --- Admin ops ---------------------------------------------------------------

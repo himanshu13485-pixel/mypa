@@ -741,6 +741,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::put('/settings', [AdminUserController::class, 'updateSettings']);
             Route::get('/plans', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'index']);
             Route::put('/plans/{plan}', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'update']);
+            // One person's room, moved without inventing a plan for them.
+            Route::put('/users/{user}/storage', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'storage']);
             Route::post('/users/{user}/plan', [\App\Http\Controllers\Api\V1\Admin\PlanController::class, 'assign']);
             Route::get('/roles', [RoleController::class, 'roles']);
             Route::get('/permissions', [RoleController::class, 'permissions']);
@@ -1646,6 +1648,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
             Route::put('/organizations/{organization}', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'update']);
             Route::delete('/organizations/{organization}', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'destroy']);
             Route::get('/organizations/{organization}/members', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'members']);
+            Route::put('/organizations/{organization}/members/{uuid}/storage', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'memberStorage']);
             Route::post('/organizations/{organization}/enter', [\App\Http\Controllers\Api\V1\Crm\OrganizationAdminController::class, 'enter']);
             // DCW approvals across every company.
             Route::get('/field-requests', [\App\Http\Controllers\Api\V1\Crm\CustomFieldController::class, 'pending']);

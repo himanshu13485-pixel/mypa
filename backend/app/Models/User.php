@@ -21,6 +21,7 @@ class User extends Authenticatable implements MustVerifyEmail
     use HasApiTokens, HasFactory, HasUuids, Notifiable, SoftDeletes;
 
     protected $fillable = [
+        'storage_override_bytes', 'storage_override_note',
         'name',
         'username',
         'email',

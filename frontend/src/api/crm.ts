@@ -3591,10 +3591,17 @@ export const crm = {
       api.post<{ message: string; data: { organization_uuid: string; organization_slug: string } }>(`/admin/crm/organizations/${uuid}/enter`).then((r) => r.data),
     members: (uuid: string) =>
       api.get<{ data: { organization: { name: string; code: string }; members: {
-        name: string | null; email: string | null; employee_code: string | null; crm_role: string
+        uuid: string; name: string | null; email: string | null; employee_code: string | null; crm_role: string
         department: string | null; designation: string | null; reports_to: string | null
         status: string; joined_at: string | null
+        /** Room for their mail: what applies, what their Admin gave them, what it uses. */
+        storage_mb: number | null; allocated_mb: number | null; mail_used_mb: number; plan: string | null
       }[] } }>(`/admin/crm/organizations/${uuid}/members`).then((r) => r.data.data),
+    /** The platform moves one employee's share; null gives it back to their plan. */
+    memberStorage: (orgUuid: string, memberUuid: string, storage_mb: number | null) =>
+      api.put<{ message: string; data: { uuid: string; allocated_mb: number | null; storage_mb: number | null } }>(
+        `/admin/crm/organizations/${orgUuid}/members/${memberUuid}/storage`, { storage_mb },
+      ).then((r) => r.data),
   },
 }
 
