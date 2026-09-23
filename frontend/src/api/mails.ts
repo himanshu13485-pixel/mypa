@@ -107,12 +107,6 @@ export interface MailDnsResult {
   checked_at: string
 }
 
-export interface MailShare {
-  uuid: string
-  name: string | null
-  can_send: boolean
-}
-
 export interface MailPerson {
   uuid: string
   name: string | null
@@ -155,8 +149,8 @@ export interface MailAccountInfo {
   status: string
   /** A short badge the Admin writes, e.g. "Reports" or "Support desk". */
   tag: string | null
-  is_shared: boolean
-  shared_with: MailShare[]
+  /** Colleagues who hold the same address as a mailbox of their own. */
+  also_held_by: string[]
   daily_cap: number | null
   sent_today: number
   sends_left: number | null
@@ -279,7 +273,8 @@ export interface MailTeamMailbox {
   label: string | null
   owner: string | null
   owner_uuid: string | null
-  shared_with: string[]
+  /** Everybody who holds a copy of this address, including its first owner. */
+  held_by: string[]
 }
 
 export interface MailListPage {
@@ -358,7 +353,7 @@ export const mails = {
   sendNow: (uuid: string) => api.post<{ message: string }>(`${base}/messages/${uuid}/send-now`).then((r) => r.data),
 
   accounts: () =>
-    api.get<{ data: MailAccountInfo[]; limit: number; used: number; shared_count: number; is_admin: boolean; providers: MailProvider[]; people: MailPerson[] }>(`${base}/accounts`)
+    api.get<{ data: MailAccountInfo[]; limit: number; used: number; is_admin: boolean; providers: MailProvider[]; people: MailPerson[] }>(`${base}/accounts`)
       .then((r) => r.data),
   addAccount: (body: Record<string, unknown>) =>
     api.post<{ message: string; data: MailAccountInfo }>(`${base}/accounts`, body).then((r) => r.data),
@@ -374,6 +369,9 @@ export const mails = {
     api.post<{ data: { ok: boolean; message: string } }>(`${base}/accounts/${uuid}/test-email`, { to }).then((r) => r.data.data),
   checkDns: (uuid: string, selector?: string) =>
     api.post<{ data: MailDnsResult }>(`${base}/accounts/${uuid}/dns`, { selector }).then((r) => r.data.data),
+  /** Give somebody their own copy of a mailbox, or take their copy back. */
+  giveMailbox: (uuid: string, member: string, revoke = false) =>
+    api.post<{ message: string }>(`${base}/accounts/${uuid}/give`, { member, revoke }).then((r) => r.data),
   replicate: (uuid: string, body: Record<string, unknown>) =>
     api.post<{ message: string; data: MailAccountInfo }>(`${base}/accounts/${uuid}/replicate`, body).then((r) => r.data),
   testAccount: (uuid: string) =>

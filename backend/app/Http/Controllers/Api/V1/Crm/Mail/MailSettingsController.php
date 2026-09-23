@@ -83,22 +83,25 @@ class MailSettingsController extends Controller
             ])->values();
 
         /*
-         * Every mailbox in the company, and who may open it.
+         * Every address the company has, and who holds a copy of it.
          *
-         * Sharing is decided here rather than inside each mailbox's own
-         * settings: access is a question about people, and the Admin wants to
-         * see all of it at once rather than opening six dialogs.
+         * A mailbox given to three people is three mailboxes - one each,
+         * theirs to correct - all pointing at the same address on the same
+         * server. Grouped by address here so the Admin sees who has what
+         * without opening six dialogs.
          */
         $mailboxes = MailAccount::where('organization_id', $me->organization_id)
-            ->with(['member.user:id,name,email', 'sharedMembers:id,uuid'])
-            ->orderBy('email')->get()
-            ->map(fn (MailAccount $a) => [
-                'uuid' => $a->uuid,
-                'email' => $a->email,
-                'label' => $a->label,
-                'owner' => $a->member?->user?->name ?: $a->member?->user?->email,
-                'owner_uuid' => $a->member?->uuid,
-                'shared_with' => $a->sharedMembers->pluck('uuid')->all(),
+            ->with('member.user:id,name,email')
+            ->orderBy('email')->orderBy('id')->get()
+            ->groupBy(fn (MailAccount $a) => mb_strtolower((string) $a->email))
+            ->map(fn ($copies, $email) => [
+                // The first one made is the one others are copied from.
+                'uuid' => $copies->first()->uuid,
+                'email' => $copies->first()->email,
+                'label' => $copies->first()->label,
+                'owner' => $copies->first()->member?->user?->name ?: $copies->first()->member?->user?->email,
+                'owner_uuid' => $copies->first()->member?->uuid,
+                'held_by' => $copies->map(fn (MailAccount $a) => $a->member?->uuid)->filter()->values()->all(),
             ])->values();
 
         return response()->json(['data' => $members, 'cap' => $cap, 'mailboxes' => $mailboxes]);

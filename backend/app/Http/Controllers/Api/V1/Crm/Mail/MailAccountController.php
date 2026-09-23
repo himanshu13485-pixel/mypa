@@ -14,7 +14,6 @@ use App\Services\Mail\MailDns;
 use App\Services\Mail\MailSync;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\Rule;
@@ -47,7 +46,7 @@ class MailAccountController extends Controller
         $me = $this->member($request);
 
         return response()->json([
-            'data' => MailAccount::for($me)->with(['sharedMembers.user:id,name,email', 'member.user:id,name,email'])
+            'data' => MailAccount::for($me)->with('member.user:id,name,email')
                 ->orderByDesc('is_default')->orderBy('id')->get()
                 ->map(fn (MailAccount $a) => $a->serialize($me) + [
                     'is_mine' => $a->member_id === $me->id,
@@ -58,7 +57,6 @@ class MailAccountController extends Controller
                 ])->values(),
             'limit' => MailAccess::limitFor($me),
             'used' => MailAccount::for($me)->count(),
-            'shared_count' => MailAccount::for($me)->where('member_id', '!=', $me->id)->count(),
             'is_admin' => $me->crm_role === 'admin',
             'providers' => collect(MailAccount::PROVIDERS)->map(fn ($p, $key) => ['key' => $key] + $p)->values(),
             'people' => $me->crm_role === 'admin' ? $this->people($me) : [],
@@ -93,10 +91,6 @@ class MailAccountController extends Controller
             'is_default' => $first,
         ]);
 
-        if ($admin) {
-            $this->share($me, $account, (array) $request->input('shared_with', []));
-        }
-
         // Straight into the queue, so the inbox is filling by the time the dialog closes.
         if ($account->canReceive()) {
             SyncMailAccount::dispatch($account->id);
@@ -104,52 +98,14 @@ class MailAccountController extends Controller
 
         ActivityLog::record($me, $me->organization_id, 'mail_account.added', $account, ['email' => $account->email, 'for' => $owner->user?->email]);
 
-        return response()->json(['message' => 'Mailbox added.', 'data' => $account->fresh(['sharedMembers.user'])->serialize()], 201);
+        return response()->json(['message' => 'Mailbox added.', 'data' => $account->fresh()->serialize()], 201);
     }
 
     public function update(Request $request, MailAccount $account): JsonResponse
     {
         $me = $this->reachable($request, $account);
 
-        /*
-         * Somebody the mailbox is shared with edits their own side of it -
-         * their signature, and whether they write from it by default.
-         *
-         * Not its servers or its password: one person changing those would
-         * break the mailbox for everybody else on it, and a password changed
-         * here would lock the rest out.
-         */
-        if (! $this->mayManage($me, $account)) {
-            $mine = $request->validate([
-                'signature_html' => ['nullable', 'string', 'max:20000'],
-                'is_default' => ['boolean'],
-            ]);
-
-            $pivot = array_filter([
-                'signature_html' => array_key_exists('signature_html', $mine) ? $mine['signature_html'] : null,
-            ], fn ($v) => $v !== null);
-            if ($request->has('is_default')) {
-                $pivot['is_default'] = $request->boolean('is_default');
-            }
-            abort_if($pivot === [], 403, 'Only your Admin can change this mailbox\'s servers. Your signature and default here are yours.');
-
-            $account->sharedMembers()->updateExistingPivot($me->id, $pivot);
-            if (! empty($pivot['is_default'])) {
-                // One default each, counting their own mailboxes and the
-                // shared ones alike.
-                MailAccount::ownedBy($me)->update(['is_default' => false]);
-                foreach (MailAccount::for($me)->where('member_id', '!=', $me->id)->pluck('id') as $other) {
-                    if ($other !== $account->id) {
-                        DB::table('crm_mail_account_member')->where('mail_account_id', $other)->where('member_id', $me->id)->update(['is_default' => false]);
-                    }
-                }
-            }
-
-            return response()->json([
-                'message' => 'Saved.',
-                'data' => $account->fresh(['sharedMembers.user'])->serialize($me),
-            ]);
-        }
+        abort_unless($this->mayManage($me, $account), 403, 'This mailbox belongs to somebody else.');
 
         $admin = $me->crm_role === 'admin';
         $data = $this->adminOnly($this->validated($request, false), $admin);
@@ -192,16 +148,13 @@ class MailAccountController extends Controller
         if (! empty($data['is_default'])) {
             MailAccount::where('member_id', $account->member_id)->where('id', '!=', $account->id)->update(['is_default' => false]);
         }
-        if ($admin && $request->has('shared_with')) {
-            $this->share($me, $account, (array) $request->input('shared_with', []));
-        }
         if ($reconnected && $account->canReceive()) {
             SyncMailAccount::dispatch($account->id);
         }
 
         return response()->json([
             'message' => $reconnected ? 'Mailbox reconnected. Its mail is where you left it.' : 'Mailbox saved.',
-            'data' => $account->fresh(['sharedMembers.user'])->serialize($me),
+            'data' => $account->fresh()->serialize($me),
         ]);
     }
 
@@ -392,7 +345,7 @@ class MailAccountController extends Controller
             SyncMailAccount::dispatch($copy->id);
         }
 
-        return response()->json(['message' => 'Mailbox copied.', 'data' => $copy->fresh(['sharedMembers.user'])->serialize()], 201);
+        return response()->json(['message' => 'Mailbox copied.', 'data' => $copy->fresh()->serialize()], 201);
     }
 
     /**
@@ -419,6 +372,90 @@ class MailAccountController extends Controller
             'path' => $path,
             'url' => rtrim((string) config('app.url'), '/') . Storage::disk('public')->url($path),
         ]]);
+    }
+
+    /**
+     * Give this mailbox to somebody, or take their copy back.
+     *
+     * Not a share: they get a mailbox of their own, pointing at the same
+     * address with the same sign-in, set up for them by their Admin and
+     * theirs to correct afterwards. It counts against their allowance and
+     * their room, exactly like one they added themselves.
+     *
+     * Taking it back removes their copy and the mail stored in it. The
+     * mailbox on the server, and everybody else's copy of it, are untouched.
+     */
+    public function give(Request $request, MailAccount $account): JsonResponse
+    {
+        $me = $this->reachable($request, $account);
+        abort_unless($me->crm_role === 'admin', 403, 'Only your Company Admin can give a mailbox to somebody.');
+
+        $data = $request->validate([
+            'member' => ['required', 'uuid'],
+            'revoke' => ['boolean'],
+        ]);
+
+        $person = $this->personIn($me, $data['member']);
+        $held = MailAccount::ownedBy($person)
+            ->whereRaw('LOWER(email) = ?', [mb_strtolower((string) $account->email)])
+            ->first();
+
+        if ($request->boolean('revoke')) {
+            if ($held) {
+                abort_if($held->id === $account->id && $account->member_id === $person->id && $this->onlyCopy($account),
+                    422, 'This is the only copy of the mailbox. Remove it from the Mailboxes screen instead.');
+
+                $held->delete();
+                ActivityLog::record($me, $me->organization_id, 'mail_account.taken_back', $account, [
+                    'email' => $account->email, 'from' => $person->user?->email,
+                ]);
+            }
+
+            return response()->json(['message' => ($person->user?->name ?: 'They') . ' no longer has ' . $account->email . '.']);
+        }
+
+        if ($held) {
+            return response()->json(['message' => ($person->user?->name ?: 'They') . ' already has ' . $account->email . '.']);
+        }
+
+        $limit = MailAccess::limitFor($person);
+        abort_if(MailAccount::for($person)->count() >= $limit, 422,
+            ($person->user?->name ?: 'That person') . " already holds {$limit} mailbox" . ($limit === 1 ? '' : 'es') . ' - raise their allowance first.');
+
+        $copy = $account->replicate(['uuid', 'sync_state', 'last_synced_at', 'last_error', 'sent_today', 'cap_date', 'detached_at']);
+        $copy->fill([
+            'member_id' => $person->id,
+            'created_by_member_id' => $me->id,
+            'is_default' => ! MailAccount::ownedBy($person)->exists(),
+            'is_shared' => false,
+            'status' => 'active',
+            // The signature is the one thing that should not be copied: a
+            // reply from this mailbox is signed by whoever wrote it.
+            'signature_html' => null,
+            'signature_reply_html' => null,
+        ]);
+        $copy->save();
+
+        if ($copy->canReceive()) {
+            SyncMailAccount::dispatch($copy->id);
+        }
+
+        ActivityLog::record($me, $me->organization_id, 'mail_account.given', $copy, [
+            'email' => $copy->email, 'to' => $person->user?->email,
+        ]);
+
+        return response()->json([
+            'message' => ($person->user?->name ?: 'They') . ' now has ' . $account->email . ', as a mailbox of their own.',
+            'data' => $copy->fresh()->serialize($me),
+        ]);
+    }
+
+    /** Is this the last row in the company pointing at that address? */
+    private function onlyCopy(MailAccount $account): bool
+    {
+        return MailAccount::where('organization_id', $account->organization_id)
+            ->whereRaw('LOWER(email) = ?', [mb_strtolower((string) $account->email)])
+            ->count() <= 1;
     }
 
     /** Bring it up to date now, rather than at the next five minutes. */
@@ -476,10 +513,8 @@ class MailAccountController extends Controller
             'daily_cap' => ['nullable', 'integer', 'between:1,100000'],
             'dkim_selector' => ['nullable', 'string', 'max:120'],
             'verify_cert' => ['boolean'],
-            'shared_with' => ['array'],
-            'shared_with.*' => ['uuid'],
             'member' => ['nullable', 'uuid'],
-        ]))->except(['shared_with', 'member'])->all();
+        ]))->except(['member'])->all();
     }
 
     /** The fields only a Company Admin may set, dropped for everybody else. */
@@ -490,17 +525,6 @@ class MailAccountController extends Controller
         }
 
         return $data;
-    }
-
-    /** Who else may open this mailbox. Named people only, this company only. */
-    private function share(Member $admin, MailAccount $account, array $uuids): void
-    {
-        $ids = Member::where('organization_id', $admin->organization_id)
-            ->whereIn('uuid', $uuids)->where('id', '!=', $account->member_id)
-            ->pluck('id')->all();
-
-        $account->sharedMembers()->sync($ids);
-        $account->forceFill(['is_shared' => count($ids) > 0])->save();
     }
 
     /** Everybody who could be given a mailbox - for the Admin's pickers. */
@@ -535,12 +559,11 @@ class MailAccountController extends Controller
         return Member::where('organization_id', $me->organization_id)->where('uuid', $uuid)->firstOrFail();
     }
 
-    /** Reachable at all: mine, shared with me, or - for an Admin - my company's. */
+    /** Reachable at all: mine, or - for an Admin - my company's. */
     private function reachable(Request $request, MailAccount $account): Member
     {
         $me = $this->member($request);
         $mine = $account->member_id === $me->id
-            || $account->sharedMembers()->where('crm_members.id', $me->id)->exists()
             || ($me->crm_role === 'admin' && $account->organization_id === $me->organization_id);
 
         abort_unless($mine, 404);

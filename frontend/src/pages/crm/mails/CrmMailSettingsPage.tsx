@@ -727,24 +727,29 @@ function TeamTab() {
 }
 
 /**
- * Who opens which mailbox.
+ * Who has which mailbox.
  *
- * Sharing decided in one place rather than inside each mailbox's own
- * settings: a company mailbox - sales@, accounts@ - is read by whoever is
- * ticked here, and they can answer from it without being able to change,
- * share or delete it.
+ * Giving somebody a mailbox does not lend them yours: they get one of their
+ * own, pointing at the same address with the same sign-in, set up for them
+ * here and theirs to correct afterwards. It counts against their allowance
+ * and their room, like any mailbox they added themselves.
  */
 function MailboxAccess({ mailboxes, people }: { mailboxes: MailTeamMailbox[]; people: MailTeamRow[] }) {
   const queryClient = useQueryClient()
   const { toast, toastError } = useToast()
   const [busy, setBusy] = useState<string | null>(null)
 
-  const share = async (box: MailTeamMailbox, uuid: string, on: boolean) => {
-    setBusy(box.uuid)
-    const next = on ? [...box.shared_with, uuid] : box.shared_with.filter((u) => u !== uuid)
+  const give = async (box: MailTeamMailbox, person: MailTeamRow, wanted: boolean) => {
+    const who = person.name || person.email
+    if (!wanted && !window.confirm(
+      `Take ${box.email} back from ${who}?\n\n`
+      + 'Their copy and the mail stored in it are removed. The mailbox on the server, and everybody else\u2019s copy of it, are untouched.',
+    )) return
+
+    setBusy(box.uuid + person.uuid)
     try {
-      await mails.saveAccount(box.uuid, { shared_with: next })
-      toast(on ? 'Access given.' : 'Access removed.', 'success')
+      const res = await mails.giveMailbox(box.uuid, person.uuid, !wanted)
+      toast(res.message, 'success')
       queryClient.invalidateQueries({ queryKey: ['mails'] })
     } catch (err) {
       toastError(errorMessage(err))
@@ -756,10 +761,10 @@ function MailboxAccess({ mailboxes, people }: { mailboxes: MailTeamMailbox[]; pe
   return (
     <div className={clsx(card, 'space-y-3')}>
       <div>
-        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Mailbox access</h3>
+        <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-100">Company mailboxes</h3>
         <p className="text-sm text-slate-500">
-          Everybody ticked reads and answers from that mailbox. They cannot change its settings, share it, or delete it -
-          and its owner keeps it whatever you tick.
+          Tick somebody to give them the mailbox. They get their own copy of it - the same address, set up for them,
+          which they can edit and sign in their own name. Unticking removes their copy and the mail in it.
         </p>
       </div>
 
@@ -770,22 +775,34 @@ function MailboxAccess({ mailboxes, people }: { mailboxes: MailTeamMailbox[]; pe
           <p className="text-sm font-medium text-slate-800 dark:text-slate-100">
             {box.label || box.email}
             <span className="ml-2 font-normal text-slate-500">{box.email}</span>
-            {box.owner && <span className="ml-2 text-xs text-slate-400">owner: {box.owner}</span>}
+            <span className="ml-2 text-xs text-slate-400">
+              {box.held_by.length} {box.held_by.length === 1 ? 'person has it' : 'people have it'}
+            </span>
           </p>
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1.5">
-            {people.filter((p) => p.uuid !== box.owner_uuid).map((p) => (
-              <label key={p.uuid} className="flex items-center gap-1.5 text-sm">
-                <input
-                  type="checkbox"
-                  disabled={busy === box.uuid || !p.has_mails}
-                  checked={box.shared_with.includes(p.uuid)}
-                  onChange={(e) => share(box, p.uuid, e.target.checked)}
-                />
-                <span className={clsx(!p.has_mails && 'text-slate-400')}>
-                  {p.name || p.email}{!p.has_mails && ' (no Mails yet)'}
-                </span>
-              </label>
-            ))}
+            {people.map((p) => {
+              const has = box.held_by.includes(p.uuid)
+              const isFirstOwner = p.uuid === box.owner_uuid
+
+              return (
+                <label key={p.uuid} className="flex items-center gap-1.5 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={has}
+                    /* The one it was set up for keeps it: taking that copy away
+                       is removing the mailbox itself, which belongs on the
+                       Mailboxes screen where it can be said properly. */
+                    disabled={busy !== null || isFirstOwner || (!has && !p.has_mails)}
+                    onChange={(e) => give(box, p, e.target.checked)}
+                  />
+                  <span className={clsx(!p.has_mails && !has && 'text-slate-400')}>
+                    {p.name || p.email}
+                    {isFirstOwner && <span className="text-xs text-slate-400"> (set up for them)</span>}
+                    {!p.has_mails && !has && <span className="text-xs"> (no Mails yet)</span>}
+                  </span>
+                </label>
+              )
+            })}
           </div>
         </div>
       ))}

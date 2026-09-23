@@ -804,6 +804,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                     Route::post('/accounts/{account}/test-email', [$mail . 'MailAccountController', 'testEmail'])->middleware('throttle:mail-connect');
                     Route::post('/accounts/{account}/dns', [$mail . 'MailAccountController', 'dns'])->middleware('throttle:mail-connect');
                     Route::post('/accounts/{account}/replicate', [$mail . 'MailAccountController', 'replicate']);
+                    Route::post('/accounts/{account}/give', [$mail . 'MailAccountController', 'give']);
                     Route::post('/accounts/{account}/signature-image', [$mail . 'MailAccountController', 'signatureImage']);
                     Route::post('/accounts/{account}/forwards', [$mail . 'MailForwardController', 'store'])->middleware('throttle:mail-connect');
                     Route::post('/accounts/{account}/forwards/verify', [$mail . 'MailForwardController', 'verify'])->middleware('throttle:mail-connect');

@@ -133,14 +133,15 @@ class MailAccount extends Model
     }
 
     /**
-     * Every mailbox this person may open: the ones they own, and the shared
-     * ones they were let into. The one question every Mails screen asks.
+     * Every mailbox this person may open - which is every mailbox of theirs.
+     *
+     * A company mailbox given to three people is three mailboxes, one each,
+     * pointing at the same address: nobody reads through somebody else's
+     * row, so this is simply "mine".
      */
     public function scopeFor(Builder $query, Member $member): Builder
     {
-        return $query->where(fn (Builder $q) => $q
-            ->where('member_id', $member->id)
-            ->orWhereHas('sharedMembers', fn (Builder $s) => $s->where('crm_members.id', $member->id)));
+        return $query->where('member_id', $member->id);
     }
 
     /** Only the owner's own mailboxes count against their allowance. */
@@ -223,19 +224,9 @@ class MailAccount extends Model
         return ['address' => $this->email, 'name' => $this->from_name ?: $this->email];
     }
 
-    /**
-     * The mailbox as one person sees it.
-     *
-     * Somebody the mailbox is shared with sees their own signature and their
-     * own default rather than its owner's, because a reply from a shared desk
-     * should be signed by whoever wrote it.
-     */
+    /** The mailbox as its owner sees it. */
     public function serialize(?Member $viewer = null): array
     {
-        $share = $viewer && $viewer->id !== $this->member_id
-            ? $this->sharedMembers->firstWhere('id', $viewer->id)?->pivot
-            : null;
-
         return [
             'uuid' => $this->uuid,
             'label' => $this->label,
@@ -253,8 +244,8 @@ class MailAccount extends Model
             'smtp_encryption' => $this->smtp_encryption,
             'smtp_username' => $this->smtp_username,
             'has_smtp_password' => filled($this->smtp_password),
-            'signature_html' => $share ? $share->signature_html : $this->signature_html,
-            'signature_reply_html' => $share ? null : $this->signature_reply_html,
+            'signature_html' => $this->signature_html,
+            'signature_reply_html' => $this->signature_reply_html,
             'signature_on' => $this->signature_on ?: 'all',
             'signature_before_quote' => $this->signature_before_quote === null ? true : (bool) $this->signature_before_quote,
             // Addresses, and whether each has proved it wants the mail. The
@@ -266,13 +257,21 @@ class MailAccount extends Model
             ])->values()->all(),
             'auto_reply' => $this->auto_reply ?: ['enabled' => false],
             'forward_to' => $this->forward_to,
-            'is_default' => $share ? (bool) $share->is_default : (bool) $this->is_default,
+            'is_default' => (bool) $this->is_default,
             'can_receive' => $this->canReceive(),
             'can_send' => $this->canSend(),
             'last_synced_at' => $this->last_synced_at?->toIso8601String(),
             'last_error' => $this->last_error,
             'status' => $this->detached_at ? 'detached' : $this->status,
-            'is_shared' => (bool) $this->is_shared,
+            // Everybody who holds this address, so a company mailbox can
+            // say so without pretending anybody is borrowing it.
+            'also_held_by' => self::where('organization_id', $this->organization_id)
+                ->whereRaw('LOWER(email) = ?', [mb_strtolower((string) $this->email)])
+                ->where('id', '!=', $this->id)
+                ->with('member.user:id,name,email')
+                ->get()
+                ->map(fn (self $a) => $a->member?->user?->name ?: $a->member?->user?->email)
+                ->filter()->values()->all(),
             'tag' => $this->tag,
             'daily_cap' => $this->daily_cap,
             'sent_today' => $this->cap_date?->toDateString() === now()->toDateString() ? $this->sent_today : 0,
@@ -282,13 +281,6 @@ class MailAccount extends Model
             'dns' => $this->dns,
             'detached_at' => $this->detached_at?->toIso8601String(),
             'created_by_admin' => (bool) $this->created_by_member_id,
-            'shared_with' => $this->relationLoaded('sharedMembers')
-                ? $this->sharedMembers->map(fn (Member $m) => [
-                    'uuid' => $m->uuid,
-                    'name' => $m->user?->name ?: $m->user?->email,
-                    'can_send' => (bool) ($m->pivot->can_send ?? true),
-                ])->values()->all()
-                : [],
         ];
     }
 }
