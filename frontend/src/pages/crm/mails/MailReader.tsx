@@ -13,6 +13,10 @@ import MailFrame from './MailFrame'
 import { useComposer } from './composeStore'
 import { fullDate, sizeLabel, who } from './mailUtils'
 
+/** "Kunal Chaudhari <kunal@bcg.com>, hema@bcg.com" - names kept beside addresses. */
+const addressList = (people: { email: string; name?: string | null }[]): string =>
+  people.map((a) => (a.name ? `${a.name} <${a.email}>` : a.email)).join(', ')
+
 const initials = (s: string) => s.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || '?'
 
 /** Download an attachment through the signed-in API, not a bare link that carries no token. */
@@ -191,10 +195,17 @@ function ThreadItem({ mail, open, onToggle, prefs, onReply }: {
             <span className="ml-auto shrink-0 text-xs text-slate-400">{fullDate(mail.date)}</span>
           </span>
           {open ? (
-            <span className="block truncate text-xs text-slate-500">
-              to {mail.to.map((a) => who(a)).join(', ') || '(no recipients)'}
-              {mail.cc.length > 0 && <> · cc {mail.cc.map((a) => who(a)).join(', ')}</>}
-              {mail.bcc.length > 0 && <> · bcc {mail.bcc.map((a) => who(a)).join(', ')}</>}
+            /*
+             * Names with their addresses, the way a mail program shows them.
+             *
+             * "to Kunal, Hema, Rahul" hides which Kunal and which Rahul -
+             * and on a forwarded thread that is exactly what somebody needs
+             * to check before they reply to all.
+             */
+            <span className="block text-xs text-slate-500">
+              <span className="block">to {addressList(mail.to) || '(no recipients)'}</span>
+              {mail.cc.length > 0 && <span className="block">cc {addressList(mail.cc)}</span>}
+              {mail.bcc.length > 0 && <span className="block">bcc {addressList(mail.bcc)}</span>}
             </span>
           ) : (
             <span className="block truncate text-xs text-slate-500">{mail.snippet}</span>

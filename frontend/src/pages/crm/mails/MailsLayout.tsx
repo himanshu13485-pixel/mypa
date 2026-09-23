@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Archive, Clock, FileEdit, Inbox, LayoutDashboard, Mail, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PenSquare, Send, Settings2, ShieldAlert, Star, Tag, Trash2, Upload, Users,
+  Archive, Clock, Contact, FileEdit, Inbox, LayoutDashboard, Mail, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PenSquare, Send, Settings2, ShieldAlert, Star, Tag, Trash2, Upload, Users,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crmMeQuery } from '../../../api/crm'
@@ -241,6 +241,9 @@ export default function MailsLayout() {
           <NavLink to={crmPath('/crm/mails/labels')} className={({ isActive }) => clsx(railLink(isActive), 'mt-3')}>
             <Tag className="size-4" /> Manage labels
           </NavLink>
+          <NavLink to={crmPath('/crm/mails/addresses')} className={({ isActive }) => railLink(isActive)}>
+            <Contact className="size-4" /> Addresses
+          </NavLink>
           <NavLink to={crmPath('/crm/mails/settings')} className={({ isActive }) => railLink(isActive)}>
             <Settings2 className="size-4" /> Settings
           </NavLink>
@@ -334,6 +337,9 @@ export default function MailsLayout() {
                 ))}
                 <NavLink to={crmPath('/crm/mails/labels')} className={({ isActive }) => railLink(isActive)} onClick={() => setMoreOpen(false)}>
                   <Tag className="size-4" /> <span className="flex-1">Manage labels</span>
+                </NavLink>
+                <NavLink to={crmPath('/crm/mails/addresses')} className={({ isActive }) => railLink(isActive)} onClick={() => setMoreOpen(false)}>
+                  <Contact className="size-4" /> <span className="flex-1">Addresses</span>
                 </NavLink>
                 <NavLink to={crmPath('/crm/mails/settings')} className={({ isActive }) => railLink(isActive)} onClick={() => setMoreOpen(false)}>
                   <Settings2 className="size-4" /> <span className="flex-1">Mail settings</span>

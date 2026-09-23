@@ -277,6 +277,21 @@ export interface MailTeamMailbox {
   held_by: string[]
 }
 
+/** Somebody this person has written to, or heard from. */
+export interface MailContact {
+  uuid: string
+  email: string
+  name: string | null
+  /** "Kunal Chaudhari <kunal@bcg.com>" - what an address field accepts back. */
+  label: string
+  name_is_mine: boolean
+  sent_count: number
+  received_count: number
+  last_used_at: string | null
+  is_blocked: boolean
+  note: string | null
+}
+
 export interface MailListPage {
   data: MailSummary[]
   current_page: number
@@ -392,6 +407,16 @@ export const mails = {
 
     return api.post<{ data: { path: string; url: string } }>(`${base}/accounts/${uuid}/signature-image`, form).then((r) => r.data.data)
   },
+
+  contacts: (params: { q?: string; suggest?: boolean } = {}) =>
+    api.get<{ data: MailContact[]; total: number }>(`${base}/contacts`, {
+      params: { q: params.q || undefined, suggest: params.suggest ? 1 : undefined },
+    }).then((r) => r.data),
+  addContact: (body: { email: string; name?: string; note?: string }) =>
+    api.post<{ message: string; data: MailContact }>(`${base}/contacts`, body).then((r) => r.data),
+  saveContact: (uuid: string, body: { name?: string | null; note?: string | null; is_blocked?: boolean }) =>
+    api.put<{ message: string; data: MailContact }>(`${base}/contacts/${uuid}`, body).then((r) => r.data),
+  removeContact: (uuid: string) => api.delete<{ message: string }>(`${base}/contacts/${uuid}`).then((r) => r.data),
 
   labels: () => api.get<{ data: MailLabelTag[] }>(`${base}/labels`).then((r) => r.data.data),
   addLabel: (name: string, color: string) =>

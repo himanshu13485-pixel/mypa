@@ -817,6 +817,11 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                     Route::get('/backups/{account}/export', [$mail . 'MailBackupController', 'export']);
                     Route::post('/backups/{account}/import', [$mail . 'MailBackupController', 'import'])->middleware('throttle:mail-connect');
 
+                    Route::get('/contacts', [$mail . 'MailContactController', 'index']);
+                    Route::post('/contacts', [$mail . 'MailContactController', 'store']);
+                    Route::put('/contacts/{uuid}', [$mail . 'MailContactController', 'update']);
+                    Route::delete('/contacts/{uuid}', [$mail . 'MailContactController', 'destroy']);
+
                     Route::get('/labels', [$mail . 'MailLabelController', 'index']);
                     Route::post('/labels', [$mail . 'MailLabelController', 'store']);
                     Route::put('/labels/{uuid}', [$mail . 'MailLabelController', 'update']);

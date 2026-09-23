@@ -129,8 +129,33 @@ class MailComposeController extends Controller
             return response()->json(['message' => 'Draft saved.', 'data' => $message->fresh(['account', 'labels'])->summary()]);
         }
 
+        /*
+         * Everybody written to is worth remembering.
+         *
+         * Names and addresses are typed once and then suggested for ever
+         * after - which is the difference between an address book and a
+         * pile of mail somebody has to search through to find an address
+         * they have used twenty times.
+         */
+        if ($data['action'] !== 'draft') {
+            foreach ([...$to, ...$cc, ...$bcc] as $person) {
+                \App\Models\Crm\MailContact::remember($me, (string) ($person['email'] ?? ''), $person['name'] ?? null, true);
+            }
+        }
+
         if ($data['action'] === 'schedule') {
-            $when = Carbon::parse($data['scheduled_for']);
+            /*
+             * Into this application's own timezone before it is stored.
+             *
+             * The browser sends the moment as UTC, and Eloquent writes a
+             * Carbon out in whatever zone it is carrying - so a UTC one was
+             * stored as UTC digits in a column every comparison reads as
+             * local time. A mail scheduled for midnight was written down as
+             * half past six the previous evening: already past, so it went
+             * out at once, and the screen showed two different times for the
+             * same message.
+             */
+            $when = Carbon::parse($data['scheduled_for'])->setTimezone(config('app.timezone'));
             abort_if($when->lte(now()->addMinute()), 422, 'Pick a time at least a minute from now.');
             $message->fill(['folder' => 'scheduled', 'status' => 'queued', 'scheduled_for' => $when, 'send_after' => $when, 'error' => null])->save();
             SendMailMessage::dispatch($message->id)->delay($when);

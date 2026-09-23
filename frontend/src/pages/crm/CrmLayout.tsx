@@ -123,6 +123,8 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'Spam / Junk', icon: ShieldAlert, to: '/crm/mails/spam', mails: true },
     { label: 'Trash', icon: Trash2, to: '/crm/mails/trash', mails: true },
     { label: 'Manage labels', icon: Tag, to: '/crm/mails/labels', mails: true },
+    // Everybody this person writes to, kept as the mail goes by.
+    { label: 'Addresses', icon: Contact, to: '/crm/mails/addresses', mails: true },
     // How a Company Admin gives Mails to their people - a line in the menu,
     // not a tab somebody has to go looking for.
     { label: 'Team access', icon: Users, to: '/crm/mails/team', mails: true, adminOnly: true },

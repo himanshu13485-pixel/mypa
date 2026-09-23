@@ -829,6 +829,155 @@ class MailsTest extends TestCase
         $this->assertNotNull($kept->fresh(), 'archived mail is never swept');
     }
 
+    /**
+     * A time picked in the browser is the time it goes.
+     *
+     * The browser sends the moment as UTC and this application keeps its
+     * clock in Asia/Kolkata, so a mail scheduled for midnight was written
+     * down as half past six the previous evening: already past, so it went
+     * out at once, and the screen showed two different times for the one
+     * message.
+     */
+    public function test_a_scheduled_mail_waits_for_the_time_that_was_picked(): void
+    {
+        Queue::fake();
+        $box = $this->mailbox($this->admin);
+
+        // Two hours from now, said the way a browser says it.
+        $when = now()->addHours(2);
+        $sent = $this->actingAs($this->adminUser)->post('/api/v1/crm/mails/compose', [
+            'action' => 'schedule', 'account' => $box->uuid, 'to' => ['them@client.test'],
+            'subject' => 'Monday morning', 'body_html' => '<p>hello</p>',
+            'scheduled_for' => $when->copy()->utc()->toIso8601String(),
+        ])->assertOk()->json('data');
+
+        $message = MailMessage::where('uuid', $sent['uuid'])->firstOrFail();
+
+        $this->assertSame('scheduled', $message->folder);
+        $this->assertSame(
+            $when->format('Y-m-d H:i'),
+            $message->scheduled_for->format('Y-m-d H:i'),
+            'the moment stored is the moment picked',
+        );
+        $this->assertTrue($message->send_after->isFuture(), 'and it is still in the future');
+
+        /*
+         * Scheduling queues one delayed job of its own; what matters is that
+         * the every-minute sweep adds nothing until the time comes.
+         */
+        $queued = fn () => Queue::pushed(\App\Jobs\SendMailMessage::class)->count();
+        $atSchedule = $queued();
+
+        $this->artisan('mails:tick dispatch')->assertSuccessful();
+        $this->assertSame($atSchedule, $queued(), 'the sweep leaves it alone until its time');
+
+        $this->travelTo($when->copy()->addMinute());
+        $this->artisan('mails:tick dispatch')->assertSuccessful();
+        $this->assertSame($atSchedule + 1, $queued(), 'and picks it up once the time has come');
+        $this->travelBack();
+    }
+
+    /**
+     * The copy the server keeps of what we sent is the same mail.
+     *
+     * We write our own Message-ID as <id@domain> and a server hands the same
+     * one back bare, so the two did not match and everything sent from here
+     * appeared twice in Sent the moment its server copy was read.
+     */
+    public function test_the_servers_copy_of_a_sent_mail_is_not_a_second_mail(): void
+    {
+        $box = $this->mailbox($this->admin);
+
+        $ours = MailMessage::create([
+            'organization_id' => $this->org->id, 'mail_account_id' => $box->id, 'folder' => 'sent',
+            'thread_key' => 'x', 'subject' => 'Test mail-3', 'message_id' => '<abc-123@grapout.test>',
+            'from_email' => $box->email, 'to' => [['email' => 'harsh@grapmail.test']], 'date' => now(),
+        ]);
+
+        // Read back from the server's Sent folder, where it is bare.
+        $forms = \App\Services\Mail\MailSync::messageIdForms('abc-123@grapout.test');
+        $this->assertContains('<abc-123@grapout.test>', $forms);
+
+        $found = MailMessage::where('mail_account_id', $box->id)
+            ->whereIn('message_id', $forms)
+            ->where('folder', 'sent')
+            ->first();
+
+        $this->assertNotNull($found, 'the row we already have is recognised');
+        $this->assertSame($ours->id, $found->id);
+    }
+
+    // ---- The address book ------------------------------------------------------------
+
+    public function test_writing_to_somebody_remembers_them(): void
+    {
+        Queue::fake();
+        $box = $this->mailbox($this->admin);
+
+        $this->actingAs($this->adminUser)->post('/api/v1/crm/mails/compose', [
+            'action' => 'send', 'account' => $box->uuid,
+            'to' => ['Kunal Chaudhari <kunal@bcg.test>'],
+            'cc' => ['hema@bcg.test'],
+            'subject' => 'Invoice', 'body_html' => '<p>attached</p>',
+        ])->assertOk();
+
+        $book = collect($this->actingAs($this->adminUser)->getJson('/api/v1/crm/mails/contacts')->assertOk()->json('data'));
+
+        $kunal = $book->firstWhere('email', 'kunal@bcg.test');
+        $this->assertSame('Kunal Chaudhari', $kunal['name'], 'the name beside the address is kept');
+        $this->assertSame('Kunal Chaudhari <kunal@bcg.test>', $kunal['label']);
+        $this->assertSame(1, $kunal['sent_count']);
+
+        // Somebody only copied is remembered too, name or no name.
+        $this->assertNotNull($book->firstWhere('email', 'hema@bcg.test'));
+    }
+
+    public function test_a_name_somebody_typed_is_not_overruled_by_the_next_mail(): void
+    {
+        $contact = \App\Models\Crm\MailContact::remember($this->admin, 'ravi@steel.test', 'Accounts Dept', false);
+        $this->assertSame('Accounts Dept', $contact->name);
+
+        $this->actingAs($this->adminUser)->putJson("/api/v1/crm/mails/contacts/{$contact->uuid}", [
+            'name' => 'Ravi at Bharat Steel', 'note' => 'Pays on the 7th',
+        ])->assertOk();
+
+        // A later mail signs itself differently; the correction stands.
+        \App\Models\Crm\MailContact::remember($this->admin, 'ravi@steel.test', 'BHARAT STEEL BILLING', false);
+
+        $fresh = $contact->fresh();
+        $this->assertSame('Ravi at Bharat Steel', $fresh->name);
+        $this->assertSame('Pays on the 7th', $fresh->note);
+    }
+
+    public function test_suggestions_favour_whoever_is_written_to_most(): void
+    {
+        foreach (range(1, 3) as $ignored) {
+            \App\Models\Crm\MailContact::remember($this->admin, 'often@client.test', 'Often Written To', true);
+        }
+        \App\Models\Crm\MailContact::remember($this->admin, 'once@client.test', 'Heard From Once', false);
+        $blocked = \App\Models\Crm\MailContact::remember($this->admin, 'noreply@robot.test', null, false);
+        $blocked->forceFill(['is_blocked' => true])->save();
+
+        $suggested = collect($this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/mails/contacts?suggest=1&q=client')
+            ->assertOk()->json('data'));
+
+        $this->assertSame('often@client.test', $suggested->first()['email']);
+        $this->assertCount(2, $suggested);
+
+        $all = collect($this->actingAs($this->adminUser)->getJson('/api/v1/crm/mails/contacts?suggest=1')->json('data'));
+        $this->assertNotContains('noreply@robot.test', $all->pluck('email')->all(), 'a struck-off address is not suggested');
+    }
+
+    public function test_an_address_book_is_personal(): void
+    {
+        $this->giveStaffMails();
+        \App\Models\Crm\MailContact::remember($this->admin, 'private@client.test', 'Mine', true);
+
+        $theirs = $this->actingAs($this->staffUser)->getJson('/api/v1/crm/mails/contacts')->assertOk()->json('data');
+        $this->assertSame([], $theirs, "a colleague's addresses are not the company's to read");
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

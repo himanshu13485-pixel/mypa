@@ -176,8 +176,18 @@ class MailSync
          * instead of being duplicated.
          */
         if ($messageId) {
+            /*
+             * With the angle brackets and without.
+             *
+             * We write our own as <id@domain>; a server hands the same one
+             * back bare. Comparing the two as strings said "not the same
+             * mail", so a message sent from here was filed a second time the
+             * moment its copy in Sent was read back.
+             */
+            $known = self::messageIdForms($messageId);
+
             $moved = MailMessage::where('mail_account_id', $account->id)
-                ->where('message_id', mb_substr($messageId, 0, 500))
+                ->whereIn('message_id', $known)
                 ->where('folder', $folder)
                 ->where(fn ($q) => $q->whereNull('remote_folder')->orWhere('remote_folder', '!=', $path))
                 ->first();
@@ -257,6 +267,17 @@ class MailSync
                 'spam_reasons' => $verdict['reasons'] ?: null,
             ]);
 
+            /*
+             * Who wrote to us, kept with the name they signed.
+             *
+             * Only what arrives in the inbox, and only what is not suspect:
+             * our own copy in Sent would record us as our own correspondent,
+             * and spam is not an acquaintance.
+             */
+            if ($folder === 'inbox' && $account->member && ($from['email'] ?? null) && (int) $verdict['score'] < 30) {
+                \App\Models\Crm\MailContact::remember($account->member, $from['email'], $from['name'] ?? null, false);
+            }
+
             foreach ($remote->getAttachments() as $attachment) {
                 $message->attachments()->create([
                     'filename' => mb_substr((string) ($attachment->filename ?: $attachment->name ?: 'attachment'), 0, 250),
@@ -326,6 +347,18 @@ class MailSync
         } catch (Throwable $e) {
             Log::info('[mails] auto-reply failed', ['account' => $account->id, 'error' => $e->getMessage()]);
         }
+    }
+
+    /** A Message-ID as it might have been written down: bare, and bracketed. */
+    public static function messageIdForms(string $messageId): array
+    {
+        $bare = trim($messageId, '<> ');
+
+        return array_values(array_unique(array_filter([
+            mb_substr($messageId, 0, 500),
+            mb_substr($bare, 0, 500),
+            mb_substr('<' . $bare . '>', 0, 500),
+        ])));
     }
 
     private static function first($attribute): ?string

@@ -116,6 +116,7 @@ const MailsLayout = lazyRoute('MailsLayout', () => import('./pages/crm/mails/Mai
 const CrmMailsDashboard = lazyRoute('CrmMailsDashboard', () => import('./pages/crm/mails/CrmMailsDashboard'))
 const CrmMailsPage = lazyRoute('CrmMailsPage', () => import('./pages/crm/mails/CrmMailsPage'))
 const CrmMailSettingsPage = lazyRoute('CrmMailSettingsPage', () => import('./pages/crm/mails/CrmMailSettingsPage'))
+const CrmMailContactsPage = lazyRoute('CrmMailContactsPage', () => import('./pages/crm/mails/CrmMailContactsPage'))
 
 /*
  * The CRM's screens, declared once and mounted twice: under /crm/:company,
@@ -146,6 +147,7 @@ const crmScreens = (
       <Route path="settings" element={<CrmMailSettingsPage />} />
       <Route path="labels" element={<CrmMailSettingsPage />} />
       <Route path="team" element={<CrmMailSettingsPage />} />
+      <Route path="addresses" element={<CrmMailContactsPage />} />
       <Route path="label/:label" element={<CrmMailsPage />} />
       <Route path=":folder" element={<CrmMailsPage />} />
     </Route>
