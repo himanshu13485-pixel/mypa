@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Archive, ArrowLeft, ChevronDown, Code2, Download, Forward, ImageOff, Inbox, Paperclip, Printer,
-  Reply, ReplyAll, Send, ShieldAlert, Star, Tag, Trash2, Undo2,
+  Maximize2, Minimize2, Reply, ReplyAll, Send, ShieldAlert, Star, Tag, Trash2, Undo2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { mails, type MailFolder, type MailFull, type MailLabelTag, type MailPrefs } from '../../../api/mails'
@@ -190,11 +190,14 @@ function ThreadItem({ mail, open, onToggle, prefs, onReply }: {
  * An opened mail - or the whole conversation, oldest first, with the
  * newest open and the rest folded to a line each.
  */
-export default function MailReader({ uuid, folder, labels, prefs, onClose, onGone }: {
+export default function MailReader({ uuid, folder, labels, prefs, full, onToggleFull, onClose, onGone }: {
   uuid: string
   folder: MailFolder
   labels: MailLabelTag[]
   prefs: MailPrefs | undefined
+  /** Reading this one mail with the list out of the way. */
+  full?: boolean
+  onToggleFull?: () => void
   onClose: () => void
   /** The mail left this folder (moved, deleted) - the reader should close. */
   onGone: () => void
@@ -296,6 +299,11 @@ export default function MailReader({ uuid, folder, labels, prefs, onClose, onGon
           </>
         )}
         <span className="flex-1" />
+        {onToggleFull && tool(
+          full ? 'Back to the list' : 'Open this mail wide',
+          full ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />,
+          onToggleFull,
+        )}
         {tool('Print', <Printer className="size-4" />, () => window.print())}
       </div>
 

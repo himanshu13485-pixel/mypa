@@ -1,13 +1,15 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Archive, Clock, FileEdit, Inbox, LayoutDashboard, Mail, PenSquare, Send, Settings2, ShieldAlert, Star, Tag, Trash2, Upload, Users,
+  Archive, Clock, FileEdit, Inbox, LayoutDashboard, Mail, PanelLeftClose, PanelLeftOpen, PenSquare, Send, Settings2, ShieldAlert, Star, Tag, Trash2, Upload, Users,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crmMeQuery } from '../../../api/crm'
 import { mails } from '../../../api/mails'
 import { crmPath } from '../../../lib/crmPath'
+import { errorMessage } from '../../../api/client'
+import { useToast } from '../../../components/Toast'
 import { Spinner } from '../../../components/ui'
 import MailCompose, { UndoSendBar } from './MailCompose'
 import { useComposer, useMailView } from './composeStore'
@@ -40,6 +42,59 @@ const COUNTED = new Set(['inbox', 'spam', 'drafts', 'scheduled', 'outbox'])
  */
 export default function MailsLayout() {
   const location = useLocation()
+  const queryClient = useQueryClient()
+  const { toast, toastError } = useToast()
+  /*
+   * The rail folds away.
+   *
+   * A mail with a wide table in it, or a thread being read side by side
+   * with its list, wants the 224px this takes - and somebody who folds it
+   * away means it, so the choice is remembered on this machine.
+   */
+  const [railOpen, setRailOpen] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('mails.rail') !== 'closed'
+    } catch {
+      return true
+    }
+  })
+
+  const toggleRail = () => setRailOpen((open: boolean) => {
+    try {
+      window.localStorage.setItem('mails.rail', open ? 'closed' : 'open')
+    } catch { /* a private window simply forgets */ }
+
+    return !open
+  })
+
+  /**
+   * Mail dropped on a folder goes there.
+   *
+   * The same move the toolbar makes, reached the way people expect to reach
+   * it - and the whole selection travels when the row being dragged is part
+   * of one.
+   */
+  const dropOn = async (event: React.DragEvent, folder: string) => {
+    event.preventDefault()
+    const raw = event.dataTransfer.getData('application/x-netvork-mail')
+    if (!raw) return
+
+    try {
+      const { uuids, threaded } = JSON.parse(raw) as { uuids: string[]; threaded?: boolean }
+      if (!uuids?.length) return
+
+      const action = folder === 'trash' ? 'trash' : folder === 'spam' ? 'spam' : folder === 'archive' ? 'archive' : 'inbox'
+      const res = await mails.bulk(uuids, action, undefined, !!threaded)
+      toast(res.message, 'success')
+      queryClient.invalidateQueries({ queryKey: ['mails'] })
+    } catch (err) {
+      toastError(errorMessage(err))
+    }
+  }
+
+  /** Only the folders a mail can be dropped into mean anything. */
+  const takesDrops = (folder: string) => ['inbox', 'archive', 'spam', 'trash'].includes(folder)
+
   const { data: me, isLoading } = useQuery(crmMeQuery())
   const allowed = !!me?.mails?.allowed
   const { account, setAccount } = useMailView()
@@ -121,7 +176,10 @@ export default function MailsLayout() {
   return (
     <div className="flex h-full min-h-0 bg-slate-50 dark:bg-slate-950">
       {/* Folders, labels, Compose - the mail client's own rail. */}
-      <aside className="hidden w-56 shrink-0 flex-col border-r border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900 lg:flex">
+      <aside className={clsx(
+        'hidden shrink-0 flex-col border-r border-slate-200 bg-white p-3 dark:border-slate-800 dark:bg-slate-900 lg:flex',
+        railOpen ? 'w-56' : 'w-0 overflow-hidden border-r-0 p-0',
+      )}>
         <button
           type="button"
           onClick={() => openComposer({ mode: 'new', account: account === 'all' ? null : account })}
@@ -148,7 +206,13 @@ export default function MailsLayout() {
           {FOLDERS.map(({ key, icon: Icon }) => {
             const n = COUNTED.has(key) ? folderCounts[key] ?? 0 : 0
             return (
-              <NavLink key={key} to={crmPath(`/crm/mails/${key}`)} className={({ isActive }) => railLink(isActive)}>
+              <NavLink
+                key={key}
+                to={crmPath(`/crm/mails/${key}`)}
+                className={({ isActive }) => railLink(isActive)}
+                onDragOver={(e) => { if (takesDrops(key)) e.preventDefault() }}
+                onDrop={(e) => { if (takesDrops(key)) void dropOn(e, key) }}
+              >
                 <Icon className="size-4" />
                 <span className="flex-1">{FOLDER_TITLES[key]}</span>
                 {n > 0 && <span className="text-xs font-semibold tabular-nums">{n > 999 ? '999+' : n}</span>}
@@ -185,6 +249,28 @@ export default function MailsLayout() {
       </aside>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* The rail folds away for a wider read; the same button brings it back. */}
+        <div className="hidden items-center gap-2 border-b border-slate-200 bg-white px-2 py-1 dark:border-slate-800 dark:bg-slate-900 lg:flex">
+          <button
+            type="button"
+            onClick={toggleRail}
+            title={railOpen ? 'Hide the folder list' : 'Show the folder list'}
+            aria-label={railOpen ? 'Hide the folder list' : 'Show the folder list'}
+            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+          >
+            {railOpen ? <PanelLeftClose className="size-4" /> : <PanelLeftOpen className="size-4" />}
+          </button>
+          {!railOpen && (
+            <button
+              type="button"
+              onClick={() => openComposer({ mode: 'new', account: account === 'all' ? null : account })}
+              className={clsx('rounded-lg px-3 py-1 text-xs font-semibold text-white', accent.solid)}
+            >
+              Compose
+            </button>
+          )}
+        </div>
+
         {/* Phones and tablets: the same folders as a strip. */}
         <div className="scroll-pane flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900 lg:hidden">
           <NavLink to={crmPath('/crm/mails')} end className={({ isActive }) => clsx(railLink(isActive), 'shrink-0 px-2.5')}>

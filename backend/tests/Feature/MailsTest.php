@@ -806,6 +806,29 @@ class MailsTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_trash_and_spam_empty_themselves_after_a_month(): void
+    {
+        Queue::fake();
+        $box = $this->mailbox($this->admin);
+
+        $old = $this->arrived($box, 'Deleted long ago', ['folder' => 'trash']);
+        $recent = $this->arrived($box, 'Deleted yesterday', ['folder' => 'trash']);
+        $junk = $this->arrived($box, 'Old spam', ['folder' => 'spam']);
+        $kept = $this->arrived($box, 'Archived on purpose', ['folder' => 'archive']);
+
+        foreach ([$old, $junk, $kept] as $message) {
+            $message->timestamps = false;
+            $message->forceFill(['updated_at' => now()->subDays(40)])->save();
+        }
+
+        $this->artisan('mails:tick backup')->assertSuccessful();
+
+        $this->assertNull($old->fresh(), 'a month in Trash is long enough');
+        $this->assertNull($junk->fresh(), 'and in Spam');
+        $this->assertNotNull($recent->fresh(), 'what was deleted yesterday can still be got back');
+        $this->assertNotNull($kept->fresh(), 'archived mail is never swept');
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

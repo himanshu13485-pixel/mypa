@@ -41,6 +41,8 @@ export default function CrmMailsPage() {
   const labelUuid = params.label
   const folder = (labelUuid ? 'inbox' : (params.folder ?? 'inbox')) as MailFolder
   const openUuid = search.get('m')
+  /** A mail opened on its own, the list out of the way - double-click. */
+  const fullView = search.get('full') === '1'
 
   const [q, setQ] = useState('')
   const [typed, setTyped] = useState('')
@@ -107,6 +109,23 @@ export default function CrmMailsPage() {
   const closeMail = () => {
     const next = new URLSearchParams(search)
     next.delete('m')
+    next.delete('full')
+    setSearch(next)
+  }
+
+  /**
+   * The whole window for one mail.
+   *
+   * A long thread with three attachments read badly in a third of the
+   * screen, and the reading-pane setting is a preference rather than
+   * something to change twice a day - so a double-click opens this one mail
+   * wide, and closing it puts the list back exactly as it was.
+   */
+  const openFull = async (row: MailSummary) => {
+    if (row.folder === 'drafts') return openMail(row)
+    const next = new URLSearchParams(search)
+    next.set('m', row.uuid)
+    next.set('full', '1')
     setSearch(next)
   }
 
@@ -265,8 +284,13 @@ export default function CrmMailsPage() {
             >
               Unread only
             </button>
+            {folder === 'trash' && (
+              <span className="ml-auto mr-2 text-xs text-slate-400">
+                Emptied after {settings?.trash_days ?? 30} days
+              </span>
+            )}
             {inTrash && total > 0 && (
-              <button type="button" onClick={emptyFolder} className="ml-auto rounded-lg px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10">
+              <button type="button" onClick={emptyFolder} className="rounded-lg px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10">
                 Empty {FOLDER_TITLES[folder]} now
               </button>
             )}
@@ -312,7 +336,16 @@ export default function CrmMailsPage() {
               return (
                 <li
                   key={row.uuid}
+                  draggable
+                  onDragStart={(e) => {
+                    /* Whatever is ticked travels together; a row nobody
+                       ticked travels alone. */
+                    const moving = selected.has(row.uuid) ? [...selected] : [row.uuid]
+                    e.dataTransfer.setData('application/x-netvork-mail', JSON.stringify({ uuids: moving, threaded }))
+                    e.dataTransfer.effectAllowed = 'move'
+                  }}
                   onClick={() => openMail(row)}
+                  onDoubleClick={() => openFull(row)}
                   className={clsx(
                     'group flex cursor-pointer items-start gap-2 border-b border-slate-100 px-2 dark:border-slate-800',
                     compact ? 'py-1.5' : 'py-2.5',
@@ -396,6 +429,13 @@ export default function CrmMailsPage() {
       folder={folder}
       labels={labels}
       prefs={prefs}
+      full={fullView}
+      onToggleFull={() => {
+        const next = new URLSearchParams(search)
+        if (fullView) next.delete('full')
+        else next.set('full', '1')
+        setSearch(next)
+      }}
       onClose={closeMail}
       onGone={closeMail}
     />
@@ -405,6 +445,10 @@ export default function CrmMailsPage() {
       Pick a mail to read it.
     </div>
   )
+
+  if (fullView && openUuid) {
+    return <div className="h-full min-h-0 bg-white dark:bg-slate-900">{reader}</div>
+  }
 
   if (!wide || readerOnly) {
     // Phones always show one pane at a time.

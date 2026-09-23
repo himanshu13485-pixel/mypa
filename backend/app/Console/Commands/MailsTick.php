@@ -18,10 +18,14 @@ use Illuminate\Console\Command;
  *   mails:sync     - every few minutes: bring every mailbox up to date, one
  *                    queued job per mailbox so a slow server delays nobody else.
  *   mails:backup   - once a night: write each mailbox out to its archive
- *                    folder, and on to whatever else the company chose.
+ *                    folder, and on to whatever else the company chose, and
+ *                    empty what has sat in Trash and Spam long enough.
  */
 class MailsTick extends Command
 {
+    /** How long deleted mail is kept before it goes for good. */
+    public const KEEP_DELETED_DAYS = 30;
+
     protected $signature = 'mails:tick {what : dispatch, sync or backup}';
 
     protected $description = 'Send due mail (dispatch), bring mailboxes up to date (sync), or archive them (backup)';
@@ -29,6 +33,8 @@ class MailsTick extends Command
     public function handle(): int
     {
         if ($this->argument('what') === 'backup') {
+            $this->emptyOldRubbish();
+
             $count = 0;
             MailAccount::whereHas('member.organization', fn ($o) => $o->where('mails_enabled', true)->where('status', 'active'))
                 ->pluck('id')
@@ -81,5 +87,40 @@ class MailsTick extends Command
         $this->info(count($due) . ' due mail(s) dispatched.');
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Trash and Spam empty themselves after a month.
+     *
+     * The same month every mail program gives you, and for the same reason:
+     * deleted mail is kept long enough to be got back by somebody who
+     * deleted it in error, and not so long that a mailbox is mostly rubbish.
+     * It goes from the server too, so the two sides agree.
+     *
+     * Archived mail is never touched. Archiving is what somebody does when
+     * they want to keep a thing without looking at it.
+     */
+    private function emptyOldRubbish(): void
+    {
+        $cutoff = now()->subDays(self::KEEP_DELETED_DAYS);
+        $gone = 0;
+
+        MailMessage::whereIn('folder', ['trash', 'spam'])
+            ->where('updated_at', '<', $cutoff)
+            ->chunkById(200, function ($messages) use (&$gone) {
+                foreach ($messages as $message) {
+                    if ($message->remote_folder && $message->uid) {
+                        \App\Jobs\MailRemoteChange::dispatch(
+                            $message->mail_account_id, $message->remote_folder, (int) $message->uid, 'delete',
+                        );
+                    }
+                    $message->delete();
+                    $gone++;
+                }
+            });
+
+        if ($gone > 0) {
+            $this->info($gone . ' message(s) older than ' . self::KEEP_DELETED_DAYS . ' days emptied from Trash and Spam.');
+        }
     }
 }

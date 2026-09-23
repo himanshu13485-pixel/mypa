@@ -658,6 +658,15 @@ function TeamTab() {
         Choose who in the company uses Mails and how many mailboxes each may connect (up to {data.cap}, the limit set for your company).
         People without Mails see the CRM exactly as before.
       </p>
+      {/* How many people there are, and how many of them actually have a
+          mailbox: the question an Admin asks before handing more out. */}
+      <p className="text-sm text-slate-600 dark:text-slate-300">
+        <span className="font-semibold">{data.data.length}</span> {data.data.length === 1 ? 'person' : 'people'} in the company
+        {' · '}<span className="font-semibold">{data.data.filter((r) => r.mailboxes > 0).length}</span> with a mailbox
+        {' · '}<span className="font-semibold">{data.data.filter((r) => r.mailboxes === 0).length}</span> without
+        {' · '}<span className="font-semibold">{data.data.filter((r) => r.has_mails || r.locked).length}</span> allowed to use Mails
+      </p>
+
       <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a person" className="max-w-xs" />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

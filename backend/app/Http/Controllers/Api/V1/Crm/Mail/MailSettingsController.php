@@ -30,6 +30,8 @@ class MailSettingsController extends Controller
             'cap' => MailAccess::cap($me->organization),
             'is_admin' => $me->crm_role === 'admin',
             'ai_available' => $assistant->available($me->organization),
+            // How long deleted mail is kept, so the screens can say so.
+            'trash_days' => \App\Console\Commands\MailsTick::KEEP_DELETED_DAYS,
             'storage' => MailAccess::quota($me) + [
                 'used_mb' => MailAccess::storageUsed($me),
                 'limit_mb' => MailAccess::storageFor($me),

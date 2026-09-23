@@ -402,6 +402,8 @@ export const mails = {
 
   settings: () =>
     api.get<{ data: { prefs: MailPrefs; limit: number; cap: number; is_admin: boolean; ai_available: boolean
+      /** How many days deleted mail is kept before it goes for good. */
+      trash_days: number
       storage: { used_mb: number; limit_mb: number | null; ceiling_mb: number | null } } }>(`${base}/settings`)
       .then((r) => r.data.data),
   savePrefs: (prefs: Partial<MailPrefs>) =>
