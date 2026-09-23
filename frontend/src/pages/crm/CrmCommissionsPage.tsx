@@ -4,6 +4,7 @@ import { useFilterAddress, useFiltersInAddress } from '../../lib/useFiltersInAdd
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { HandCoins, Plus, Search, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
+import { money } from '../../lib/money'
 import { crm, crmMeQuery } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
@@ -121,7 +122,7 @@ export default function CrmCommissionsPage() {
                           {c.invoice.number}
                         </Link>
                       ) : '—'}
-                      {c.invoice && <div className="text-xs text-slate-400">of {inr(c.invoice.total)}</div>}
+                      {c.invoice && <div className="text-xs text-slate-400">of {money(c.invoice.total, c.invoice.currency)}</div>}
                     </td>
                     <td className="max-w-[170px] truncate py-2.5 pr-3">{c.client ?? '—'}</td>
                     <td className="max-w-[170px] truncate py-2.5 pr-3">{c.payee}</td>
@@ -228,7 +229,7 @@ function RecordModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
                 <span className="font-medium">{i.number}</span>
                 <span className="ml-2 text-sm text-slate-500">{i.client?.company_name}</span>
               </span>
-              <span className="text-sm font-medium">{inr(i.total)}</span>
+              <span className="text-sm font-medium">{money(i.total, i.currency)}</span>
             </label>
           ))}
         </div>

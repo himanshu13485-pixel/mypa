@@ -188,7 +188,7 @@ export interface CrmCommission {
   amount: number
   payment_mode: string | null
   note: string | null
-  invoice: { uuid: string; number: string; total: string } | null
+  invoice: { uuid: string; number: string; total: string; currency?: string | null } | null
   client: string | null
   salesperson: string | null
   recorded_by: string | null

@@ -200,7 +200,9 @@ export default function CrmDashboard() {
                       </td>
                       <td className="max-w-[180px] truncate py-2 pr-3">{i.client ?? '—'}</td>
                       <td className="whitespace-nowrap py-2 pr-3 text-slate-500">{i.invoice_date}</td>
-                      <td className="whitespace-nowrap py-2 pr-3 text-right font-medium">{inr(i.total)}</td>
+                      {/* In the currency it was raised in: a $1,200 invoice
+                          stamped with a rupee sign is a different number. */}
+                      <td className="whitespace-nowrap py-2 pr-3 text-right font-medium">{money(i.total, i.currency)}</td>
                       <td className="py-2">
                         <span
                           className={clsx(

@@ -178,6 +178,8 @@ class CommissionController extends Controller
                 'uuid' => $e->invoice->uuid,
                 'number' => $e->invoice->number,
                 'total' => $e->invoice->total,
+                // The document's own currency: a $1,200 sale is not ₹1,200.
+                'currency' => $e->invoice->currency,
             ] : null,
             'client' => $e->invoice?->client?->company_name,
             'salesperson' => $e->invoice?->member?->user?->name,
