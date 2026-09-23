@@ -222,6 +222,8 @@ export default function CrmInvoiceViewPage() {
   // Every figure in the document's own currency - a USD proforma read as
   // rupees on this page even though the PDF printed dollars.
   const inr = (v: number | string) => money(v, inv.currency)
+  // The account's own lines, in printing order, blanks already dropped.
+  const bankLines = inv.bank?.lines ?? []
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
@@ -617,14 +619,33 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
         {/* Where to send the money. Above the signatory, as on the PDF —
             the client reads it before they stop reading. */}
         {inv.bank && (
-          <p className="mt-6 text-xs text-slate-600 dark:text-slate-300">
-            <span className="font-semibold">Bank details: </span>
-            {[
-              inv.bank.bank_name,
-              inv.bank.account_no ? `A/c ${inv.bank.account_no}` : null,
-              inv.bank.ifsc ? `IFSC ${inv.bank.ifsc}` : null,
-            ].filter(Boolean).join(' \u00b7 ')}
-          </p>
+          <div className="mt-6 text-xs text-slate-600 dark:text-slate-300">
+            <span className="font-semibold">
+              {inv.bank.is_swift ? 'Bank details (international transfer): ' : 'Bank details: '}
+            </span>
+            {/* An account paid into from abroad needs a dozen lines and reads
+                as a list; a rupee account is three things on one line. */}
+            {inv.bank.is_swift ? (
+              <table className="mt-1">
+                <tbody>
+                  {bankLines.map((line) => (
+                    <tr key={line.label}>
+                      <td className="whitespace-nowrap pr-3 align-top text-slate-400">{line.label}</td>
+                      <td className="align-top">{line.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              bankLines.length
+                ? bankLines.map((line) => (line.label === 'Bank' ? line.value : line.label + ' ' + line.value)).join(' \u00b7 ')
+                : [
+                  inv.bank.bank_name,
+                  inv.bank.account_no ? 'A/c ' + inv.bank.account_no : null,
+                  inv.bank.ifsc ? 'IFSC ' + inv.bank.ifsc : null,
+                ].filter(Boolean).join(' \u00b7 ')
+            )}
+          </div>
         )}
 
         {/*
@@ -848,7 +869,7 @@ function EmailModal({ clientEmail, salesperson, sender, company, pending, onSend
   sender: { address: string; name: string; source: 'company' | 'house' | 'settings'; company: string | null } | null
   company: string | null
   pending: boolean
-  onSend: (payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string }) => void
+  onSend: (payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string; files?: File[] }) => void
   onClose: () => void
 }) {
   const [to, setTo] = useState(clientEmail)
@@ -859,6 +880,10 @@ function EmailModal({ clientEmail, salesperson, sender, company, pending, onSend
   const [nextExtra, setNextExtra] = useState('')
   const [from, setFrom] = useState<'default' | 'invoice' | 'dues'>('invoice')
   const [message, setMessage] = useState('')
+  /* Anything the client needs alongside the invoice: a bank letter, a W-9,
+     a signed contract. They ride with the PDF rather than in a second mail. */
+  const [files, setFiles] = useState<File[]>([])
+  const filePicker = useRef<HTMLInputElement>(null)
 
   const addExtra = () => {
     const address = nextExtra.trim()
@@ -947,10 +972,45 @@ function EmailModal({ clientEmail, salesperson, sender, company, pending, onSend
           )}
         </div>
         <div>
+          <Label>Attach files (optional)</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" onClick={() => filePicker.current?.click()}>
+              <Paperclip className="size-4" /> Add files
+            </Button>
+            <span className="text-xs text-slate-400">The invoice PDF goes anyway. Up to five more, 10 MB each.</span>
+          </div>
+          <input
+            ref={filePicker}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              const room = 5 - files.length
+              if (room <= 0) return
+              setFiles([...files, ...picked.slice(0, room).filter((f) => f.size <= 10 * 1024 * 1024)])
+            }}
+          />
+          {files.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {files.map((file, i) => (
+                <span key={file.name + i} className="flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">
+                  <Paperclip className="size-3" /> {file.name}
+                  <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}>
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
           <Label>Message (optional — a standard line goes otherwise)</Label>
           <Textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} className="w-full" />
         </div>
-        <Button className="w-full" disabled={!to || pending} onClick={() => onSend({ to, cc, from, message: message || undefined })}>
+        <Button className="w-full" disabled={!to || pending} onClick={() => onSend({ to, cc, from, message: message || undefined, files: files.length ? files : undefined })}>
           {pending ? 'Sending…' : cc.length
             ? `Send with PDF, copying ${cc.length} ${cc.length === 1 ? 'person' : 'people'}`
             : 'Send with PDF attached'}

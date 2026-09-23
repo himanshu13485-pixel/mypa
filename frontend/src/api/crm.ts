@@ -488,7 +488,22 @@ export interface CrmMasters {
     tax_required: boolean
     is_active: boolean
   }[]
-  bank_accounts: { id: number; label: string; bank_name: string | null; account_no: string | null; ifsc: string | null; is_active: boolean; issuing_company_id?: number | null; issuing_company_name?: string | null }[]
+  bank_accounts: {
+    id: number; label: string; bank_name: string | null; account_no: string | null; ifsc: string | null
+    is_active: boolean; issuing_company_id?: number | null; issuing_company_name?: string | null
+    /** An account paid into from abroad carries what a wire needs instead of an IFSC. */
+    is_swift?: boolean
+    beneficiary_name?: string | null
+    swift_code?: string | null
+    receiving_bank?: string | null
+    aba_routing?: string | null
+    aba_routing_alt?: string | null
+    intermediary_swift?: string | null
+    account_type?: string | null
+    beneficiary_address?: string | null
+    receiving_bank_address?: string | null
+    note?: string | null
+  }[]
   members: { uuid: string; name: string | null; employee_code: string | null; is_salesperson: boolean; crm_role?: string }[]
 }
 
@@ -785,7 +800,12 @@ export interface CrmInvoiceFull extends CrmInvoiceRow {
    * account, or an org-wide one. Resolved server-side so the printed page
    * and the PDF can never name different accounts.
    */
-  bank: { bank_name: string | null; account_no: string | null; ifsc: string | null } | null
+  bank: {
+    bank_name: string | null; account_no: string | null; ifsc: string | null
+    /** Whether this account is paid into from abroad, and how it prints. */
+    is_swift?: boolean
+    lines?: { label: string; value: string }[]
+  } | null
   client_full: { address: string | null; city: string | null; state: string | null; pincode: string | null; country: string | null; gst_no: string | null; email: string | null; mobile: string | null } | null
   issuing_company_full: {
     address: string | null; gstin: string | null; pan: string | null
@@ -3413,8 +3433,24 @@ export const crm = {
     setPaymentCharge: (uuid: string, id: number, payload: Record<string, unknown>) =>
       api.put<{ message: string }>(`/crm/invoices/${uuid}/payments/${id}/charge`, payload).then((r) => r.data),
     /** Send the document to the client, PDF attached — sender chosen in Communication setup. */
-    email: (uuid: string, payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string }) =>
-      api.post<{ message: string }>(`/crm/invoices/${uuid}/email`, payload).then((r) => r.data),
+    email: (uuid: string, payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string; files?: File[] }) => {
+      // Plain JSON while there is nothing to carry; a form when there is,
+      // because a file cannot travel as JSON.
+      if (!payload.files?.length) {
+        const { files: _files, ...rest } = payload
+
+        return api.post<{ message: string }>(`/crm/invoices/${uuid}/email`, rest).then((r) => r.data)
+      }
+
+      const form = new FormData()
+      if (payload.to) form.append('to', payload.to)
+      ;(payload.cc ?? []).forEach((address) => form.append('cc[]', address))
+      if (payload.from) form.append('from', payload.from)
+      if (payload.message) form.append('message', payload.message)
+      payload.files.forEach((file) => form.append('files[]', file))
+
+      return api.post<{ message: string }>(`/crm/invoices/${uuid}/email`, form).then((r) => r.data)
+    },
   },
 
   /** Accounting exports — Admin + the Subadmin named with exports.excel. */

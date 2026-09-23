@@ -789,6 +789,10 @@ class InvoiceController extends Controller
             'cc.*' => ['email'],
             'from' => ['nullable', \Illuminate\Validation\Rule::in(['default', 'invoice', 'dues'])],
             'message' => ['nullable', 'string', 'max:2000'],
+            // Anything the client needs alongside it: a bank letter, a W-9,
+            // a signed contract. Five is plenty and keeps the mail sendable.
+            'files' => ['nullable', 'array', 'max:5'],
+            'files.*' => ['file', 'max:10240'],
         ]);
         $to = $data['to'] ?? $invoice->client?->email;
         abort_unless($to, 422, 'The client has no e-mail on file — enter one to send to.');
@@ -822,13 +826,28 @@ class InvoiceController extends Controller
         ];
 
         $pdf = $this->documentPdf($invoice);
+
+        // Read before sending: a file handed to the mailer as a path would be
+        // read after the request that uploaded it has cleaned up after itself.
+        $extras = collect($request->file('files') ?: [])
+            ->map(fn ($file) => [
+                'name' => mb_substr((string) $file->getClientOriginalName(), 0, 200),
+                'mime' => $file->getClientMimeType() ?: 'application/octet-stream',
+                'body' => (string) file_get_contents($file->getRealPath()),
+            ])
+            ->all();
+
         try {
-            $mailer->html(nl2br(e(implode("\n", $lines))), function ($m) use ($to, $cc, $label, $invoice, $pdf, $fromAddress, $fromName) {
+            $mailer->html(nl2br(e(implode("\n", $lines))), function ($m) use ($to, $cc, $label, $invoice, $pdf, $extras, $fromAddress, $fromName) {
                 $m->to($to)
                     ->cc($cc)
                     ->from($fromAddress, $fromName)
                     ->subject($label . ' ' . $invoice->number)
                     ->attachData($pdf->output(), str_replace(['/', '\\', ' '], '-', $invoice->number) . '.pdf', ['mime' => 'application/pdf']);
+
+                foreach ($extras as $file) {
+                    $m->attachData($file['body'], $file['name'], ['mime' => $file['mime']]);
+                }
             });
         } catch (\Throwable $e) {
             abort(422, 'The mail could not be sent: ' . $e->getMessage());
@@ -2365,6 +2384,10 @@ class InvoiceController extends Controller
                 'bank_name' => $bank->bank_name,
                 'account_no' => $bank->account_no,
                 'ifsc' => $bank->ifsc,
+                // Everything a payment needs, already in printing order,
+                // with whatever is blank left out.
+                'is_swift' => (bool) $bank->is_swift,
+                'lines' => $bank->payingLines(),
             ] : null,
             'fx_rate' => $i->fx_rate,
             'subtotal_fx' => $i->subtotal_fx,

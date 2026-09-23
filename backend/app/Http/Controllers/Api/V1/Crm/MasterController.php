@@ -978,6 +978,19 @@ class MasterController extends Controller
             'account_no' => ['nullable', 'string', 'max:64'],
             'ifsc' => ['nullable', 'string', 'max:32'],
             'is_active' => ['nullable', 'boolean'],
+            // An account paid into from abroad: a wire needs none of the
+            // three above and all of these instead.
+            'is_swift' => ['nullable', 'boolean'],
+            'beneficiary_name' => ['nullable', 'string', 'max:255'],
+            'swift_code' => ['nullable', 'string', 'max:32'],
+            'receiving_bank' => ['nullable', 'string', 'max:255'],
+            'aba_routing' => ['nullable', 'string', 'max:64'],
+            'aba_routing_alt' => ['nullable', 'string', 'max:64'],
+            'intermediary_swift' => ['nullable', 'string', 'max:64'],
+            'account_type' => ['nullable', 'string', 'max:64'],
+            'beneficiary_address' => ['nullable', 'string', 'max:500'],
+            'receiving_bank_address' => ['nullable', 'string', 'max:500'],
+            'note' => ['nullable', 'string', 'max:500'],
         ]);
     }
 }

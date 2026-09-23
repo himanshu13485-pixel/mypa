@@ -9,7 +9,50 @@ class BankAccount extends Model
 {
     protected $table = 'crm_bank_accounts';
 
-    protected $fillable = ['organization_id', 'issuing_company_id', 'label', 'bank_name', 'account_no', 'ifsc', 'is_active'];
+    protected $fillable = [
+        'organization_id', 'issuing_company_id', 'label', 'bank_name', 'account_no', 'ifsc', 'is_active',
+        // What a payment from abroad needs, and a note for either kind.
+        'is_swift', 'beneficiary_name', 'swift_code', 'receiving_bank', 'aba_routing', 'aba_routing_alt',
+        'intermediary_swift', 'account_type', 'beneficiary_address', 'receiving_bank_address', 'note',
+    ];
+
+    /**
+     * The account as an invoice should print it.
+     *
+     * Label and value, in the order somebody paying reads them, with
+     * everything blank left out - a printed "IFSC: —" on a wire transfer
+     * helps nobody and makes the page look unfinished.
+     *
+     * @return array<int, array{label: string, value: string}>
+     */
+    public function payingLines(): array
+    {
+        $rows = $this->is_swift
+            ? [
+                ['Beneficiary', $this->beneficiary_name],
+                ['Beneficiary address', $this->beneficiary_address],
+                ['Account number', $this->account_no],
+                ['Account type', $this->account_type],
+                ['Receiving bank', $this->receiving_bank ?: $this->bank_name],
+                ['Bank address', $this->receiving_bank_address],
+                ['SWIFT / BIC', $this->swift_code],
+                ['ABA routing', $this->aba_routing],
+                ['ABA routing (alternate)', $this->aba_routing_alt],
+                ['Intermediary bank SWIFT', $this->intermediary_swift],
+            ]
+            : [
+                ['Bank', $this->bank_name],
+                ['Account number', $this->account_no],
+                ['IFSC', $this->ifsc],
+            ];
+
+        $rows[] = ['Note', $this->note];
+
+        return collect($rows)
+            ->filter(fn ($row) => filled($row[1]))
+            ->map(fn ($row) => ['label' => $row[0], 'value' => (string) $row[1]])
+            ->values()->all();
+    }
 
     /** The registered company this account belongs to, if assigned. */
     public function issuingCompany(): \Illuminate\Database\Eloquent\Relations\BelongsTo
@@ -19,7 +62,7 @@ class BankAccount extends Model
 
     protected function casts(): array
     {
-        return ['is_active' => 'boolean'];
+        return ['is_active' => 'boolean', 'is_swift' => 'boolean'];
     }
 
     public function organization(): BelongsTo

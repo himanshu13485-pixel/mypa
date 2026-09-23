@@ -131,7 +131,11 @@ export default function CrmSettingsPage() {
                     <td className="py-2.5 pr-3 font-medium">{b.label}</td>
                     <td className="py-2.5 pr-3">{b.bank_name ?? '—'}</td>
                     <td className="py-2.5 pr-3">{b.account_no ?? '—'}</td>
-                    <td className="py-2.5 pr-3">{b.ifsc ?? '—'}</td>
+                    <td className="py-2.5 pr-3">
+                      {b.is_swift
+                        ? <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">SWIFT {b.swift_code ?? ''}</span>
+                        : (b.ifsc ?? '—')}
+                    </td>
                     <td className="py-2.5 pr-3">{b.issuing_company_name ?? '—'}</td>
                     <td className="py-2.5 pr-3">{b.is_active ? 'Yes' : 'No'}</td>
                     <td className="py-2.5 text-right">
@@ -794,6 +798,18 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
     ifsc: editing?.ifsc ?? '',
     is_active: editing?.is_active ?? true,
     issuing_company_id: editing?.issuing_company_id ? String(editing.issuing_company_id) : '',
+    // What a payment from abroad needs instead of an IFSC.
+    is_swift: editing?.is_swift ?? false,
+    beneficiary_name: editing?.beneficiary_name ?? '',
+    swift_code: editing?.swift_code ?? '',
+    receiving_bank: editing?.receiving_bank ?? '',
+    aba_routing: editing?.aba_routing ?? '',
+    aba_routing_alt: editing?.aba_routing_alt ?? '',
+    intermediary_swift: editing?.intermediary_swift ?? '',
+    account_type: editing?.account_type ?? '',
+    beneficiary_address: editing?.beneficiary_address ?? '',
+    receiving_bank_address: editing?.receiving_bank_address ?? '',
+    note: editing?.note ?? '',
   })
   const { data: bankMasters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
 
@@ -803,6 +819,17 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
       bank_name: form.bank_name || null,
       account_no: form.account_no || null,
       ifsc: form.ifsc || null,
+      // Blank rather than empty strings: what is not filled in prints nothing.
+      beneficiary_name: form.beneficiary_name || null,
+      swift_code: form.swift_code || null,
+      receiving_bank: form.receiving_bank || null,
+      aba_routing: form.aba_routing || null,
+      aba_routing_alt: form.aba_routing_alt || null,
+      intermediary_swift: form.intermediary_swift || null,
+      account_type: form.account_type || null,
+      beneficiary_address: form.beneficiary_address || null,
+      receiving_bank_address: form.receiving_bank_address || null,
+      note: form.note || null,
       issuing_company_id: form.issuing_company_id ? Number(form.issuing_company_id) : null,
     }, editing?.id),
     onSuccess: onDone,
@@ -838,8 +865,95 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
           </div>
           <div>
             <Label>IFSC</Label>
-            <Input value={form.ifsc} onChange={(e) => setForm((f) => ({ ...f, ifsc: e.target.value }))} className="w-full" />
+            <Input
+              value={form.ifsc}
+              disabled={form.is_swift}
+              onChange={(e) => setForm((f) => ({ ...f, ifsc: e.target.value }))}
+              className="w-full"
+            />
           </div>
+        </div>
+
+        {/*
+          * An account somebody abroad can actually pay into.
+          *
+          * A wire needs none of an IFSC and all of the below - the SWIFT/BIC,
+          * the receiving bank by name and address, a routing number, often an
+          * intermediary bank, and the beneficiary written exactly as the bank
+          * holds it. Whatever is filled in prints on the invoice; whatever is
+          * left blank prints nothing.
+          */}
+        <label className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={form.is_swift}
+            onChange={(e) => setForm((f) => ({ ...f, is_swift: e.target.checked }))}
+            className="mt-0.5 size-4 accent-emerald-600"
+          />
+          <span>
+            Paid into from abroad (SWIFT)
+            <span className="block text-xs text-slate-400">
+              The invoice prints the wire details below instead of the IFSC. The bank name and account number above are still used.
+            </span>
+          </span>
+        </label>
+
+        {form.is_swift && (
+          <div className="space-y-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+            <div>
+              <Label>Beneficiary name</Label>
+              <Input
+                value={form.beneficiary_name}
+                onChange={(e) => setForm((f) => ({ ...f, beneficiary_name: e.target.value }))}
+                placeholder="Exactly as the bank holds it - usually the issuing company"
+                className="w-full"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>SWIFT / BIC code</Label>
+                <Input value={form.swift_code} onChange={(e) => setForm((f) => ({ ...f, swift_code: e.target.value }))} className="w-full" />
+              </div>
+              <div>
+                <Label>Account type</Label>
+                <Input value={form.account_type} onChange={(e) => setForm((f) => ({ ...f, account_type: e.target.value }))} placeholder="Checking / Savings" className="w-full" />
+              </div>
+              <div>
+                <Label>Receiving bank</Label>
+                <Input value={form.receiving_bank} onChange={(e) => setForm((f) => ({ ...f, receiving_bank: e.target.value }))} className="w-full" />
+              </div>
+              <div>
+                <Label>Intermediary bank SWIFT</Label>
+                <Input value={form.intermediary_swift} onChange={(e) => setForm((f) => ({ ...f, intermediary_swift: e.target.value }))} className="w-full" />
+              </div>
+              <div>
+                <Label>ABA routing number</Label>
+                <Input value={form.aba_routing} onChange={(e) => setForm((f) => ({ ...f, aba_routing: e.target.value }))} className="w-full" />
+              </div>
+              <div>
+                <Label>Alternate ABA routing</Label>
+                <Input value={form.aba_routing_alt} onChange={(e) => setForm((f) => ({ ...f, aba_routing_alt: e.target.value }))} className="w-full" />
+              </div>
+            </div>
+            <div>
+              <Label>Beneficiary address</Label>
+              <Input value={form.beneficiary_address} onChange={(e) => setForm((f) => ({ ...f, beneficiary_address: e.target.value }))} className="w-full" />
+            </div>
+            <div>
+              <Label>Receiving bank address</Label>
+              <Input value={form.receiving_bank_address} onChange={(e) => setForm((f) => ({ ...f, receiving_bank_address: e.target.value }))} className="w-full" />
+            </div>
+          </div>
+        )}
+
+        <div>
+          <Label>Note (printed under the bank details)</Label>
+          <Input
+            value={form.note}
+            onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+            placeholder="e.g. quote the invoice number as the payment reference"
+            className="w-full"
+          />
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
           <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} className="size-4 accent-emerald-600" />

@@ -179,7 +179,10 @@
      balance - so it is printed to be read, not as fine print. */
   .notes { margin-top: 16px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0;
            border-radius: 6px; font-size: 12.5px; line-height: 1.6; color: #334155; }
-  .bank { margin-top: 24px; font-size: 12px; color: #475569; }
+  .bank-lines { border-collapse: collapse; margin-top: 2px }
+    .bank-lines td { padding: 0 8px 1px 0; vertical-align: top }
+    .bank-lines td:first-child { color: #555; white-space: nowrap }
+    .bank { margin-top: 24px; font-size: 12px; color: #475569; }
   .sign { margin-top: 32px; text-align: right; font-size: 12px; color: #64748b; }
   /* Capped so a large upload cannot push the signatory line onto a page of
      its own. */
@@ -418,9 +421,21 @@
 
 {{-- Where to send the money: above the signatory, read before they stop reading. --}}
 @if (!empty($bank))
+  {{-- Whatever this account actually needs to be paid into: three items for
+       a rupee transfer, a dozen for a wire from abroad, and nothing at all
+       for a field nobody filled in. --}}
   <div class="bank">
-    <strong>Bank details: </strong>
-    {{ collect([$bank->bank_name, $bank->account_no ? 'A/c ' . $bank->account_no : null, $bank->ifsc ? 'IFSC ' . $bank->ifsc : null])->filter()->implode(' · ') }}
+    <strong>{{ $bank->is_swift ? 'Bank details (international transfer): ' : 'Bank details: ' }}</strong>
+    @php($lines = $bank->payingLines())
+    @if ($bank->is_swift)
+      <table class="bank-lines">
+        @foreach ($lines as $line)
+          <tr><td>{{ $line['label'] }}</td><td>{{ $line['value'] }}</td></tr>
+        @endforeach
+      </table>
+    @else
+      {{ collect($lines)->map(fn ($line) => $line['label'] === 'Bank' ? $line['value'] : $line['label'] . ' ' . $line['value'])->implode(' · ') }}
+    @endif
   </div>
 @endif
 
