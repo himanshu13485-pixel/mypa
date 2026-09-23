@@ -30,6 +30,96 @@ async function download(uuid: string, id: number, filename: string, onError: (m:
   }
 }
 
+/** A blob as a data: URL, so a printed page carries its pictures with it. */
+const asDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(String(reader.result))
+  reader.onerror = () => reject(reader.error)
+  reader.readAsDataURL(blob)
+})
+
+const escapeHtml = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/**
+ * Print one mail, and nothing else.
+ *
+ * Printing the page printed the page: the folder rail, the list of a hundred
+ * other messages, and the mail somewhere inside it. So the mail is written
+ * out as a document of its own - its own headings, its own pictures carried
+ * in as data so nothing has to be fetched while the print dialog is open -
+ * into a frame that exists for as long as the printing takes.
+ */
+async function printThread(messages: MailFull[], subject: string): Promise<void> {
+  const parts = await Promise.all(messages.map(async (mail) => {
+    let body = mail.body_html && mail.body_html.trim() !== ''
+      ? mail.body_html
+      : `<pre style="white-space:pre-wrap;font:inherit">${escapeHtml(mail.body_text ?? '')}</pre>`
+
+    // Pictures sent inside the message: fetched once, and embedded, because
+    // a cid: reference means nothing outside the mailbox it came from.
+    for (const picture of mail.attachments.filter((a) => a.is_inline && a.content_id)) {
+      try {
+        const data = await asDataUrl(await mails.attachment(mail.uuid, picture.id))
+        body = body.split('cid:' + (picture.content_id ?? '').replace(/^<|>$/g, '')).join(data)
+      } catch {
+        // A picture that will not come is not worth refusing to print over.
+      }
+    }
+
+    const files = mail.attachments.filter((a) => !a.is_inline)
+
+    return `<article>
+      <table class="head"><tbody>
+        <tr><th>From</th><td>${escapeHtml(who({ name: mail.from_name, email: mail.from_email }))} &lt;${escapeHtml(mail.from_email ?? '')}&gt;</td></tr>
+        <tr><th>To</th><td>${escapeHtml(mail.to.map((a) => who(a)).join(', '))}</td></tr>
+        ${mail.cc.length ? `<tr><th>Cc</th><td>${escapeHtml(mail.cc.map((a) => who(a)).join(', '))}</td></tr>` : ''}
+        <tr><th>Date</th><td>${escapeHtml(fullDate(mail.date))}</td></tr>
+      </tbody></table>
+      <div class="body">${body}</div>
+      ${files.length ? `<p class="files">Attachments: ${escapeHtml(files.map((a) => `${a.filename}${a.size ? ` (${sizeLabel(a.size)})` : ''}`).join(', '))}</p>` : ''}
+    </article>`
+  }))
+
+  const doc = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title>
+<style>
+  @page { margin: 16mm }
+  body { font: 12pt/1.5 -apple-system, "Segoe UI", Roboto, Arial, sans-serif; color: #000; margin: 0 }
+  h1 { font-size: 16pt; margin: 0 0 12pt }
+  article { page-break-inside: auto; margin-bottom: 18pt }
+  article + article { border-top: 1pt solid #999; padding-top: 12pt }
+  .head { border-collapse: collapse; margin-bottom: 10pt; font-size: 10pt }
+  .head th { text-align: left; padding: 1pt 10pt 1pt 0; color: #555; font-weight: 600; vertical-align: top; white-space: nowrap }
+  .head td { padding: 1pt 0 }
+  .body img { max-width: 100%; height: auto }
+  .body table { max-width: 100%; border-collapse: collapse }
+  .body blockquote { margin: 0 0 0 4pt; padding-left: 10pt; border-left: 2pt solid #bbb; color: #444 }
+  .files { font-size: 10pt; color: #555; margin-top: 8pt }
+</style></head><body><h1>${escapeHtml(subject)}</h1>${parts.join('')}</body></html>`
+
+  const frame = document.createElement('iframe')
+  // Off the page rather than hidden: a display:none frame does not print.
+  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden'
+
+  await new Promise<void>((resolve) => {
+    // Listening before the document is given to it: srcdoc can load in the
+    // same tick, and a handler attached afterwards would never hear it.
+    frame.onload = () => {
+      const view = frame.contentWindow
+      if (!view) return resolve()
+
+      view.focus()
+      view.print()
+      // Chrome returns from print() at once, Safari when the dialog closes;
+      // a moment either way is enough, and the frame is invisible meanwhile.
+      window.setTimeout(() => { frame.remove(); resolve() }, 1000)
+    }
+
+    document.body.appendChild(frame)
+    frame.srcdoc = doc
+  })
+}
+
 /** One mail in the thread: collapsed to a line, or opened in full. */
 function ThreadItem({ mail, open, onToggle, prefs, onReply }: {
   mail: MailFull
@@ -304,7 +394,10 @@ export default function MailReader({ uuid, folder, labels, prefs, full, onToggle
           full ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />,
           onToggleFull,
         )}
-        {tool('Print', <Printer className="size-4" />, () => window.print())}
+        {tool('Print this mail', <Printer className="size-4" />, () => {
+          void printThread(thread.filter(isOpen), message.subject || '(no subject)')
+            .catch((err) => toastError(errorMessage(err)))
+        })}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
