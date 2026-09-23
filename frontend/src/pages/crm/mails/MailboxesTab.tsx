@@ -93,7 +93,8 @@ export default function MailboxesTab() {
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm text-slate-500">
-          {data.used} of {data.limit} of your own mailbox{data.limit === 1 ? '' : 'es'} used.
+          {data.used} of {data.limit} mailbox{data.limit === 1 ? '' : 'es'} used
+          {data.shared_count > 0 && ` (${data.shared_count} shared with you)`}.
           {atLimit && ' To add more, ask your Company Admin to raise your allowance.'}
           {data.is_admin && ' As Admin you can also set a mailbox up for somebody else and share it with several people.'}
         </p>

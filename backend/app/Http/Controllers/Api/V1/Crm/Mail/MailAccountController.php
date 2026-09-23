@@ -54,7 +54,8 @@ class MailAccountController extends Controller
                     'owner' => $a->member_id === $me->id ? null : ($a->member?->user?->name ?: $a->member?->user?->email),
                 ])->values(),
             'limit' => MailAccess::limitFor($me),
-            'used' => MailAccount::ownedBy($me)->count(),
+            'used' => MailAccount::for($me)->count(),
+            'shared_count' => MailAccount::for($me)->where('member_id', '!=', $me->id)->count(),
             'is_admin' => $me->crm_role === 'admin',
             'providers' => collect(MailAccount::PROVIDERS)->map(fn ($p, $key) => ['key' => $key] + $p)->values(),
             'people' => $me->crm_role === 'admin' ? $this->people($me) : [],
@@ -73,7 +74,7 @@ class MailAccountController extends Controller
 
         $limit = MailAccess::limitFor($owner);
         abort_if(
-            MailAccount::ownedBy($owner)->count() >= $limit,
+            MailAccount::for($owner)->count() >= $limit,
             422,
             $owner->id === $me->id
                 ? "You can add up to {$limit} mailbox" . ($limit === 1 ? '' : 'es') . '. Ask your Admin if you need more.'
@@ -325,7 +326,7 @@ class MailAccountController extends Controller
 
         $owner = $request->filled('member') ? $this->personIn($me, (string) $data['member']) : $me;
         $limit = MailAccess::limitFor($owner);
-        abort_if(MailAccount::ownedBy($owner)->count() >= $limit, 422, ($owner->user?->name ?: 'That person') . " already holds {$limit} mailbox(es).");
+        abort_if(MailAccount::for($owner)->count() >= $limit, 422, ($owner->user?->name ?: 'That person') . " already holds {$limit} mailbox(es).");
 
         $same = $request->boolean('same_credentials', true);
         $copy = $account->replicate(['uuid', 'sync_state', 'last_synced_at', 'last_error', 'dns', 'sent_today', 'cap_date', 'detached_at']);

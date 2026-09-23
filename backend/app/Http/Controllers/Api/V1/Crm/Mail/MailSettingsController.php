@@ -76,7 +76,8 @@ class MailSettingsController extends Controller
                 'has_mails' => $m->crm_role === 'admin' || $m->can('mails'),
                 'locked' => $m->crm_role === 'admin',
                 'limit' => MailAccess::limitFor($m),
-                'mailboxes' => MailAccount::ownedBy($m)->count(),
+                // Shared ones count too: they take a place on somebody's screen.
+                'mailboxes' => MailAccount::for($m)->count(),
                 'storage_mb' => MailAccess::storageFor($m),
                 'used_mb' => MailAccess::storageUsed($m),
             ])->values();

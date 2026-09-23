@@ -726,6 +726,32 @@ class MailsTest extends TestCase
         $this->actingAs($this->adminUser)->putJson('/api/v1/crm/mails/settings/prefs', ['page_size' => 7])->assertStatus(422);
     }
 
+    public function test_a_shared_mailbox_takes_one_of_the_places_it_occupies(): void
+    {
+        Queue::fake();
+        $this->giveStaffMails();
+        $box = $this->mailbox($this->admin);
+        $box->sharedMembers()->sync([$this->staff->id]);
+
+        $mine = $this->actingAs($this->staffUser)->getJson('/api/v1/crm/mails/accounts')->assertOk()->json();
+        $this->assertSame(1, $mine['used'], 'a mailbox shared with them counts as one used');
+        $this->assertSame(1, $mine['shared_count']);
+
+        // And the Admin sees the same number against that person.
+        $row = collect($this->actingAs($this->adminUser)->getJson('/api/v1/crm/mails/settings/team')->json('data'))
+            ->firstWhere('uuid', $this->staff->uuid);
+        $this->assertSame(1, $row['mailboxes']);
+
+        // Their allowance is spent by it, too: two of their own fill the three.
+        $this->staff->update(['mail_mailbox_limit' => 2]);
+        $this->actingAs($this->staffUser)->postJson('/api/v1/crm/mails/accounts', [
+            'email' => 'harsh1@grapout.test', 'smtp_host' => 'smtp.grapout.test', 'smtp_password' => 'x',
+        ])->assertCreated();
+        $this->actingAs($this->staffUser)->postJson('/api/v1/crm/mails/accounts', [
+            'email' => 'harsh2@grapout.test', 'smtp_host' => 'smtp.grapout.test', 'smtp_password' => 'x',
+        ])->assertStatus(422);
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

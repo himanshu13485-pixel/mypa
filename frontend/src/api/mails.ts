@@ -358,7 +358,7 @@ export const mails = {
   sendNow: (uuid: string) => api.post<{ message: string }>(`${base}/messages/${uuid}/send-now`).then((r) => r.data),
 
   accounts: () =>
-    api.get<{ data: MailAccountInfo[]; limit: number; used: number; is_admin: boolean; providers: MailProvider[]; people: MailPerson[] }>(`${base}/accounts`)
+    api.get<{ data: MailAccountInfo[]; limit: number; used: number; shared_count: number; is_admin: boolean; providers: MailProvider[]; people: MailPerson[] }>(`${base}/accounts`)
       .then((r) => r.data),
   addAccount: (body: Record<string, unknown>) =>
     api.post<{ message: string; data: MailAccountInfo }>(`${base}/accounts`, body).then((r) => r.data),
