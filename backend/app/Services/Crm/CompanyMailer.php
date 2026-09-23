@@ -157,7 +157,11 @@ class CompanyMailer
     /**
      * The mailer + sender for one company and purpose.
      *
-     * @return array{mailer: Mailer, address: string, name: string}
+     * `source` says which rule answered, because "why did this go out as
+     * GrapOut?" is asked about every invoice a group sends and the answer
+     * was previously buried in this method.
+     *
+     * @return array{mailer: Mailer, address: string, name: string, source: string}
      */
     public function resolve(?int $issuingCompanyId, string $purpose = 'default'): array
     {
@@ -190,11 +194,13 @@ class CompanyMailer
          * to go until it had one of its own. "Set up" here means what it
          * means on that screen: an address to send from.
          */
-        if (! self::isSetUp($sender)) {
+        $ownMailbox = self::isSetUp($sender);
+        if (! $ownMailbox) {
             $sender = null;
         }
 
         $sender ??= $this->houseMailbox();
+        $fromHouse = ! $ownMailbox && is_array($sender);
 
         // The address: the company's own, else the purpose-level one, else
         // the general one, else the server default.
@@ -209,6 +215,30 @@ class CompanyMailer
             'mailer' => $this->transportFor($sender),
             'address' => $address,
             'name' => $name,
+            'source' => $ownMailbox ? 'company' : ($fromHouse ? 'house' : 'settings'),
+        ];
+    }
+
+    /**
+     * Who an invoice from this company would go out as, without sending one.
+     *
+     * The screens ask this so they can say it before the button is pressed:
+     * a group with five issuing companies cannot otherwise tell which
+     * mailbox a document is about to leave from.
+     *
+     * @return array{address: string, name: string, source: string, company: ?string}
+     */
+    public function senderFor(?int $issuingCompanyId, string $purpose = 'default'): array
+    {
+        $resolved = $this->resolve($issuingCompanyId, $purpose);
+        $house = $this->houseMailbox();
+
+        return [
+            'address' => $resolved['address'],
+            'name' => $resolved['name'],
+            'source' => $resolved['source'],
+            // The company whose mailbox answered, when it was not this one's.
+            'company' => $resolved['source'] === 'house' ? ($house['from_name'] ?? null) : null,
         ];
     }
 

@@ -189,6 +189,40 @@ class CompanyMailboxFallbackTest extends TestCase
         $this->assertSame('GrapOut', $resolved['name']);
     }
 
+    public function test_a_document_says_which_mailbox_it_would_leave_from(): void
+    {
+        $house = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'GrapOut Admin']);
+        $corpcio = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Corpcio Global LLC']);
+        $third = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Third Company']);
+
+        $this->org->update(['settings' => ['communication' => [
+            'email_enabled' => true,
+            'company_senders' => [
+                (string) $house->id => [
+                    'mailer' => 'smtp', 'from_address' => 'admin@grapout.com', 'from_name' => 'GrapOut Admin',
+                    'smtp_host' => 'smtp.grapout.com', 'is_report_sender' => true,
+                ],
+                (string) $corpcio->id => [
+                    'mailer' => 'smtp', 'from_address' => 'admin@zma.app', 'from_name' => 'Corpcio Global LLC',
+                    'smtp_host' => 'email-smtp.us-east-1.amazonaws.com',
+                ],
+            ],
+        ]]]);
+
+        $mailer = new CompanyMailer($this->org->fresh());
+
+        // Its own mailbox, and the screen can say so.
+        $own = $mailer->senderFor($corpcio->id, 'invoice');
+        $this->assertSame('admin@zma.app', $own['address']);
+        $this->assertSame('company', $own['source']);
+
+        // A company with none falls to the report sender, and says why.
+        $borrowed = $mailer->senderFor($third->id, 'invoice');
+        $this->assertSame('admin@grapout.com', $borrowed['address']);
+        $this->assertSame('house', $borrowed['source']);
+        $this->assertSame('GrapOut Admin', $borrowed['company']);
+    }
+
     /** And a company that has set its own up sends from it. */
     public function test_a_company_set_up_sends_from_its_own_mailbox(): void
     {

@@ -775,6 +775,12 @@ export interface CrmInvoiceItem {
 
 export interface CrmInvoiceFull extends CrmInvoiceRow {
   /**
+   * Who this document would go out as, worked out before anybody presses
+   * send: its issuing company's own mailbox when that company has one, the
+   * house sender when it does not.
+   */
+  sender?: { address: string; name: string; source: 'company' | 'house' | 'settings'; company: string | null } | null
+  /**
    * Where the document tells the client to pay — the issuing company's own
    * account, or an org-wide one. Resolved server-side so the printed page
    * and the PDF can never name different accounts.

@@ -370,7 +370,22 @@ class InvoiceController extends Controller
         ]);
         $this->forKind($request, $invoice->kind, 'view');
 
-        return response()->json(['data' => $this->serialize($invoice, full: true)]);
+        /*
+         * Who this would go out as.
+         *
+         * Named here rather than discovered after sending: a group running
+         * several issuing companies cannot otherwise tell whether a document
+         * leaves from that company's own mailbox or from the house one.
+         */
+        $sender = null;
+        try {
+            $sender = (new \App\Services\Crm\CompanyMailer($request->attributes->get('crm_org')))
+                ->senderFor($invoice->issuing_company_id, 'invoice');
+        } catch (\Throwable) {
+            // Mail switched off, or nothing set up: the dialog says so itself.
+        }
+
+        return response()->json(['data' => $this->serialize($invoice, full: true) + ['sender' => $sender]]);
     }
 
     public function update(Request $request, string $uuid): JsonResponse

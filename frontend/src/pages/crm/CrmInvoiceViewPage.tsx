@@ -796,6 +796,8 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
         <EmailModal
           clientEmail={inv.client?.email ?? ''}
           salesperson={inv.salesperson ?? null}
+          sender={inv.sender ?? null}
+          company={inv.issuing_company?.name ?? null}
           pending={emailMutation.isPending}
           onSend={(payload) => emailMutation.mutate(payload)}
           onClose={() => setEmailing(false)}
@@ -839,9 +841,12 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
   )
 }
 
-function EmailModal({ clientEmail, salesperson, pending, onSend, onClose }: {
+function EmailModal({ clientEmail, salesperson, sender, company, pending, onSend, onClose }: {
   clientEmail: string
   salesperson: { name: string | null; email?: string | null } | null
+  /** Who it will actually go out as, worked out by the server. */
+  sender: { address: string; name: string; source: 'company' | 'house' | 'settings'; company: string | null } | null
+  company: string | null
   pending: boolean
   onSend: (payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string }) => void
   onClose: () => void
@@ -920,7 +925,26 @@ function EmailModal({ clientEmail, salesperson, pending, onSend, onClose }: {
             <option value="default">General company sender</option>
             <option value="dues">Dues / follow-up sender</option>
           </Select>
-          <p className="mt-1 text-xs text-slate-400">A blank choice in the Communication setup falls back to the general sender.</p>
+          {/*
+            * What will actually happen, before the button is pressed.
+            *
+            * The choice above only decides the fallback: a company with a
+            * mailbox of its own always sends through it, which is the whole
+            * point of setting one up - and until this line existed there was
+            * no way to know which of the two applied.
+            */}
+          {sender ? (
+            <p className="mt-1 text-xs text-slate-500">
+              Goes out as <span className="font-medium">{sender.name} &lt;{sender.address}&gt;</span>
+              {sender.source === 'company'
+                ? ` — ${company ?? 'this company'}’s own mailbox.`
+                : sender.source === 'house'
+                  ? ` — the report sender, because ${company ?? 'this company'} has no mailbox of its own.`
+                  : ' — from the Communication setup, since no company mailbox is set up.'}
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-slate-400">A blank choice in the Communication setup falls back to the general sender.</p>
+          )}
         </div>
         <div>
           <Label>Message (optional — a standard line goes otherwise)</Label>
