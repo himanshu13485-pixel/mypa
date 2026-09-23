@@ -1698,26 +1698,39 @@ export default function MessagesPage() {
     }
 
     /*
-     * One message per picture.
+     * One message per picture, in the order they were picked.
      *
      * Several files used to go as one message with a stack of attachments
      * inside it, which meant one reply, one forward and one delete for the
      * lot: a colleague asking about the second photo had to describe which
-     * one they meant. Each file is now its own message, as every other
-     * messenger does it - the words typed beside them ride with the first,
-     * the way a caption belongs to the picture it was written under.
+     * one they meant. Each file is now its own message - and they are sent
+     * one after another rather than all at once, because five requests in
+     * flight together arrive in whatever order the network decides, and the
+     * order somebody chose their photos in is the order they meant.
+     *
+     * The words typed beside them ride with the first, the way a caption
+     * belongs to the picture it was written under.
      */
-    fileList.forEach((file, index) => {
-      const form = new FormData()
-      form.append('attachments[]', file)
-      form.append('type', type)
-      if (index === 0 && options.caption) form.append('body', options.caption)
-      // The reply is answered once, by the first of them.
-      if (index === 0 && replyTo) form.append('reply_to', replyTo.uuid)
-      if (options.duration !== undefined) form.append('duration_seconds', String(options.duration))
-      sendMutation.mutate(form)
-    })
+    const reply = replyTo
     setReplyTo(null)
+
+    void (async () => {
+      for (const [index, file] of fileList.entries()) {
+        const form = new FormData()
+        form.append('attachments[]', file)
+        form.append('type', type)
+        if (index === 0 && options.caption) form.append('body', options.caption)
+        // The reply is answered once, by the first of them.
+        if (index === 0 && reply) form.append('reply_to', reply.uuid)
+        if (options.duration !== undefined) form.append('duration_seconds', String(options.duration))
+
+        try {
+          await sendMutation.mutateAsync(form)
+        } catch {
+          // The failure is already on screen; the rest still go.
+        }
+      }
+    })()
   }
 
   const [showNewChat, setShowNewChat] = useState(false)
@@ -3575,6 +3588,11 @@ export default function MessagesPage() {
                       key={file.name + i}
                       className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2 py-1 text-xs text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                     >
+                      {/* The number it will arrive as: five photos in a
+                          row are otherwise five identical grey chips. */}
+                      <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-brand-600 text-[10px] font-semibold text-white">
+                        {i + 1}
+                      </span>
                       <Paperclip className="size-3 shrink-0" />
                       <span className="max-w-[12rem] truncate">{file.name}</span>
                       <span className="text-slate-400">{Math.max(1, Math.round(file.size / 1024))} KB</span>

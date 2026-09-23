@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Archive, Clock, FileEdit, Inbox, LayoutDashboard, Mail, PanelLeftClose, PanelLeftOpen, PenSquare, Send, Settings2, ShieldAlert, Star, Tag, Trash2, Upload, Users,
+  Archive, Clock, FileEdit, Inbox, LayoutDashboard, Mail, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PenSquare, Send, Settings2, ShieldAlert, Star, Tag, Trash2, Upload, Users,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crmMeQuery } from '../../../api/crm'
@@ -32,6 +32,9 @@ const FOLDERS = [
 // everything ever sent, which is a number nobody acts on.
 const COUNTED = new Set(['inbox', 'spam', 'drafts', 'scheduled', 'outbox'])
 
+/** The three a phone shows outright; the rest live behind the button beside them. */
+const PHONE_FOLDERS = FOLDERS.filter(({ key }) => ['inbox', 'sent', 'spam'].includes(key))
+
 /**
  * The frame every Mails screen sits in: Compose, the mailbox switcher, the
  * folders with their counts and the person's labels - and the compose
@@ -51,6 +54,8 @@ export default function MailsLayout() {
    * with its list, wants the 224px this takes - and somebody who folds it
    * away means it, so the choice is remembered on this machine.
    */
+  /** The phone's folder menu, for everything the strip has no room for. */
+  const [moreOpen, setMoreOpen] = useState(false)
   const [railOpen, setRailOpen] = useState<boolean>(() => {
     try {
       return window.localStorage.getItem('mails.rail') !== 'closed'
@@ -272,20 +277,75 @@ export default function MailsLayout() {
         </div>
 
         {/* Phones and tablets: the same folders as a strip. */}
-        <div className="scroll-pane flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-white px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900 lg:hidden">
-          <NavLink to={crmPath('/crm/mails')} end className={({ isActive }) => clsx(railLink(isActive), 'shrink-0 px-2.5')}>
-            <LayoutDashboard className="size-4" />
-          </NavLink>
-          {FOLDERS.map(({ key, icon: Icon }) => (
-            <NavLink key={key} to={crmPath(`/crm/mails/${key}`)} className={({ isActive }) => clsx(railLink(isActive), 'shrink-0 px-2.5')}>
-              <Icon className="size-4" />
-              <span className="text-xs">{FOLDER_TITLES[key]}</span>
-              {COUNTED.has(key) && (folderCounts[key] ?? 0) > 0 && <span className="text-[11px] font-semibold">{folderCounts[key]}</span>}
+        {/*
+          * On a phone: the three folders people actually live in, and
+          * everything else behind one button.
+          *
+          * A strip of ten that scrolls sideways hides half of itself at any
+          * moment and gives no clue which half - so Outbox was reachable
+          * only by somebody who thought to swipe a row of icons.
+          */}
+        <div className="relative flex shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900 lg:hidden">
+          {PHONE_FOLDERS.map(({ key, icon: Icon }) => (
+            <NavLink
+              key={key}
+              to={crmPath(`/crm/mails/${key}`)}
+              className={({ isActive }) => clsx(railLink(isActive), 'min-w-0 flex-1 justify-center px-1.5')}
+            >
+              <Icon className="size-4 shrink-0" />
+              <span className="truncate text-xs">{FOLDER_TITLES[key]}</span>
+              {COUNTED.has(key) && (folderCounts[key] ?? 0) > 0 && (
+                <span className="text-[11px] font-semibold">{folderCounts[key]}</span>
+              )}
             </NavLink>
           ))}
-          <NavLink to={crmPath('/crm/mails/settings')} className={({ isActive }) => clsx(railLink(isActive), 'shrink-0 px-2.5')}>
-            <Settings2 className="size-4" />
-          </NavLink>
+
+          <button
+            type="button"
+            onClick={() => setMoreOpen((open) => !open)}
+            aria-label="More mail folders"
+            aria-expanded={moreOpen}
+            className={clsx('shrink-0 rounded-lg p-2', moreOpen ? clsx(accent.soft, accent.text) : 'text-slate-500')}
+          >
+            <MoreHorizontal className="size-4" />
+          </button>
+
+          {moreOpen && (
+            <>
+              {/* A tap anywhere else puts it away, as a menu should. */}
+              <button type="button" aria-label="Close" className="fixed inset-0 z-20 cursor-default" onClick={() => setMoreOpen(false)} />
+              <div className="absolute right-2 top-full z-30 mt-1 w-56 rounded-xl bg-white p-1.5 shadow-lift ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+                <NavLink to={crmPath('/crm/mails')} end className={({ isActive }) => railLink(isActive)} onClick={() => setMoreOpen(false)}>
+                  <LayoutDashboard className="size-4" /> <span className="flex-1">Dashboard</span>
+                </NavLink>
+                {FOLDERS.filter(({ key }) => !PHONE_FOLDERS.some((f) => f.key === key)).map(({ key, icon: Icon }) => (
+                  <NavLink
+                    key={key}
+                    to={crmPath(`/crm/mails/${key}`)}
+                    className={({ isActive }) => railLink(isActive)}
+                    onClick={() => setMoreOpen(false)}
+                  >
+                    <Icon className="size-4" />
+                    <span className="flex-1">{FOLDER_TITLES[key]}</span>
+                    {COUNTED.has(key) && (folderCounts[key] ?? 0) > 0 && (
+                      <span className="text-xs font-semibold tabular-nums">{folderCounts[key]}</span>
+                    )}
+                  </NavLink>
+                ))}
+                <NavLink to={crmPath('/crm/mails/labels')} className={({ isActive }) => railLink(isActive)} onClick={() => setMoreOpen(false)}>
+                  <Tag className="size-4" /> <span className="flex-1">Manage labels</span>
+                </NavLink>
+                <NavLink to={crmPath('/crm/mails/settings')} className={({ isActive }) => railLink(isActive)} onClick={() => setMoreOpen(false)}>
+                  <Settings2 className="size-4" /> <span className="flex-1">Mail settings</span>
+                </NavLink>
+                {me?.member?.crm_role === 'admin' && (
+                  <NavLink to={crmPath('/crm/mails/team')} className={({ isActive }) => railLink(isActive)} onClick={() => setMoreOpen(false)}>
+                    <Users className="size-4" /> <span className="flex-1">Team access</span>
+                  </NavLink>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {noMailbox ? (

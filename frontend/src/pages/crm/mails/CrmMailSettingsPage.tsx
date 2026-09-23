@@ -651,6 +651,51 @@ function TeamTab() {
     }
   }
 
+  /*
+   * The three things an Admin sets per person, written once.
+   *
+   * The desk shows them as columns and a phone as a stack, and neither is
+   * worth two copies of the same switch.
+   */
+  const mailsSwitch = (r: MailTeamRow) => (r.locked ? (
+    <span className="text-xs text-slate-400">Always (Admin)</span>
+  ) : (
+    <label className="inline-flex cursor-pointer items-center gap-2">
+      <input type="checkbox" checked={r.has_mails} onChange={(e) => save(r.uuid, e.target.checked, r.limit)} />
+      <span className="text-xs">{r.has_mails ? 'On' : 'Off'}</span>
+    </label>
+  ))
+
+  const allowedPicker = (r: MailTeamRow) => (
+    <Select
+      value={r.limit}
+      disabled={r.locked || !r.has_mails}
+      onChange={(e) => save(r.uuid, r.has_mails, Number(e.target.value))}
+      className="w-20"
+    >
+      {Array.from({ length: data.cap }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
+    </Select>
+  )
+
+  const roomField = (r: MailTeamRow) => (
+    <>
+      <Input
+        type="number"
+        min={50}
+        step={50}
+        defaultValue={r.storage_mb ?? ''}
+        placeholder="company's"
+        disabled={!r.has_mails && !r.locked}
+        onBlur={(e) => {
+          const value = e.target.value ? Number(e.target.value) : null
+          if (value !== (r.storage_mb ?? null)) void save(r.uuid, r.has_mails || r.locked, r.limit, value)
+        }}
+        className="w-28"
+      />
+      <span className="block text-[11px] text-slate-400">{r.used_mb} MB used</span>
+    </>
+  )
+
   return (
     <div className="space-y-4">
     <div className={clsx(card, 'space-y-3')}>
@@ -668,7 +713,15 @@ function TeamTab() {
       </p>
 
       <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Find a person" className="max-w-xs" />
-      <div className="overflow-x-auto">
+      {/*
+        * A person a row on a desk, a card on a phone.
+        *
+        * The table held five columns, so on a phone half of them - allowed,
+        * in use, room - sat off the right-hand edge behind a sideways
+        * scrollbar nobody thinks to drag. The same fields stack instead,
+        * which is taller and entirely visible.
+        */}
+      <div className="hidden sm:block">
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-slate-400">
@@ -686,47 +739,41 @@ function TeamTab() {
                   <p className="font-medium text-slate-800 dark:text-slate-100">{r.name || r.email}</p>
                   <p className="text-xs text-slate-400">{r.email} · {r.role}</p>
                 </td>
-                <td className="py-2 pr-3">
-                  {r.locked ? (
-                    <span className="text-xs text-slate-400">Always (Admin)</span>
-                  ) : (
-                    <label className="inline-flex cursor-pointer items-center gap-2">
-                      <input type="checkbox" checked={r.has_mails} onChange={(e) => save(r.uuid, e.target.checked, r.limit)} />
-                      <span className="text-xs">{r.has_mails ? 'On' : 'Off'}</span>
-                    </label>
-                  )}
-                </td>
-                <td className="py-2 pr-3">
-                  <Select
-                    value={r.limit}
-                    disabled={r.locked || !r.has_mails}
-                    onChange={(e) => save(r.uuid, r.has_mails, Number(e.target.value))}
-                    className="w-20"
-                  >
-                    {Array.from({ length: data.cap }, (_, i) => i + 1).map((n) => <option key={n} value={n}>{n}</option>)}
-                  </Select>
-                </td>
+                <td className="py-2 pr-3">{mailsSwitch(r)}</td>
+                <td className="py-2 pr-3">{allowedPicker(r)}</td>
                 <td className="py-2 pr-3 tabular-nums text-slate-500">{r.mailboxes}</td>
-                <td className="py-2">
-                  <Input
-                    type="number"
-                    min={50}
-                    step={50}
-                    defaultValue={r.storage_mb ?? ''}
-                    placeholder="company's"
-                    disabled={!r.has_mails && !r.locked}
-                    onBlur={(e) => {
-                      const value = e.target.value ? Number(e.target.value) : null
-                      if (value !== (r.storage_mb ?? null)) void save(r.uuid, r.has_mails || r.locked, r.limit, value)
-                    }}
-                    className="w-28"
-                  />
-                  <span className="block text-[11px] text-slate-400">{r.used_mb} MB used</span>
-                </td>
+                <td className="py-2">{roomField(r)}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="space-y-2 sm:hidden">
+        {rows.map((r) => (
+          <div key={r.uuid} className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+            <p className="font-medium text-slate-800 dark:text-slate-100">{r.name || r.email}</p>
+            <p className="text-xs text-slate-400">{r.email} · {r.role}</p>
+
+            <div className="mt-2 grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">Mails</p>
+                <div className="mt-0.5">{mailsSwitch(r)}</div>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">Mailboxes allowed</p>
+                <div className="mt-0.5 flex items-center gap-2">
+                  {allowedPicker(r)}
+                  <span className="text-xs text-slate-400">{r.mailboxes} in use</span>
+                </div>
+              </div>
+              <div className="col-span-2">
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">Room (MB)</p>
+                <div className="mt-0.5">{roomField(r)}</div>
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
 
