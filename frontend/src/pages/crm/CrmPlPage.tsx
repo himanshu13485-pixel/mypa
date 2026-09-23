@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { FileSpreadsheet, Link2, MessageSquarePlus, Plus, Scale, Settings2, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
+import Marquee from '../../components/Marquee'
 import { crm, type CrmPlConfig, type CrmPlFigure, type CrmPlMonth, type CrmPlNote } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
@@ -174,7 +175,7 @@ function MonthCard({ m, onAdd, onDeleteLine, onNote }: {
   onNote: (lineKey: string | null, title: string) => void
 }) {
   const side = (title: string, lines: CrmPlMonth['income'], total: number, sideKey: 'income' | 'expense', tone: string) => (
-    <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
+    <div className="min-w-0 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/40">
       <div className="mb-1 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
         <button onClick={() => onAdd(sideKey)} className="flex items-center gap-1 rounded-lg px-2 py-0.5 text-xs text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-500/10">
@@ -186,7 +187,7 @@ function MonthCard({ m, onAdd, onDeleteLine, onNote }: {
         : lines.map((l, i) => (
           <div key={i}>
             <div className="flex items-baseline justify-between gap-2 py-1 text-sm">
-              <span className="min-w-0 flex-1 truncate text-slate-600 dark:text-slate-300">
+              <Marquee className="min-w-0 flex-1 text-slate-600 dark:text-slate-300">
                 {l.label}
                 {l.source === 'manual' && <span className="ml-1 text-[10px] text-slate-400">(manual)</span>}
                 {l.source === 'linked' && (
@@ -194,7 +195,7 @@ function MonthCard({ m, onAdd, onDeleteLine, onNote }: {
                     <Link2 className="size-3" /> auto
                   </span>
                 )}
-              </span>
+              </Marquee>
               <span className="flex shrink-0 items-center gap-1 whitespace-nowrap tabular-nums">
                 {inr(l.amount)}
                 {/* Every entry, either side - the ones the system works out as
@@ -269,7 +270,7 @@ function MonthCard({ m, onAdd, onDeleteLine, onNote }: {
           ))}
         </ul>
       )}
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid min-w-0 gap-3 lg:grid-cols-2">
         {side('Income', m.income, m.income_total, 'income', 'text-slate-800 dark:text-slate-100')}
         {side('Expenses', m.expenses, m.expense_total, 'expense', 'text-red-500')}
       </div>

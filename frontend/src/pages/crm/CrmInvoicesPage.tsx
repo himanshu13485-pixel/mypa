@@ -4,6 +4,7 @@ import { listFromParam, listParamOf, rememberList } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRightLeft, Plus, Search, Download, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
+import Marquee from '../../components/Marquee'
 import { ScopeToggle } from './ScopeToggle'
 import {
   crm, crmCan, crmMeQuery, CRM_CLIENT_STATUS_LABELS, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS,
@@ -404,9 +405,9 @@ function InvoicesList() {
               {money(data!.totals.consolidated?.basic ?? 0, 'INR')}
             </div>
             {foreignList(data!.totals.foreign, 'base') && (
-              <div className="truncate text-[11px] text-slate-400">incl. {foreignList(data!.totals.foreign, 'base')}</div>
+              <Marquee className="text-[11px] text-slate-400">incl. {foreignList(data!.totals.foreign, 'base')}</Marquee>
             )}
-            <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">Total sales (base value)</div>
+            <Marquee className="text-xs font-medium text-slate-600 dark:text-slate-300">Total sales (base value)</Marquee>
             <div className="text-xs text-slate-400">
               {data!.totals.by_salesperson!.length} people · {data!.totals.by_salesperson!.reduce((n, r) => n + r.count, 0)} documents
             </div>
@@ -427,11 +428,11 @@ function InvoicesList() {
                     government collects on it. */}
                 <div className="text-lg font-semibold text-slate-900 dark:text-white">{money(row.base ?? row.total, 'INR')}</div>
                 {foreignList(row.foreign, 'base') && (
-                  <div className="truncate text-[11px] text-slate-400">incl. {foreignList(row.foreign, 'base')}</div>
+                  <Marquee className="text-[11px] text-slate-400">incl. {foreignList(row.foreign, 'base')}</Marquee>
                 )}
-                <div className="truncate text-xs font-medium text-slate-600 dark:text-slate-300">
+                <Marquee className="text-xs font-medium text-slate-600 dark:text-slate-300">
                   {row.name}{row.is_me && ' (you)'}
-                </div>
+                </Marquee>
                 <div className="text-xs text-slate-400">
                   {row.count} document{row.count === 1 ? '' : 's'}
                   {row.due > 0 && (

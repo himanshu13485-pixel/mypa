@@ -514,10 +514,45 @@ class CrmController extends Controller
 
         $invoices = $sales(Invoice::where('organization_id', $org->id)->where('status', '!=', 'cancelled'));
 
-        $received = \App\Models\Crm\InvoicePayment::whereHas('invoice', fn ($q) => $sales($q
+        /*
+         * Money, in rupees, whatever currency it was raised in.
+         *
+         * A $2,000 invoice is not 2,000 rupees, and adding it to an INR
+         * total as though it were is how a dashboard ends up several lakh
+         * out. Every figure below is converted at the rate frozen on the
+         * document when it was saved - the same rule the invoices screen
+         * uses - and the foreign part is named separately so nobody has to
+         * wonder what is inside the number.
+         */
+        $receivedRows = \App\Models\Crm\InvoicePayment::whereHas('invoice', fn ($q) => $sales($q
             ->where('organization_id', $org->id)->where('status', '!=', 'cancelled')))
             ->where('received_at', '>=', $monthStart)
-            ->sum('amount');
+            ->with('invoice:id,total,currency,fx_currency,fx_rate,total_fx')
+            ->get(['id', 'invoice_id', 'amount']);
+        $received = round($receivedRows->sum(fn ($p) => $p->invoice ? $p->invoice->inRupees($p->amount) : (float) $p->amount), 2);
+
+        $monthInvoices = (clone $invoices)->where('kind', 'invoice')->where('invoice_date', '>=', $monthStart)
+            ->get(['id', ...Invoice::RUPEE_COLUMNS]);
+
+        $dueInvoices = (clone $invoices)->where('kind', 'invoice')->whereIn('payment_status', ['due', 'partial'])
+            ->withSum('payments as received_amount', 'amount')
+            ->get(['id', ...Invoice::RUPEE_COLUMNS]);
+
+        $outstanding = round($dueInvoices->sum(
+            fn (Invoice $i) => max(0, $i->inRupees((float) $i->total) - $i->inRupees((float) ($i->received_amount ?? 0))),
+        ), 2);
+
+        /** What of all that was not in rupees, named per currency. */
+        $foreign = function ($rows, callable $value) {
+            return collect($rows)
+                ->filter(fn ($i) => strtoupper((string) ($i->currency ?: 'INR')) !== 'INR')
+                ->groupBy(fn ($i) => strtoupper((string) $i->currency))
+                ->map(fn ($group, $currency) => [
+                    'currency' => $currency,
+                    'amount' => round($group->sum($value), 2),
+                ])
+                ->values()->all();
+        };
 
         // Birthdays within the next 7 days, month-boundary safe.
         $birthdays = Member::visible()->with(['user:id,name', 'user.profile:user_id,photo_path,avatar,gender'])
@@ -555,13 +590,27 @@ class CrmController extends Controller
                 'active' => $this->clientQuery($org->id, $window)->where('status', 'active')->count(),
             ],
             'invoices' => [
-                'month_count' => (clone $invoices)->where('kind', 'invoice')->where('invoice_date', '>=', $monthStart)->count(),
-                'month_total' => (clone $invoices)->where('kind', 'invoice')->where('invoice_date', '>=', $monthStart)->sum('total'),
+                'month_count' => $monthInvoices->count(),
+                // In rupees, at each document's own frozen rate.
+                'month_total' => round($monthInvoices->sum(fn (Invoice $i) => $i->inRupees((float) $i->total)), 2),
                 'proforma_open' => (clone $invoices)->where('kind', 'proforma')->whereDoesntHave('convertedTo')->count(),
-                'outstanding' => (clone $invoices)->where('kind', 'invoice')->whereIn('payment_status', ['due', 'partial'])
-                    ->get(['id', 'total'])
-                    ->sum(fn ($i) => (float) $i->total - (float) $i->payments()->sum('amount')),
+                'outstanding' => $outstanding,
                 'received_this_month' => $received,
+                // The foreign share of each figure, so the rupee total can
+                // say what it is holding rather than hiding it.
+                'foreign' => [
+                    'month_total' => $foreign($monthInvoices, fn (Invoice $i) => (float) $i->total),
+                    'outstanding' => $foreign($dueInvoices, fn (Invoice $i) => max(0, (float) $i->total - (float) ($i->received_amount ?? 0))),
+                    'received_this_month' => $foreign(
+                        $receivedRows->filter(fn ($p) => $p->invoice)->map(function ($p) {
+                            $row = $p->invoice->replicate();
+                            $row->total = $p->amount;
+
+                            return $row;
+                        }),
+                        fn ($i) => (float) $i->total,
+                    ),
+                ],
             ],
             'recent_invoices' => (clone $invoices)->with('client:id,uuid,company_name')
                 ->latest()->limit(8)->get()
@@ -587,10 +636,13 @@ class CrmController extends Controller
                     ->groupBy('lead_status')
                     ->pluck('n', 'lead_status'),
                 'invoices_by_payment' => (clone $invoices)->where('kind', 'invoice')
-                    ->selectRaw('payment_status, count(*) as n, sum(total) as amount')
+                    ->get(['id', 'payment_status', ...Invoice::RUPEE_COLUMNS])
                     ->groupBy('payment_status')
-                    ->get()
-                    ->map(fn ($r) => ['status' => $r->payment_status, 'count' => (int) $r->n, 'amount' => (float) $r->amount]),
+                    ->map(fn ($group, $status) => [
+                        'status' => $status,
+                        'count' => $group->count(),
+                        'amount' => round($group->sum(fn (Invoice $i) => $i->inRupees((float) $i->total)), 2),
+                    ])->values(),
             ],
             'today' => $today,
             'scope' => $scope,

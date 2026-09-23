@@ -51,7 +51,17 @@ export default function GroupsPage() {
 
   const { data: list, isLoading, isError, error: loadError, refetch } = useQuery({ queryKey: ['groups'], queryFn: groupsApi.list })
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ['groups'] })
+  /*
+   * The group list, and the chat list with it.
+   *
+   * A group's name is on its conversation too, and Messages reads it from
+   * there - so a rename that only refreshed groups left the chat header
+   * calling it by the old name until its next poll.
+   */
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['groups'] })
+    queryClient.invalidateQueries({ queryKey: ['conversations'] })
+  }
 
   const refreshDetail = async (uuid: string) => {
     const fresh = await groupsApi.get(uuid)

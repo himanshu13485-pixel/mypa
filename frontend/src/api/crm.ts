@@ -2320,6 +2320,12 @@ export interface CrmDashboard {
     proforma_open: number
     outstanding: number | string
     received_this_month: number | string
+    /** The part of each figure that was not raised in rupees, per currency. */
+    foreign?: {
+      month_total: { currency: string; amount: number }[]
+      outstanding: { currency: string; amount: number }[]
+      received_this_month: { currency: string; amount: number }[]
+    }
   }
   recent_invoices: { uuid: string; kind: string; number: string; client: string | null; invoice_date: string; total: string; currency: string; payment_status: string }[]
   birthdays: { name: string | null; photo_path?: string | null; avatar?: string | null; gender?: string | null; date: string; in_days: number }[]

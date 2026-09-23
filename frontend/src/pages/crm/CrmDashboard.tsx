@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom'
 import { Cake, IndianRupee, ReceiptText, UserCheck, Users } from 'lucide-react'
 import { clsx } from 'clsx'
 import { ScopeToggle, useTeamHead } from './ScopeToggle'
+import Marquee from '../../components/Marquee'
+import { money } from '../../lib/money'
 import { Avatar } from '../../lib/avatars'
 import { LETTER_LABELS, letterAvailability, openLetter, type LetterType } from './letters'
 import { crm, crmMeQuery, CRM_LEAD_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } from '../../api/crm'
@@ -32,6 +34,19 @@ const PAYMENT_COLORS: Record<string, string> = {
 const inr = (v: number | string) =>
   '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
+/**
+ * "incl. $2,000.00" - what a rupee total is holding that was not in rupees.
+ *
+ * The figures themselves are converted at the rate frozen on each document,
+ * the way the invoices screen has always done it. Saying so under the number
+ * is the difference between a total somebody trusts and one they re-add by
+ * hand in a spreadsheet.
+ */
+const foreignNote = (rows: { currency: string; amount: number }[] | undefined) =>
+  rows?.length
+    ? 'incl. ' + rows.map((r) => money(r.amount, r.currency)).join(' + ')
+    : null
+
 export default function CrmDashboard() {
   // A Team Head's dashboard opens on their own sales; the combined view is
   // a switch away and never mixed in by accident.
@@ -49,11 +64,23 @@ export default function CrmDashboard() {
     return <div className="flex justify-center py-20"><Spinner /></div>
   }
 
-  const stats = [
+  const stats: { label: string; value: string; sub: string; note?: string | null; icon: typeof Users }[] = [
     { label: 'Active employees', value: `${data.employees.active}`, sub: `${data.employees.total} total`, icon: Users },
     { label: 'Active clients', value: `${data.clients.active}`, sub: `${data.clients.total} total`, icon: UserCheck },
-    { label: 'Invoiced this month', value: inr(data.invoices.month_total), sub: `${data.invoices.month_count} invoices`, icon: ReceiptText },
-    { label: 'Outstanding', value: inr(data.invoices.outstanding), sub: `${inr(data.invoices.received_this_month)} received this month`, icon: IndianRupee },
+    {
+      label: 'Invoiced this month',
+      value: inr(data.invoices.month_total),
+      note: foreignNote(data.invoices.foreign?.month_total),
+      sub: `${data.invoices.month_count} invoices`,
+      icon: ReceiptText,
+    },
+    {
+      label: 'Outstanding',
+      value: inr(data.invoices.outstanding),
+      note: foreignNote(data.invoices.foreign?.outstanding),
+      sub: `${inr(data.invoices.received_this_month)} received this month`,
+      icon: IndianRupee,
+    },
   ]
 
   return (
@@ -107,8 +134,11 @@ export default function CrmDashboard() {
             </div>
             <div className="min-w-0 flex-1">
               <div className="break-words text-base font-semibold leading-tight tabular-nums text-slate-900 dark:text-white sm:text-lg">{s.value}</div>
-              <div className="mt-0.5 text-xs font-medium text-slate-600 dark:text-slate-300">{s.label}</div>
-              <div className="break-words text-xs text-slate-400">{s.sub}</div>
+              {s.note && <div className="text-[11px] text-slate-400">{s.note}</div>}
+              {/* A label too long for its tile walks itself rather than
+                  ending in an ellipsis nobody can open. */}
+              <Marquee className="mt-0.5 text-xs font-medium text-slate-600 dark:text-slate-300">{s.label}</Marquee>
+              <Marquee className="text-xs text-slate-400">{s.sub}</Marquee>
             </div>
           </Card>
         ))}

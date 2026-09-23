@@ -580,7 +580,9 @@ class ConversationController extends Controller
                 ? 'You'
                 : ($conversation->type === 'direct'
                 ? ($other?->name ?? 'Unknown user')
-                : ($conversation->name ?? $conversation->group?->name ?? 'Group chat')),
+                // The group's own name wins: its copy here is only a
+                // fallback for chats that never belonged to a group.
+                : ($conversation->group?->name ?? $conversation->name ?? 'Group chat')),
             'group_uuid' => $conversation->group?->uuid,
             'other_user' => $other ? [
                 'uuid' => $other->uuid,

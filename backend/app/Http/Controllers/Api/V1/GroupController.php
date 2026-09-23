@@ -185,6 +185,18 @@ class GroupController extends Controller
 
         $group->update($data);
 
+        /*
+         * A renamed group is renamed in its chat too.
+         *
+         * The conversation keeps a copy of the name from the day it was
+         * made, and that copy is what the chat header reads - so a group
+         * renamed here went on being called by its old name in Messages for
+         * ever, which nobody could explain or fix.
+         */
+        if (array_key_exists('name', $data)) {
+            \App\Models\Conversation::where('group_id', $group->id)->update(['name' => $group->name]);
+        }
+
         return response()->json([
             'message' => 'Group updated.',
             'data' => $this->serialize($group->fresh()->loadCount(['members', 'tasks']), $request),
