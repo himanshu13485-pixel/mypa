@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Download, FileText } from 'lucide-react'
+import { Download, FileText, Image as ImageIcon } from 'lucide-react'
 import { clsx } from 'clsx'
 import { chat } from '../api/endpoints'
 import { attachmentHeaders } from '../lib/chatUnlock'
@@ -19,6 +19,19 @@ import { fileSize, shortName } from '../lib/attachmentLabels'
  */
 
 const IMAGE = /^image\//
+
+/**
+ * Which pictures this person has asked to see, for as long as the tab lives.
+ *
+ * A photo is fetched when it is tapped rather than the moment it scrolls
+ * past: a thread with forty screenshots in it used to pull forty files down
+ * a phone connection nobody chose to spend. Once tapped it stays loaded, so
+ * scrolling back to it costs nothing.
+ *
+ * Module-level rather than component state because a bubble unmounts as the
+ * thread scrolls, and a picture that was opened should not close itself.
+ */
+const opened = new Set<number>()
 
 /** Fetch an attachment as a blob URL, and let it go when the bubble does. */
 function useAttachmentUrl(conversationUuid: string, attachmentId: number, enabled: boolean) {
@@ -74,7 +87,13 @@ export default function MessageAttachment({
    * which at least downloads.
    */
   const isImage = IMAGE.test(attachment.mime_type ?? '') && !brokenImage
-  const url = useAttachmentUrl(conversationUuid, attachment.id, isImage)
+  const [show, setShow] = useState(() => opened.has(attachment.id))
+  const url = useAttachmentUrl(conversationUuid, attachment.id, isImage && show)
+
+  const reveal = () => {
+    opened.add(attachment.id)
+    setShow(true)
+  }
 
   const download = async () => {
     const res = await fetch(chat.attachmentUrl(conversationUuid, attachment.id), {
@@ -90,6 +109,31 @@ export default function MessageAttachment({
   }
 
   if (isImage) {
+    /*
+     * Not yet asked for.
+     *
+     * The name and the size, and a tap to see it - which is how every
+     * messenger behaves on a metered connection, and what somebody on a
+     * train would choose if anybody asked them.
+     */
+    if (!show) {
+      return (
+        <button
+          type="button"
+          onClick={reveal}
+          title={`Show ${attachment.name}`}
+          className={clsx(
+            'mt-1 flex h-24 w-40 flex-col items-center justify-center gap-1 rounded-lg text-xs',
+            own ? 'bg-white/10 hover:bg-white/20' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10',
+          )}
+        >
+          <ImageIcon className="size-5 opacity-70" />
+          <span className="font-medium">Tap to view</span>
+          {!!attachment.size && <span className="opacity-60">{fileSize(attachment.size)}</span>}
+        </button>
+      )
+    }
+
     return (
       <button
         type="button"

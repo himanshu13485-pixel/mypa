@@ -11,7 +11,10 @@ use App\Models\Crm\Organization;
 use App\Models\User;
 use Carbon\Carbon;
 use Database\Seeders\RolePermissionSeeder;
+use App\Models\Crm\InvoicePayment;
+use App\Notifications\CrmNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 /**
@@ -160,6 +163,54 @@ class CrmDispatchServedTest extends TestCase
         $this->sweep();
 
         $this->assertSame('in_process', $invoice->fresh()->dispatch_status);
+    }
+
+    public function test_the_salesperson_is_told_and_money_still_owed_is_said(): void
+    {
+        Notification::fake();
+
+        $invoice = $this->invoice('INV-9', 'pending', ['2026-08-31']);
+        $invoice->forceFill(['payment_status' => 'due'])->save();
+
+        $this->sweep();
+
+        $this->assertSame('dispatched', $invoice->fresh()->dispatch_status, 'money owed does not hold dispatch back');
+
+        Notification::assertSentTo(
+            User::where('email', 'boss@grapout.test')->firstOrFail(),
+            CrmNotification::class,
+            function (CrmNotification $notification) {
+                $this->assertStringContainsString('INV-9 is marked dispatched', $notification->message);
+                $this->assertStringContainsString('still due', $notification->message);
+
+                return true;
+            },
+        );
+    }
+
+    public function test_a_settled_document_is_told_without_the_money_line(): void
+    {
+        Notification::fake();
+
+        $invoice = $this->invoice('INV-10', 'pending', ['2026-08-31']);
+        InvoicePayment::create([
+            'invoice_id' => $invoice->id, 'amount' => 10000, 'received_at' => '2026-01-10', 'method' => 'bank',
+        ]);
+
+        $this->sweep();
+
+        Notification::assertSentTo(
+            User::where('email', 'boss@grapout.test')->firstOrFail(),
+            CrmNotification::class,
+            function (CrmNotification $notification) {
+                if (! str_contains($notification->message, 'INV-10')) {
+                    return false;
+                }
+                $this->assertStringNotContainsString('still due', $notification->message);
+
+                return true;
+            },
+        );
     }
 
     public function test_a_cancelled_document_is_not_dispatched(): void

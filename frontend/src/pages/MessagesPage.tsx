@@ -1694,14 +1694,27 @@ export default function MessagesPage() {
       return
     }
 
-    const form = new FormData()
-    fileList.forEach((f) => form.append('attachments[]', f))
-    form.append('type', type)
-    // The words typed beside the file travel with it, in one message.
-    if (options.caption) form.append('body', options.caption)
-    if (replyTo) form.append('reply_to', replyTo.uuid)
-    if (options.duration !== undefined) form.append('duration_seconds', String(options.duration))
-    sendMutation.mutate(form)
+    /*
+     * One message per picture.
+     *
+     * Several files used to go as one message with a stack of attachments
+     * inside it, which meant one reply, one forward and one delete for the
+     * lot: a colleague asking about the second photo had to describe which
+     * one they meant. Each file is now its own message, as every other
+     * messenger does it - the words typed beside them ride with the first,
+     * the way a caption belongs to the picture it was written under.
+     */
+    fileList.forEach((file, index) => {
+      const form = new FormData()
+      form.append('attachments[]', file)
+      form.append('type', type)
+      if (index === 0 && options.caption) form.append('body', options.caption)
+      // The reply is answered once, by the first of them.
+      if (index === 0 && replyTo) form.append('reply_to', replyTo.uuid)
+      if (options.duration !== undefined) form.append('duration_seconds', String(options.duration))
+      sendMutation.mutate(form)
+    })
+    setReplyTo(null)
   }
 
   const [showNewChat, setShowNewChat] = useState(false)
