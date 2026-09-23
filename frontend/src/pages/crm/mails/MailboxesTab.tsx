@@ -6,6 +6,7 @@ import { mails, type MailAccountInfo, type MailPerson, type MailProvider } from 
 import { errorMessage } from '../../../api/client'
 import { useToast } from '../../../components/Toast'
 import { Button, Input, Label, Modal, Select, Spinner } from '../../../components/ui'
+import RichEditor from './RichEditor'
 import { mailDate } from './mailUtils'
 
 const card = 'rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100 dark:bg-slate-900 dark:ring-slate-800 sm:p-5'
@@ -31,6 +32,7 @@ type AccountForm = {
   daily_cap: string
   dkim_selector: string
   verify_cert: boolean
+  signature_html: string
 }
 
 const blankForm = (p?: MailProvider): AccountForm => ({
@@ -38,7 +40,7 @@ const blankForm = (p?: MailProvider): AccountForm => ({
   provider: p?.key ?? 'custom',
   imap_host: p?.imap_host ?? '', imap_port: p?.imap_port ?? 993, imap_encryption: p?.imap_encryption ?? 'ssl', imap_username: '', imap_password: '',
   smtp_host: p?.smtp_host ?? '', smtp_port: p?.smtp_port ?? 587, smtp_encryption: p?.smtp_encryption ?? 'tls', smtp_username: '', smtp_password: '',
-  is_default: false, daily_cap: '', dkim_selector: '', verify_cert: true,
+  is_default: false, daily_cap: '', dkim_selector: '', verify_cert: true, signature_html: '',
 })
 
 /** SPF ✓ / DKIM ✗ - what the receiving world can check, at a glance. */
@@ -177,7 +179,9 @@ export default function MailboxesTab() {
               </div>
 
               <div className="flex flex-wrap gap-1.5">
-                {a.can_manage && <Button size="sm" variant="secondary" onClick={() => setEditing(a)}>Edit</Button>}
+                <Button size="sm" variant="secondary" onClick={() => setEditing(a)}>
+                  {a.can_manage ? 'Edit' : 'My settings'}
+                </Button>
 
                 {/*
                   * The mailbox's own password, changed here when it has been
@@ -312,6 +316,7 @@ This is what Netvork signs in with - change it at your mail provider first, then
           providers={data.providers}
           people={data.people}
           isAdmin={data.is_admin}
+          mine={editing === 'new' || editing.can_manage !== false}
           onClose={() => setEditing(null)}
         />
       )}
@@ -320,11 +325,13 @@ This is what Netvork signs in with - change it at your mail provider first, then
   )
 }
 
-function AccountModal({ account, providers, people, isAdmin, onClose }: {
+function AccountModal({ account, providers, people, isAdmin, mine, onClose }: {
   account: MailAccountInfo | null
   providers: MailProvider[]
   people: MailPerson[]
   isAdmin: boolean
+  /** False for a mailbox shared with this person: their half of it only. */
+  mine: boolean
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -336,7 +343,7 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
         imap_host: account.imap_host ?? '', imap_port: account.imap_port, imap_encryption: account.imap_encryption, imap_username: account.imap_username ?? '', imap_password: '',
         smtp_host: account.smtp_host ?? '', smtp_port: account.smtp_port, smtp_encryption: account.smtp_encryption, smtp_username: account.smtp_username ?? '', smtp_password: '',
         is_default: account.is_default, daily_cap: account.daily_cap ? String(account.daily_cap) : '', dkim_selector: account.dkim_selector ?? '',
-        verify_cert: account.verify_cert !== false,
+        verify_cert: account.verify_cert !== false, signature_html: account.signature_html ?? '',
       }
     : blankForm(providers.find((p) => p.key === 'gmail')))
   // Only ticked when the two logins really are one - an SES mailbox, say,
@@ -360,7 +367,14 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
 
   const save = useMutation({
     mutationFn: () => {
+      // A mailbox shared with them: their signature and their default, and
+      // nothing that would change it for anybody else.
+      if (account && !mine) {
+        return mails.saveAccount(account.uuid, { signature_html: form.signature_html, is_default: form.is_default })
+      }
+
       const body: Record<string, unknown> = { ...form, daily_cap: form.daily_cap ? Number(form.daily_cap) : null }
+      delete body.signature_html
       if (!form.imap_username) body.imap_username = form.email
       if (sameLogin) {
         body.smtp_username = form.imap_username || form.email
@@ -391,6 +405,40 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
       <option value="none">None</option>
     </Select>
   )
+
+  if (account && !mine) {
+    return (
+      <Modal title={`Your settings for ${account.email}`} onClose={onClose} sticky>
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault()
+            save.mutate()
+          }}
+        >
+          <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+            This mailbox is shared with you{account.owner ? ` by ${account.owner}` : ''}. Its servers and password are looked after by
+            your Company Admin - what is yours here is how you sign from it.
+          </p>
+
+          <div>
+            <Label>Your signature on mail from this mailbox</Label>
+            <RichEditor value={form.signature_html} onChange={(v) => set('signature_html', v)} minHeight={110} placeholder="e.g. Harsh - Sales, Grapout" />
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+            <input type="checkbox" checked={form.is_default} onChange={(e) => set('is_default', e.target.checked)} />
+            Write from this mailbox by default
+          </label>
+
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Saving…' : 'Save'}</Button>
+          </div>
+        </form>
+      </Modal>
+    )
+  }
 
   return (
     <Modal title={account ? `Edit ${account.email}` : 'Add a mailbox'} onClose={onClose} wide sticky>

@@ -14,6 +14,7 @@ use App\Services\Mail\MailDns;
 use App\Services\Mail\MailSync;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 use Illuminate\Validation\Rule;
@@ -48,8 +49,10 @@ class MailAccountController extends Controller
         return response()->json([
             'data' => MailAccount::for($me)->with(['sharedMembers.user:id,name,email', 'member.user:id,name,email'])
                 ->orderByDesc('is_default')->orderBy('id')->get()
-                ->map(fn (MailAccount $a) => $a->serialize() + [
+                ->map(fn (MailAccount $a) => $a->serialize($me) + [
                     'is_mine' => $a->member_id === $me->id,
+                    // Its servers and passwords are the owner's and the
+                    // Admin's; a signature is everybody's own.
                     'can_manage' => $this->mayManage($me, $a),
                     'owner' => $a->member_id === $me->id ? null : ($a->member?->user?->name ?: $a->member?->user?->email),
                 ])->values(),
@@ -107,7 +110,46 @@ class MailAccountController extends Controller
     public function update(Request $request, MailAccount $account): JsonResponse
     {
         $me = $this->reachable($request, $account);
-        abort_unless($this->mayManage($me, $account), 403, 'This mailbox is shared with you. Ask your Admin to change its settings.');
+
+        /*
+         * Somebody the mailbox is shared with edits their own side of it -
+         * their signature, and whether they write from it by default.
+         *
+         * Not its servers or its password: one person changing those would
+         * break the mailbox for everybody else on it, and a password changed
+         * here would lock the rest out.
+         */
+        if (! $this->mayManage($me, $account)) {
+            $mine = $request->validate([
+                'signature_html' => ['nullable', 'string', 'max:20000'],
+                'is_default' => ['boolean'],
+            ]);
+
+            $pivot = array_filter([
+                'signature_html' => array_key_exists('signature_html', $mine) ? $mine['signature_html'] : null,
+            ], fn ($v) => $v !== null);
+            if ($request->has('is_default')) {
+                $pivot['is_default'] = $request->boolean('is_default');
+            }
+            abort_if($pivot === [], 403, 'Only your Admin can change this mailbox\'s servers. Your signature and default here are yours.');
+
+            $account->sharedMembers()->updateExistingPivot($me->id, $pivot);
+            if (! empty($pivot['is_default'])) {
+                // One default each, counting their own mailboxes and the
+                // shared ones alike.
+                MailAccount::ownedBy($me)->update(['is_default' => false]);
+                foreach (MailAccount::for($me)->where('member_id', '!=', $me->id)->pluck('id') as $other) {
+                    if ($other !== $account->id) {
+                        DB::table('crm_mail_account_member')->where('mail_account_id', $other)->where('member_id', $me->id)->update(['is_default' => false]);
+                    }
+                }
+            }
+
+            return response()->json([
+                'message' => 'Saved.',
+                'data' => $account->fresh(['sharedMembers.user'])->serialize($me),
+            ]);
+        }
 
         $admin = $me->crm_role === 'admin';
         $data = $this->adminOnly($this->validated($request, false), $admin);
@@ -159,7 +201,7 @@ class MailAccountController extends Controller
 
         return response()->json([
             'message' => $reconnected ? 'Mailbox reconnected. Its mail is where you left it.' : 'Mailbox saved.',
-            'data' => $account->fresh(['sharedMembers.user'])->serialize(),
+            'data' => $account->fresh(['sharedMembers.user'])->serialize($me),
         ]);
     }
 

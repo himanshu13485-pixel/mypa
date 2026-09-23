@@ -129,7 +129,7 @@ class MailAccount extends Model
     public function sharedMembers(): BelongsToMany
     {
         return $this->belongsToMany(Member::class, 'crm_mail_account_member', 'mail_account_id', 'member_id')
-            ->withPivot('can_send')->withTimestamps();
+            ->withPivot(['can_send', 'signature_html', 'is_default'])->withTimestamps();
     }
 
     /**
@@ -223,8 +223,19 @@ class MailAccount extends Model
         return ['address' => $this->email, 'name' => $this->from_name ?: $this->email];
     }
 
-    public function serialize(): array
+    /**
+     * The mailbox as one person sees it.
+     *
+     * Somebody the mailbox is shared with sees their own signature and their
+     * own default rather than its owner's, because a reply from a shared desk
+     * should be signed by whoever wrote it.
+     */
+    public function serialize(?Member $viewer = null): array
     {
+        $share = $viewer && $viewer->id !== $this->member_id
+            ? $this->sharedMembers->firstWhere('id', $viewer->id)?->pivot
+            : null;
+
         return [
             'uuid' => $this->uuid,
             'label' => $this->label,
@@ -242,8 +253,8 @@ class MailAccount extends Model
             'smtp_encryption' => $this->smtp_encryption,
             'smtp_username' => $this->smtp_username,
             'has_smtp_password' => filled($this->smtp_password),
-            'signature_html' => $this->signature_html,
-            'signature_reply_html' => $this->signature_reply_html,
+            'signature_html' => $share ? $share->signature_html : $this->signature_html,
+            'signature_reply_html' => $share ? null : $this->signature_reply_html,
             'signature_on' => $this->signature_on ?: 'all',
             'signature_before_quote' => $this->signature_before_quote === null ? true : (bool) $this->signature_before_quote,
             // Addresses, and whether each has proved it wants the mail. The
@@ -255,7 +266,7 @@ class MailAccount extends Model
             ])->values()->all(),
             'auto_reply' => $this->auto_reply ?: ['enabled' => false],
             'forward_to' => $this->forward_to,
-            'is_default' => $this->is_default,
+            'is_default' => $share ? (bool) $share->is_default : (bool) $this->is_default,
             'can_receive' => $this->canReceive(),
             'can_send' => $this->canSend(),
             'last_synced_at' => $this->last_synced_at?->toIso8601String(),

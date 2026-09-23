@@ -25,7 +25,7 @@ class MailMessage extends Model
     public const FOLDERS = ['inbox', 'outbox', 'drafts', 'scheduled', 'sent', 'spam', 'trash', 'archive'];
 
     protected $fillable = [
-        'organization_id', 'mail_account_id', 'folder', 'remote_folder', 'uid', 'message_id',
+        'organization_id', 'mail_account_id', 'author_member_id', 'folder', 'remote_folder', 'uid', 'message_id',
         'in_reply_to', 'reference_ids', 'thread_key', 'from_name', 'from_email', 'to', 'cc', 'bcc',
         'reply_to', 'subject', 'snippet', 'body_html', 'body_text', 'has_attachments', 'is_read',
         'is_starred', 'date', 'scheduled_for', 'send_after', 'status', 'error', 'size', 'trashed_from',

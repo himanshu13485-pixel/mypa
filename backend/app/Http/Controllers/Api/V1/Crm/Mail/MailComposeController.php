@@ -69,16 +69,23 @@ class MailComposeController extends Controller
             abort_unless($account->canSend(), 422, 'This mailbox cannot send yet - add its outgoing (SMTP) server in Mail settings.');
         }
 
+        // Somebody else's half-written mail is not to be taken over, even on
+        // a mailbox they share with you.
         $message = ! empty($data['draft'])
-            ? MailMessage::where('uuid', $data['draft'])->where('mail_account_id', $account->id)->whereIn('folder', ['drafts', 'outbox'])->firstOrFail()
+            ? MailMessage::where('uuid', $data['draft'])->where('mail_account_id', $account->id)
+                ->whereIn('folder', ['drafts', 'outbox'])
+                ->where(fn ($q) => $q->whereNull('author_member_id')->orWhere('author_member_id', $me->id))
+                ->firstOrFail()
             : new MailMessage([
                 'organization_id' => $me->organization_id,
                 'mail_account_id' => $account->id,
+                'author_member_id' => $me->id,
                 'folder' => 'drafts',
             ]);
 
         // A draft can move to another of the person's mailboxes.
         $message->mail_account_id = $account->id;
+        $message->author_member_id ??= $me->id;
 
         $html = MailHtml::sanitize($data['body_html'] ?? '') ?? '';
         $text = trim(html_entity_decode(strip_tags((string) preg_replace('/<br\s*\/?>|<\/p>|<\/div>/i', "\n", $html)), ENT_QUOTES | ENT_HTML5, 'UTF-8'));

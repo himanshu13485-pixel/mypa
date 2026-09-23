@@ -752,6 +752,73 @@ class MailsTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_a_shared_mailbox_is_each_persons_own_where_it_should_be(): void
+    {
+        Queue::fake();
+        $this->giveStaffMails();
+        $box = $this->mailbox($this->admin, ['signature_html' => '<p>Company Main</p>']);
+        $box->sharedMembers()->sync([$this->staff->id]);
+
+        // Its owner's signature is not put in a colleague's name.
+        $theirs = collect($this->actingAs($this->staffUser)->getJson('/api/v1/crm/mails/accounts')->json('data'))->first();
+        $this->assertNull($theirs['signature_html'], 'a shared mailbox starts without a signature of their own');
+        $this->assertFalse($theirs['can_manage'], 'its servers are not theirs to change');
+
+        // They may set their own, and their own default.
+        $this->actingAs($this->staffUser)->putJson("/api/v1/crm/mails/accounts/{$box->uuid}", [
+            'signature_html' => '<p>Harsh, Sales</p>', 'is_default' => true,
+        ])->assertOk();
+
+        $theirs = collect($this->actingAs($this->staffUser)->getJson('/api/v1/crm/mails/accounts')->json('data'))->first();
+        $this->assertSame('<p>Harsh, Sales</p>', $theirs['signature_html']);
+        $this->assertTrue($theirs['is_default']);
+
+        // And the owner still sees their own.
+        $ours = collect($this->actingAs($this->adminUser)->getJson('/api/v1/crm/mails/accounts')->json('data'))->first();
+        $this->assertSame('<p>Company Main</p>', $ours['signature_html']);
+
+        // The servers stay the Admin's.
+        $this->actingAs($this->staffUser)->putJson("/api/v1/crm/mails/accounts/{$box->uuid}", [
+            'imap_host' => 'somewhere.else.test',
+        ])->assertForbidden();
+        $this->assertSame('imap.grapout.test', $box->fresh()->imap_host);
+    }
+
+    public function test_what_has_arrived_is_shared_and_what_is_half_written_is_not(): void
+    {
+        Queue::fake();
+        $this->giveStaffMails();
+        $box = $this->mailbox($this->admin);
+        $box->sharedMembers()->sync([$this->staff->id]);
+
+        $arrived = $this->arrived($box, 'Order 44');
+
+        // The colleague writes a draft from the shared mailbox.
+        $draft = $this->actingAs($this->staffUser)->post('/api/v1/crm/mails/compose', [
+            'action' => 'draft', 'account' => $box->uuid, 'to' => ['someone@client.test'],
+            'subject' => 'Half written', 'body_html' => '<p>later</p>',
+        ])->assertOk()->json('data');
+
+        // Mail that arrived belongs to the mailbox: both see it.
+        foreach ([$this->adminUser, $this->staffUser] as $user) {
+            $this->actingAs($user)->getJson("/api/v1/crm/mails/messages/{$arrived->uuid}")->assertOk();
+        }
+
+        // The draft belongs to whoever is writing it.
+        $mine = $this->actingAs($this->staffUser)->getJson('/api/v1/crm/mails/messages?folder=drafts')->assertOk()->json('data');
+        $this->assertCount(1, $mine);
+
+        $theirs = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/mails/messages?folder=drafts')->assertOk()->json('data');
+        $this->assertCount(0, $theirs, "the owner does not see a colleague's unfinished mail");
+        $this->actingAs($this->adminUser)->getJson("/api/v1/crm/mails/messages/{$draft['uuid']}")->assertNotFound();
+
+        // Nor can it be taken over through compose.
+        $this->actingAs($this->adminUser)->post('/api/v1/crm/mails/compose', [
+            'action' => 'draft', 'draft' => $draft['uuid'], 'account' => $box->uuid,
+            'to' => ['someone@client.test'], 'subject' => 'Mine now', 'body_html' => '<p>no</p>',
+        ])->assertNotFound();
+    }
+
     // ---- Reading ----------------------------------------------------------------------
 
     private function arrived(MailAccount $box, string $subject, array $extra = []): MailMessage

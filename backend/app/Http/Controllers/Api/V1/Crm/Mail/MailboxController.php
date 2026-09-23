@@ -29,6 +29,9 @@ use Throwable;
  */
 class MailboxController extends Controller
 {
+    /** Folders that hold somebody's unfinished work rather than the mailbox's mail. */
+    public const PRIVATE_FOLDERS = ['drafts', 'outbox', 'scheduled'];
+
     /** Where each move sends a mail, and the matching folder on the server. */
     private const MOVES = ['trash', 'spam', 'archive', 'inbox'];
 
@@ -329,6 +332,14 @@ class MailboxController extends Controller
     // ---- The rules every query shares ----------------------------------------
 
     /** The person's own mail - optionally one mailbox of theirs. */
+    /**
+     * Every message this person may see.
+     *
+     * Mail that has arrived, and mail that has gone, belong to the mailbox -
+     * on a shared desk everybody sees both, which is the point of sharing
+     * one. What is half-written does not: a draft, something waiting in the
+     * outbox or scheduled for Monday is the writer's alone until it is sent.
+     */
     private function scope(Request $request, Member $me): Builder
     {
         $accounts = MailAccount::for($me);
@@ -336,13 +347,21 @@ class MailboxController extends Controller
             $accounts->where('uuid', $request->input('account'));
         }
 
-        return MailMessage::whereIn('mail_account_id', $accounts->pluck('id'));
+        return MailMessage::whereIn('mail_account_id', $accounts->pluck('id'))
+            ->where(fn (Builder $q) => $q
+                ->whereNotIn('folder', self::PRIVATE_FOLDERS)
+                ->orWhereNull('author_member_id')
+                ->orWhere('author_member_id', $me->id));
     }
 
     private function find(Request $request, Member $me, string $uuid): MailMessage
     {
         return MailMessage::where('uuid', $uuid)
             ->whereIn('mail_account_id', MailAccount::for($me)->pluck('id'))
+            ->where(fn (Builder $q) => $q
+                ->whereNotIn('folder', self::PRIVATE_FOLDERS)
+                ->orWhereNull('author_member_id')
+                ->orWhere('author_member_id', $me->id))
             ->firstOrFail();
     }
 
