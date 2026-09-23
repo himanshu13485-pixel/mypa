@@ -25,11 +25,15 @@ use Illuminate\Console\Command;
  * account of where a physical delivery has got to, and is not this
  * command's to overrule; Dispatched is already there.
  *
- * Whether the money has come in has nothing to do with it. Dispatch says
- * where the work has got to, payment says where the money has got to, and a
- * job delivered to the end of its term is delivered whether or not the
- * invoice has been settled - the two are chased separately, by different
- * people, on purpose.
+ * And only once the money is in. A document still Due or part paid is left
+ * exactly where it is: marking it Dispatched closes the one line on the
+ * screen that says somebody is still owed for it, and an unpaid job that
+ * looks delivered is how a debt goes quiet. Anybody may still say
+ * Dispatched by hand - this only declines to say it for them.
+ *
+ * Refunded, credit note and bad debt are left alone too. They are endings
+ * rather than payments, and what to call the dispatch on one is a judgement
+ * the office should make itself.
  */
 class CloseServedDispatches extends Command
 {
@@ -46,6 +50,8 @@ class CloseServedDispatches extends Command
             ->where('kind', 'invoice')
             ->where('status', '!=', 'cancelled')
             ->whereIn('dispatch_status', ['pending', 'in_process'])
+            // Paid in full, and nothing else: see the note above.
+            ->where('payment_status', 'paid')
             ->chunkById(200, function ($invoices) use ($dry, &$closed) {
                 foreach ($invoices as $invoice) {
                     $items = $invoice->items;
@@ -89,19 +95,15 @@ class CloseServedDispatches extends Command
                      *
                      * A status that changes itself in the night, with only a
                      * line in the activity log to show for it, is how people
-                     * come to distrust their own screens - they remember
-                     * leaving it Due and find it Dispatched, and nothing says
-                     * who did it. The person whose sale it is hears about it,
-                     * and money still owed is said plainly rather than left
-                     * for them to notice.
+                     * come to distrust their own screens: they remember
+                     * leaving it Due and find it Dispatched, with nothing to
+                     * say who did it. The person whose sale it is hears.
                      */
-                    $owed = max(0, (float) $invoice->total - (float) $invoice->payments()->sum('amount'));
                     $person = $invoice->member?->user ?? $invoice->creator;
 
                     $person?->notify(new CrmNotification(
                         'crm_invoice_update',
-                        "{$invoice->number} is marked dispatched - every work order on it has now run its term."
-                            . ($owed > 0.009 ? ' Payment of ' . number_format($owed, 2) . ' is still due on it.' : ''),
+                        "{$invoice->number} is marked dispatched - it is paid in full and every work order on it has run its term.",
                         '/crm/invoices?kind=invoice&q=' . $invoice->number,
                     ));
                 }

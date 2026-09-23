@@ -11,7 +11,6 @@ use App\Models\Crm\Organization;
 use App\Models\User;
 use Carbon\Carbon;
 use Database\Seeders\RolePermissionSeeder;
-use App\Models\Crm\InvoicePayment;
 use App\Notifications\CrmNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Notification;
@@ -72,6 +71,9 @@ class CrmDispatchServedTest extends TestCase
             'issuing_company_id' => $this->companyId, 'client_id' => $this->clientId,
             'member_id' => $this->memberId, 'invoice_date' => '2025-09-01',
             'subtotal' => 10000, 'total' => 10000, 'dispatch_status' => $dispatch,
+            // Paid unless a test says otherwise: the sweep only closes what
+            // has been settled, so that is the ordinary case to write about.
+            'payment_status' => 'paid',
         ]);
 
         foreach ($validities as $i => $to) {
@@ -99,10 +101,44 @@ class CrmDispatchServedTest extends TestCase
         $this->assertSame('dispatched', $invoice->fresh()->dispatch_status);
     }
 
-    public function test_so_does_one_still_sitting_as_due(): void
+    public function test_so_does_one_that_was_only_waiting_to_go_out(): void
     {
         $invoice = $this->invoice('INV-2', 'pending', ['2026-09-17']);
 
+        $this->sweep();
+
+        $this->assertSame('dispatched', $invoice->fresh()->dispatch_status);
+    }
+
+    /**
+     * Money first.
+     *
+     * Marking an unpaid job Dispatched closes the one line on the screen
+     * that says somebody is still owed for it, so the sweep declines to say
+     * it. A person may still say it by hand.
+     */
+    public function test_a_document_still_owed_for_is_left_alone(): void
+    {
+        foreach (['due', 'partial', 'refunded', 'credit_note', 'bad_debt'] as $i => $status) {
+            $invoice = $this->invoice('INV-UNPAID-' . $i, 'pending', ['2026-08-31']);
+            $invoice->forceFill(['payment_status' => $status])->save();
+
+            $this->sweep();
+
+            $this->assertSame('pending', $invoice->fresh()->dispatch_status, "{$status} should not dispatch itself");
+        }
+    }
+
+    public function test_it_is_closed_the_moment_it_is_paid(): void
+    {
+        $invoice = $this->invoice('INV-LATE', 'pending', ['2026-08-31']);
+        $invoice->forceFill(['payment_status' => 'partial'])->save();
+
+        $this->sweep();
+        $this->assertSame('pending', $invoice->fresh()->dispatch_status);
+
+        // The rest of the money arrives, and the next night closes it.
+        $invoice->forceFill(['payment_status' => 'paid'])->save();
         $this->sweep();
 
         $this->assertSame('dispatched', $invoice->fresh()->dispatch_status);
@@ -165,52 +201,38 @@ class CrmDispatchServedTest extends TestCase
         $this->assertSame('in_process', $invoice->fresh()->dispatch_status);
     }
 
-    public function test_the_salesperson_is_told_and_money_still_owed_is_said(): void
+    public function test_the_salesperson_is_told_when_it_closes_itself(): void
     {
         Notification::fake();
 
         $invoice = $this->invoice('INV-9', 'pending', ['2026-08-31']);
-        $invoice->forceFill(['payment_status' => 'due'])->save();
 
         $this->sweep();
 
-        $this->assertSame('dispatched', $invoice->fresh()->dispatch_status, 'money owed does not hold dispatch back');
+        $this->assertSame('dispatched', $invoice->fresh()->dispatch_status);
 
         Notification::assertSentTo(
             User::where('email', 'boss@grapout.test')->firstOrFail(),
             CrmNotification::class,
             function (CrmNotification $notification) {
                 $this->assertStringContainsString('INV-9 is marked dispatched', $notification->message);
-                $this->assertStringContainsString('still due', $notification->message);
+                $this->assertStringContainsString('paid in full', $notification->message);
 
                 return true;
             },
         );
     }
 
-    public function test_a_settled_document_is_told_without_the_money_line(): void
+    public function test_nobody_is_told_about_a_document_that_was_left_alone(): void
     {
         Notification::fake();
 
         $invoice = $this->invoice('INV-10', 'pending', ['2026-08-31']);
-        InvoicePayment::create([
-            'invoice_id' => $invoice->id, 'amount' => 10000, 'received_at' => '2026-01-10', 'method' => 'bank',
-        ]);
+        $invoice->forceFill(['payment_status' => 'due'])->save();
 
         $this->sweep();
 
-        Notification::assertSentTo(
-            User::where('email', 'boss@grapout.test')->firstOrFail(),
-            CrmNotification::class,
-            function (CrmNotification $notification) {
-                if (! str_contains($notification->message, 'INV-10')) {
-                    return false;
-                }
-                $this->assertStringNotContainsString('still due', $notification->message);
-
-                return true;
-            },
-        );
+        Notification::assertNothingSent();
     }
 
     public function test_a_cancelled_document_is_not_dispatched(): void
