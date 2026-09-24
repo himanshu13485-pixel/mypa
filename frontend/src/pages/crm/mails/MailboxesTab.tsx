@@ -174,23 +174,44 @@ export default function MailboxesTab() {
                   * it is, or by the Company Admin when somebody has left or
                   * lost it. It is what we sign in with, not the password at
                   * the provider itself.
+                  *
+                  * A mailbox read from one house and sent from another - the
+                  * usual arrangement, mail.company.com for reading and SES or
+                  * a relay for sending - has two unrelated sign-ins. Writing
+                  * the reading password into both would fix the reading and
+                  * quietly stop the sending, so this asks about the one whose
+                  * server it names and leaves the other alone.
                   */}
-                {a.can_manage && (
-                  <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => {
-                    const password = window.prompt(`New password for ${a.email}.
+                {a.can_manage && (() => {
+                  const twoHouses = !!a.imap_host && !!a.smtp_host && a.imap_host !== a.smtp_host
+
+                  return (
+                    <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => {
+                      const password = window.prompt(twoHouses
+                        ? `New password for reading ${a.email} (${a.imap_host}).
+
+This is what Netvork signs in with - change it at your mail provider first, then put the same one here.
+
+Sending goes through ${a.smtp_host} on its own sign-in, which this leaves alone. Change that one under Edit.`
+                        : `New password for ${a.email}.
 
 This is what Netvork signs in with - change it at your mail provider first, then put the same one here.`)
-                    if (!password) return
-                    void run(`pwd${a.uuid}`, async () => {
-                      const res = await mails.saveAccount(a.uuid, { imap_password: password, smtp_password: password })
-                      toast(res.message, 'success')
-                      said(a.uuid, [{ ok: true, message: 'Password saved. Use Test connection to check it.' }])
-                      refresh()
-                    })
-                  }}>
-                    <KeyRound className="size-3.5" /> Change password
-                  </Button>
-                )}
+                      if (!password) return
+                      void run(`pwd${a.uuid}`, async () => {
+                        const res = await mails.saveAccount(a.uuid, twoHouses
+                          ? { imap_password: password }
+                          : { imap_password: password, smtp_password: password })
+                        toast(res.message, 'success')
+                        said(a.uuid, [{ ok: true, message: twoHouses
+                          ? 'Reading password saved - sending was left as it was. Use Test inbox (IMAP) to check it.'
+                          : 'Password saved. Use Test connection to check it.' }])
+                        refresh()
+                      })
+                    }}>
+                      <KeyRound className="size-3.5" /> Change password
+                    </Button>
+                  )
+                })()}
 
                 {a.can_manage && (
                   <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run(`dns${a.uuid}`, async () => {
