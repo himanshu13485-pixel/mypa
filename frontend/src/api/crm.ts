@@ -115,6 +115,13 @@ export interface CrmMe {
  * A Dedicated Company Workspace field: an extra form field this company
  * asked for and the Super Admin approved. It exists in this workspace only.
  */
+/** A paper filed against a bank account in Billing setup. */
+export interface BankDocument {
+  uuid: string
+  name: string
+  size: number | null
+}
+
 export interface CrmCustomField {
   uuid: string
   entity: 'client' | 'work_order' | 'invoice' | 'tax'
@@ -503,6 +510,8 @@ export interface CrmMasters {
     beneficiary_address?: string | null
     receiving_bank_address?: string | null
     note?: string | null
+    /** The bank's own paperwork, filed once and re-used. */
+    documents?: BankDocument[]
   }[]
   members: { uuid: string; name: string | null; employee_code: string | null; is_salesperson: boolean; crm_role?: string }[]
 }
@@ -805,6 +814,8 @@ export interface CrmInvoiceFull extends CrmInvoiceRow {
     /** Whether this account is paid into from abroad, and how it prints. */
     is_swift?: boolean
     lines?: { label: string; value: string }[]
+    /** Papers filed on the account, offered unticked when mailing. */
+    documents?: BankDocument[]
   } | null
   client_full: { address: string | null; city: string | null; state: string | null; pincode: string | null; country: string | null; gst_no: string | null; email: string | null; mobile: string | null } | null
   issuing_company_full: {
@@ -3433,24 +3444,13 @@ export const crm = {
     setPaymentCharge: (uuid: string, id: number, payload: Record<string, unknown>) =>
       api.put<{ message: string }>(`/crm/invoices/${uuid}/payments/${id}/charge`, payload).then((r) => r.data),
     /** Send the document to the client, PDF attached — sender chosen in Communication setup. */
-    email: (uuid: string, payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string; files?: File[] }) => {
-      // Plain JSON while there is nothing to carry; a form when there is,
-      // because a file cannot travel as JSON.
-      if (!payload.files?.length) {
-        const { files: _files, ...rest } = payload
-
-        return api.post<{ message: string }>(`/crm/invoices/${uuid}/email`, rest).then((r) => r.data)
-      }
-
-      const form = new FormData()
-      if (payload.to) form.append('to', payload.to)
-      ;(payload.cc ?? []).forEach((address) => form.append('cc[]', address))
-      if (payload.from) form.append('from', payload.from)
-      if (payload.message) form.append('message', payload.message)
-      payload.files.forEach((file) => form.append('files[]', file))
-
-      return api.post<{ message: string }>(`/crm/invoices/${uuid}/email`, form).then((r) => r.data)
-    },
+    /**
+     * `documents` names papers already filed on the account in Billing
+     * setup - nothing is uploaded at send time, so what reaches a client
+     * is always something somebody deliberately put there.
+     */
+    email: (uuid: string, payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string; documents?: string[] }) =>
+      api.post<{ message: string }>(`/crm/invoices/${uuid}/email`, payload).then((r) => r.data),
   },
 
   /** Accounting exports — Admin + the Subadmin named with exports.excel. */
@@ -3577,6 +3577,21 @@ export const crm = {
     saveBank: (payload: Record<string, unknown>, id?: number) =>
       id ? api.put(`/crm/masters/bank-accounts/${id}`, payload).then((r) => r.data)
         : api.post('/crm/masters/bank-accounts', payload).then((r) => r.data),
+    /*
+     * The bank's own paperwork: a cancelled cheque, a bank letter, a W-9.
+     *
+     * Filed against the account rather than picked out of somebody's
+     * Downloads folder each time an invoice goes out.
+     */
+    uploadBankDocument: (id: number, file: File) => {
+      const form = new FormData()
+      form.append('file', file)
+      return api.post<{ message: string; data: BankDocument }>(`/crm/masters/bank-accounts/${id}/documents`, form).then((r) => r.data)
+    },
+    downloadBankDocument: (id: number, documentUuid: string) =>
+      api.get(`/crm/masters/bank-accounts/${id}/documents/${documentUuid}`, { responseType: 'blob' }).then((r) => r.data as Blob),
+    deleteBankDocument: (id: number, documentUuid: string) =>
+      api.delete<{ message: string }>(`/crm/masters/bank-accounts/${id}/documents/${documentUuid}`).then((r) => r.data),
     uploadCompanyLogo: (id: number, file: File) => {
       const form = new FormData()
       form.append('file', file)

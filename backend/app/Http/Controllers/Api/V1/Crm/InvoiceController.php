@@ -789,10 +789,12 @@ class InvoiceController extends Controller
             'cc.*' => ['email'],
             'from' => ['nullable', \Illuminate\Validation\Rule::in(['default', 'invoice', 'dues'])],
             'message' => ['nullable', 'string', 'max:2000'],
-            // Anything the client needs alongside it: a bank letter, a W-9,
-            // a signed contract. Five is plenty and keeps the mail sendable.
-            'files' => ['nullable', 'array', 'max:5'],
-            'files.*' => ['file', 'max:10240'],
+            // The bank's own paperwork, filed once in Billing setup and
+            // ticked on here - a cancelled cheque, a bank letter, a W-9.
+            // Nothing is uploaded at send time: what goes out is something
+            // somebody already put on the account.
+            'documents' => ['nullable', 'array', 'max:10'],
+            'documents.*' => ['string'],
         ]);
         $to = $data['to'] ?? $invoice->client?->email;
         abort_unless($to, 422, 'The client has no e-mail on file — enter one to send to.');
@@ -827,15 +829,26 @@ class InvoiceController extends Controller
 
         $pdf = $this->documentPdf($invoice);
 
-        // Read before sending: a file handed to the mailer as a path would be
-        // read after the request that uploaded it has cleaned up after itself.
-        $extras = collect($request->file('files') ?: [])
-            ->map(fn ($file) => [
-                'name' => mb_substr((string) $file->getClientOriginalName(), 0, 200),
-                'mime' => $file->getClientMimeType() ?: 'application/octet-stream',
-                'body' => (string) file_get_contents($file->getRealPath()),
-            ])
-            ->all();
+        /*
+         * The ticked papers, read off the account this document prints.
+         *
+         * Asking the account itself rather than trusting the ids is what
+         * stops a document from another company - or another organisation -
+         * being posted in and mailed out.
+         */
+        $wanted = collect($data['documents'] ?? [])->unique()->values();
+        $extras = $wanted->isEmpty() || ! ($bank = $this->bankFor($invoice))
+            ? []
+            : $bank->documents()
+                ->whereIn('uuid', $wanted->all())
+                ->get()
+                ->filter(fn ($doc) => \Illuminate\Support\Facades\Storage::disk('local')->exists($doc->path))
+                ->map(fn ($doc) => [
+                    'name' => $doc->name,
+                    'mime' => $doc->mime ?: 'application/octet-stream',
+                    'body' => (string) \Illuminate\Support\Facades\Storage::disk('local')->get($doc->path),
+                ])
+                ->values()->all();
 
         try {
             $mailer->html(nl2br(e(implode("\n", $lines))), function ($m) use ($to, $cc, $label, $invoice, $pdf, $extras, $fromAddress, $fromName) {
@@ -2388,6 +2401,11 @@ class InvoiceController extends Controller
                 // with whatever is blank left out.
                 'is_swift' => (bool) $bank->is_swift,
                 'lines' => $bank->payingLines(),
+                // The papers filed against this account in Billing setup.
+                // The Email dialog lists them unticked; ticking one sends it.
+                'documents' => $bank->documents
+                    ->map(fn ($d) => ['uuid' => $d->uuid, 'name' => $d->name, 'size' => $d->size])
+                    ->values()->all(),
             ] : null,
             'fx_rate' => $i->fx_rate,
             'subtotal_fx' => $i->subtotal_fx,

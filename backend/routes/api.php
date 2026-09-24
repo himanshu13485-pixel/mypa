@@ -1644,6 +1644,12 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::put('/masters/asset-categories', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'saveAssetCategories']);
                 Route::post('/masters/bank-accounts', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'storeBank']);
                 Route::put('/masters/bank-accounts/{id}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'updateBank']);
+                // The bank's own paperwork - a cancelled cheque, a bank
+                // letter - kept with the account so an invoice mail can
+                // carry it without anybody hunting for the file again.
+                Route::post('/masters/bank-accounts/{id}/documents', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'uploadBankDocument']);
+                Route::get('/masters/bank-accounts/{id}/documents/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'downloadBankDocument']);
+                Route::delete('/masters/bank-accounts/{id}/documents/{documentUuid}', [\App\Http\Controllers\Api\V1\Crm\MasterController::class, 'deleteBankDocument']);
             });
         });
 

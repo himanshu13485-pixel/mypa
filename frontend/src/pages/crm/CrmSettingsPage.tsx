@@ -1,16 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { crmPath } from '../../lib/crmPath'
-import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, HandCoins, Image as ImageIcon, KeyRound, Landmark, LifeBuoy, ListChecks, PackageCheck, Pencil, Plus, Upload, Wallet } from 'lucide-react'
+import { AlarmClock, Building2, ClipboardCheck, Copy, CreditCard, Download, HandCoins, Image as ImageIcon, KeyRound, Landmark, LifeBuoy, ListChecks, PackageCheck, Paperclip, Pencil, Plus, Upload, Wallet, X } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, crmMeQuery, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings, type CrmRenewalReminders } from '../../api/crm'
+import { crm, crmMeQuery, type BankDocument, type CrmMasters, type CrmGatewaySettings, type CrmPaymentSettings, type CrmRenewalReminders } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { usePrompt } from '../../components/Prompt'
 import { photoUrl } from '../../lib/avatars'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner } from '../../components/ui'
 import TableBox from '../../components/TableBox'
+import { saveBlob } from '../../lib/download'
 
 type Company = CrmMasters['issuing_companies'][number]
 type Bank = CrmMasters['bank_accounts'][number]
@@ -812,6 +813,56 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
     note: editing?.note ?? '',
   })
   const { data: bankMasters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
+  const { toast: bankToast, toastError: bankToastError } = useToast()
+  /*
+   * The bank's own paperwork.
+   *
+   * Filed on an account that exists, so for an account being created the
+   * files wait here until Save has given them somewhere to go.
+   */
+  const [docs, setDocs] = useState<BankDocument[]>(editing?.documents ?? [])
+  const [waiting, setWaiting] = useState<File[]>([])
+  const [filing, setFiling] = useState(false)
+  const docPicker = useRef<HTMLInputElement>(null)
+
+  const file = async (accountId: number, files: File[]) => {
+    for (const one of files) {
+      const { data } = await crm.masterData.uploadBankDocument(accountId, one)
+      setDocs((held) => [...held, data])
+    }
+  }
+
+  const pick = async (files: File[]) => {
+    const room = 10 - docs.length - waiting.length
+    const taking = files.slice(0, Math.max(room, 0)).filter((f) => f.size <= 10 * 1024 * 1024)
+    if (!taking.length) return
+
+    if (!editing) {
+      setWaiting((held) => [...held, ...taking])
+
+      return
+    }
+
+    setFiling(true)
+    try {
+      await file(editing.id, taking)
+      bankToast(taking.length === 1 ? 'Document attached.' : `${taking.length} documents attached.`, 'success')
+    } catch (err) {
+      bankToastError(errorMessage(err))
+    } finally {
+      setFiling(false)
+    }
+  }
+
+  const unfile = async (doc: BankDocument) => {
+    if (!editing) return
+    try {
+      await crm.masterData.deleteBankDocument(editing.id, doc.uuid)
+      setDocs((held) => held.filter((d) => d.uuid !== doc.uuid))
+    } catch (err) {
+      bankToastError(errorMessage(err))
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: () => crm.masterData.saveBank({
@@ -831,7 +882,14 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
       receiving_bank_address: form.receiving_bank_address || null,
       note: form.note || null,
       issuing_company_id: form.issuing_company_id ? Number(form.issuing_company_id) : null,
-    }, editing?.id),
+    }, editing?.id).then(async (saved) => {
+      // A new account only has an id now, so this is the first moment the
+      // papers picked while filling the form have anywhere to be filed.
+      const id = (saved as { data?: { id?: number } }).data?.id
+      if (waiting.length && id) await file(id, waiting)
+
+      return saved
+    }),
     onSuccess: onDone,
     onError: (err) => setError(errorMessage(err)),
   })
@@ -954,6 +1012,68 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
             placeholder="e.g. quote the invoice number as the payment reference"
             className="w-full"
           />
+        </div>
+
+        {/*
+          * The bank's own paperwork, kept with the account.
+          *
+          * A cancelled cheque, a bank letter, a W-9 - the papers a client's
+          * accounts team asks for. Filed here once; the Email dialog on an
+          * invoice then offers them to tick on, so nobody goes hunting for
+          * the file every time a document goes out.
+          */}
+        <div>
+          <Label>Bank documents (sent with an invoice when ticked)</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" disabled={filing} onClick={() => docPicker.current?.click()}>
+              <Paperclip className="size-4" /> {filing ? 'Attaching…' : 'Add file'}
+            </Button>
+            <span className="text-xs text-slate-400">Any format, up to 10 MB each, ten in all.</span>
+          </div>
+          <input
+            ref={docPicker}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              void pick(picked)
+            }}
+          />
+          {(docs.length > 0 || waiting.length > 0) && (
+            <div className="mt-2 space-y-1">
+              {docs.map((doc) => (
+                <div key={doc.uuid} className="flex items-center gap-2 rounded-lg bg-slate-100 px-2 py-1.5 text-xs dark:bg-slate-800">
+                  <Paperclip className="size-3 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate">{doc.name}</span>
+                  <button
+                    type="button"
+                    aria-label={`Download ${doc.name}`}
+                    onClick={() => editing && crm.masterData.downloadBankDocument(editing.id, doc.uuid)
+                      .then((blob) => saveBlob(blob, doc.name))
+                      .catch((err) => bankToastError(errorMessage(err)))}
+                  >
+                    <Download className="size-3.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" />
+                  </button>
+                  <button type="button" aria-label={`Remove ${doc.name}`} onClick={() => void unfile(doc)}>
+                    <X className="size-3.5 text-slate-400 hover:text-rose-500" />
+                  </button>
+                </div>
+              ))}
+              {/* Picked while the account was still being typed. */}
+              {waiting.map((one, i) => (
+                <div key={one.name + i} className="flex items-center gap-2 rounded-lg bg-slate-100 px-2 py-1.5 text-xs text-slate-500 dark:bg-slate-800">
+                  <Paperclip className="size-3 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate">{one.name}</span>
+                  <span className="shrink-0 text-[11px] text-slate-400">files on Save</span>
+                  <button type="button" aria-label={`Remove ${one.name}`} onClick={() => setWaiting(waiting.filter((_, j) => j !== i))}>
+                    <X className="size-3.5 text-slate-400 hover:text-rose-500" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
           <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} className="size-4 accent-emerald-600" />

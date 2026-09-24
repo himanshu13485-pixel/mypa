@@ -4,7 +4,7 @@ import { listReturnPath } from '../../lib/listReturn'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlarmClock, ArrowLeft, ArrowRightLeft, Ban, Copy, CreditCard, Download, Eye, ExternalLink, FileDiff, Lock, Paperclip, Pencil, Percent, Plus, Printer, Repeat, Send, Trash2, X } from 'lucide-react'
 import { clsx } from 'clsx'
-import { crm, crmCan, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS, CRM_RECURRING_FREQUENCY_LABELS, validityMonths } from '../../api/crm'
+import { crm, crmCan, CRM_DISPATCH_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS, CRM_RECURRING_FREQUENCY_LABELS, validityMonths, type BankDocument } from '../../api/crm'
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
@@ -819,6 +819,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
           salesperson={inv.salesperson ?? null}
           sender={inv.sender ?? null}
           company={inv.issuing_company?.name ?? null}
+          bankDocuments={inv.bank?.documents ?? []}
           pending={emailMutation.isPending}
           onSend={(payload) => emailMutation.mutate(payload)}
           onClose={() => setEmailing(false)}
@@ -862,14 +863,16 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
   )
 }
 
-function EmailModal({ clientEmail, salesperson, sender, company, pending, onSend, onClose }: {
+function EmailModal({ clientEmail, salesperson, sender, company, bankDocuments, pending, onSend, onClose }: {
   clientEmail: string
   salesperson: { name: string | null; email?: string | null } | null
   /** Who it will actually go out as, worked out by the server. */
   sender: { address: string; name: string; source: 'company' | 'house' | 'settings'; company: string | null } | null
   company: string | null
+  /** Papers filed on this document's bank account, in Billing setup. */
+  bankDocuments: BankDocument[]
   pending: boolean
-  onSend: (payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string; files?: File[] }) => void
+  onSend: (payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string; documents?: string[] }) => void
   onClose: () => void
 }) {
   const [to, setTo] = useState(clientEmail)
@@ -880,10 +883,13 @@ function EmailModal({ clientEmail, salesperson, sender, company, pending, onSend
   const [nextExtra, setNextExtra] = useState('')
   const [from, setFrom] = useState<'default' | 'invoice' | 'dues'>('invoice')
   const [message, setMessage] = useState('')
-  /* Anything the client needs alongside the invoice: a bank letter, a W-9,
-     a signed contract. They ride with the PDF rather than in a second mail. */
-  const [files, setFiles] = useState<File[]>([])
-  const filePicker = useRef<HTMLInputElement>(null)
+  /*
+   * The bank's own paperwork, filed in Billing setup.
+   *
+   * Offered unticked: a bank letter is what a new client's accounts team
+   * asks for once, not something every invoice should carry by default.
+   */
+  const [ticked, setTicked] = useState<string[]>([])
 
   const addExtra = () => {
     const address = nextExtra.trim()
@@ -971,46 +977,34 @@ function EmailModal({ clientEmail, salesperson, sender, company, pending, onSend
             <p className="mt-1 text-xs text-slate-400">A blank choice in the Communication setup falls back to the general sender.</p>
           )}
         </div>
-        <div>
-          <Label>Attach files (optional)</Label>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="secondary" onClick={() => filePicker.current?.click()}>
-              <Paperclip className="size-4" /> Add files
-            </Button>
-            <span className="text-xs text-slate-400">The invoice PDF goes anyway. Up to five more, 10 MB each.</span>
-          </div>
-          <input
-            ref={filePicker}
-            type="file"
-            multiple
-            hidden
-            onChange={(e) => {
-              const picked = Array.from(e.target.files ?? [])
-              e.target.value = ''
-              const room = 5 - files.length
-              if (room <= 0) return
-              setFiles([...files, ...picked.slice(0, room).filter((f) => f.size <= 10 * 1024 * 1024)])
-            }}
-          />
-          {files.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {files.map((file, i) => (
-                <span key={file.name + i} className="flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-xs dark:bg-slate-800">
-                  <Paperclip className="size-3" /> {file.name}
-                  <button type="button" aria-label={`Remove ${file.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}>
-                    <X className="size-3" />
-                  </button>
-                </span>
+        {bankDocuments.length > 0 && (
+          <div>
+            <Label>Bank documents (from Billing setup)</Label>
+            <div className="space-y-1">
+              {bankDocuments.map((doc) => (
+                <label key={doc.uuid} className="flex items-center gap-2 rounded-lg bg-slate-100 px-2 py-1.5 text-xs dark:bg-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={ticked.includes(doc.uuid)}
+                    onChange={(e) => setTicked(e.target.checked
+                      ? [...ticked, doc.uuid]
+                      : ticked.filter((uuid) => uuid !== doc.uuid))}
+                    className="size-4 accent-emerald-600"
+                  />
+                  <Paperclip className="size-3 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1 truncate">{doc.name}</span>
+                </label>
               ))}
             </div>
-          )}
-        </div>
+            <p className="mt-1 text-xs text-slate-400">Ticked documents go out with the invoice PDF.</p>
+          </div>
+        )}
 
         <div>
           <Label>Message (optional — a standard line goes otherwise)</Label>
           <Textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} className="w-full" />
         </div>
-        <Button className="w-full" disabled={!to || pending} onClick={() => onSend({ to, cc, from, message: message || undefined, files: files.length ? files : undefined })}>
+        <Button className="w-full" disabled={!to || pending} onClick={() => onSend({ to, cc, from, message: message || undefined, documents: ticked.length ? ticked : undefined })}>
           {pending ? 'Sending…' : cc.length
             ? `Send with PDF, copying ${cc.length} ${cc.length === 1 ? 'person' : 'people'}`
             : 'Send with PDF attached'}

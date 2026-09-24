@@ -54,6 +54,19 @@ class BankAccount extends Model
             ->values()->all();
     }
 
+    /**
+     * The bank's own paperwork, kept with the account.
+     *
+     * A cancelled cheque, a bank letter, a W-9 - the papers a client asks
+     * for once and then every time somebody new joins their accounts team.
+     * Held here so a person emailing an invoice can tick them on rather
+     * than hunting for the file again.
+     */
+    public function documents(): \Illuminate\Database\Eloquent\Relations\MorphMany
+    {
+        return $this->morphMany(Document::class, 'documentable');
+    }
+
     /** The registered company this account belongs to, if assigned. */
     public function issuingCompany(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {

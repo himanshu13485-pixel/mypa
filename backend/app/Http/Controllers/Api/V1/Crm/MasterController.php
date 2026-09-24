@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Api\V1\Crm;
 use App\Http\Controllers\Controller;
 use App\Models\Crm\ActivityLog;
 use App\Models\Crm\BankAccount;
+use App\Models\Crm\Document;
 use App\Models\Crm\Invoice;
 use App\Models\Crm\IssuingCompany;
 use App\Support\TextCase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Billing master data: the companies invoices are issued from (each with its
@@ -965,6 +968,71 @@ class MasterController extends Controller
         $bank->update($this->validateBank($request));
 
         return response()->json(['message' => 'Bank account updated.', 'data' => $bank->fresh()]);
+    }
+
+    // ---- The bank's own paperwork ------------------------------------------
+
+    /**
+     * Attach a document to a bank account.
+     *
+     * A cancelled cheque, a bank letter, a W-9. It lives with the account
+     * rather than being re-picked from somebody's Downloads folder every
+     * time an invoice goes out; the Email dialog offers these to tick on.
+     */
+    public function uploadBankDocument(Request $request, int $id): JsonResponse
+    {
+        $org = $request->attributes->get('crm_org');
+        $bank = BankAccount::where('organization_id', $org->id)->findOrFail($id);
+        $request->validate(['file' => ['required', 'file', 'max:10240']]);
+
+        // Ten is already more paperwork than any client asks for, and the
+        // mail still has to be small enough to arrive.
+        abort_if($bank->documents()->count() >= 10, 422, 'This account already holds ten documents. Remove one first.');
+
+        $file = $request->file('file');
+        $path = $file->store('crm-documents/' . $org->id . '/bank-accounts/' . $bank->id, 'local');
+
+        $document = Document::create([
+            'organization_id' => $org->id,
+            'documentable_type' => BankAccount::class,
+            'documentable_id' => $bank->id,
+            'name' => $file->getClientOriginalName(),
+            'path' => $path,
+            'mime' => $file->getClientMimeType(),
+            'size' => $file->getSize(),
+            'uploaded_by' => $request->user()->id,
+        ]);
+
+        return response()->json([
+            'message' => 'Document attached.',
+            'data' => $document->only(['uuid', 'name', 'size', 'mime']),
+        ], 201);
+    }
+
+    public function downloadBankDocument(Request $request, int $id, string $documentUuid): StreamedResponse
+    {
+        $bank = $this->bankFor($request, $id);
+        $document = $bank->documents()->where('uuid', $documentUuid)->firstOrFail();
+
+        return Storage::disk('local')->download($document->path, $document->name);
+    }
+
+    public function deleteBankDocument(Request $request, int $id, string $documentUuid): JsonResponse
+    {
+        $bank = $this->bankFor($request, $id);
+        $document = $bank->documents()->where('uuid', $documentUuid)->firstOrFail();
+
+        Storage::disk('local')->delete($document->path);
+        $document->delete();
+
+        return response()->json(['message' => 'Document removed.']);
+    }
+
+    private function bankFor(Request $request, int $id): BankAccount
+    {
+        $org = $request->attributes->get('crm_org');
+
+        return BankAccount::where('organization_id', $org->id)->findOrFail($id);
     }
 
     private function validateBank(Request $request): array

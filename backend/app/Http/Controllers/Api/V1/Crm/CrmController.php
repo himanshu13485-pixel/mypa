@@ -137,12 +137,19 @@ class CrmController extends Controller
                  * stamp that was uploaded, stored and printing on documents.
                  */
                 ->get(['id', 'name', 'gstin', 'pan', 'phone', 'email', 'address', 'state_code', 'invoice_prefix', 'proforma_prefix', 'next_invoice_no', 'next_proforma_no', 'is_active', 'tax_required', 'logo_path', 'stamp_path', 'currency', 'pays_salary']),
-            'bank_accounts' => BankAccount::with('issuingCompany:id,name')
+            'bank_accounts' => BankAccount::with(['issuingCompany:id,name', 'documents'])
                 ->where('organization_id', $org->id)
                 ->orderBy('label')
                 ->get(['id', 'issuing_company_id', 'label', 'bank_name', 'account_no', 'ifsc', 'is_active'])
                 ->map(function ($b) use ($request) {
-                    $row = $b->toArray() + ['issuing_company_name' => $b->issuingCompany?->name];
+                    $row = $b->toArray() + [
+                        'issuing_company_name' => $b->issuingCompany?->name,
+                        // The bank letters and cancelled cheques filed here,
+                        // which an invoice mail can be told to carry.
+                        'documents' => $b->documents
+                            ->map(fn ($d) => ['uuid' => $d->uuid, 'name' => $d->name, 'size' => $d->size])
+                            ->values()->all(),
+                    ];
                     // Full account numbers are the managers' to see; every
                     // other member gets the label and a masked tail.
                     $me = $request->attributes->get('crm_member');
