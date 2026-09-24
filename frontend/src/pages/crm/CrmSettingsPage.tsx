@@ -833,6 +833,7 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
   const [docs, setDocs] = useState<BankDocument[]>(editing?.documents ?? [])
   const [waiting, setWaiting] = useState<File[]>([])
   const [filing, setFiling] = useState(false)
+  const [dropping, setDropping] = useState(false)
   const docPicker = useRef<HTMLInputElement>(null)
 
   const file = async (accountId: number, files: File[]) => {
@@ -916,7 +917,16 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
 
   return (
     <Modal title={editing ? `Edit ${editing.label}` : 'Add bank account'} onClose={onClose}>
-      <div className="space-y-3">
+      {/*
+        * A file dropped a little wide of the box below would otherwise be
+        * opened by the browser, which navigates away from a half-filled
+        * form. Swallowed here so a near miss is simply a miss.
+        */}
+      <div
+        className="space-y-3"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => e.preventDefault()}
+      >
         <ErrorNote message={error} />
         <div>
           <Label>Belongs to issuing company</Label>
@@ -1046,11 +1056,34 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
           */}
         <div>
           <Label>Bank documents (sent with an invoice when ticked)</Label>
-          <div className="flex flex-wrap items-center gap-2">
+          {/*
+            * Dropped or picked, either way.
+            *
+            * A bank letter usually arrives as a file already open on screen,
+            * so dragging it here is the shorter path; the button stays for
+            * everybody who would rather browse, and for keyboards.
+            */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); if (!dropping) setDropping(true) }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false) }}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDropping(false)
+              void pick(Array.from(e.dataTransfer.files ?? []))
+            }}
+            className={clsx(
+              'flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 transition-colors',
+              dropping
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                : 'border-slate-200 dark:border-slate-700',
+            )}
+          >
             <Button type="button" variant="secondary" disabled={filing} onClick={() => docPicker.current?.click()}>
               <Paperclip className="size-4" /> {filing ? 'Attaching…' : 'Add file'}
             </Button>
-            <span className="text-xs text-slate-400">Any format, up to 10 MB each, ten in all.</span>
+            <span className="text-xs text-slate-400">
+              {dropping ? 'Let go to attach.' : 'Or drop files here. Any format, up to 10 MB each, ten in all.'}
+            </span>
           </div>
           <input
             ref={docPicker}
