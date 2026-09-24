@@ -74,7 +74,26 @@ export default function MailboxesTab() {
   if (isLoading || !data) return <Spinner />
 
   const atLimit = data.used >= data.limit
+  /*
+   * Two kinds of reload, because most of these buttons change one mailbox
+   * and nothing else.
+   *
+   * Throwing away everything under 'mails' refetches the open message list,
+   * the folder counts and the dashboard as well - so checking ZMA's DNS made
+   * the whole module, and every other mailbox's card, reload with it.
+   */
+  const refreshAccounts = () => queryClient.invalidateQueries({ queryKey: ['mails', 'accounts'] })
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['mails'] })
+
+  /*
+   * Which mailbox is working, not whether any is.
+   *
+   * The key is the verb followed by the mailbox's uuid, so a card can ask
+   * about itself. One shared flag disabled every button on the page while a
+   * single mailbox was being tested, which reads as the other mailboxes
+   * reacting to work that has nothing to do with them.
+   */
+  const busyOn = (uuid: string) => busy !== null && busy.endsWith(uuid)
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key)
@@ -186,7 +205,7 @@ export default function MailboxesTab() {
                   const twoHouses = !!a.imap_host && !!a.smtp_host && a.imap_host !== a.smtp_host
 
                   return (
-                    <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => {
+                    <Button size="sm" variant="secondary" disabled={busyOn(a.uuid)} onClick={() => {
                       const password = window.prompt(twoHouses
                         ? `New password for reading ${a.email} (${a.imap_host}).
 
@@ -205,7 +224,7 @@ This is what Netvork signs in with - change it at your mail provider first, then
                         said(a.uuid, [{ ok: true, message: twoHouses
                           ? 'Reading password saved - sending was left as it was. Use Test inbox (IMAP) to check it.'
                           : 'Password saved. Use Test connection to check it.' }])
-                        refresh()
+                        refreshAccounts()
                       })
                     }}>
                       <KeyRound className="size-3.5" /> Change password
@@ -214,16 +233,16 @@ This is what Netvork signs in with - change it at your mail provider first, then
                 })()}
 
                 {a.can_manage && (
-                  <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run(`dns${a.uuid}`, async () => {
+                  <Button size="sm" variant="secondary" disabled={busyOn(a.uuid)} onClick={() => run(`dns${a.uuid}`, async () => {
                     const res = await mails.checkDns(a.uuid)
                     said(a.uuid, [{ ok: res.spf.ok, message: `SPF: ${res.spf.note}` }, { ok: res.dkim.ok, message: `DKIM: ${res.dkim.note}` }, { ok: res.dmarc.ok, message: `DMARC: ${res.dmarc.note}` }])
-                    refresh()
+                    refreshAccounts()
                   })}>
                     <ShieldCheck className="size-3.5" /> {busy === `dns${a.uuid}` ? 'Checking…' : 'Check DNS auth'}
                   </Button>
                 )}
 
-                <Button size="sm" variant="secondary" disabled={busy !== null || detached} onClick={() => run(`test${a.uuid}`, async () => {
+                <Button size="sm" variant="secondary" disabled={busyOn(a.uuid) || detached} onClick={() => run(`test${a.uuid}`, async () => {
                   const res = await mails.testAccount(a.uuid)
                   said(a.uuid, [{ ok: res.imap.ok, message: `Incoming (IMAP): ${res.imap.message}` }, { ok: res.smtp.ok, message: `Outgoing (SMTP): ${res.smtp.message}` }])
                 })}>
@@ -231,7 +250,7 @@ This is what Netvork signs in with - change it at your mail provider first, then
                 </Button>
 
                 {a.can_receive && (
-                  <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run(`inbox${a.uuid}`, async () => {
+                  <Button size="sm" variant="secondary" disabled={busyOn(a.uuid)} onClick={() => run(`inbox${a.uuid}`, async () => {
                     const res = await mails.testInbox(a.uuid)
                     said(a.uuid, [{ ok: res.ok, message: res.message }])
                   })}>
@@ -240,7 +259,7 @@ This is what Netvork signs in with - change it at your mail provider first, then
                 )}
 
                 {a.can_send && (
-                  <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run(`mail${a.uuid}`, async () => {
+                  <Button size="sm" variant="secondary" disabled={busyOn(a.uuid)} onClick={() => run(`mail${a.uuid}`, async () => {
                     const to = window.prompt('Send a test message to which address?', a.email)
                     if (!to) return
                     const res = await mails.testEmail(a.uuid, to)
@@ -251,7 +270,7 @@ This is what Netvork signs in with - change it at your mail provider first, then
                 )}
 
                 {a.can_receive && (
-                  <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => run(`sync${a.uuid}`, async () => {
+                  <Button size="sm" variant="secondary" disabled={busyOn(a.uuid)} onClick={() => run(`sync${a.uuid}`, async () => {
                     const res = await mails.syncAccount(a.uuid, true)
                     toast(res.message, 'success')
                     refresh()
@@ -263,9 +282,9 @@ This is what Netvork signs in with - change it at your mail provider first, then
                 {data.is_admin && <Button size="sm" variant="secondary" onClick={() => setCopying(a)}><Copy className="size-3.5" /> Replicate</Button>}
 
                 {a.can_manage && !a.is_default && (
-                  <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => run(`def${a.uuid}`, async () => {
+                  <Button size="sm" variant="ghost" disabled={busyOn(a.uuid)} onClick={() => run(`def${a.uuid}`, async () => {
                     await mails.saveAccount(a.uuid, { is_default: true })
-                    refresh()
+                    refreshAccounts()
                   })}>
                     <Star className="size-3.5" /> Make default
                   </Button>
@@ -274,7 +293,7 @@ This is what Netvork signs in with - change it at your mail provider first, then
                 {data.is_admin && (
                   <>
                     {!detached && (
-                      <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => {
+                      <Button size="sm" variant="ghost" disabled={busyOn(a.uuid)} onClick={() => {
                         if (!window.confirm(`Disconnect ${a.email}? Its mail stays here to read, and a new account can take its place.`)) return
                         void run(`off${a.uuid}`, async () => {
                           const res = await mails.removeAccount(a.uuid)
@@ -285,7 +304,7 @@ This is what Netvork signs in with - change it at your mail provider first, then
                         <Unplug className="size-3.5" /> Disconnect
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost" className="text-red-600" disabled={busy !== null} onClick={() => {
+                    <Button size="sm" variant="ghost" className="text-red-600" disabled={busyOn(a.uuid)} onClick={() => {
                       const typed = window.prompt(`This removes ${a.email} AND every message stored for it. Type the address to confirm.`)
                       if (typed !== a.email) return
                       void run(`del${a.uuid}`, async () => {
@@ -322,6 +341,10 @@ This is what Netvork signs in with - change it at your mail provider first, then
           providers={data.providers}
           people={data.people}
           isAdmin={data.is_admin}
+          /* A verdict is about the settings it was given. Change the host and
+             the old "could not connect to zma.app" is no longer about this
+             mailbox, however true it was ten seconds ago. */
+          onSaved={(uuid) => setTests(({ [uuid]: _gone, ...rest }) => rest)}
           onClose={() => setEditing(null)}
         />
       )}
@@ -330,11 +353,13 @@ This is what Netvork signs in with - change it at your mail provider first, then
   )
 }
 
-function AccountModal({ account, providers, people, isAdmin, onClose }: {
+function AccountModal({ account, providers, people, isAdmin, onSaved, onClose }: {
   account: MailAccountInfo | null
   providers: MailProvider[]
   people: MailPerson[]
   isAdmin: boolean
+  /** Told when an existing mailbox was changed, so stale verdicts can go. */
+  onSaved?: (uuid: string) => void
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -388,7 +413,8 @@ function AccountModal({ account, providers, people, isAdmin, onClose }: {
     },
     onSuccess: (res) => {
       toast(res.message, 'success')
-      queryClient.invalidateQueries({ queryKey: ['mails'] })
+      queryClient.invalidateQueries({ queryKey: ['mails', 'accounts'] })
+      if (account) onSaved?.(account.uuid)
       onClose()
     },
     onError: (err) => toastError(errorMessage(err)),
@@ -541,7 +567,7 @@ function ReplicateModal({ account, people, onClose }: { account: MailAccountInfo
     }),
     onSuccess: (res) => {
       toast(res.message, 'success')
-      queryClient.invalidateQueries({ queryKey: ['mails'] })
+      queryClient.invalidateQueries({ queryKey: ['mails', 'accounts'] })
       onClose()
     },
     onError: (err) => toastError(errorMessage(err)),
