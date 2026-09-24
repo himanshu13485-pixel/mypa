@@ -88,6 +88,9 @@ class CrmBankDocumentsRideWithTheInvoiceTest extends TestCase
         $listed = collect($this->actingAs($this->boss)->getJson('/api/v1/crm/masters')->assertOk()->json('data.bank_accounts'))
             ->firstWhere('label', 'Mercury');
         $this->assertSame(['bank-letter.pdf'], collect($listed['documents'])->pluck('name')->all());
+        // A name and a size are what the screen needs. Where the file sits
+        // on disk is nobody's business but the server's.
+        $this->assertSame(['uuid', 'name', 'size'], array_keys($listed['documents'][0]));
 
         // The document offers itself on the invoice, unticked until asked for.
         $uuid = $this->invoice();

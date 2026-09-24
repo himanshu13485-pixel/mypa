@@ -140,22 +140,42 @@ class CrmController extends Controller
             'bank_accounts' => BankAccount::with(['issuingCompany:id,name', 'documents'])
                 ->where('organization_id', $org->id)
                 ->orderBy('label')
-                ->get(['id', 'issuing_company_id', 'label', 'bank_name', 'account_no', 'ifsc', 'is_active'])
+                /*
+                 * Every column the edit form can write, and not one fewer.
+                 *
+                 * The wire details were left off this list when they were
+                 * added, so an account paid into from abroad saved its
+                 * SWIFT/BIC and its routing numbers perfectly and then read
+                 * back empty: the form reopened blank and the list showed a
+                 * dash, which looks exactly like a save that did not happen.
+                 */
+                ->get([
+                    'id', 'issuing_company_id', 'label', 'bank_name', 'account_no', 'ifsc', 'is_active',
+                    'is_swift', 'beneficiary_name', 'swift_code', 'receiving_bank', 'aba_routing', 'aba_routing_alt',
+                    'intermediary_swift', 'account_type', 'beneficiary_address', 'receiving_bank_address', 'note',
+                ])
                 ->map(function ($b) use ($request) {
-                    $row = $b->toArray() + [
+                    // array_merge, not +: the loaded relation already puts a
+                    // raw `documents` under that key, and + would keep it -
+                    // handing out each file's storage path with it.
+                    $row = array_merge($b->toArray(), [
                         'issuing_company_name' => $b->issuingCompany?->name,
                         // The bank letters and cancelled cheques filed here,
                         // which an invoice mail can be told to carry.
                         'documents' => $b->documents
                             ->map(fn ($d) => ['uuid' => $d->uuid, 'name' => $d->name, 'size' => $d->size])
                             ->values()->all(),
-                    ];
+                    ]);
                     // Full account numbers are the managers' to see; every
                     // other member gets the label and a masked tail.
                     $me = $request->attributes->get('crm_member');
                     if (! in_array($me?->crm_role, ['admin', 'subadmin'], true)) {
                         $row['account_no'] = $b->account_no ? '…' . substr($b->account_no, -4) : null;
                         $row['ifsc'] = null;
+                        // A wire account's own numbers are no less sensitive.
+                        foreach (['swift_code', 'aba_routing', 'aba_routing_alt', 'intermediary_swift'] as $secret) {
+                            $row[$secret] = null;
+                        }
                     }
 
                     return $row;
