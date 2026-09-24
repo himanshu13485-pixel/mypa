@@ -75,7 +75,7 @@ class MailAccount extends Model
         'signature_html', 'signature_reply_html', 'signature_on', 'signature_before_quote',
         'auto_reply', 'forward_to', 'forwards', 'is_default',
         'daily_cap', 'sent_today', 'cap_date', 'dkim_selector', 'dns', 'verify_cert',
-        'sync_state', 'last_synced_at', 'last_error', 'status', 'detached_at', 'backup',
+        'sync_state', 'last_synced_at', 'last_error', 'sync_failures', 'status', 'detached_at', 'backup',
     ];
 
     protected $hidden = ['imap_password', 'smtp_password'];

@@ -23,6 +23,13 @@ use Throwable;
  */
 class MailSync
 {
+    /**
+     * How many passes in a row a mailbox may fail on something that fixes
+     * itself before the failure is put on screen. Syncs run every few
+     * minutes, so this is roughly a quarter of an hour of bad weather.
+     */
+    public const COMPLAIN_AFTER = 3;
+
     /** Folder names as the common providers spell them, lower-cased. */
     public const FOLDER_NAMES = [
         'sent' => ['sent', 'sent items', 'sent mail', 'sent messages', 'sent-mail', 'sentmail'],
@@ -135,10 +142,29 @@ class MailSync
 
             $client->disconnect();
 
-            $account->update(['sync_state' => $state, 'last_synced_at' => now(), 'last_error' => null]);
+            $account->update([
+                'sync_state' => $state, 'last_synced_at' => now(), 'last_error' => null, 'sync_failures' => 0,
+            ]);
         } catch (Throwable $e) {
-            $account->update(['last_error' => MailConnector::plain($e)]);
-            Log::warning('[mails] sync failed', ['account' => $account->id, 'error' => $e->getMessage()]);
+            /*
+             * A mailbox does not go red over one bad minute.
+             *
+             * Most of what a sync trips over is weather - a name that will
+             * not resolve, a port that times out once - and saying PROBLEM
+             * for it teaches people that the badge means nothing. A refused
+             * sign-in is different: it will still be refused in five
+             * minutes, so it is said straight away.
+             */
+            $failures = (int) $account->sync_failures + 1;
+            $settled = ! MailConnector::transient($e) || $failures >= self::COMPLAIN_AFTER;
+
+            $account->update([
+                'sync_failures' => $failures,
+                'last_error' => $settled ? MailConnector::plain($e) : $account->last_error,
+            ]);
+            Log::warning('[mails] sync failed', [
+                'account' => $account->id, 'error' => $e->getMessage(), 'in a row' => $failures,
+            ]);
 
             return ['fetched' => $fetched, 'error' => MailConnector::plain($e)];
         }
