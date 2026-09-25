@@ -120,7 +120,7 @@ export default function CrmSettingsPage() {
                   <th className="py-2 pr-3 font-medium">Label</th>
                   <th className="py-2 pr-3 font-medium">Bank</th>
                   <th className="py-2 pr-3 font-medium">Account no.</th>
-                  <th className="py-2 pr-3 font-medium">IFSC</th>
+                  <th className="py-2 pr-3 font-medium">IFSC / SWIFT</th>
                   <th className="py-2 pr-3 font-medium">Issuing company</th>
                   <th className="py-2 pr-3 font-medium">Active</th>
                   <th className="py-2 font-medium" />
@@ -130,11 +130,17 @@ export default function CrmSettingsPage() {
                 {masters.bank_accounts.map((b) => (
                   <tr key={b.id} className="border-b border-slate-50 last:border-0 dark:border-slate-800/50">
                     <td className="py-2.5 pr-3 font-medium">{b.label}</td>
-                    <td className="py-2.5 pr-3">{b.bank_name ?? '—'}</td>
+                    {/* A wire account keeps its bank under Receiving bank,
+                        so read that when there is no domestic bank name. */}
+                    <td className="py-2.5 pr-3">{b.bank_name || b.receiving_bank || '—'}</td>
                     <td className="py-2.5 pr-3">{b.account_no ?? '—'}</td>
                     <td className="py-2.5 pr-3">
                       {b.is_swift
-                        ? <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">SWIFT {b.swift_code ?? ''}</span>
+                        ? (
+                          <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">
+                            {b.swift_code ? `SWIFT ${b.swift_code}` : 'SWIFT'}
+                          </span>
+                        )
                         : (b.ifsc ?? '—')}
                     </td>
                     <td className="py-2.5 pr-3">{b.issuing_company_name ?? '—'}</td>
@@ -813,7 +819,11 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
     note: editing?.note ?? '',
   })
   const { data: bankMasters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
+  const bankQueryClient = useQueryClient()
   const { toast: bankToast, toastError: bankToastError } = useToast()
+  // A document is filed the moment it is picked, before Save is pressed,
+  // so the list behind the dialog has to be told each time.
+  const refreshMasters = () => bankQueryClient.invalidateQueries({ queryKey: ['crm', 'masters'] })
   /*
    * The bank's own paperwork.
    *
@@ -823,6 +833,7 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
   const [docs, setDocs] = useState<BankDocument[]>(editing?.documents ?? [])
   const [waiting, setWaiting] = useState<File[]>([])
   const [filing, setFiling] = useState(false)
+  const [dropping, setDropping] = useState(false)
   const docPicker = useRef<HTMLInputElement>(null)
 
   const file = async (accountId: number, files: File[]) => {
@@ -847,6 +858,7 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
     try {
       await file(editing.id, taking)
       bankToast(taking.length === 1 ? 'Document attached.' : `${taking.length} documents attached.`, 'success')
+      void refreshMasters()
     } catch (err) {
       bankToastError(errorMessage(err))
     } finally {
@@ -859,6 +871,7 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
     try {
       await crm.masterData.deleteBankDocument(editing.id, doc.uuid)
       setDocs((held) => held.filter((d) => d.uuid !== doc.uuid))
+      void refreshMasters()
     } catch (err) {
       bankToastError(errorMessage(err))
     }
@@ -867,8 +880,16 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
   const mutation = useMutation({
     mutationFn: () => crm.masterData.saveBank({
       ...form,
-      bank_name: form.bank_name || null,
+      /*
+       * A wire account has no IFSC to save, and its bank IS the receiving
+       * bank - copied into bank_name as well, so every other screen that
+       * names the account has something to show beside the label.
+       */
+      bank_name: (form.is_swift ? form.bank_name || form.receiving_bank : form.bank_name) || null,
       account_no: form.account_no || null,
+      // Left alone rather than cleared: a wire account never prints an IFSC
+      // anyway, and an account ticked over by mistake should untick back to
+      // what it was instead of coming back missing a field.
       ifsc: form.ifsc || null,
       // Blank rather than empty strings: what is not filled in prints nothing.
       beneficiary_name: form.beneficiary_name || null,
@@ -896,7 +917,16 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
 
   return (
     <Modal title={editing ? `Edit ${editing.label}` : 'Add bank account'} onClose={onClose}>
-      <div className="space-y-3">
+      {/*
+        * A file dropped a little wide of the box below would otherwise be
+        * opened by the browser, which navigates away from a half-filled
+        * form. Swallowed here so a near miss is simply a miss.
+        */}
+      <div
+        className="space-y-3"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => e.preventDefault()}
+      >
         <ErrorNote message={error} />
         <div>
           <Label>Belongs to issuing company</Label>
@@ -912,34 +942,15 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
           <Label>Label</Label>
           <Input value={form.label} onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} placeholder="HDFC (6948)" className="w-full" />
         </div>
-        <div>
-          <Label>Bank name</Label>
-          <Input value={form.bank_name} onChange={(e) => setForm((f) => ({ ...f, bank_name: e.target.value }))} className="w-full" />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Account number</Label>
-            <Input value={form.account_no} onChange={(e) => setForm((f) => ({ ...f, account_no: e.target.value }))} className="w-full" />
-          </div>
-          <div>
-            <Label>IFSC</Label>
-            <Input
-              value={form.ifsc}
-              disabled={form.is_swift}
-              onChange={(e) => setForm((f) => ({ ...f, ifsc: e.target.value }))}
-              className="w-full"
-            />
-          </div>
-        </div>
 
         {/*
-          * An account somebody abroad can actually pay into.
+          * Which kind of account this is, asked before anything is typed.
           *
-          * A wire needs none of an IFSC and all of the below - the SWIFT/BIC,
-          * the receiving bank by name and address, a routing number, often an
-          * intermediary bank, and the beneficiary written exactly as the bank
-          * holds it. Whatever is filled in prints on the invoice; whatever is
-          * left blank prints nothing.
+          * A rupee account and an account wired into from abroad have almost
+          * nothing in common - an IFSC means nothing to a foreign bank, and a
+          * SWIFT/BIC means nothing to a domestic one - so the tick chooses
+          * between two sets of fields rather than adding a second set
+          * underneath the first.
           */}
         <label className="flex items-start gap-2 rounded-xl bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
           <input
@@ -951,26 +962,26 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
           <span>
             Paid into from abroad (SWIFT)
             <span className="block text-xs text-slate-400">
-              The invoice prints the wire details below instead of the IFSC. The bank name and account number above are still used.
+              Fill in the wire details only &mdash; there is no domestic bank name or IFSC to enter. The invoice prints whichever of them you fill in.
             </span>
           </span>
         </label>
 
-        {form.is_swift && (
+        {form.is_swift ? (
           <div className="space-y-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
             <div>
               <Label>Beneficiary name</Label>
               <Input
                 value={form.beneficiary_name}
                 onChange={(e) => setForm((f) => ({ ...f, beneficiary_name: e.target.value }))}
-                placeholder="Exactly as the bank holds it - usually the issuing company"
+                placeholder="Exactly as the bank holds it"
                 className="w-full"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>SWIFT / BIC code</Label>
-                <Input value={form.swift_code} onChange={(e) => setForm((f) => ({ ...f, swift_code: e.target.value }))} className="w-full" />
+                <Label>Account number</Label>
+                <Input value={form.account_no} onChange={(e) => setForm((f) => ({ ...f, account_no: e.target.value }))} className="w-full" />
               </div>
               <div>
                 <Label>Account type</Label>
@@ -981,8 +992,8 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
                 <Input value={form.receiving_bank} onChange={(e) => setForm((f) => ({ ...f, receiving_bank: e.target.value }))} className="w-full" />
               </div>
               <div>
-                <Label>Intermediary bank SWIFT</Label>
-                <Input value={form.intermediary_swift} onChange={(e) => setForm((f) => ({ ...f, intermediary_swift: e.target.value }))} className="w-full" />
+                <Label>SWIFT / BIC code</Label>
+                <Input value={form.swift_code} onChange={(e) => setForm((f) => ({ ...f, swift_code: e.target.value }))} className="w-full" />
               </div>
               <div>
                 <Label>ABA routing number</Label>
@@ -994,6 +1005,10 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
               </div>
             </div>
             <div>
+              <Label>Intermediary bank SWIFT</Label>
+              <Input value={form.intermediary_swift} onChange={(e) => setForm((f) => ({ ...f, intermediary_swift: e.target.value }))} className="w-full" />
+            </div>
+            <div>
               <Label>Beneficiary address</Label>
               <Input value={form.beneficiary_address} onChange={(e) => setForm((f) => ({ ...f, beneficiary_address: e.target.value }))} className="w-full" />
             </div>
@@ -1002,6 +1017,23 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
               <Input value={form.receiving_bank_address} onChange={(e) => setForm((f) => ({ ...f, receiving_bank_address: e.target.value }))} className="w-full" />
             </div>
           </div>
+        ) : (
+          <>
+            <div>
+              <Label>Bank name</Label>
+              <Input value={form.bank_name} onChange={(e) => setForm((f) => ({ ...f, bank_name: e.target.value }))} className="w-full" />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Account number</Label>
+                <Input value={form.account_no} onChange={(e) => setForm((f) => ({ ...f, account_no: e.target.value }))} className="w-full" />
+              </div>
+              <div>
+                <Label>IFSC</Label>
+                <Input value={form.ifsc} onChange={(e) => setForm((f) => ({ ...f, ifsc: e.target.value }))} className="w-full" />
+              </div>
+            </div>
+          </>
         )}
 
         <div>
@@ -1024,11 +1056,34 @@ function BankModal({ editing, onClose, onDone }: { editing?: Bank; onClose: () =
           */}
         <div>
           <Label>Bank documents (sent with an invoice when ticked)</Label>
-          <div className="flex flex-wrap items-center gap-2">
+          {/*
+            * Dropped or picked, either way.
+            *
+            * A bank letter usually arrives as a file already open on screen,
+            * so dragging it here is the shorter path; the button stays for
+            * everybody who would rather browse, and for keyboards.
+            */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); if (!dropping) setDropping(true) }}
+            onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false) }}
+            onDrop={(e) => {
+              e.preventDefault()
+              setDropping(false)
+              void pick(Array.from(e.dataTransfer.files ?? []))
+            }}
+            className={clsx(
+              'flex flex-wrap items-center gap-2 rounded-xl border border-dashed p-3 transition-colors',
+              dropping
+                ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-500/10'
+                : 'border-slate-200 dark:border-slate-700',
+            )}
+          >
             <Button type="button" variant="secondary" disabled={filing} onClick={() => docPicker.current?.click()}>
               <Paperclip className="size-4" /> {filing ? 'Attaching…' : 'Add file'}
             </Button>
-            <span className="text-xs text-slate-400">Any format, up to 10 MB each, ten in all.</span>
+            <span className="text-xs text-slate-400">
+              {dropping ? 'Let go to attach.' : 'Or drop files here. Any format, up to 10 MB each, ten in all.'}
+            </span>
           </div>
           <input
             ref={docPicker}

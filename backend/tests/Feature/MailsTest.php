@@ -37,6 +37,22 @@ class FakeMailConnector extends MailConnector
     }
 }
 
+/** A mail server that will not answer, in whichever way the test chooses. */
+class UnreachableMailConnector extends MailConnector
+{
+    public function __construct(private \Throwable $fault) {}
+
+    public function smtp(MailAccount $account): Mailer
+    {
+        return Mail::mailer('array');
+    }
+
+    public function imap(MailAccount $account): Client
+    {
+        throw $this->fault;
+    }
+}
+
 /**
  * Mails: a mail client inside the CRM, behind three doors - the platform,
  * the company's Admin, and the person's own mailboxes.
@@ -464,6 +480,45 @@ class MailsTest extends TestCase
 
         $refused = new \RuntimeException('535 5.7.8 Authentication credentials invalid');
         $this->assertStringContainsString('app password', \App\Services\Mail\MailConnector::explain($refused, 'smtp.gmail.com', 587, 'outgoing'));
+    }
+
+    public function test_a_mailbox_does_not_go_red_over_one_bad_minute(): void
+    {
+        $box = $this->mailbox($this->admin);
+
+        // A name that will not resolve is weather: it is logged, counted and
+        // kept quiet, because the next pass in five minutes usually works.
+        $blip = new \RuntimeException('php_network_getaddresses: getaddrinfo for mail.grapout.com failed: Name or service not known');
+        $this->assertTrue(\App\Services\Mail\MailConnector::transient($blip));
+
+        $sync = new \App\Services\Mail\MailSync(
+            new UnreachableMailConnector($blip),
+            app(\App\Services\Mail\MailSender::class),
+            app(\App\Services\Mail\MailGuard::class),
+        );
+
+        for ($pass = 1; $pass < \App\Services\Mail\MailSync::COMPLAIN_AFTER; $pass++) {
+            $sync->sync($box->fresh());
+            $this->assertNull($box->fresh()->last_error, "pass {$pass} should stay quiet");
+            $this->assertSame($pass, (int) $box->fresh()->sync_failures);
+        }
+
+        // Once it has gone on long enough to stop being weather, it is said.
+        $sync->sync($box->fresh());
+        $this->assertStringContainsString('getaddrinfo', (string) $box->fresh()->last_error);
+
+        // A refused sign-in will still be refused in five minutes, so that
+        // one is never held back - even on the very first pass.
+        $fresh = $this->mailbox($this->admin, ['email' => 'second@grapout.test']);
+        $refused = new \RuntimeException('NO [AUTHENTICATIONFAILED] Authentication failed.');
+        $this->assertFalse(\App\Services\Mail\MailConnector::transient($refused));
+
+        (new \App\Services\Mail\MailSync(
+            new UnreachableMailConnector($refused),
+            app(\App\Services\Mail\MailSender::class),
+            app(\App\Services\Mail\MailGuard::class),
+        ))->sync($fresh);
+        $this->assertStringContainsString('Authentication failed', (string) $fresh->fresh()->last_error);
     }
 
     public function test_a_mailbox_can_be_told_to_accept_its_hosts_certificate(): void

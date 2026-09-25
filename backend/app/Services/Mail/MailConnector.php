@@ -132,6 +132,34 @@ class MailConnector
     }
 
     /**
+     * Whether this failure is weather rather than a fault.
+     *
+     * A name that does not resolve for ten seconds, a port that times out
+     * once, a connection dropped mid-fetch: the mailbox is configured
+     * correctly and the next pass will very likely work. A refused sign-in
+     * or a rejected certificate is the opposite - nothing will change until
+     * somebody changes it - and deserves to be said at once.
+     */
+    public static function transient(Throwable $e): bool
+    {
+        $lower = mb_strtolower(self::plain($e));
+
+        foreach ([
+            'getaddrinfo', 'name or service not known', 'temporary failure in name resolution',
+            'no such host', 'could not resolve', 'try again',
+            'timed out', 'timeout', 'did not properly respond',
+            'connection refused', 'connection reset', 'network is unreachable',
+            'broken pipe', 'connection closed', 'unexpectedly closed',
+        ] as $weather) {
+            if (str_contains($lower, $weather)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * The server's complaint, and what to do about it.
      *
      * A mail server that will not answer says so in the language of sockets.

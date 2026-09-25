@@ -21,7 +21,7 @@ use Tests\TestCase;
 use Webklex\PHPIMAP\Client;
 
 /** A mail server that is never there: every sync fails, which is the point. */
-class UnreachableMailConnector extends MailConnector
+class NeverAnsweringMailConnector extends MailConnector
 {
     public function imap(MailAccount $account): Client
     {
@@ -51,7 +51,7 @@ class MailQueueAndBackoffTest extends TestCase
     {
         parent::setUp();
         $this->seed(RolePermissionSeeder::class);
-        $this->app->instance(MailConnector::class, new UnreachableMailConnector());
+        $this->app->instance(MailConnector::class, new NeverAnsweringMailConnector());
 
         $this->org = Organization::create([
             'name' => 'Grapout', 'code' => 'GRAP', 'status' => 'active', 'mails_enabled' => true, 'mails_mailbox_cap' => 3,
@@ -131,15 +131,34 @@ class MailQueueAndBackoffTest extends TestCase
         $this->assertFalse($account->fresh()->syncIsPaused());
     }
 
-    public function test_a_failing_sync_counts_itself(): void
+    public function test_a_failing_sync_counts_itself_without_crying_wolf(): void
     {
         // The connector above refuses every connection, so the sync throws.
+        // A refused connection is weather, so it is counted and not
+        // announced - the mailbox is not called broken over one bad minute.
         $account = $this->mailbox();
 
         app(MailSync::class)->sync($account);
 
         $this->assertSame(1, $account->fresh()->sync_failures);
-        $this->assertNotNull($account->fresh()->last_error);
+        $this->assertNull($account->fresh()->last_error);
+        $this->assertFalse($account->fresh()->syncIsPaused());
+    }
+
+    public function test_the_pass_that_finally_says_problem_is_the_pass_that_rests_it(): void
+    {
+        $account = $this->mailbox();
+
+        // Three passes running is no longer a blip: it is said out loud,
+        // and the mailbox stops being asked every five minutes.
+        for ($pass = 0; $pass < MailSync::COMPLAIN_AFTER; $pass++) {
+            app(MailSync::class)->sync($account->fresh());
+        }
+
+        $account = $account->fresh();
+        $this->assertSame(MailSync::COMPLAIN_AFTER, $account->sync_failures);
+        $this->assertNotNull($account->last_error);
+        $this->assertTrue($account->syncIsPaused());
     }
 
     public function test_the_five_minute_tick_passes_a_rested_mailbox_by(): void

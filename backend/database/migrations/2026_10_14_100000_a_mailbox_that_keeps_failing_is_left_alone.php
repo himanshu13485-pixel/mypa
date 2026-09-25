@@ -33,13 +33,20 @@ return new class extends Migration
         });
     }
 
+    /**
+     * Only the resting goes back.
+     *
+     * `sync_failures` belongs to the migration beside this one, which
+     * counts failures so a mailbox does not go red over one bad minute.
+     * The two arrived the same day and share the column on purpose - the
+     * pass that first says PROBLEM is the pass that first lets it rest -
+     * so rolling this one back must not take the count with it.
+     */
     public function down(): void
     {
         Schema::table('crm_mail_accounts', function (Blueprint $table) {
-            foreach (['sync_failures', 'sync_paused_until'] as $column) {
-                if (Schema::hasColumn('crm_mail_accounts', $column)) {
-                    $table->dropColumn($column);
-                }
+            if (Schema::hasColumn('crm_mail_accounts', 'sync_paused_until')) {
+                $table->dropColumn('sync_paused_until');
             }
         });
     }

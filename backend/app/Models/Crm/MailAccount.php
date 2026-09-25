@@ -178,10 +178,18 @@ class MailAccount extends Model
      */
     private const SYNC_BACKOFF = [3 => 15, 5 => 60, 8 => 360];
 
-    /** This mailbox failed again just now. */
-    public function noteSyncFailure(): void
+    /**
+     * How long to leave a mailbox alone, given how many times running it
+     * has now failed - or null while it is still being forgiven.
+     *
+     * The count itself is kept by whoever noticed the failure, because the
+     * same number decides two things: when a mailbox is worth announcing
+     * as a problem, and when it stops being worth asking. They agree on
+     * purpose - the pass that first says PROBLEM is the pass that first
+     * lets it rest.
+     */
+    public static function restUntil(int $failures): ?\Illuminate\Support\Carbon
     {
-        $failures = (int) $this->sync_failures + 1;
         $minutes = 0;
         foreach (self::SYNC_BACKOFF as $after => $wait) {
             if ($failures >= $after) {
@@ -189,9 +197,17 @@ class MailAccount extends Model
             }
         }
 
+        return $minutes > 0 ? now()->addMinutes($minutes) : null;
+    }
+
+    /** This mailbox failed again just now, where nothing else counted it. */
+    public function noteSyncFailure(): void
+    {
+        $failures = (int) $this->sync_failures + 1;
+
         $this->forceFill([
             'sync_failures' => $failures,
-            'sync_paused_until' => $minutes > 0 ? now()->addMinutes($minutes) : null,
+            'sync_paused_until' => self::restUntil($failures),
         ])->save();
     }
 

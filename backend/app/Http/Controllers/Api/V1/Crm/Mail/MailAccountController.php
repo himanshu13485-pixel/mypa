@@ -554,8 +554,14 @@ class MailAccountController extends Controller
     /** A mailbox that just signed in has nothing left to complain about. */
     private function settled(MailAccount $account, bool $ok): void
     {
-        if ($ok && ($account->last_error || $account->status !== 'active')) {
-            $account->forceFill(['last_error' => null, 'status' => 'active'])->save();
+        if ($ok && ($account->last_error || $account->sync_failures || $account->sync_paused_until || $account->status !== 'active')) {
+            // The run of failures ends here too, so the next bad minute
+            // starts counting from one rather than from wherever it left
+            // off - and a mailbox being left alone is asked again at once,
+            // since a sign-in that works is the proof it was waiting for.
+            $account->forceFill([
+                'last_error' => null, 'sync_failures' => 0, 'sync_paused_until' => null, 'status' => 'active',
+            ])->save();
         }
     }
 
