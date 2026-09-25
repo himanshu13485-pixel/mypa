@@ -11,7 +11,8 @@ Browser ── https://netvork.app ─┬─ /            → public_html (React
                                 └─ /api, /broadcasting → apibase/index.php (Laravel)
         └─ wss://netvork.app:8443 ──────────────→ Reverb (own TLS, 0.0.0.0:8443)
 
-systemd: netvork-queue (queue:work database), netvork-reverb (reverb:start)
+systemd: netvork-queue (queue:work --queue=default), netvork-queue-mail (--queue=mail),
+         netvork-reverb (reverb:start)
 cron   : * * * * * artisan schedule:run          (reminders, alarms, daily reports)
          17 3 * * 1 refresh-ssl.sh               (keeps Reverb's cert with AutoSSL)
 ```

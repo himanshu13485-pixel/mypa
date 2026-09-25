@@ -1,0 +1,27 @@
+# /etc/systemd/system/netvork-queue-mail.service
+#
+# Reference copy — install-services.sh writes the live file. Keep the two in
+# step if you edit either.
+#
+# Mail has a queue of its own because a worker does one job at a time and
+# IMAP is the slow one. Ten mailboxes at 13-15 seconds each, every five
+# minutes, used to queue in front of outgoing mail, push notifications and
+# chat; a single mailbox timing out froze all of it until the worker was
+# killed and restarted. Nothing here is urgent, so --tries=1: a sync that
+# fails is counted against the mailbox and tried again on the next tick.
+[Unit]
+Description=Netvork mail queue worker (IMAP sync, mailbox backups)
+After=network.target mysql.service
+
+[Service]
+User=grapme
+Group=grapme
+Restart=always
+RestartSec=3
+WorkingDirectory=/home/grapme/netvork/backend
+ExecStart=/opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work database --queue=mail --sleep=1 --tries=1 --timeout=300
+StandardOutput=append:/home/grapme/logs/netvork-queue-mail.log
+StandardError=append:/home/grapme/logs/netvork-queue-mail.log
+
+[Install]
+WantedBy=multi-user.target

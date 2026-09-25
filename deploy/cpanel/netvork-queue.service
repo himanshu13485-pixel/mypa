@@ -16,7 +16,7 @@ Group=grapme
 Restart=always
 RestartSec=3
 WorkingDirectory=/home/grapme/netvork/backend
-ExecStart=/opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work database --sleep=1 --tries=3 --timeout=300
+ExecStart=/opt/cpanel/ea-php84/root/usr/bin/php artisan queue:work database --queue=default --sleep=1 --tries=3 --timeout=300
 StandardOutput=append:/home/grapme/logs/netvork-queue.log
 StandardError=append:/home/grapme/logs/netvork-queue.log
 

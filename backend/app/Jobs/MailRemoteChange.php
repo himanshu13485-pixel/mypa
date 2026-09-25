@@ -36,6 +36,9 @@ class MailRemoteChange implements ShouldQueue
         public string $action,
         public ?string $toFolder = null,
     ) {
+        // Another round trip to somebody's IMAP server, so it queues with
+        // the rest of the mail work rather than in front of a send.
+        $this->onQueue('mail');
     }
 
     public function handle(MailConnector $connector): void
