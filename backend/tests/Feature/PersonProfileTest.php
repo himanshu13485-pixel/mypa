@@ -157,7 +157,11 @@ class PersonProfileTest extends TestCase
     public function test_the_profile_says_when_they_were_last_here(): void
     {
         $this->connect();
-        $this->them->forceFill(['last_active_at' => now()->subHours(3)])->save();
+        // Read the clock once. Asking twice and comparing the answers fails
+        // whenever the second ticks over in between, which it does about
+        // once in a thousand runs and looks like a real fault every time.
+        $when = now()->subHours(3);
+        $this->them->forceFill(['last_active_at' => $when])->save();
 
         $seen = $this->actingAs($this->me)
             ->getJson("/api/v1/people/{$this->them->uuid}")
@@ -166,7 +170,7 @@ class PersonProfileTest extends TestCase
         $this->assertNotNull($seen);
         // The instant, not the way it was written: the wire carries UTC and
         // the app thinks in Kolkata.
-        $this->assertSame(now()->subHours(3)->timestamp, \Illuminate\Support\Carbon::parse($seen)->timestamp);
+        $this->assertSame($when->timestamp, \Illuminate\Support\Carbon::parse($seen)->timestamp);
     }
 
     public function test_it_says_nothing_when_they_have_hidden_it(): void
