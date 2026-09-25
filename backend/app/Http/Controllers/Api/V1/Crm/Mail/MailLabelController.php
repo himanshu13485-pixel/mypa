@@ -83,14 +83,36 @@ class MailLabelController extends Controller
         ]);
     }
 
-    /** The label goes, and its rules with it; the mail wearing it stays where it was. */
+    /**
+     * The label goes, its rules go, and its mail comes back to the Inbox.
+     *
+     * Mail filed under a label lives out of the Inbox, so deleting the label
+     * would leave it filed into nothing - present in Archive and findable
+     * only by searching. Anything the label was the last reason for is
+     * handed back to the Inbox; anything wearing another label stays filed
+     * under that one.
+     */
     public function destroy(Request $request, string $uuid): JsonResponse
     {
         $label = $this->find($this->member($request), $uuid);
+        $mail = $label->messages()->where('folder', 'archive')->get();
+
         $label->filters()->delete();
         $label->delete();
 
-        return response()->json(['message' => 'Label removed. The mail it was on is untouched.']);
+        $returned = 0;
+        foreach ($mail as $message) {
+            if (! $message->labels()->exists()) {
+                $message->update(['folder' => 'inbox']);
+                $returned++;
+            }
+        }
+
+        return response()->json([
+            'message' => $returned
+                ? "Label removed. {$returned} " . ($returned === 1 ? 'message is' : 'messages are') . ' back in the Inbox.'
+                : 'Label removed. The mail it was on keeps its place.',
+        ]);
     }
 
     private function find(Member $me, string $uuid): MailLabel

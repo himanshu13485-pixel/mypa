@@ -198,6 +198,129 @@ class MailFiltersTest extends TestCase
         ])->assertCreated();
     }
 
+    public function test_a_label_files_the_mail_and_taking_it_off_hands_it_back(): void
+    {
+        $box = $this->mailbox('admin@grapout.test', true);
+        $invoices = $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/labels', [
+            'account' => $box->uuid, 'name' => 'Invoices',
+        ])->assertCreated()->json('data.uuid');
+        $urgent = $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/labels', [
+            'account' => $box->uuid, 'name' => 'Urgent',
+        ])->assertCreated()->json('data.uuid');
+
+        $mail = $this->arrived($box, 'Invoice GRP-1041');
+        $this->assertSame('inbox', $mail->fresh()->folder);
+
+        // Labelling it files it: out of the Inbox, read under the label.
+        $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/messages/bulk', [
+            'uuids' => [$mail->uuid], 'action' => 'label', 'label' => $invoices,
+        ])->assertOk();
+        $this->assertSame('archive', $mail->fresh()->folder);
+
+        // A second label changes nothing about where it lives.
+        $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/messages/bulk', [
+            'uuids' => [$mail->uuid], 'action' => 'label', 'label' => $urgent,
+        ])->assertOk();
+        $this->assertSame('archive', $mail->fresh()->folder);
+
+        // Nor does taking one off while the other still files it.
+        $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/messages/bulk', [
+            'uuids' => [$mail->uuid], 'action' => 'unlabel', 'label' => $urgent,
+        ])->assertOk();
+        $this->assertSame('archive', $mail->fresh()->folder);
+
+        // The last one off, and it is back where it arrived.
+        $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/messages/bulk', [
+            'uuids' => [$mail->uuid], 'action' => 'unlabel', 'label' => $invoices,
+        ])->assertOk();
+        $this->assertSame('inbox', $mail->fresh()->folder);
+    }
+
+    public function test_deleting_a_label_returns_its_mail_to_the_inbox(): void
+    {
+        $box = $this->mailbox('admin@grapout.test', true);
+        $otp = $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/labels', [
+            'account' => $box->uuid, 'name' => 'OTP',
+        ])->assertCreated()->json('data.uuid');
+        $kept = $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/labels', [
+            'account' => $box->uuid, 'name' => 'Keep',
+        ])->assertCreated()->json('data.uuid');
+
+        $alone = $this->arrived($box, 'Your OTP is 449120');
+        $both = $this->arrived($box, 'Your OTP is 553120');
+        foreach ([[$alone, $otp], [$both, $otp], [$both, $kept]] as [$mail, $label]) {
+            $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/messages/bulk', [
+                'uuids' => [$mail->uuid], 'action' => 'label', 'label' => $label,
+            ])->assertOk();
+        }
+        $this->assertSame('archive', $alone->fresh()->folder);
+
+        $gone = $this->actingAs($this->bossUser)
+            ->deleteJson('/api/v1/crm/mails/labels/' . $otp)->assertOk();
+
+        // Filed under nothing else, so it comes back rather than sitting in
+        // Archive where only a search would find it.
+        $this->assertSame('inbox', $alone->fresh()->folder);
+        $this->assertStringContainsString('1 message is back', $gone->json('message'));
+
+        // Still filed under Keep, so it stays filed.
+        $this->assertSame('archive', $both->fresh()->folder);
+    }
+
+    public function test_a_rule_can_be_changed_after_it_is_written(): void
+    {
+        $box = $this->mailbox('admin@grapout.test', true);
+        $label = $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/labels', [
+            'account' => $box->uuid, 'name' => 'Bank',
+        ])->assertCreated()->json('data.uuid');
+
+        $rule = $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/filters', [
+            'account' => $box->uuid, 'label' => $label, 'subject_has' => 'statement',
+        ])->assertCreated()->json('data.uuid');
+
+        // Widened to catch the OTPs too, and swept over what is already here.
+        $this->arrived($box, 'Your OTP is 449120');
+        $changed = $this->actingAs($this->bossUser)->putJson('/api/v1/crm/mails/filters/' . $rule, [
+            'label' => $label, 'subject_has' => null, 'body_has' => 'otp', 'apply_now' => true,
+        ])->assertOk();
+
+        $this->assertSame('has the words "otp"', $changed->json('data.in_words'));
+        $this->assertStringContainsString('1 matched', $changed->json('message'));
+    }
+
+    public function test_two_mailboxes_may_not_read_the_same_mailbox_on_the_server(): void
+    {
+        $grapout = $this->mailbox('admin@grapout.test', true);
+        $grapout->update(['imap_host' => 'mail.grapout.test', 'imap_username' => 'admin@grapout.test']);
+
+        $zma = $this->mailbox('admin@zma.test');
+
+        /*
+         * The sign-in decides which mail is read, not the address on the
+         * card. Pointing this one at GrapOut's host under GrapOut's username
+         * would fetch GrapOut's mail into ZMA's folders - which is exactly
+         * how one company's Inbox ends up full of another's.
+         */
+        $refused = $this->actingAs($this->bossUser)->putJson('/api/v1/crm/mails/accounts/' . $zma->uuid, [
+            'email' => 'admin@zma.test',
+            'imap_host' => 'mail.grapout.test',
+            'imap_username' => 'admin@grapout.test',
+        ])->assertStatus(422);
+        $this->assertStringContainsString('admin@grapout.test', $refused->json('message'));
+
+        // Its own username on the same host is a different mailbox, and fine.
+        $this->actingAs($this->bossUser)->putJson('/api/v1/crm/mails/accounts/' . $zma->uuid, [
+            'email' => 'admin@zma.test',
+            'imap_host' => 'mail.grapout.test',
+            'imap_username' => 'admin@zma.test',
+        ])->assertOk();
+
+        // And a copy that would sign in as the original is refused too.
+        $this->actingAs($this->bossUser)->postJson('/api/v1/crm/mails/accounts/' . $grapout->uuid . '/replicate', [
+            'email' => 'sales@grapout.test', 'same_credentials' => true,
+        ])->assertStatus(422);
+    }
+
     public function test_an_address_book_belongs_to_the_mailbox_that_wrote_to_it(): void
     {
         $grapout = $this->mailbox('admin@grapout.test', true);

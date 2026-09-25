@@ -385,6 +385,7 @@ class MailboxController extends Controller
             if (array_key_exists('labels', $data)) {
                 $ids = MailLabel::where('member_id', $me->id)->whereIn('uuid', (array) $data['labels'])->pluck('id');
                 $message->labels()->sync($ids);
+                $this->filed($message);
             }
         }
     }
@@ -394,6 +395,30 @@ class MailboxController extends Controller
         $label = MailLabel::where('member_id', $me->id)->where('uuid', $labelUuid)->firstOrFail();
         foreach ($messages as $message) {
             $add ? $message->labels()->syncWithoutDetaching([$label->id]) : $message->labels()->detach($label->id);
+            $this->filed($message);
+        }
+    }
+
+    /**
+     * A label is where the mail now lives, not a sticker on it.
+     *
+     * Putting a label on something in the Inbox files it: it leaves the
+     * Inbox and is found under the label instead, which is what a person
+     * means by "put this in Invoices". Taking the last label off sends it
+     * back to the Inbox, so nothing can be filed into nowhere.
+     *
+     * Only the Inbox is treated this way. Mail already in Spam, Trash or
+     * Sent stays where it was put - a label is not a reason to drag
+     * somebody's own tidying about.
+     */
+    public function filed(MailMessage $message): void
+    {
+        $labelled = $message->labels()->exists();
+
+        if ($labelled && $message->folder === 'inbox') {
+            $this->move($message, 'archive');
+        } elseif (! $labelled && $message->folder === 'archive') {
+            $this->move($message, 'inbox');
         }
     }
 

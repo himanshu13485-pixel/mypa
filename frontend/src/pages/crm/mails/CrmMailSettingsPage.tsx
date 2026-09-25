@@ -3,7 +3,7 @@ import { useLocation, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Filter, ImagePlus, Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { mails, type MailAccountInfo, type MailLabelTag, type MailPrefs, type MailTeamMailbox, type MailTeamRow } from '../../../api/mails'
+import { mails, type MailAccountInfo, type MailFilter, type MailLabelTag, type MailPrefs, type MailTeamMailbox, type MailTeamRow } from '../../../api/mails'
 import { errorMessage } from '../../../api/client'
 import { useToast } from '../../../components/Toast'
 import { Button, Input, Label, LoadError, Modal, Select, Spinner, Textarea } from '../../../components/ui'
@@ -546,7 +546,10 @@ function LabelsTab() {
   })
   const [name, setName] = useState('')
   const [color, setColor] = useState(LABEL_COLORS[0])
+  // Which label a rule is being written for, and which existing rule (if
+  // any) is being changed rather than added.
   const [ruleFor, setRuleFor] = useState<MailLabelTag | null>(null)
+  const [editing, setEditing] = useState<MailFilter | null>(null)
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['mails'] })
   const guard = (p: Promise<unknown>) => p.then(refresh).catch((err) => toastError(errorMessage(err)))
@@ -616,7 +619,7 @@ function LabelsTab() {
                   onBlur={(e) => { if (e.target.value.trim() && e.target.value !== l.name) void guard(mails.saveLabel(l.uuid, e.target.value.trim(), l.color)) }}
                   className="min-w-0 flex-1 rounded-lg bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-slate-300"
                 />
-                <Button size="sm" variant="secondary" onClick={() => setRuleFor(l)}>
+                <Button size="sm" variant="secondary" onClick={() => { setEditing(null); setRuleFor(l) }}>
                   <Filter className="size-3.5" /> {l.filters?.length ? `${l.filters.length} rule${l.filters.length === 1 ? '' : 's'}` : 'Add rule'}
                 </Button>
                 <button
@@ -635,6 +638,18 @@ function LabelsTab() {
                   <Filter className="size-3 shrink-0 text-slate-400" />
                   <span className="min-w-0 flex-1">{f.in_words}</span>
                   <span className="text-slate-400">{f.matched_count} matched</span>
+                  <button
+                    type="button"
+                    className="text-slate-400 hover:text-emerald-600"
+                    onClick={() => void mails.filters(mailbox)
+                      .then((all) => {
+                        const one = all.find((x) => x.uuid === f.uuid)
+                        if (one) { setEditing(one); setRuleFor(l) }
+                      })
+                      .catch((err) => toastError(errorMessage(err)))}
+                  >
+                    Edit
+                  </button>
                   <button
                     type="button"
                     className="text-slate-400 hover:text-emerald-600"
@@ -658,10 +673,12 @@ function LabelsTab() {
 
       {ruleFor && (
         <FilterModal
+          key={editing?.uuid ?? 'new'}
           label={ruleFor}
           account={mailbox}
-          onClose={() => setRuleFor(null)}
-          onSaved={(message) => { toast(message, 'success'); refresh(); setRuleFor(null) }}
+          editing={editing}
+          onClose={() => { setRuleFor(null); setEditing(null) }}
+          onSaved={(message) => { toast(message, 'success'); refresh(); setRuleFor(null); setEditing(null) }}
         />
       )}
     </div>
@@ -676,19 +693,28 @@ function LabelsTab() {
  * it must not have, whether it carries a file, how big it is. Every box
  * filled in has to be true; every box left empty is not asked about.
  */
-function FilterModal({ label, account, onClose, onSaved }: {
+function FilterModal({ label, account, editing, onClose, onSaved }: {
   label: MailLabelTag
   account: string
+  /** The rule being changed, or null when one is being written. */
+  editing?: MailFilter | null
   onClose: () => void
   onSaved: (message: string) => void
 }) {
   const { toastError } = useToast()
   const [form, setForm] = useState({
-    from_has: '', to_has: '', subject_has: '', body_has: '', body_lacks: '',
-    has_attachment: '' as '' | 'yes' | 'no',
-    size_op: '' as '' | 'gt' | 'lt',
-    size_kb: '',
-    mark_read: false, star: false, skip_inbox: false, never_spam: false,
+    from_has: editing?.from_has ?? '',
+    to_has: editing?.to_has ?? '',
+    subject_has: editing?.subject_has ?? '',
+    body_has: editing?.body_has ?? '',
+    body_lacks: editing?.body_lacks ?? '',
+    has_attachment: (editing?.has_attachment == null ? '' : editing.has_attachment ? 'yes' : 'no') as '' | 'yes' | 'no',
+    size_op: (editing?.size_op ?? '') as '' | 'gt' | 'lt',
+    size_kb: editing?.size_kb ? String(editing.size_kb) : '',
+    mark_read: editing?.mark_read ?? false,
+    star: editing?.star ?? false,
+    skip_inbox: editing?.skip_inbox ?? false,
+    never_spam: editing?.never_spam ?? false,
   })
   // Almost nobody writes a rule before the mail it is about has arrived, so
   // sweeping what is already here is on unless somebody turns it off.
@@ -699,7 +725,8 @@ function FilterModal({ label, account, onClose, onSaved }: {
     || form.has_attachment || (form.size_op && form.size_kb))
 
   const save = useMutation({
-    mutationFn: () => mails.addFilter(account, {
+    mutationFn: () => {
+      const body = {
       label: label.uuid,
       from_has: form.from_has || null,
       to_has: form.to_has || null,
@@ -714,7 +741,10 @@ function FilterModal({ label, account, onClose, onSaved }: {
       skip_inbox: form.skip_inbox,
       never_spam: form.never_spam,
       apply_now: applyNow,
-    }),
+      }
+
+      return editing ? mails.saveFilter(editing.uuid, body) : mails.addFilter(account, body)
+    },
     onSuccess: (res) => onSaved(res.message),
     onError: (err) => toastError(errorMessage(err)),
   })
@@ -727,7 +757,7 @@ function FilterModal({ label, account, onClose, onSaved }: {
   )
 
   return (
-    <Modal title={`Mail that goes to "${label.name}"`} onClose={onClose} sticky>
+    <Modal title={`${editing ? 'Rule for' : 'Mail that goes to'} "${label.name}"`} onClose={onClose} sticky>
       <div className="space-y-3">
         <p className="text-sm text-slate-500">
           Fill in only what matters. Everything you type here has to be true of a mail before it wears the label; anything left blank is not asked about.
@@ -772,7 +802,7 @@ function FilterModal({ label, account, onClose, onSaved }: {
           {([
             ['mark_read', 'Mark it read'],
             ['star', 'Star it'],
-            ['skip_inbox', 'Keep it out of the Inbox (file it straight to Archive)'],
+            ['skip_inbox', 'Keep it out of the Inbox - file it under this label instead'],
             ['never_spam', 'Never let it go to Spam'],
           ] as const).map(([key, said]) => (
             <label key={key} className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
@@ -788,7 +818,7 @@ function FilterModal({ label, account, onClose, onSaved }: {
         </label>
 
         <Button className="w-full" disabled={!asks || save.isPending} onClick={() => save.mutate()}>
-          {save.isPending ? 'Saving…' : asks ? 'Create rule' : 'Give it something to look for'}
+          {save.isPending ? 'Saving…' : asks ? (editing ? 'Save rule' : 'Create rule') : 'Give it something to look for'}
         </Button>
       </div>
     </Modal>

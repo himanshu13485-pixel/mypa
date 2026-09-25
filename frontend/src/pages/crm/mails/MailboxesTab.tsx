@@ -160,6 +160,20 @@ export default function MailboxesTab() {
                   </p>
                 )}
 
+                {/*
+                  * Which mailbox on the server this actually reads.
+                  *
+                  * The sign-in decides that, not the address on the card - so
+                  * a mailbox signing in as somebody else is the one thing
+                  * that explains another company's mail turning up here, and
+                  * it was the one thing the card did not say.
+                  */}
+                {a.can_receive && a.imap_username && a.imap_username.toLowerCase() !== a.email.toLowerCase() && (
+                  <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                    Reads the mailbox of <span className="font-medium">{a.imap_username}</span>, not {a.email}.
+                  </p>
+                )}
+
                 <p className="mt-1 text-xs text-slate-400">
                   {a.can_receive ? `${a.imap_host}:${a.imap_port}` : 'no incoming server'}
                   {a.can_send && ` · ${a.smtp_host}:${a.smtp_port}`}

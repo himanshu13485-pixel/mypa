@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Archive, ArrowLeft, ChevronDown, Code2, Download, Forward, ImageOff, Inbox, Paperclip, Printer,
+  Archive, ArrowLeft, ChevronDown, Code2, Download, FolderInput, Forward, ImageOff, Inbox, Paperclip, Printer,
   Maximize2, Minimize2, Reply, ReplyAll, Send, ShieldAlert, Star, Tag, Trash2, Undo2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
@@ -308,6 +308,7 @@ export default function MailReader({ uuid, folder, labels, prefs, full, onToggle
   const openComposer = useComposer((s) => s.open)
   const [opened, setOpened] = useState<Record<string, boolean>>({})
   const [labelMenu, setLabelMenu] = useState(false)
+  const [moveMenu, setMoveMenu] = useState(false)
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['mails', 'message', uuid],
@@ -376,11 +377,49 @@ export default function MailReader({ uuid, folder, labels, prefs, full, onToggle
         {!pending && (
           <>
             {tool(starred ? 'Unstar' : 'Star', <Star className={clsx('size-4', starred && 'fill-amber-400 text-amber-400')} />, () => act(starred ? 'unstar' : 'star'))}
+            {/*
+              * Somewhere else, said out loud.
+              *
+              * Dragging a message onto a folder in the rail has always
+              * worked, but nothing on screen says so - and it cannot be
+              * done at all from inside an open mail. This is the same four
+              * moves, named.
+              */}
             <div className="relative">
-              {tool('Labels', <Tag className="size-4" />, () => setLabelMenu((v) => !v))}
+              {tool('Move to', <FolderInput className="size-4" />, () => { setMoveMenu((v) => !v); setLabelMenu(false) })}
+              {moveMenu && (
+                <div className="absolute left-0 top-full z-20 mt-1 w-48 rounded-xl bg-white p-1.5 shadow-lift ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
+                  {([
+                    ['inbox', 'Inbox', <Inbox key="i" className="size-4" />],
+                    ['archive', 'Archive', <Archive key="a" className="size-4" />],
+                    ['spam', 'Spam / Junk', <ShieldAlert key="s" className="size-4" />],
+                    ['trash', 'Trash', <Trash2 key="t" className="size-4" />],
+                  ] as const).map(([key, said, icon]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      disabled={folder === key}
+                      onClick={() => { setMoveMenu(false); void act(key, undefined, true) }}
+                      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-50 disabled:opacity-40 dark:hover:bg-slate-700"
+                    >
+                      {icon}
+                      <span className="flex-1">{said}</span>
+                      {folder === key && <span className="text-xs text-slate-400">here</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="relative">
+              {tool('Labels', <Tag className="size-4" />, () => { setLabelMenu((v) => !v); setMoveMenu(false) })}
               {labelMenu && (
                 <div className="absolute left-0 top-full z-20 mt-1 w-56 rounded-xl bg-white p-1.5 shadow-lift ring-1 ring-slate-200 dark:bg-slate-800 dark:ring-slate-700">
                   {labels.length === 0 && <p className="px-2 py-1.5 text-xs text-slate-500">No labels yet - create them under Manage labels.</p>}
+                  {labels.length > 0 && (
+                    <p className="px-2 pb-1 pt-0.5 text-[11px] text-slate-400">
+                      A label files the mail: it leaves the Inbox and is read under the label. Untick them all and it comes back.
+                    </p>
+                  )}
                   {labels.map((l) => {
                     const on = allLabels.has(l.uuid)
                     return (

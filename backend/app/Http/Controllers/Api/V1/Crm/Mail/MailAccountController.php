@@ -117,6 +117,13 @@ class MailAccountController extends Controller
             }
         }
 
+        $this->refuseDuplicate(
+            $me,
+            $account,
+            $data['imap_host'] ?? $account->imap_host,
+            $data['imap_username'] ?? $account->imap_username ?: ($data['email'] ?? $account->email),
+        );
+
         $moved = isset($data['imap_host']) && $data['imap_host'] !== $account->imap_host;
 
         // Changing how it connects retires the old complaint: what failed was
@@ -339,6 +346,7 @@ class MailAccountController extends Controller
             'imap_password' => $same ? $account->imap_password : ($data['imap_password'] ?? null),
             'smtp_password' => $same ? $account->smtp_password : ($data['smtp_password'] ?? $data['imap_password'] ?? null),
         ]);
+        $this->refuseDuplicate($me, $copy, $copy->imap_host, $copy->imap_username ?: $copy->email);
         $copy->save();
 
         if ($copy->canReceive()) {
@@ -563,6 +571,36 @@ class MailAccountController extends Controller
                 'last_error' => null, 'sync_failures' => 0, 'sync_paused_until' => null, 'status' => 'active',
             ])->save();
         }
+    }
+
+    /**
+     * Two mailboxes must not sign in to the same mailbox on the server.
+     *
+     * The sign-in decides which mail is read, not the address written on the
+     * card. Point a second mailbox at the same host with the same username -
+     * which "Sign in with the same username and password" does on a copy -
+     * and it fetches the first one's mail into its own folders. One company's
+     * Inbox then shows another company's mail, and nothing on screen explains
+     * why, because both cards name their own address.
+     */
+    private function refuseDuplicate(Member $me, MailAccount $account, ?string $host, ?string $username): void
+    {
+        $host = mb_strtolower(trim((string) $host));
+        $username = mb_strtolower(trim((string) $username));
+        if ($host === '' || $username === '') {
+            return;
+        }
+
+        $clash = MailAccount::for($me)
+            ->when($account->exists, fn ($q) => $q->where('id', '!=', $account->id))
+            ->whereNull('detached_at')
+            ->get()
+            ->first(fn (MailAccount $other) => mb_strtolower((string) $other->imap_host) === $host
+                && mb_strtolower((string) ($other->imap_username ?: $other->email)) === $username);
+
+        abort_if((bool) $clash, 422, $clash
+            ? "\"{$clash->email}\" already signs in as {$username} on {$host}, so both would read the same mailbox and each would show the other's mail. Give this one its own username and password."
+            : '');
     }
 
     private function member(Request $request): Member
