@@ -7,7 +7,9 @@ use App\Models\Crm\ActivityLog;
 use App\Models\Crm\Document;
 use App\Models\Crm\Expense;
 use App\Models\Crm\ExpensePayment;
+use App\Models\Crm\IssuingCompany;
 use App\Models\Crm\Vendor;
+use App\Services\Crm\FxService;
 use App\Support\QueryList;
 use App\Support\TextCase;
 use Carbon\Carbon;
@@ -89,25 +91,38 @@ class ExpenseController extends Controller
             });
         }
 
-        $all = (clone $query)->get(['id', 'total_amount', 'amount_paid', 'payment_status', 'due_date', 'base_amount', 'cgst_amount', 'sgst_amount', 'igst_amount', 'category', 'expense_date', 'gst_claimed']);
+        $all = (clone $query)->get(['id', 'total_amount', 'total_inr', 'currency', 'fx_rate', 'amount_paid', 'payment_status', 'due_date', 'base_amount', 'cgst_amount', 'sgst_amount', 'igst_amount', 'category', 'expense_date', 'gst_claimed']);
         $outstanding = $all->filter(fn ($e) => $e->payment_status !== 'paid');
+
+        /*
+         * Every figure on this screen is rupees.
+         *
+         * The register may hold a dollar bill and a euro bill beside the
+         * rupee ones, and "total spend" has to be one number a person can
+         * read - so each bill contributes what it cost in rupees, at the
+         * rate frozen on it. The rows below still show each bill in its own
+         * money, which is what the paper says.
+         */
+        $inr = fn ($e, $amount) => $e->inRupees($amount);
+        $unpaidInr = fn ($e) => $e->inRupees((float) $e->total_amount - (float) $e->amount_paid);
+
         $summary = [
             'count' => $all->count(),
-            'total' => round($all->sum('total_amount'), 2),
-            'paid' => round($all->sum('amount_paid'), 2),
-            'outstanding' => round($all->sum(fn ($e) => (float) $e->total_amount - (float) $e->amount_paid), 2),
+            'currency' => 'INR',
+            'total' => round($all->sum(fn ($e) => (float) $e->total_inr), 2),
+            'paid' => round($all->sum(fn ($e) => $inr($e, $e->amount_paid)), 2),
+            'outstanding' => round($all->sum($unpaidInr), 2),
             'unpaid_bills' => $outstanding->count(),
-            'overdue' => round($outstanding->filter(fn ($e) => $e->isOverdue())
-                ->sum(fn ($e) => (float) $e->total_amount - (float) $e->amount_paid), 2),
+            'overdue' => round($outstanding->filter(fn ($e) => $e->isOverdue())->sum($unpaidInr), 2),
             'overdue_bills' => $outstanding->filter(fn ($e) => $e->isOverdue())->count(),
-            'gst_total' => round($all->sum(fn ($e) => (float) $e->cgst_amount + (float) $e->sgst_amount + (float) $e->igst_amount), 2),
+            'gst_total' => round($all->sum(fn ($e) => $inr($e, (float) $e->cgst_amount + (float) $e->sgst_amount + (float) $e->igst_amount)), 2),
             'gst_unclaimed' => round($all->where('gst_claimed', false)
-                ->sum(fn ($e) => (float) $e->cgst_amount + (float) $e->sgst_amount + (float) $e->igst_amount), 2),
+                ->sum(fn ($e) => $inr($e, (float) $e->cgst_amount + (float) $e->sgst_amount + (float) $e->igst_amount)), 2),
             'by_category' => $all->groupBy(fn ($e) => $e->category ?: 'Uncategorised')
-                ->map(fn ($g, $cat) => ['category' => $cat, 'amount' => round($g->sum('total_amount'), 2), 'count' => $g->count()])
+                ->map(fn ($g, $cat) => ['category' => $cat, 'amount' => round($g->sum(fn ($e) => (float) $e->total_inr), 2), 'count' => $g->count()])
                 ->sortByDesc('amount')->values(),
             'by_month' => $all->groupBy(fn ($e) => $e->expense_date->format('Y-m'))
-                ->map(fn ($g, $m) => ['month' => $m, 'amount' => round($g->sum('total_amount'), 2)])
+                ->map(fn ($g, $m) => ['month' => $m, 'amount' => round($g->sum(fn ($e) => (float) $e->total_inr), 2)])
                 ->sortKeys()->values()->take(-12),
         ];
 
@@ -317,6 +332,9 @@ class ExpenseController extends Controller
             'vendor_uuid' => ['required', 'string'],
             'category' => ['nullable', 'string', 'max:64'],
             'description' => ['nullable', 'string', 'max:512'],
+            // The money the bill is actually in. Three letters, as a lead
+            // or an invoice is quoted; missing means the company's own.
+            'currency' => ['nullable', 'string', 'regex:/^[A-Za-z]{3}$/'],
             'base_amount' => ['required', 'numeric', 'min:0'],
             'cgst_amount' => ['nullable', 'numeric', 'min:0'],
             'sgst_amount' => ['nullable', 'numeric', 'min:0'],
@@ -379,6 +397,37 @@ class ExpenseController extends Controller
         // The total is arithmetic, never an input.
         $data['total_amount'] = round($base + $taxes, 2);
 
+        /*
+         * The rupee figure the books add up, frozen here.
+         *
+         * A bill in dollars is still a bill this office has to account for
+         * in rupees, so the rate is taken once - at the company's own
+         * effective rate, market less the bank's cut, the same one an
+         * invoice uses - and written down beside the real figure. Every
+         * total elsewhere adds the rupee column, so nothing has to guess
+         * later, and a rate that moves next month cannot restate what was
+         * spent this one.
+         *
+         * A currency we have never priced leaves the rate empty and the
+         * rupee figure equal to the real one. That is visibly wrong rather
+         * than quietly wrong, which is the right way round: the bill is
+         * still filed, and the figure is the one on the paper.
+         */
+        $currency = strtoupper((string) ($data['currency'] ?? '')) ?: null;
+        if ($currency === null && ! empty($data['issuing_company_id'])) {
+            $currency = strtoupper((string) (IssuingCompany::find($data['issuing_company_id'])?->currency ?: 'INR'));
+        }
+        $data['currency'] = $currency ?: 'INR';
+
+        if ($data['currency'] === 'INR') {
+            $data['fx_rate'] = null;
+            $data['total_inr'] = $data['total_amount'];
+        } else {
+            $rate = (new FxService($request->attributes->get('crm_org')))->effectiveRate($data['currency']);
+            $data['fx_rate'] = $rate;
+            $data['total_inr'] = round($data['total_amount'] * ($rate ?: 1), 2);
+        }
+
         return $data;
     }
 
@@ -395,6 +444,10 @@ class ExpenseController extends Controller
             'vendor_gstin' => $e->vendor_gstin,
             'category' => $e->category,
             'description' => $e->description,
+            // The money on the paper, and what it came to in rupees.
+            'currency' => $e->currency ?: 'INR',
+            'fx_rate' => $e->fx_rate,
+            'total_inr' => $e->total_inr,
             'base_amount' => $e->base_amount,
             'cgst_amount' => $e->cgst_amount,
             'sgst_amount' => $e->sgst_amount,

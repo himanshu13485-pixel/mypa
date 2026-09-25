@@ -127,7 +127,15 @@ export default function CrmCommissionsPage() {
                     <td className="max-w-[170px] truncate py-2.5 pr-3">{c.client ?? '—'}</td>
                     <td className="max-w-[170px] truncate py-2.5 pr-3">{c.payee}</td>
                     <td className="py-2.5 pr-3">{c.salesperson ?? '—'}</td>
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-right font-semibold">{inr(c.amount)}</td>
+                    {/* The commission on a dollar sale is a dollar commission.
+                        The rupee line under it is what it cost the office, at
+                        the rate frozen on the invoice it came off. */}
+                    <td className="whitespace-nowrap py-2.5 pr-3 text-right font-semibold">
+                      {money(c.amount, c.currency)}
+                      {(c.currency || 'INR') !== 'INR' && (
+                        <div className="text-[11px] font-normal text-slate-400">{inr(c.amount_inr)}</div>
+                      )}
+                    </td>
                     <td className="py-2.5 pr-3 text-slate-500">
                       {c.recorded_by ?? '—'}
                       {c.note && <div className="max-w-[180px] truncate text-xs text-slate-400" title={c.note}>{c.note}</div>}
@@ -194,6 +202,12 @@ function RecordModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
   })
 
   const candidates = (invoices?.data ?? []).filter((i) => i.status !== 'cancelled')
+  /*
+   * A commission is agreed in the money of the sale, so the box says which
+   * money that is. Typing 500 against a dollar invoice means $500 - and a
+   * blank "Amount" left that to be guessed at.
+   */
+  const chosenCurrency = candidates.find((i) => i.uuid === invoiceUuid)?.currency || 'INR'
 
   return (
     <Modal title="Record a commission" onClose={onClose} wide>
@@ -236,7 +250,7 @@ function RecordModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
 
         <div className="grid gap-3 sm:grid-cols-3">
           <div>
-            <Label>Amount</Label>
+            <Label>Amount{invoiceUuid ? ` (${chosenCurrency})` : ''}</Label>
             <Input type="number" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full" />
           </div>
           <div>

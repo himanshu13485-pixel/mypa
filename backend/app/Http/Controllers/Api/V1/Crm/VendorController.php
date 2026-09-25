@@ -10,6 +10,7 @@ use App\Support\QueryList;
 use App\Support\TextCase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 /**
@@ -51,7 +52,9 @@ class VendorController extends Controller
         }
 
         // What each supplier is owed, read from the bills themselves.
-        $ledger = Expense::selectRaw('vendor_id, sum(total_amount) as billed, sum(amount_paid) as paid, count(*) as bills')
+        // Billed in rupees, because one supplier may have sent bills in two
+        // currencies and "owed" has to be a single figure.
+        $ledger = Expense::selectRaw('vendor_id, sum(total_inr) as billed, sum(amount_paid * coalesce(fx_rate, 1)) as paid, count(*) as bills')
             ->where('organization_id', $org->id)
             ->whereNotNull('vendor_id')
             ->groupBy('vendor_id')
@@ -282,8 +285,8 @@ class VendorController extends Controller
     private function serialize(Vendor $v, $ledger = null, $overdue = null): array
     {
         $row = $ledger?->get($v->id);
-        $billed = $row ? (float) $row->billed : (float) $v->expenses()->sum('total_amount');
-        $paid = $row ? (float) $row->paid : (float) $v->expenses()->sum('amount_paid');
+        $billed = $row ? (float) $row->billed : (float) $v->expenses()->sum('total_inr');
+        $paid = $row ? (float) $row->paid : (float) $v->expenses()->sum(DB::raw('amount_paid * coalesce(fx_rate, 1)'));
 
         return [
             'uuid' => $v->uuid,
