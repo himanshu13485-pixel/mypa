@@ -463,6 +463,16 @@ class MailAccountController extends Controller
     {
         $this->reachable($request, $account);
 
+        /*
+         * A person asking is a new fact.
+         *
+         * A mailbox that failed its way into a back-off is usually one
+         * somebody has just been to fix - a password retyped, a host
+         * corrected. Pressing Refresh says so, so the wait is cleared and
+         * this run happens now rather than whenever the pause runs out.
+         */
+        $account->forceFill(['sync_failures' => 0, 'sync_paused_until' => null])->save();
+
         if ($request->boolean('now')) {
             $result = $sync->sync($account->fresh());
 
@@ -544,10 +554,14 @@ class MailAccountController extends Controller
     /** A mailbox that just signed in has nothing left to complain about. */
     private function settled(MailAccount $account, bool $ok): void
     {
-        if ($ok && ($account->last_error || $account->sync_failures || $account->status !== 'active')) {
+        if ($ok && ($account->last_error || $account->sync_failures || $account->sync_paused_until || $account->status !== 'active')) {
             // The run of failures ends here too, so the next bad minute
-            // starts counting from one rather than from wherever it left off.
-            $account->forceFill(['last_error' => null, 'sync_failures' => 0, 'status' => 'active'])->save();
+            // starts counting from one rather than from wherever it left
+            // off - and a mailbox being left alone is asked again at once,
+            // since a sign-in that works is the proof it was waiting for.
+            $account->forceFill([
+                'last_error' => null, 'sync_failures' => 0, 'sync_paused_until' => null, 'status' => 'active',
+            ])->save();
         }
     }
 

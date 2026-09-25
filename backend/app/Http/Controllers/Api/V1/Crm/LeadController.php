@@ -80,6 +80,24 @@ class LeadController extends Controller
             $query->where('lead_status', 'follow_up')->where('follow_up_at', '<=', now()->endOfDay());
         }
 
+        /*
+         * "today=1": what a salesperson is supposed to do today.
+         *
+         * Today's follow-ups, and everything marked urgent whatever its
+         * date - an urgent lead is urgent now, which is the whole point of
+         * the flag, and a list of today's work that quietly left it out
+         * would be the one list where it does not appear.
+         *
+         * Today only, not everything overdue: "Due today" beside it is the
+         * filter for the backlog. This one answers "what is on for today".
+         */
+        if ($request->boolean('today')) {
+            $query->where(function ($q) {
+                $q->where(fn ($f) => $f->where('lead_status', 'follow_up')->whereDate('follow_up_at', now()->toDateString()))
+                    ->orWhere('is_urgent', true);
+            });
+        }
+
         $totals = [
             'count' => (clone $query)->count(),
             'amount' => (clone $query)->sum('amount'),

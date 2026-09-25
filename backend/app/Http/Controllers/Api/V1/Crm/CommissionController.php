@@ -52,11 +52,14 @@ class CommissionController extends Controller
             $query->whereDate('expense_date', '<=', $to);
         }
 
-        $all = (clone $query)->get(['id', 'total_amount', 'expense_date']);
+        // In rupees, as the office reads its own totals - the rows below
+        // still show each commission in the money of its sale.
+        $all = (clone $query)->get(['id', 'total_amount', 'total_inr', 'currency', 'fx_rate', 'expense_date']);
         $summary = [
             'count' => $all->count(),
-            'total' => round($all->sum('total_amount'), 2),
-            'this_month' => round($all->filter(fn ($e) => $e->expense_date->isSameMonth(now()))->sum('total_amount'), 2),
+            'currency' => 'INR',
+            'total' => round($all->sum(fn ($e) => (float) $e->total_inr), 2),
+            'this_month' => round($all->filter(fn ($e) => $e->expense_date->isSameMonth(now()))->sum(fn ($e) => (float) $e->total_inr), 2),
         ];
 
         // Most recently entered first, as the expense list reads.
@@ -104,6 +107,16 @@ class CommissionController extends Controller
             'description' => 'Commission against ' . $invoice->number,
             'base_amount' => $amount,
             'total_amount' => $amount,
+            /*
+             * A commission on a dollar invoice is a dollar commission.
+             *
+             * It is entered in the money of the sale it comes off, and
+             * carries that document's own frozen rate, so the office's
+             * rupee figures add the same rupees the invoice was worth.
+             */
+            'currency' => $invoice->currency ?: 'INR',
+            'fx_rate' => ($invoice->currency ?: 'INR') === 'INR' ? null : $invoice->rupeeRate(),
+            'total_inr' => $invoice->inRupees($amount),
             'payment_mode' => $data['payment_mode'] ?? null,
             'note' => $data['note'] ?? null,
             'created_by' => $request->user()->id,
@@ -172,6 +185,10 @@ class CommissionController extends Controller
             'expense_date' => $e->expense_date->toDateString(),
             'payee' => $e->vendor_name,
             'amount' => (float) $e->total_amount,
+            // In the money of the sale it came off, with the rupees it
+            // cost the office beside it.
+            'currency' => $e->currency ?: 'INR',
+            'amount_inr' => (float) $e->total_inr,
             'payment_mode' => $e->payment_mode,
             'note' => $e->note,
             'invoice' => $e->invoice ? [

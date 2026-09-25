@@ -237,9 +237,11 @@ class PlController extends Controller
             ->whereDate('expense_date', '<=', $end)
             ->when($cfg['expense_categories'] ?? null,
                 fn ($q, $cats) => $q->whereIn('category', $cats));
-        $expenseLines = $expenseQuery->get(['category', 'total_amount'])
+        // total_inr, not total_amount: the books are in rupees, and a bill
+        // paid in dollars is not its own figure in them.
+        $expenseLines = $expenseQuery->get(['category', 'total_inr'])
             ->groupBy(fn ($e) => $e->category ?: 'Uncategorised')
-            ->map(fn ($group, $cat) => ['label' => $cat, 'amount' => round((float) $group->sum('total_amount'), 2), 'source' => 'expenses'])
+            ->map(fn ($group, $cat) => ['label' => $cat, 'amount' => round((float) $group->sum('total_inr'), 2), 'source' => 'expenses'])
             ->values()->all();
 
         if ($cfg['include_salaries'] ?? true) {
@@ -391,8 +393,8 @@ class PlController extends Controller
         $book = Expense::where('organization_id', $org->id)
             ->whereDate('expense_date', '>=', $start)
             ->whereDate('expense_date', '<=', $end)
-            ->get(['category', 'total_amount']);
-        $category = fn (string $name) => round((float) $book->where('category', $name)->sum('total_amount'), 2);
+            ->get(['category', 'total_inr']);
+        $category = fn (string $name) => round((float) $book->where('category', $name)->sum('total_inr'), 2);
         $counted = fn (string $name) => ($cfg['expense_categories'] ?? null) === null
             || in_array($name, (array) $cfg['expense_categories'], true);
         $commissionName = CommissionController::CATEGORY;
@@ -410,7 +412,7 @@ class PlController extends Controller
             ['key' => 'taxable_value', 'label' => 'Basic (taxable) value', 'amount' => $sum(fn ($i) => (float) $i->subtotal - (float) $i->discount), 'side' => 'income', 'already_counted' => false, 'note' => 'This month’s invoices before tax.'],
             ['key' => 'commission', 'label' => 'Commission', 'amount' => $category($commissionName), 'side' => 'expense', 'already_counted' => $counted($commissionName), 'note' => 'Client commission recorded against this month’s sales.'],
             ['key' => 'gateway', 'label' => 'Bank / gateway charges', 'amount' => $category($gatewayName), 'side' => 'expense', 'already_counted' => $counted($gatewayName), 'note' => 'Payment gateway charges in the expense book.'],
-            ['key' => 'expenses', 'label' => 'Expenses', 'amount' => round((float) $book->sum('total_amount'), 2), 'side' => 'expense', 'already_counted' => $book->isNotEmpty() && ($cfg['expense_categories'] ?? null) === null, 'note' => 'Every expense this month, all categories, as one line.'],
+            ['key' => 'expenses', 'label' => 'Expenses', 'amount' => round((float) $book->sum('total_inr'), 2), 'side' => 'expense', 'already_counted' => $book->isNotEmpty() && ($cfg['expense_categories'] ?? null) === null, 'note' => 'Every expense this month, all categories, as one line.'],
         ];
     }
 

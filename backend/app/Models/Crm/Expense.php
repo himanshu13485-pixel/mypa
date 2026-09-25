@@ -18,9 +18,10 @@ class Expense extends Model
     protected $fillable = [
         'organization_id', 'expense_date', 'due_date', 'issuing_company_id', 'invoice_id',
         'vendor_id', 'vendor_name', 'vendor_gstin', 'category', 'description',
+        'currency', 'fx_rate',
         'base_amount', 'cgst_amount', 'sgst_amount', 'igst_amount',
         'cgst_rate', 'sgst_rate', 'igst_rate',
-        'other_tax_label', 'other_tax_rate', 'other_tax_amount', 'total_amount',
+        'other_tax_label', 'other_tax_rate', 'other_tax_amount', 'total_amount', 'total_inr',
         'amount_paid', 'payment_status', 'bill_available',
         'gst_claimed', 'payment_mode', 'note', 'created_by',
     ];
@@ -40,6 +41,8 @@ class Expense extends Model
             'other_tax_rate' => 'decimal:3',
             'other_tax_amount' => 'decimal:2',
             'total_amount' => 'decimal:2',
+            'total_inr' => 'decimal:2',
+            'fx_rate' => 'decimal:4',
             'amount_paid' => 'decimal:2',
             'bill_available' => 'boolean',
             'gst_claimed' => 'boolean',
@@ -54,6 +57,56 @@ class Expense extends Model
     public function getRouteKeyName(): string
     {
         return 'uuid';
+    }
+
+    /**
+     * The rupee column is never left to whoever is writing the bill.
+     *
+     * Every total the office reads - the P&L, the reports, a supplier's
+     * ledger - adds `total_inr`, so a row saved without one would silently
+     * count as nothing at all. A bill that arrives from anywhere other
+     * than the expense screen therefore gets it filled in here: its own
+     * figure for a rupee bill, and its frozen rate applied for any other.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $expense) {
+            $rupees = strtoupper((string) ($expense->currency ?: 'INR')) === 'INR'
+                ? (float) $expense->total_amount
+                : (float) $expense->total_amount * (float) ($expense->fx_rate ?: 1);
+
+            if ($expense->isDirty(['total_amount', 'currency', 'fx_rate']) || ! (float) $expense->total_inr) {
+                $expense->total_inr = round($rupees, 2);
+            }
+        });
+    }
+
+    /**
+     * The rate this bill was frozen at, or 1 for a rupee bill.
+     *
+     * Frozen rather than looked up: what the office paid is settled on the
+     * day, and a report run next March must not quietly restate last
+     * August's spending because the rupee has moved since.
+     */
+    public function rupeeRate(): float
+    {
+        if (strtoupper((string) ($this->currency ?: 'INR')) === 'INR') {
+            return 1.0;
+        }
+        if ((float) $this->fx_rate > 0) {
+            return (float) $this->fx_rate;
+        }
+        if ((float) $this->total_amount > 0 && (float) $this->total_inr > 0) {
+            return (float) $this->total_inr / (float) $this->total_amount;
+        }
+
+        return 1.0;
+    }
+
+    /** An amount written in this bill's currency, in rupees. */
+    public function inRupees(mixed $amount): float
+    {
+        return round((float) $amount * $this->rupeeRate(), 2);
     }
 
     /** The supplier this bill belongs to. */

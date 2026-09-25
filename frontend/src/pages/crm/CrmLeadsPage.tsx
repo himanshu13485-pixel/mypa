@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlarmClock, Download, Plus, Search, Wand2 } from 'lucide-react'
+import { AlarmClock, CalendarCheck, Download, Plus, Search, Wand2 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { crm, crmMeQuery, crmAllows, CRM_LEAD_STATUS_LABELS, type CrmLead } from '../../api/crm'
 import { errorMessage } from '../../api/client'
@@ -61,6 +61,13 @@ export default function CrmLeadsPage() {
   const [assigned, setAssigned] = useState<string[] | null>(() => listFromParam(params.get('assigned')))
   const [dueOnly, setDueOnly] = useState(() => params.get('due') === '1')
   /*
+   * Today's list: the follow-ups dated today, plus anything urgent. The
+   * one beside it, "Due today", is the backlog - everything owed a call up
+   * to tonight. Two different questions, so two buttons, and turning one
+   * on turns the other off rather than quietly intersecting them.
+   */
+  const [todayOnly, setTodayOnly] = useState(() => params.get('today') === '1')
+  /*
    * Two dates, asked separately because they are two questions: when the
    * lead came in, and when it is next owed a call. Narrowing by one used to
    * mean narrowing by neither — a month's intake and a week's follow-ups
@@ -88,6 +95,7 @@ export default function CrmLeadsPage() {
     put('source', listParamOf(source))
     put('assigned', listParamOf(assigned))
     put('due', dueOnly ? '1' : null)
+    put('today', todayOnly ? '1' : null)
     put('from', from || null)
     put('to', to || null)
     put('fu_from', fuFrom || null)
@@ -98,7 +106,7 @@ export default function CrmLeadsPage() {
     // Remembered too, for the lead's own Back button, which cannot know how it was reached.
     rememberList('leads', location.pathname + (next.toString() ? `?${next}` : ''))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applied, status, source, assigned, dueOnly, from, to, fuFrom, fuTo, page])
+  }, [applied, status, source, assigned, dueOnly, todayOnly, from, to, fuFrom, fuTo, page])
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmLead | null>(null)
   const [form, setForm] = useState({ ...EMPTY_FORM })
@@ -118,7 +126,7 @@ export default function CrmLeadsPage() {
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'leads', applied, status, source, assigned, dueOnly, from, to, fuFrom, fuTo, page],
+    queryKey: ['crm', 'leads', applied, status, source, assigned, dueOnly, todayOnly, from, to, fuFrom, fuTo, page],
     queryFn: () =>
       crm.leads.list({
         search: applied || undefined,
@@ -126,6 +134,7 @@ export default function CrmLeadsPage() {
         source: listParam(source),
         assigned_to: listParam(assigned),
         due: dueOnly ? 1 : undefined,
+        today: todayOnly ? 1 : undefined,
         date_from: from || undefined,
         date_to: to || undefined,
         follow_up_from: fuFrom || undefined,
@@ -457,7 +466,20 @@ export default function CrmLeadsPage() {
           />
           <button
             type="button"
-            onClick={() => { setDueOnly((d) => !d); setPage(1) }}
+            onClick={() => { setTodayOnly((t) => { if (!t) setDueOnly(false); return !t }); setPage(1) }}
+            title="Follow-ups dated today, and every urgent lead"
+            className={clsx(
+              'flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium ring-1 ring-inset transition-colors',
+              todayOnly
+                ? 'bg-brand-50 text-brand-600 ring-brand-200 dark:bg-brand-500/10 dark:text-brand-400 dark:ring-brand-500/30'
+                : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
+            )}
+          >
+            <CalendarCheck className="size-4" /> Today's follow-ups
+          </button>
+          <button
+            type="button"
+            onClick={() => { setDueOnly((d) => { if (!d) setTodayOnly(false); return !d }); setPage(1) }}
             className={clsx(
               'flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-medium ring-1 ring-inset transition-colors',
               dueOnly

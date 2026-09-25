@@ -85,7 +85,20 @@ export default function CrmMailsPage() {
     initialPageParam: 1,
     getNextPageParam: (last) => (last.current_page < last.last_page ? last.current_page + 1 : undefined),
     placeholderData: keepPreviousData,
-    refetchInterval: 60_000,
+    /*
+     * A minute is right for a mailbox at rest, and far too slow for one
+     * with mail on its way out. A send settles about ten seconds after the
+     * undo window closes, so at a flat minute a mail that had already gone
+     * still sat in the Outbox on screen - which reads as stuck. While
+     * anything here is queued or sending, ask every three seconds.
+     */
+    refetchInterval: (query) => {
+      const waiting = query.state.data?.pages.some((p) => p.data.some(
+        (m) => m.status === 'queued' || m.status === 'sending',
+      ))
+
+      return waiting ? 3_000 : 60_000
+    },
   })
 
   const rows = useMemo(() => list.data?.pages.flatMap((p) => p.data) ?? [], [list.data])
@@ -401,7 +414,18 @@ export default function CrmMailsPage() {
                       </span>
                       {row.has_attachments && <Paperclip className="size-3.5 shrink-0 text-slate-400" />}
                     </div>
-                    {!compact && <p className="truncate text-xs text-slate-400">{row.status === 'failed' ? row.error : row.snippet}</p>}
+                    {/*
+                      * Why it did not go, even in the compact list.
+                      *
+                      * Compact used to drop this line altogether, which left
+                      * a failed mail looking exactly like one still on its
+                      * way - a small red triangle and nothing else - so the
+                      * reason the mail server gave was invisible to the one
+                      * person who could act on it.
+                      */}
+                    {row.status === 'failed'
+                      ? <p className="truncate text-xs text-red-500">{row.error || 'The mail server refused it.'}</p>
+                      : !compact && <p className="truncate text-xs text-slate-400">{row.snippet}</p>}
                   </div>
                   <button
                     type="button"

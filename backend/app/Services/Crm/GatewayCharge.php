@@ -55,6 +55,15 @@ class GatewayCharge
                 . number_format($payment->netAmount(), 2),
             'base_amount' => $charge,
             'total_amount' => $charge,
+            /*
+             * The gateway took its cut out of what the client paid, so the
+             * charge is in the money the client paid in - the document's.
+             * It carries that document's frozen rate too, so the office's
+             * rupee figures agree with the invoice this came off.
+             */
+            'currency' => $invoice->currency ?: 'INR',
+            'fx_rate' => ($invoice->currency ?: 'INR') === 'INR' ? null : $invoice->rupeeRate(),
+            'total_inr' => $invoice->inRupees($charge),
             // The money never sat in the account, so the bill is already settled.
             'amount_paid' => $charge,
             'payment_status' => 'paid',
