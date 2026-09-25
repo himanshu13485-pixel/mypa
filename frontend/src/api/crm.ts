@@ -193,6 +193,9 @@ export interface CrmCommission {
   expense_date: string
   payee: string
   amount: number
+  /** The money the commission was agreed in — its invoice's — and its rupee cost. */
+  currency: string
+  amount_inr: number
   payment_mode: string | null
   note: string | null
   invoice: { uuid: string; number: string; total: string; currency?: string | null } | null

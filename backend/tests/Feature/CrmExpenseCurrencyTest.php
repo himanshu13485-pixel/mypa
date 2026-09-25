@@ -122,6 +122,60 @@ class CrmExpenseCurrencyTest extends TestCase
         $this->assertEquals(48000 - 1000, $this->as()->getJson('/api/v1/crm/expenses')->json('summary.total'));
     }
 
+    public function test_a_commission_on_a_dollar_sale_stays_in_dollars(): void
+    {
+        $clientUuid = $this->as()->postJson('/api/v1/crm/clients', [
+            'company_name' => 'Northwind Trading LLC',
+        ])->assertCreated()->json('data.uuid');
+
+        $companyId = $this->as()->postJson('/api/v1/crm/masters/issuing-companies', [
+            'name' => 'Acme Global LLC', 'currency' => 'USD',
+            'invoice_prefix' => 'AG-', 'proforma_prefix' => 'PAG-',
+        ])->assertCreated()->json('data.id');
+
+        $invoiceUuid = $this->as()->postJson('/api/v1/crm/invoices', [
+            'kind' => 'invoice',
+            'issuing_company_id' => $companyId,
+            'client_uuid' => $clientUuid,
+            'invoice_date' => now()->toDateString(),
+            'due_date' => now()->addMonth()->toDateString(),
+            'client_category' => 'new',
+            'pricing_tier' => 'regular',
+            'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online',
+            'dispatch_status' => 'pending',
+            'items' => [[
+                'membership' => 'Standard',
+                'plan_name' => 'Annual listing',
+                'validity_from' => now()->toDateString(),
+                'validity_to' => now()->addYear()->toDateString(),
+                'qty' => 1,
+                'unit_price' => 1200,
+            ]],
+        ])->assertCreated()->json('data.uuid');
+
+        $commission = $this->as()->postJson('/api/v1/crm/commissions', [
+            'invoice_uuid' => $invoiceUuid,
+            'amount' => 120,
+            'payee' => 'Channel partner',
+        ])->assertCreated()->json('data');
+
+        // $120 on a $1,200 sale - not ₹120, and not converted on the way in.
+        $this->assertSame('USD', $commission['currency']);
+        $this->assertEquals(120, $commission['amount']);
+
+        // The office's own figure is the rupees it cost, at the invoice's
+        // own frozen rate: 120 x 94.
+        $this->assertEquals(11280, $commission['amount_inr']);
+        $this->assertEquals(11280, $this->as()->getJson('/api/v1/crm/commissions')->json('summary.total'));
+
+        // And it is one of the register's bills, in dollars there too.
+        $bill = collect($this->as()->getJson('/api/v1/crm/expenses')->json('data'))
+            ->firstWhere('vendor_name', 'Channel partner');
+        $this->assertSame('USD', $bill['currency']);
+        $this->assertEquals(11280, (float) $bill['total_inr']);
+    }
+
     public function test_what_the_supplier_is_owed_is_one_figure_not_two_currencies(): void
     {
         $this->bill(1000);

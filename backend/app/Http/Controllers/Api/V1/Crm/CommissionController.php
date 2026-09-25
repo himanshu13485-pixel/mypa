@@ -185,6 +185,10 @@ class CommissionController extends Controller
             'expense_date' => $e->expense_date->toDateString(),
             'payee' => $e->vendor_name,
             'amount' => (float) $e->total_amount,
+            // In the money of the sale it came off, with the rupees it
+            // cost the office beside it.
+            'currency' => $e->currency ?: 'INR',
+            'amount_inr' => (float) $e->total_inr,
             'payment_mode' => $e->payment_mode,
             'note' => $e->note,
             'invoice' => $e->invoice ? [
