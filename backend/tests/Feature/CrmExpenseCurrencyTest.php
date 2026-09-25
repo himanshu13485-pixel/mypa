@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Crm\Expense;
+use App\Models\Crm\Invoice;
 use App\Models\Crm\Member;
 use App\Models\Crm\Organization;
 use App\Models\User;
@@ -122,7 +123,8 @@ class CrmExpenseCurrencyTest extends TestCase
         $this->assertEquals(48000 - 1000, $this->as()->getJson('/api/v1/crm/expenses')->json('summary.total'));
     }
 
-    public function test_a_commission_on_a_dollar_sale_stays_in_dollars(): void
+    /** A $1,200 invoice from a company that bills in dollars. */
+    private function dollarInvoice(): string
     {
         $clientUuid = $this->as()->postJson('/api/v1/crm/clients', [
             'company_name' => 'Northwind Trading LLC',
@@ -133,7 +135,7 @@ class CrmExpenseCurrencyTest extends TestCase
             'invoice_prefix' => 'AG-', 'proforma_prefix' => 'PAG-',
         ])->assertCreated()->json('data.id');
 
-        $invoiceUuid = $this->as()->postJson('/api/v1/crm/invoices', [
+        return $this->as()->postJson('/api/v1/crm/invoices', [
             'kind' => 'invoice',
             'issuing_company_id' => $companyId,
             'client_uuid' => $clientUuid,
@@ -153,6 +155,11 @@ class CrmExpenseCurrencyTest extends TestCase
                 'unit_price' => 1200,
             ]],
         ])->assertCreated()->json('data.uuid');
+    }
+
+    public function test_a_commission_on_a_dollar_sale_stays_in_dollars(): void
+    {
+        $invoiceUuid = $this->dollarInvoice();
 
         $commission = $this->as()->postJson('/api/v1/crm/commissions', [
             'invoice_uuid' => $invoiceUuid,
@@ -174,6 +181,44 @@ class CrmExpenseCurrencyTest extends TestCase
             ->firstWhere('vendor_name', 'Channel partner');
         $this->assertSame('USD', $bill['currency']);
         $this->assertEquals(11280, (float) $bill['total_inr']);
+    }
+
+    public function test_a_cost_filed_against_a_foreign_sale_before_all_this_is_put_right(): void
+    {
+        $invoiceUuid = $this->dollarInvoice();
+        $invoice = Invoice::where('uuid', $invoiceUuid)->firstOrFail();
+
+        // A gateway charge as it would have been written before bills held
+        // a currency: $27 of somebody's money, recorded as though rupees.
+        $old = Expense::create([
+            'organization_id' => $this->org->id,
+            'expense_date' => now()->toDateString(),
+            'invoice_id' => $invoice->id,
+            'vendor_name' => 'Payment Gateway charge',
+            'category' => 'Payment Gateway Charges',
+            'base_amount' => 27,
+            'total_amount' => 27,
+            'currency' => 'INR',
+            'total_inr' => 27,
+        ]);
+
+        (require database_path('migrations/2026_10_16_100000_a_cost_off_a_foreign_sale_was_never_rupees.php'))->up();
+
+        $old->refresh();
+        $this->assertSame('USD', $old->currency);
+        // $27 at 94, not ₹27 - the difference is a factor of ninety-four.
+        $this->assertEquals(2538, (float) $old->total_inr);
+    }
+
+    public function test_but_a_bill_somebody_typed_is_left_exactly_alone(): void
+    {
+        $typed = $this->bill(1260);
+
+        (require database_path('migrations/2026_10_16_100000_a_cost_off_a_foreign_sale_was_never_rupees.php'))->up();
+
+        $row = Expense::where('uuid', $typed['uuid'])->firstOrFail();
+        $this->assertSame('INR', $row->currency);
+        $this->assertEquals(1260, (float) $row->total_inr);
     }
 
     public function test_what_the_supplier_is_owed_is_one_figure_not_two_currencies(): void

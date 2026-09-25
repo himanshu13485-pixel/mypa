@@ -39,9 +39,6 @@ const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN
 const billMoney = (v: number | string, currency?: string | null) =>
   sharedMoney(v, currency, { decimals: Number(v || 0) % 1 === 0 ? 0 : 2 })
 
-/** The currencies a bill can be entered in, as the rest of the CRM lists them. */
-const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD', 'JPY', 'CNY']
-
 const EMPTY = {
   expense_date: new Date().toISOString().slice(0, 10),
   due_date: '',
@@ -491,14 +488,15 @@ export default function CrmExpensesPage() {
                 <Select
                   value={form.issuing_company_id}
                   onChange={(e) => {
-                    // The company paying usually settles in its own money,
-                    // so that is the starting answer - never a locked one,
-                    // since a rupee company does buy the odd thing abroad.
+                    // The company paying settles in its own money, so that
+                    // is the answer until somebody says otherwise - and
+                    // changing the company changes it again, because the
+                    // previous company's currency is no longer the point.
                     const picked = masters?.issuing_companies.find((c) => String(c.id) === e.target.value)
                     setForm((f) => ({
                       ...f,
                       issuing_company_id: e.target.value,
-                      currency: f.currency || (picked?.currency ?? ''),
+                      currency: picked?.currency || 'INR',
                     }))
                   }}
                   className="w-full"
@@ -509,8 +507,19 @@ export default function CrmExpensesPage() {
               </div>
               <div>
                 <Label>Currency</Label>
+                {/* The company's own list, the one Billing setup edits -
+                    not a handful written into this page. Adding a currency
+                    is done once, and every dropdown that offers one
+                    follows. A bill already entered keeps what it was
+                    entered in, so shortening the list rewrites nothing. */}
                 <Select value={form.currency || 'INR'} onChange={(e) => set('currency', e.target.value)} className="w-full">
-                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {(masters?.currencies?.length ? masters.currencies : ['INR']).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                  {/* A bill from before a currency was taken off the list. */}
+                  {form.currency && !(masters?.currencies ?? []).includes(form.currency) && (
+                    <option value={form.currency}>{form.currency}</option>
+                  )}
                 </Select>
                 {(form.currency || 'INR') !== 'INR' && (
                   <p className="mt-1 text-xs text-slate-400">
