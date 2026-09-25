@@ -131,13 +131,27 @@ class MailSync
                     }
                 }
                 $state['uids'][$path] = $highest;
+
+                /*
+                 * Folder by folder, not once at the end.
+                 *
+                 * A run that is cut short - a timeout, a worker restart, a
+                 * server that hangs up on the third folder - used to throw
+                 * away everything it had read, and start the whole mailbox
+                 * again next time. A big mailbox on a slow server could
+                 * never finish. Now each folder's high-water mark is kept
+                 * as soon as it is reached, so the next run carries on.
+                 */
+                $account->forceFill(['sync_state' => $state])->save();
             }
 
             $client->disconnect();
 
             $account->update(['sync_state' => $state, 'last_synced_at' => now(), 'last_error' => null]);
+            $account->noteSyncSuccess();
         } catch (Throwable $e) {
             $account->update(['last_error' => MailConnector::plain($e)]);
+            $account->noteSyncFailure();
             Log::warning('[mails] sync failed', ['account' => $account->id, 'error' => $e->getMessage()]);
 
             return ['fetched' => $fetched, 'error' => MailConnector::plain($e)];

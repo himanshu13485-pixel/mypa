@@ -75,7 +75,7 @@ class MailAccount extends Model
         'signature_html', 'signature_reply_html', 'signature_on', 'signature_before_quote',
         'auto_reply', 'forward_to', 'forwards', 'is_default',
         'daily_cap', 'sent_today', 'cap_date', 'dkim_selector', 'dns', 'verify_cert',
-        'sync_state', 'last_synced_at', 'last_error', 'status', 'detached_at', 'backup',
+        'sync_state', 'last_synced_at', 'last_error', 'sync_failures', 'sync_paused_until', 'status', 'detached_at', 'backup',
     ];
 
     protected $hidden = ['imap_password', 'smtp_password'];
@@ -100,6 +100,8 @@ class MailAccount extends Model
             'daily_cap' => 'integer',
             'sent_today' => 'integer',
             'last_synced_at' => 'datetime',
+            'sync_failures' => 'integer',
+            'sync_paused_until' => 'datetime',
             'imap_port' => 'integer',
             'smtp_port' => 'integer',
         ];
@@ -164,6 +166,47 @@ class MailAccount extends Model
     public function canSend(): bool
     {
         return ! $this->detached_at && filled($this->smtp_host) && filled($this->smtp_password);
+    }
+
+    /**
+     * How long a mailbox is left alone after this many failures in a row.
+     *
+     * The first couple are forgiven outright - a mail server having a bad
+     * minute is not a broken mailbox. After that the gap widens, because
+     * what is left is nearly always something only a person can fix: a
+     * password that changed, a host that moved, a certificate that expired.
+     */
+    private const SYNC_BACKOFF = [3 => 15, 5 => 60, 8 => 360];
+
+    /** This mailbox failed again just now. */
+    public function noteSyncFailure(): void
+    {
+        $failures = (int) $this->sync_failures + 1;
+        $minutes = 0;
+        foreach (self::SYNC_BACKOFF as $after => $wait) {
+            if ($failures >= $after) {
+                $minutes = $wait;
+            }
+        }
+
+        $this->forceFill([
+            'sync_failures' => $failures,
+            'sync_paused_until' => $minutes > 0 ? now()->addMinutes($minutes) : null,
+        ])->save();
+    }
+
+    /** It worked - whatever was wrong is over. */
+    public function noteSyncSuccess(): void
+    {
+        if ($this->sync_failures || $this->sync_paused_until) {
+            $this->forceFill(['sync_failures' => 0, 'sync_paused_until' => null])->save();
+        }
+    }
+
+    /** Being left alone for now, after failing too many times in a row. */
+    public function syncIsPaused(): bool
+    {
+        return $this->sync_paused_until !== null && $this->sync_paused_until->isFuture();
     }
 
     /**

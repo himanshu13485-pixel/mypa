@@ -31,6 +31,9 @@ class BackupMailAccount implements ShouldBeUnique, ShouldQueue
 
     public function __construct(public int $accountId, public bool $full = false, public ?int $runId = null)
     {
+        // Reads a whole mailbox over IMAP: the mail queue, never the one
+        // that outgoing mail and notifications wait on.
+        $this->onQueue('mail');
     }
 
     public function uniqueId(): string

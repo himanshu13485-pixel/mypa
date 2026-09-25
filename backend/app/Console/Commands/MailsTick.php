@@ -50,6 +50,11 @@ class MailsTick extends Command
         if ($this->argument('what') === 'sync') {
             $count = 0;
             MailAccount::where('status', 'active')->whereNotNull('imap_host')
+                // A mailbox that has failed several times running is being
+                // left alone for a while. It is still listed, still shows
+                // its error, and still syncs the moment somebody presses
+                // Refresh - it is simply not asked every five minutes.
+                ->where(fn ($q) => $q->whereNull('sync_paused_until')->orWhere('sync_paused_until', '<=', now()))
                 ->whereHas('member', fn ($m) => $m->where('status', 'active'))
                 ->whereHas('member.organization', fn ($o) => $o->where('mails_enabled', true)->where('status', 'active'))
                 ->pluck('id')

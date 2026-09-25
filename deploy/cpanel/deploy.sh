@@ -97,9 +97,15 @@ bash "$APP_DIR/deploy/cpanel/publish.sh"
 
 echo
 echo "== restarting workers =="
-systemctl restart netvork-queue netvork-reverb
+# The mail worker arrived after some servers were built, so it is installed
+# on the spot rather than failing a deploy that is otherwise fine.
+if [ ! -f /etc/systemd/system/netvork-queue-mail.service ]; then
+  echo "   mail queue worker missing — installing services"
+  bash "$APP_DIR/deploy/cpanel/install-services.sh"
+fi
+systemctl restart netvork-queue netvork-queue-mail netvork-reverb
 sleep 2
-systemctl is-active netvork-queue netvork-reverb
+systemctl is-active netvork-queue netvork-queue-mail netvork-reverb
 # Reverb serves wss:// on 8443 straight from backend/.env. If it is not
 # listening, browsers get no realtime and PHP's own publish is refused.
 ss -ltnp | grep -q ':8443' \

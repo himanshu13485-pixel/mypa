@@ -25,9 +25,33 @@ Group=$APP_USER
 Restart=always
 RestartSec=3
 WorkingDirectory=$APP_DIR/backend
-ExecStart=$PHP artisan queue:work database --sleep=1 --tries=3 --timeout=300
+ExecStart=$PHP artisan queue:work database --queue=default --sleep=1 --tries=3 --timeout=300
 StandardOutput=append:$LOGDIR/netvork-queue.log
 StandardError=append:$LOGDIR/netvork-queue.log
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# A worker of its own for mail, because a worker does one job at a time and
+# IMAP is the slow one: syncing ten mailboxes at 13-15 seconds each used to
+# sit in front of outgoing mail, push and chat on the single shared queue,
+# and one mailbox timing out froze all of it for five minutes.
+echo "== systemd: mail queue worker =="
+cat > /etc/systemd/system/netvork-queue-mail.service <<EOF
+[Unit]
+Description=Netvork mail queue worker (IMAP sync, mailbox backups)
+After=network.target mysql.service
+
+[Service]
+User=$APP_USER
+Group=$APP_USER
+Restart=always
+RestartSec=3
+WorkingDirectory=$APP_DIR/backend
+ExecStart=$PHP artisan queue:work database --queue=mail --sleep=1 --tries=1 --timeout=300
+StandardOutput=append:$LOGDIR/netvork-queue-mail.log
+StandardError=append:$LOGDIR/netvork-queue-mail.log
 
 [Install]
 WantedBy=multi-user.target
@@ -60,7 +84,7 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable --now netvork-queue netvork-reverb
+systemctl enable --now netvork-queue netvork-queue-mail netvork-reverb
 
 echo "== cron: per-minute scheduler (existing entries preserved) =="
 TMP=$(mktemp)

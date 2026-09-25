@@ -463,6 +463,16 @@ class MailAccountController extends Controller
     {
         $this->reachable($request, $account);
 
+        /*
+         * A person asking is a new fact.
+         *
+         * A mailbox that failed its way into a back-off is usually one
+         * somebody has just been to fix - a password retyped, a host
+         * corrected. Pressing Refresh says so, so the wait is cleared and
+         * this run happens now rather than whenever the pause runs out.
+         */
+        $account->forceFill(['sync_failures' => 0, 'sync_paused_until' => null])->save();
+
         if ($request->boolean('now')) {
             $result = $sync->sync($account->fresh());
 
