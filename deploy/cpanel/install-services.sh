@@ -114,8 +114,9 @@ echo "   weekly root cron installed"
 
 echo
 echo "== status =="
-systemctl --no-pager --lines=3 status netvork-queue  | head -6
-systemctl --no-pager --lines=3 status netvork-reverb | head -6
+systemctl --no-pager --lines=3 status netvork-queue      | head -6
+systemctl --no-pager --lines=3 status netvork-queue-mail | head -6
+systemctl --no-pager --lines=3 status netvork-reverb     | head -6
 if ss -ltnp | grep -q ':8443'; then
   echo "   reverb listening on 8443 (wss direct)"
 else
