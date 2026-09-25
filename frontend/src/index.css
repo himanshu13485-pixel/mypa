@@ -515,6 +515,45 @@ h3 {
 }
 
 /*
+ * Selected text, anywhere in the app.
+ *
+ * The browser picks the highlight and leaves the text colour alone, which in
+ * dark mode means a blue band under near-white words - dragging across a
+ * paragraph in the compose box hid the very words being selected. Both
+ * halves are set here, so a selection is always a colour with its own
+ * readable text on top.
+ */
+::selection {
+  background: #bfdbfe;
+  color: #0f172a;
+}
+
+.dark ::selection {
+  background: rgb(59 130 246 / 0.55);
+  color: #f8fafc;
+}
+
+/*
+ * The list a <select> drops down.
+ *
+ * That list is drawn by the operating system, which takes the colours off
+ * the element: a select with a transparent background and light text gave a
+ * white list with white writing on it, so every choice but the highlighted
+ * one was invisible. Options carry their own pair, in both themes.
+ */
+select option,
+select optgroup {
+  background-color: #ffffff;
+  color: #0f172a;
+}
+
+.dark select option,
+.dark select optgroup {
+  background-color: #1e293b;
+  color: #f1f5f9;
+}
+
+/*
  * Selected text that can be seen.
  *
  * The browser's highlight is blue, and your own bubbles are blue: dragging

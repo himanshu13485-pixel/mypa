@@ -84,20 +84,27 @@ class MailAssistant
             throw new RuntimeException('No AI provider is set up. An admin can add one under Mails > Settings > AI assistant.');
         }
 
-        $system = 'You write emails for a person at a company. Write in the language the instructions are written in. '
-            . 'Return JSON only: {"subject": string or null, "body": string}. The body is plain text with blank lines between '
-            . 'paragraphs - no markdown, no HTML, no placeholders in square brackets unless information is genuinely missing. '
-            . 'Do not add a signature; the mail program adds one. Never invent facts, prices, dates or commitments.';
+        $system = $this->house($input);
 
         $prompt = match ($mode) {
-            'reply' => "Write a reply to this email.\n\nFrom: {$input['from']}\nSubject: {$input['subject']}\n\n{$input['original']}\n\n"
-                . 'What the reply should say: ' . ($input['instruction'] ?: 'a helpful, polite reply') . "\nTone: " . ($input['tone'] ?? 'professional')
-                . "\nSet subject to null.",
-            'improve' => (self::ACTIONS[$input['action'] ?? ''] ?? 'Improve it.') . "\n\nThe text:\n{$input['text']}\n\nSet subject to null.",
-            default => 'Write a new email. What it should say: ' . $input['instruction']
-                . "\nTone: " . ($input['tone'] ?? 'professional')
+            'reply' => "Write a reply to this email.\n\nFrom: {$input['from']}\nSubject: {$input['subject']}\n\n"
+                . "--- their message ---\n{$input['original']}\n--- end ---\n\n"
+                . 'What the reply should say: ' . ($input['instruction'] ?: 'answer them properly') . "\n"
+                . 'Tone: ' . ($input['tone'] ?? 'professional') . "\n\n"
+                . "Answer what they actually wrote. Take up their specific points, questions, numbers and dates by name. "
+                . "If they asked something you have not been told the answer to, say plainly that you are finding out and when "
+                . "you will come back, rather than answering vaguely. If their mail needs nothing more than an acknowledgement, "
+                . "two sentences is the whole reply - do not pad it out.\n"
+                . 'Set subject to null.',
+            'improve' => (self::ACTIONS[$input['action'] ?? ''] ?? 'Improve it.')
+                . "\n\nKeep the writer's own voice and every fact exactly as it is. Return the whole text, not a comment on it.\n\n"
+                . "The text:\n{$input['text']}\n\nSet subject to null.",
+            default => 'Write a new email. What it should say: ' . $input['instruction'] . "\n"
+                . 'Tone: ' . ($input['tone'] ?? 'professional')
                 . (! empty($input['to']) ? "\nIt is to: {$input['to']}" : '')
-                . "\nGive it a short, specific subject.",
+                . "\n\nOpen by getting to the point, not by introducing yourself or hoping they are well. "
+                . "Say what you want to happen next and by when, if the instruction implies one.\n"
+                . 'Give it a short, specific subject - what the mail is about, not a greeting.',
         };
 
         $raw = $config['provider'] === 'openai'
@@ -111,6 +118,51 @@ class MailAssistant
         }
 
         return ['subject' => $json['subject'] ?? null, 'body' => trim((string) $json['body'])];
+    }
+
+    /**
+     * How the house writes.
+     *
+     * The first version of this said little more than "write an email", and
+     * got back what that asks for: "We have received your email and noted the
+     * information provided. We will proceed accordingly." Three sentences
+     * that answer nothing, which somebody then has to rewrite - so the
+     * assistant costs more time than it saves.
+     *
+     * So the rules are the ones a good correspondent already follows. Answer
+     * the actual thing. Be specific. Use the sender's own words for the
+     * matter at hand. Say what happens next and who does it. Say nothing you
+     * were not told, and leave nothing for the reader to fill in.
+     */
+    private function house(array $input): string
+    {
+        $who = trim((string) ($input['writer'] ?? ''));
+        $firm = trim((string) ($input['company'] ?? ''));
+
+        $lines = [
+            'You draft business email for a working professional, and your drafts are read and sent by them.',
+            $who !== '' ? "You are writing as {$who}" . ($firm !== '' ? " at {$firm}." : '.') : '',
+            'Write in the language the other person used, or the language of the instructions if there is no other mail.',
+            '',
+            'HOW TO WRITE',
+            '- Say the thing. The first sentence carries the point of the mail, not a greeting about the weather or the hope that they are well.',
+            '- Be specific. Name the invoice, the date, the amount, the person, the shipment - whatever the matter actually is. A reply that would fit any mail at all is a failed reply.',
+            '- One idea to a paragraph, two or three sentences each. Most business mail is under 120 words.',
+            '- Plain, direct English. No "please be advised", "kindly do the needful", "as per our discussion", "I hope this email finds you well", "at your earliest convenience", "we would like to inform you".',
+            '- End with what happens next: who does what, by when. If nothing needs doing, end without a task.',
+            '- A greeting line ("Dear Harsh," or "Hi Priya,") and a closing line ("Regards," or "Thanks,") - nothing more ornate.',
+            '',
+            'WHAT NOT TO DO',
+            '- Never write a placeholder, a bracket to fill in, or a note to the person using you. Not "[insert date]", not "(add greetings)", not "XXX". If a fact is missing, write the sentence in a way that does not need it, or ask for it in the mail.',
+            '- Never invent a fact, a price, a date, a name or a commitment you were not given.',
+            '- Never restate their whole message back to them before answering it.',
+            '- Never write a sign-off block with a name, title, phone or company after the closing line; the mail program adds the signature.',
+            '- Never explain what you are about to write, apologise, or comment on the task. Return the mail and nothing else.',
+            '',
+            'Return JSON only: {"subject": string or null, "body": string}. The body is plain text, blank line between paragraphs, no markdown and no HTML.',
+        ];
+
+        return implode("\n", array_filter($lines, fn ($line) => $line !== ''));
     }
 
     private function anthropic(array $config, string $system, string $prompt): string

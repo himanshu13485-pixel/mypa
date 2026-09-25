@@ -37,7 +37,17 @@ class MailAiController extends Controller
             return response()->json(['message' => 'Say in a line what the mail should be about.'], 422);
         }
 
-        $input = $data;
+        /*
+         * Who the draft is written as.
+         *
+         * Without it the assistant writes from nobody in particular, which
+         * is half of why its drafts read as filler.
+         */
+        $input = $data + [
+            'writer' => trim((string) ($me->user?->name ?? '')),
+            'company' => trim((string) ($me->organization?->name ?? '')),
+        ];
+
         if ($data['mode'] === 'reply') {
             $original = MailMessage::where('uuid', $data['message_uuid'])
                 ->whereIn('mail_account_id', MailAccount::for($me)->pluck('id'))
