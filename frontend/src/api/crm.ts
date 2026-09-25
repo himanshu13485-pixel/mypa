@@ -1657,6 +1657,10 @@ export interface CrmExpense {
   vendor_gstin: string | null
   category: string | null
   description: string | null
+  /** The money the bill is in, and what it came to in rupees at the frozen rate. */
+  currency: string
+  fx_rate: string | null
+  total_inr: string
   base_amount: string
   cgst_amount: string
   sgst_amount: string

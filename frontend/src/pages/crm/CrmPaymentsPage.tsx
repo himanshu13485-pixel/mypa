@@ -13,6 +13,7 @@ import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam } from '../../lib/multiFilter'
 import { saveBlob } from '../../lib/download'
+import { money as sharedMoney } from '../../lib/money'
 import TableBox from '../../components/TableBox'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
@@ -25,9 +26,12 @@ const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN
  * dollars receives dollars.
  */
 const money = (v: number | string, currency?: string | null) =>
-  !currency || currency.toUpperCase() === 'INR'
-    ? inr(v)
-    : currency.toUpperCase() + ' ' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+  // The shared formatter, so a dollar receipt reads "$573" here exactly as
+  // it does on the invoice it paid. This screen used to write the code in
+  // front of the figure instead - "USD 573" - which is not how anybody
+  // writes money. Whole amounts keep this page's plain look; the odd
+  // figure with cents in it still shows them.
+  sharedMoney(v, currency, { decimals: Number(v || 0) % 1 === 0 ? 0 : 2 })
 
 /**
  * A tile's figure as one line per currency. Falls back to the single rupee

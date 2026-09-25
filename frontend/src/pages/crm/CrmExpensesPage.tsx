@@ -13,6 +13,7 @@ import { StatusChip } from './CrmVendorsPage'
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsOf } from '../../lib/multiFilter'
+import { money as sharedMoney } from '../../lib/money'
 import TableBox from '../../components/TableBox'
 
 const PAY_STATES = [
@@ -28,9 +29,24 @@ const GST_STATES = [
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
+/**
+ * A bill in the money it was actually paid in.
+ *
+ * `inr` above is for the office's own totals, which are rupees whatever
+ * the bills were in; this is for one bill, which may well be a dollar
+ * hosting invoice or a euro stand at a fair.
+ */
+const billMoney = (v: number | string, currency?: string | null) =>
+  sharedMoney(v, currency, { decimals: Number(v || 0) % 1 === 0 ? 0 : 2 })
+
+/** The currencies a bill can be entered in, as the rest of the CRM lists them. */
+const CURRENCIES = ['INR', 'USD', 'EUR', 'GBP', 'AED', 'SGD', 'AUD', 'CAD', 'JPY', 'CNY']
+
 const EMPTY = {
   expense_date: new Date().toISOString().slice(0, 10),
   due_date: '',
+  /* Whose money the bill is in. Follows the company paying it, until changed. */
+  currency: '',
   issuing_company_id: '', vendor_uuid: '', category: '',
   description: '', base_amount: '',
   cgst_amount: '', sgst_amount: '', igst_amount: '',
@@ -129,6 +145,7 @@ export default function CrmExpensesPage() {
     setForm({
       expense_date: e.expense_date,
       due_date: e.due_date ?? '',
+      currency: e.currency ?? '',
       issuing_company_id: e.issuing_company_id ? String(e.issuing_company_id) : '',
       vendor_uuid: e.vendor_uuid ?? '',
       category: e.category ?? '',
@@ -158,6 +175,7 @@ export default function CrmExpensesPage() {
       const payload = {
         expense_date: form.expense_date,
         due_date: form.due_date || null,
+        currency: form.currency || null,
         issuing_company_id: form.issuing_company_id ? Number(form.issuing_company_id) : null,
         vendor_uuid: form.vendor_uuid,
         category: form.category || null,
@@ -380,20 +398,20 @@ export default function CrmExpensesPage() {
                         <div className="truncate text-xs text-slate-400">{e.description ?? e.issuing_company ?? ''}</div>
                       </td>
                       <td className="py-2.5 pr-3">{e.category ?? '—'}</td>
-                      <td className="whitespace-nowrap py-2.5 pr-3 text-right">{inr(e.base_amount)}</td>
+                      <td className="whitespace-nowrap py-2.5 pr-3 text-right">{billMoney(e.base_amount, e.currency)}</td>
                       <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">
-                        {tax ? inr(tax) : '—'}
+                        {tax ? billMoney(tax, e.currency) : '—'}
                         {Number(e.other_tax_amount) > 0 && (
                           <div className="text-[10px] text-slate-400">incl. {e.other_tax_label ?? 'other'}</div>
                         )}
                       </td>
-                      <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{inr(e.total_amount)}</td>
+                      <td className="whitespace-nowrap py-2.5 pr-3 text-right font-medium">{billMoney(e.total_amount, e.currency)}</td>
                       <td className="whitespace-nowrap py-2.5 pr-3 text-right text-slate-500">
-                        {Number(e.amount_paid) ? inr(e.amount_paid) : '—'}
+                        {Number(e.amount_paid) ? billMoney(e.amount_paid, e.currency) : '—'}
                       </td>
                       <td className="whitespace-nowrap py-2.5 pr-3 text-right">
                         {e.balance > 0
-                          ? <span className={clsx('font-medium', e.overdue ? 'text-red-500' : 'text-amber-600 dark:text-amber-400')}>{inr(e.balance)}</span>
+                          ? <span className={clsx('font-medium', e.overdue ? 'text-red-500' : 'text-amber-600 dark:text-amber-400')}>{billMoney(e.balance, e.currency)}</span>
                           : <span className="text-slate-400">—</span>}
                       </td>
                       <td className="py-2.5 pr-3">
@@ -470,10 +488,35 @@ export default function CrmExpensesPage() {
               </div>
               <div>
                 <Label>Paid by (issuing company)</Label>
-                <Select value={form.issuing_company_id} onChange={(e) => set('issuing_company_id', e.target.value)} className="w-full">
+                <Select
+                  value={form.issuing_company_id}
+                  onChange={(e) => {
+                    // The company paying usually settles in its own money,
+                    // so that is the starting answer - never a locked one,
+                    // since a rupee company does buy the odd thing abroad.
+                    const picked = masters?.issuing_companies.find((c) => String(c.id) === e.target.value)
+                    setForm((f) => ({
+                      ...f,
+                      issuing_company_id: e.target.value,
+                      currency: f.currency || (picked?.currency ?? ''),
+                    }))
+                  }}
+                  className="w-full"
+                >
                   <option value="">Select</option>
                   {masters?.issuing_companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </Select>
+              </div>
+              <div>
+                <Label>Currency</Label>
+                <Select value={form.currency || 'INR'} onChange={(e) => set('currency', e.target.value)} className="w-full">
+                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </Select>
+                {(form.currency || 'INR') !== 'INR' && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    Entered in {form.currency}. The office totals convert it to rupees at today's rate, kept on the bill.
+                  </p>
+                )}
               </div>
               <div>
                 <Label>Vendor</Label>
@@ -627,9 +670,9 @@ export default function CrmExpensesPage() {
             <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-2.5 text-sm dark:bg-slate-800/60">
               <span className="text-slate-500">
                 Total (base + tax)
-                {taxTotal > 0 && <span className="ml-1 text-xs">· {inr(taxTotal)} tax</span>}
+                {taxTotal > 0 && <span className="ml-1 text-xs">· {billMoney(taxTotal, form.currency)} tax</span>}
               </span>
-              <span className="text-base font-semibold">{inr(grandTotal)}</span>
+              <span className="text-base font-semibold">{billMoney(grandTotal, form.currency)}</span>
             </div>
             <Button className="w-full" disabled={!form.vendor_uuid || !form.base_amount || saveMutation.isPending} onClick={() => saveMutation.mutate()}>
               {saveMutation.isPending ? 'Saving…' : 'Save expense'}
@@ -695,9 +738,9 @@ function PayBillDialog({ expense, modes, onClose, onDone }: {
 
         <div className="grid grid-cols-3 gap-2 text-center">
           {[
-            { label: 'Bill', value: inr(expense.total_amount) },
-            { label: 'Paid', value: inr(expense.amount_paid) },
-            { label: 'Balance', value: inr(expense.balance), tone: expense.balance > 0 ? 'text-amber-600 dark:text-amber-400' : '' },
+            { label: 'Bill', value: billMoney(expense.total_amount, expense.currency) },
+            { label: 'Paid', value: billMoney(expense.amount_paid, expense.currency) },
+            { label: 'Balance', value: billMoney(expense.balance, expense.currency), tone: expense.balance > 0 ? 'text-amber-600 dark:text-amber-400' : '' },
           ].map((c) => (
             <div key={c.label} className="rounded-xl bg-slate-50 px-3 py-2 dark:bg-slate-800/40">
               <div className={clsx('text-base font-semibold text-slate-900 dark:text-white', c.tone)}>{c.value}</div>
@@ -762,7 +805,7 @@ function PayBillDialog({ expense, modes, onClose, onDone }: {
               {expense.payments.map((p) => (
                 <li key={p.uuid} className="flex items-center justify-between gap-2 py-2">
                   <div className="min-w-0">
-                    <div className="font-medium text-slate-800 dark:text-slate-100">{inr(p.amount)}</div>
+                    <div className="font-medium text-slate-800 dark:text-slate-100">{billMoney(p.amount, expense.currency)}</div>
                     <div className="truncate text-xs text-slate-400">
                       {[p.paid_on, p.payment_mode, p.reference_no, p.created_by].filter(Boolean).join(' · ')}
                     </div>

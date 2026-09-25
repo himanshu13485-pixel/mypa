@@ -94,7 +94,7 @@ class ReportController extends Controller
         $expenses = Expense::where('organization_id', $org->id)
             ->whereDate('expense_date', '>=', $start)
             ->whereDate('expense_date', '<=', $end)
-            ->get(['expense_date', 'total_amount']);
+            ->get(['expense_date', 'total_inr']);
         $payroll = SalarySlip::where('organization_id', $org->id)
             ->get(['year', 'month', 'net_salary'])
             ->filter(fn ($s) => sprintf('%04d-%02d', $s->year, $s->month) >= $start->format('Y-m')
@@ -104,7 +104,7 @@ class ReportController extends Controller
             'month' => $key,
             'invoiced' => round($invoices->filter(fn ($i) => $i->invoice_date->format('Y-m') === $key)->sum('total'), 2),
             'received' => round($received->filter(fn ($p) => $p->received_at->format('Y-m') === $key)->sum('amount'), 2),
-            'expenses' => round($expenses->filter(fn ($e) => $e->expense_date->format('Y-m') === $key)->sum('total_amount'), 2),
+            'expenses' => round($expenses->filter(fn ($e) => $e->expense_date->format('Y-m') === $key)->sum('total_inr'), 2),
             'payroll' => round($payroll->filter(fn ($s) => sprintf('%04d-%02d', $s->year, $s->month) === $key)->sum('net_salary'), 2),
         ])->values();
 
@@ -125,9 +125,9 @@ class ReportController extends Controller
             ->whereDate('expense_date', '>=', $start)
             ->whereDate('expense_date', '<=', $end)
             ->when($window !== null, fn ($q) => $q->whereHas('invoice', fn ($i) => $i->whereIn('member_id', $window)))
-            ->get(['id', 'invoice_id', 'total_amount', 'expense_date']);
+            ->get(['id', 'invoice_id', 'total_inr', 'expense_date']);
         $commissionByMember = $commissions->groupBy(fn ($e) => $e->invoice?->member_id)
-            ->map(fn ($g) => round($g->sum('total_amount'), 2));
+            ->map(fn ($g) => round($g->sum('total_inr'), 2));
 
         $memberNames = Member::with('user:id,name')
             ->whereIn('id', $invoices->pluck('member_id')->filter()->unique())
@@ -171,9 +171,9 @@ class ReportController extends Controller
             'totals' => [
                 'invoiced' => round($invoices->sum('total'), 2),
                 'received' => round($received->sum('amount'), 2),
-                'expenses' => round($expenses->sum('total_amount'), 2),
+                'expenses' => round($expenses->sum('total_inr'), 2),
                 'payroll' => round($payroll->sum('net_salary'), 2),
-                'commission' => round($commissions->sum('total_amount'), 2),
+                'commission' => round($commissions->sum('total_inr'), 2),
             ],
             'invoice_status' => $invoices->groupBy('payment_status')
                 ->map(fn ($g, $s) => ['status' => $s, 'count' => $g->count(), 'amount' => round($g->sum('total'), 2)])
