@@ -74,22 +74,32 @@ return new class extends Migration
      *
      * The uniqueness moves with it: two mailboxes may each hold a label
      * called Invoices, which is the whole point of separating them.
+     *
+     * Done one step at a time, each step asking whether it is already done.
+     * A migration that alters a table is not wrapped in a transaction by
+     * MySQL - every statement is committed as it runs - so a failure halfway
+     * leaves the table half-changed and the migration unrecorded, and the
+     * next attempt has to pick up where the last one stopped.
      */
     private function belongTo(string $table, string $unique): void
     {
-        if (! Schema::hasTable($table) || Schema::hasColumn($table, 'mail_account_id')) {
+        if (! Schema::hasTable($table)) {
             return;
         }
 
-        Schema::table($table, function (Blueprint $blueprint) {
-            $blueprint->foreignId('mail_account_id')->nullable()->after('member_id')
-                ->constrained('crm_mail_accounts')->cascadeOnDelete();
-        });
+        if (! Schema::hasColumn($table, 'mail_account_id')) {
+            Schema::table($table, function (Blueprint $blueprint) {
+                $blueprint->foreignId('mail_account_id')->nullable()->after('member_id')
+                    ->constrained('crm_mail_accounts')->cascadeOnDelete();
+            });
+        }
 
         // Their owner's default mailbox, or failing that the first one they
-        // were given - which is the mailbox they were looking at.
+        // were given - which is the mailbox they were looking at. Only rows
+        // that have not been given one already.
         if (Schema::hasTable('crm_mail_accounts')) {
-            foreach (DB::table($table)->select('member_id')->distinct()->pluck('member_id') as $memberId) {
+            $waiting = DB::table($table)->whereNull('mail_account_id')->select('member_id')->distinct()->pluck('member_id');
+            foreach ($waiting as $memberId) {
                 $account = DB::table('crm_mail_accounts')
                     ->where('member_id', $memberId)
                     ->orderByDesc('is_default')
@@ -97,15 +107,38 @@ return new class extends Migration
                     ->value('id');
 
                 if ($account) {
-                    DB::table($table)->where('member_id', $memberId)->update(['mail_account_id' => $account]);
+                    DB::table($table)
+                        ->where('member_id', $memberId)
+                        ->whereNull('mail_account_id')
+                        ->update(['mail_account_id' => $account]);
                 }
             }
         }
 
-        Schema::table($table, function (Blueprint $blueprint) use ($table, $unique) {
-            $blueprint->dropUnique($table === 'crm_mail_contacts' ? 'crm_mail_contact_unique' : "{$table}_member_id_{$unique}_unique");
-            $blueprint->unique(['member_id', 'mail_account_id', $unique], "{$table}_own_{$unique}_unique");
-        });
+        /*
+         * The new index goes on before the old one comes off.
+         *
+         * MySQL will not drop the last index a foreign key can use, and the
+         * old unique on (member_id, name) was the only index carrying the
+         * member_id key - so dropping it first is refused outright. The new
+         * unique leads with member_id too, so once it exists the key has
+         * somewhere else to stand and the old one can go.
+         */
+        $own = "{$table}_own_{$unique}_unique";
+        $old = $table === 'crm_mail_contacts' ? 'crm_mail_contact_unique' : "{$table}_member_id_{$unique}_unique";
+
+        if (! $this->hasIndex($table, $own)) {
+            Schema::table($table, fn (Blueprint $blueprint) => $blueprint->unique(['member_id', 'mail_account_id', $unique], $own));
+        }
+        if ($this->hasIndex($table, $old)) {
+            Schema::table($table, fn (Blueprint $blueprint) => $blueprint->dropUnique($old));
+        }
+    }
+
+    private function hasIndex(string $table, string $name): bool
+    {
+        return collect(Schema::getIndexes($table))
+            ->contains(fn ($index) => strcasecmp((string) ($index['name'] ?? ''), $name) === 0);
     }
 
     public function down(): void
@@ -117,11 +150,19 @@ return new class extends Migration
                 continue;
             }
 
-            Schema::table($table, function (Blueprint $blueprint) use ($table, $unique) {
-                $blueprint->dropUnique("{$table}_own_{$unique}_unique");
-                $blueprint->dropConstrainedForeignId('mail_account_id');
-                $blueprint->unique(['member_id', $unique], $table === 'crm_mail_contacts' ? 'crm_mail_contact_unique' : "{$table}_member_id_{$unique}_unique");
-            });
+            $own = "{$table}_own_{$unique}_unique";
+            $old = $table === 'crm_mail_contacts' ? 'crm_mail_contact_unique' : "{$table}_member_id_{$unique}_unique";
+
+            // The same dance backwards: the old index is put back first, so
+            // the member_id key still has one when the new index goes.
+            if (! $this->hasIndex($table, $old)) {
+                Schema::table($table, fn (Blueprint $blueprint) => $blueprint->unique(['member_id', $unique], $old));
+            }
+            if ($this->hasIndex($table, $own)) {
+                Schema::table($table, fn (Blueprint $blueprint) => $blueprint->dropUnique($own));
+            }
+
+            Schema::table($table, fn (Blueprint $blueprint) => $blueprint->dropConstrainedForeignId('mail_account_id'));
         }
     }
 };
