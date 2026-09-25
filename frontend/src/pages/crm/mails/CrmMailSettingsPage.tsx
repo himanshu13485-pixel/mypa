@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ImagePlus, Plus, ShieldCheck, Trash2 } from 'lucide-react'
+import { Filter, ImagePlus, Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import { clsx } from 'clsx'
-import { mails, type MailAccountInfo, type MailPrefs, type MailTeamMailbox, type MailTeamRow } from '../../../api/mails'
+import { mails, type MailAccountInfo, type MailLabelTag, type MailPrefs, type MailTeamMailbox, type MailTeamRow } from '../../../api/mails'
 import { errorMessage } from '../../../api/client'
 import { useToast } from '../../../components/Toast'
-import { Button, Input, Label, LoadError, Select, Spinner, Textarea } from '../../../components/ui'
+import { Button, Input, Label, LoadError, Modal, Select, Spinner, Textarea } from '../../../components/ui'
 import BackupTab from './BackupTab'
 import MailboxesTab from './MailboxesTab'
 import RichEditor from './RichEditor'
 import { ACCENTS } from './mailUtils'
+import { useMailView } from './composeStore'
 
 type Tab = 'mailboxes' | 'preferences' | 'signatures' | 'autoreply' | 'backup' | 'labels' | 'ai' | 'team'
 
@@ -513,63 +514,284 @@ function Forwarding({ account }: { account: MailAccountInfo }) {
 
 /* ------------------------------------------------------------ Labels */
 
+/**
+ * Labels, and the rules that put mail under them.
+ *
+ * A label belongs to a mailbox, so this screen always works on one: the
+ * mailbox chosen in the rail, or one picked here while reading All. Under
+ * each label sit its rules - "has the words OTP" - which do the filing so
+ * nobody has to.
+ */
 function LabelsTab() {
   const queryClient = useQueryClient()
-  const { toastError } = useToast()
-  const { data: labels = [] } = useQuery({ queryKey: ['mails', 'labels'], queryFn: mails.labels })
+  const { toast, toastError } = useToast()
+  const { account } = useMailView()
+  const { data: accounts } = useQuery({ queryKey: ['mails', 'accounts'], queryFn: mails.accounts })
+
+  /*
+   * Which mailbox is being filed for.
+   *
+   * The rail's choice when it names one; otherwise the first mailbox, so
+   * that reading All mailboxes still leaves somewhere to create things -
+   * a label has to live in one of them.
+   */
+  const boxes = accounts?.data ?? []
+  const [chosen, setChosen] = useState<string>('')
+  const mailbox = chosen || (account !== 'all' ? account : boxes[0]?.uuid) || ''
+
+  const { data: held } = useQuery({
+    queryKey: ['mails', 'labels', mailbox],
+    queryFn: () => mails.labels(mailbox),
+    enabled: !!mailbox,
+  })
   const [name, setName] = useState('')
   const [color, setColor] = useState(LABEL_COLORS[0])
+  const [ruleFor, setRuleFor] = useState<MailLabelTag | null>(null)
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['mails'] })
   const guard = (p: Promise<unknown>) => p.then(refresh).catch((err) => toastError(errorMessage(err)))
 
+  const labels = held?.data ?? []
+  const cap = held?.cap ?? 25
+  const room = cap - labels.length
+
+  if (!boxes.length) {
+    return <div className={card}><p className="text-sm text-slate-400">Set a mailbox up first - labels belong to one.</p></div>
+  }
+
   return (
-    <div className={clsx(card, 'space-y-4')}>
-      <form
-        className="flex flex-wrap items-end gap-2"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (!name.trim()) return
-          void guard(mails.addLabel(name.trim(), color).then(() => setName('')))
-        }}
-      >
-        <div className="min-w-[12rem] flex-1"><Label>New label</Label><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Clients, Urgent, Invoices" maxLength={60} /></div>
-        <div className="flex gap-1 pb-2">
-          {LABEL_COLORS.map((c) => (
-            <button key={c} type="button" aria-label={c} onClick={() => setColor(c)} className={clsx('size-6 rounded-full', color === c && 'ring-2 ring-slate-900 ring-offset-2 dark:ring-white dark:ring-offset-slate-900')} style={{ background: c }} />
+    <div className="space-y-3">
+      <div className={clsx(card, 'space-y-4')}>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="min-w-[14rem]">
+            <Label>Labels for</Label>
+            <Select value={mailbox} onChange={(e) => setChosen(e.target.value)} className="w-full">
+              {boxes.map((b) => <option key={b.uuid} value={b.uuid}>{b.label || b.email}</option>)}
+            </Select>
+          </div>
+          <p className="pb-2 text-xs text-slate-400">
+            {labels.length} of {cap} used. Each mailbox keeps its own, so the same name may be used in both.
+          </p>
+        </div>
+
+        <form
+          className="flex flex-wrap items-end gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (!name.trim() || !mailbox) return
+            void guard(mails.addLabel(mailbox, name.trim(), color).then(() => setName('')))
+          }}
+        >
+          <div className="min-w-[12rem] flex-1">
+            <Label>New label</Label>
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Clients, Urgent, OTP" maxLength={60} />
+          </div>
+          <div className="flex gap-1 pb-2">
+            {LABEL_COLORS.map((c) => (
+              <button key={c} type="button" aria-label={c} onClick={() => setColor(c)} className={clsx('size-6 rounded-full', color === c && 'ring-2 ring-slate-900 ring-offset-2 dark:ring-white dark:ring-offset-slate-900')} style={{ background: c }} />
+            ))}
+          </div>
+          <Button type="submit" disabled={room <= 0}><Plus className="size-4" /> Create label</Button>
+        </form>
+        {room <= 0 && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            This mailbox holds all {cap} labels the rail can list. Remove one, or let a rule do the sorting instead of another label.
+          </p>
+        )}
+
+        {labels.length === 0 && <p className="text-sm text-slate-400">No labels yet.</p>}
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {labels.map((l) => (
+            <li key={l.uuid} className="py-2">
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={l.color}
+                  onChange={(e) => void guard(mails.saveLabel(l.uuid, l.name, e.target.value))}
+                  className="size-7 cursor-pointer rounded border-0 bg-transparent"
+                  aria-label="Colour"
+                />
+                <input
+                  defaultValue={l.name}
+                  onBlur={(e) => { if (e.target.value.trim() && e.target.value !== l.name) void guard(mails.saveLabel(l.uuid, e.target.value.trim(), l.color)) }}
+                  className="min-w-0 flex-1 rounded-lg bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-slate-300"
+                />
+                <Button size="sm" variant="secondary" onClick={() => setRuleFor(l)}>
+                  <Filter className="size-3.5" /> {l.filters?.length ? `${l.filters.length} rule${l.filters.length === 1 ? '' : 's'}` : 'Add rule'}
+                </Button>
+                <button
+                  type="button"
+                  aria-label={`Delete ${l.name}`}
+                  onClick={() => { if (window.confirm(`Delete the label "${l.name}"? Mail keeps its place - only the label and its rules go.`)) void guard(mails.removeLabel(l.uuid)) }}
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+
+              {/* What files mail here, in the words the filter was written in. */}
+              {(l.filters ?? []).map((f) => (
+                <div key={f.uuid} className="ml-10 mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                  <Filter className="size-3 shrink-0 text-slate-400" />
+                  <span className="min-w-0 flex-1">{f.in_words}</span>
+                  <span className="text-slate-400">{f.matched_count} matched</span>
+                  <button
+                    type="button"
+                    className="text-slate-400 hover:text-emerald-600"
+                    onClick={() => void mails.runFilter(f.uuid).then((r) => { toast(r.message, 'success'); refresh() }).catch((err) => toastError(errorMessage(err)))}
+                  >
+                    Run now
+                  </button>
+                  <button
+                    type="button"
+                    className="text-slate-400 hover:text-red-600"
+                    onClick={() => { if (window.confirm('Remove this rule? Mail it already labelled keeps its label.')) void guard(mails.removeFilter(f.uuid)) }}
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {ruleFor && (
+        <FilterModal
+          label={ruleFor}
+          account={mailbox}
+          onClose={() => setRuleFor(null)}
+          onSaved={(message) => { toast(message, 'success'); refresh(); setRuleFor(null) }}
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * The rule itself, asked for the way a person describes it.
+ *
+ * The fields are the ones everybody already knows from a mail client's own
+ * search: who it is from, who it is to, the subject, words it has and words
+ * it must not have, whether it carries a file, how big it is. Every box
+ * filled in has to be true; every box left empty is not asked about.
+ */
+function FilterModal({ label, account, onClose, onSaved }: {
+  label: MailLabelTag
+  account: string
+  onClose: () => void
+  onSaved: (message: string) => void
+}) {
+  const { toastError } = useToast()
+  const [form, setForm] = useState({
+    from_has: '', to_has: '', subject_has: '', body_has: '', body_lacks: '',
+    has_attachment: '' as '' | 'yes' | 'no',
+    size_op: '' as '' | 'gt' | 'lt',
+    size_kb: '',
+    mark_read: false, star: false, skip_inbox: false, never_spam: false,
+  })
+  // Almost nobody writes a rule before the mail it is about has arrived, so
+  // sweeping what is already here is on unless somebody turns it off.
+  const [applyNow, setApplyNow] = useState(true)
+  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }))
+
+  const asks = !!(form.from_has || form.to_has || form.subject_has || form.body_has
+    || form.has_attachment || (form.size_op && form.size_kb))
+
+  const save = useMutation({
+    mutationFn: () => mails.addFilter(account, {
+      label: label.uuid,
+      from_has: form.from_has || null,
+      to_has: form.to_has || null,
+      subject_has: form.subject_has || null,
+      body_has: form.body_has || null,
+      body_lacks: form.body_lacks || null,
+      has_attachment: form.has_attachment === '' ? null : form.has_attachment === 'yes',
+      size_op: form.size_op || null,
+      size_kb: form.size_kb ? Number(form.size_kb) : null,
+      mark_read: form.mark_read,
+      star: form.star,
+      skip_inbox: form.skip_inbox,
+      never_spam: form.never_spam,
+      apply_now: applyNow,
+    }),
+    onSuccess: (res) => onSaved(res.message),
+    onError: (err) => toastError(errorMessage(err)),
+  })
+
+  const line = (key: 'from_has' | 'to_has' | 'subject_has' | 'body_has' | 'body_lacks', said: string, hint?: string) => (
+    <div>
+      <Label>{said}</Label>
+      <Input value={form[key]} onChange={(e) => set(key, e.target.value)} placeholder={hint} className="w-full" />
+    </div>
+  )
+
+  return (
+    <Modal title={`Mail that goes to "${label.name}"`} onClose={onClose} sticky>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500">
+          Fill in only what matters. Everything you type here has to be true of a mail before it wears the label; anything left blank is not asked about.
+        </p>
+
+        {line('from_has', 'From', 'part of an address or a name, e.g. hdfc')}
+        {line('to_has', 'To', 'part of an address it was sent to')}
+        {line('subject_has', 'Subject', 'e.g. statement')}
+        {line('body_has', 'Has the words', 'e.g. OTP')}
+        {line('body_lacks', "Doesn't have", 'e.g. reminder')}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Attachment</Label>
+            <Select value={form.has_attachment} onChange={(e) => set('has_attachment', e.target.value as '' | 'yes' | 'no')} className="w-full">
+              <option value="">Either way</option>
+              <option value="yes">Has an attachment</option>
+              <option value="no">Has none</option>
+            </Select>
+          </div>
+          <div>
+            <Label>Size</Label>
+            <div className="flex gap-2">
+              <Select value={form.size_op} onChange={(e) => set('size_op', e.target.value as '' | 'gt' | 'lt')} className="flex-1">
+                <option value="">Any size</option>
+                <option value="gt">Larger than</option>
+                <option value="lt">Smaller than</option>
+              </Select>
+              <Input
+                value={form.size_kb}
+                onChange={(e) => set('size_kb', e.target.value.replace(/[^0-9]/g, ''))}
+                placeholder="KB"
+                className="w-24"
+                disabled={!form.size_op}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-1.5 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-400">Besides the label</p>
+          {([
+            ['mark_read', 'Mark it read'],
+            ['star', 'Star it'],
+            ['skip_inbox', 'Keep it out of the Inbox (file it straight to Archive)'],
+            ['never_spam', 'Never let it go to Spam'],
+          ] as const).map(([key, said]) => (
+            <label key={key} className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+              <input type="checkbox" checked={form[key]} onChange={(e) => set(key, e.target.checked)} className="size-4 accent-emerald-600" />
+              {said}
+            </label>
           ))}
         </div>
-        <Button type="submit"><Plus className="size-4" /> Create label</Button>
-      </form>
 
-      {labels.length === 0 && <p className="text-sm text-slate-400">No labels yet.</p>}
-      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-        {labels.map((l) => (
-          <li key={l.uuid} className="flex items-center gap-3 py-2">
-            <input
-              type="color"
-              value={l.color}
-              onChange={(e) => void guard(mails.saveLabel(l.uuid, l.name, e.target.value))}
-              className="size-7 cursor-pointer rounded border-0 bg-transparent"
-              aria-label="Colour"
-            />
-            <input
-              defaultValue={l.name}
-              onBlur={(e) => { if (e.target.value.trim() && e.target.value !== l.name) void guard(mails.saveLabel(l.uuid, e.target.value.trim(), l.color)) }}
-              className="min-w-0 flex-1 rounded-lg bg-transparent px-2 py-1 text-sm outline-none focus:ring-1 focus:ring-slate-300"
-            />
-            <button
-              type="button"
-              aria-label={`Delete ${l.name}`}
-              onClick={() => { if (window.confirm(`Delete the label "${l.name}"? Mail keeps its place - only the label goes.`)) void guard(mails.removeLabel(l.uuid)) }}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-500/10"
-            >
-              <Trash2 className="size-4" />
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
+        <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+          <input type="checkbox" checked={applyNow} onChange={(e) => setApplyNow(e.target.checked)} className="size-4 accent-emerald-600" />
+          Also apply it to the mail already in this mailbox
+        </label>
+
+        <Button className="w-full" disabled={!asks || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? 'Saving…' : asks ? 'Create rule' : 'Give it something to look for'}
+        </Button>
+      </div>
+    </Modal>
   )
 }
 

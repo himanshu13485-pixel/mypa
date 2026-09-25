@@ -306,7 +306,7 @@ export default function MailCompose() {
           </label>
         )}
         <div className="relative">
-          <AddressInput label="To" value={form.to} onChange={(v) => set('to', v)} autoFocus={current.mode === 'new' || current.mode === 'forward'} />
+          <AddressInput account={form.account} label="To" value={form.to} onChange={(v) => set('to', v)} autoFocus={current.mode === 'new' || current.mode === 'forward'} />
           {!showCc && (
             <button
               type="button"
@@ -324,7 +324,7 @@ export default function MailCompose() {
         {showCc && (
           <>
             <div className="relative">
-              <AddressInput label="Cc" value={form.cc} onChange={(v) => set('cc', v)} />
+              <AddressInput account={form.account} label="Cc" value={form.cc} onChange={(v) => set('cc', v)} />
               {/* Opened by mistake, and empty: it can go away again. */}
               {form.cc.length === 0 && form.bcc.length === 0 && (
                 <button
@@ -337,7 +337,7 @@ export default function MailCompose() {
                 </button>
               )}
             </div>
-            <AddressInput label="Bcc" value={form.bcc} onChange={(v) => set('bcc', v)} />
+            <AddressInput account={form.account} label="Bcc" value={form.bcc} onChange={(v) => set('bcc', v)} />
           </>
         )}
         <input

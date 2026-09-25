@@ -822,6 +822,15 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                     Route::put('/contacts/{uuid}', [$mail . 'MailContactController', 'update']);
                     Route::delete('/contacts/{uuid}', [$mail . 'MailContactController', 'destroy']);
 
+                    // Standing rules: what to look for in arriving mail, and
+                    // which label a match wears. Run back over what is
+                    // already here when a rule is first written.
+                    Route::get('/filters', [$mail . 'MailFilterController', 'index']);
+                    Route::post('/filters', [$mail . 'MailFilterController', 'store']);
+                    Route::put('/filters/{uuid}', [$mail . 'MailFilterController', 'update']);
+                    Route::post('/filters/{uuid}/run', [$mail . 'MailFilterController', 'run']);
+                    Route::delete('/filters/{uuid}', [$mail . 'MailFilterController', 'destroy']);
+
                     Route::get('/labels', [$mail . 'MailLabelController', 'index']);
                     Route::post('/labels', [$mail . 'MailLabelController', 'store']);
                     Route::put('/labels/{uuid}', [$mail . 'MailLabelController', 'update']);

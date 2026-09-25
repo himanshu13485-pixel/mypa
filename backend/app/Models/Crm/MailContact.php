@@ -21,7 +21,7 @@ class MailContact extends Model
     protected $table = 'crm_mail_contacts';
 
     protected $fillable = [
-        'organization_id', 'member_id', 'email', 'name', 'name_is_mine',
+        'organization_id', 'member_id', 'mail_account_id', 'email', 'name', 'name_is_mine',
         'sent_count', 'received_count', 'last_used_at', 'is_blocked', 'note',
     ];
 
@@ -54,16 +54,19 @@ class MailContact extends Model
      * replaces one already known, and a name somebody set by hand is left
      * alone whatever arrives.
      */
-    public static function remember(Member $member, string $email, ?string $name, bool $sent): ?self
+    public static function remember(Member $member, string $email, ?string $name, bool $sent, ?int $accountId = null): ?self
     {
         $address = mb_strtolower(trim($email));
         if ($address === '' || ! filter_var($address, FILTER_VALIDATE_EMAIL)) {
             return null;
         }
 
-        $contact = self::firstOrNew(['member_id' => $member->id, 'email' => $address]);
+        // Kept per mailbox: the people Company Admin writes to are not the
+        // people ZMA writes to, and one list of both helps nobody.
+        $contact = self::firstOrNew(['member_id' => $member->id, 'mail_account_id' => $accountId, 'email' => $address]);
         $contact->organization_id ??= $member->organization_id;
         $contact->member_id = $member->id;
+        $contact->mail_account_id = $accountId;
 
         $clean = trim((string) $name);
         // A name that is just the address again teaches nobody anything.

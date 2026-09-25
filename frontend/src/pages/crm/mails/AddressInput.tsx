@@ -12,11 +12,13 @@ const looksLikeAddress = (s: string) => /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(
  * a pasted list of them becomes one chip each. Anything that is not an
  * address stays red, so a typo is seen before Send rather than bounced after.
  */
-export default function AddressInput({ label, value, onChange, autoFocus }: {
+export default function AddressInput({ label, value, onChange, autoFocus, account }: {
   label: string
   value: string[]
   onChange: (next: string[]) => void
   autoFocus?: boolean
+  /** The mailbox being written from - its address book is the one to suggest from. */
+  account?: string
 }) {
   const [typed, setTyped] = useState('')
   /*
@@ -40,7 +42,7 @@ export default function AddressInput({ label, value, onChange, autoFocus }: {
 
     let alive = true
     const timer = window.setTimeout(() => {
-      mails.contacts({ q: term, suggest: true })
+      mails.contacts({ q: term, suggest: true, account: account || undefined })
         .then((res) => {
           if (!alive) return
           // Never offer somebody already on the line.

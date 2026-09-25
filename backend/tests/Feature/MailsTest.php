@@ -989,7 +989,8 @@ class MailsTest extends TestCase
 
     public function test_a_name_somebody_typed_is_not_overruled_by_the_next_mail(): void
     {
-        $contact = \App\Models\Crm\MailContact::remember($this->admin, 'ravi@steel.test', 'Accounts Dept', false);
+        $box = $this->mailbox($this->admin);
+        $contact = \App\Models\Crm\MailContact::remember($this->admin, 'ravi@steel.test', 'Accounts Dept', false, $box->id);
         $this->assertSame('Accounts Dept', $contact->name);
 
         $this->actingAs($this->adminUser)->putJson("/api/v1/crm/mails/contacts/{$contact->uuid}", [
@@ -997,7 +998,7 @@ class MailsTest extends TestCase
         ])->assertOk();
 
         // A later mail signs itself differently; the correction stands.
-        \App\Models\Crm\MailContact::remember($this->admin, 'ravi@steel.test', 'BHARAT STEEL BILLING', false);
+        \App\Models\Crm\MailContact::remember($this->admin, 'ravi@steel.test', 'BHARAT STEEL BILLING', false, $box->id);
 
         $fresh = $contact->fresh();
         $this->assertSame('Ravi at Bharat Steel', $fresh->name);
@@ -1006,11 +1007,12 @@ class MailsTest extends TestCase
 
     public function test_suggestions_favour_whoever_is_written_to_most(): void
     {
+        $box = $this->mailbox($this->admin);
         foreach (range(1, 3) as $ignored) {
-            \App\Models\Crm\MailContact::remember($this->admin, 'often@client.test', 'Often Written To', true);
+            \App\Models\Crm\MailContact::remember($this->admin, 'often@client.test', 'Often Written To', true, $box->id);
         }
-        \App\Models\Crm\MailContact::remember($this->admin, 'once@client.test', 'Heard From Once', false);
-        $blocked = \App\Models\Crm\MailContact::remember($this->admin, 'noreply@robot.test', null, false);
+        \App\Models\Crm\MailContact::remember($this->admin, 'once@client.test', 'Heard From Once', false, $box->id);
+        $blocked = \App\Models\Crm\MailContact::remember($this->admin, 'noreply@robot.test', null, false, $box->id);
         $blocked->forceFill(['is_blocked' => true])->save();
 
         $suggested = collect($this->actingAs($this->adminUser)
@@ -1110,9 +1112,13 @@ class MailsTest extends TestCase
         $box = $this->mailbox($this->admin);
         $mail = $this->arrived($box, 'Contract');
 
-        $label = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/mails/labels', ['name' => 'Clients', 'color' => '#10b981'])
-            ->assertCreated()->json('data.uuid');
-        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/mails/labels', ['name' => 'Clients'])->assertStatus(422);
+        $label = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/mails/labels', [
+            'account' => $box->uuid, 'name' => 'Clients', 'color' => '#10b981',
+        ])->assertCreated()->json('data.uuid');
+        // The same name twice in one mailbox, no; and no mailbox named at all
+        // is a question rather than a guess.
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/mails/labels', ['account' => $box->uuid, 'name' => 'Clients'])->assertStatus(422);
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/mails/labels', ['name' => 'Nowhere'])->assertStatus(422);
 
         $this->actingAs($this->adminUser)->postJson('/api/v1/crm/mails/messages/bulk', ['uuids' => [$mail->uuid], 'action' => 'label', 'label' => $label])->assertOk();
 

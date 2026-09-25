@@ -139,7 +139,9 @@ class MailComposeController extends Controller
          */
         if ($data['action'] !== 'draft') {
             foreach ([...$to, ...$cc, ...$bcc] as $person) {
-                \App\Models\Crm\MailContact::remember($me, (string) ($person['email'] ?? ''), $person['name'] ?? null, true);
+                // Filed under the mailbox it was written from, so each
+                // mailbox suggests the people that mailbox writes to.
+                \App\Models\Crm\MailContact::remember($me, (string) ($person['email'] ?? ''), $person['name'] ?? null, true, $message->mail_account_id);
             }
         }
 

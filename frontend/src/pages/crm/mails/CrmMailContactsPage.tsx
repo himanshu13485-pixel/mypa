@@ -5,8 +5,8 @@ import { clsx } from 'clsx'
 import { mails, type MailContact } from '../../../api/mails'
 import { errorMessage } from '../../../api/client'
 import { useToast } from '../../../components/Toast'
-import { Button, Input, Label, Spinner } from '../../../components/ui'
-import { useComposer } from './composeStore'
+import { Button, Input, Label, Select, Spinner } from '../../../components/ui'
+import { useComposer, useMailView } from './composeStore'
 import { mailDate } from './mailUtils'
 
 const card = 'rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100 dark:bg-slate-900 dark:ring-slate-800 sm:p-5'
@@ -22,6 +22,10 @@ const card = 'rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100 dark:bg-s
  * Personal to whoever is reading. A colleague's correspondents are not the
  * company's to browse, so this shows only what this person has exchanged
  * mail with.
+ *
+ * And kept per mailbox: the people Company Admin writes to are not the
+ * people ZMA writes to. The rail's choice decides which book is open, and
+ * All mailboxes shows both with each entry marked by where it came from.
  */
 export default function CrmMailContactsPage() {
   const queryClient = useQueryClient()
@@ -31,9 +35,21 @@ export default function CrmMailContactsPage() {
   const [adding, setAdding] = useState(false)
   const [draft, setDraft] = useState({ email: '', name: '', note: '' })
 
+  const account = useMailView((s) => s.account)
+  const { data: accounts } = useQuery({ queryKey: ['mails', 'accounts'], queryFn: mails.accounts })
+  const boxes = accounts?.data ?? []
+  /*
+   * Which book is open, and which one a new address goes into.
+   *
+   * Reading All mailboxes shows every address; adding one still has to name
+   * a mailbox, so it falls back to the first rather than guessing silently.
+   */
+  const [into, setInto] = useState('')
+  const addTo = into || (account !== 'all' ? account : boxes[0]?.uuid) || ''
+
   const { data, isLoading } = useQuery({
-    queryKey: ['mails', 'contacts', term],
-    queryFn: () => mails.contacts({ q: term || undefined }),
+    queryKey: ['mails', 'contacts', term, account],
+    queryFn: () => mails.contacts({ q: term || undefined, account }),
   })
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['mails', 'contacts'] })
@@ -56,7 +72,8 @@ export default function CrmMailContactsPage() {
         <div>
           <h1 className="text-xl font-semibold text-slate-900 dark:text-white">Addresses</h1>
           <p className="text-sm text-slate-500">
-            {data?.total ?? 0} {(data?.total ?? 0) === 1 ? 'address' : 'addresses'}, kept as you write and receive.
+            {data?.total ?? 0} {(data?.total ?? 0) === 1 ? 'address' : 'addresses'}
+            {account === 'all' ? ' across every mailbox' : ' in this mailbox'}, kept as you write and receive.
             They are yours alone - nobody else in the company sees them.
           </p>
         </div>
@@ -73,6 +90,7 @@ export default function CrmMailContactsPage() {
             if (!draft.email.trim()) return
             void run(async () => {
               const res = await mails.addContact({
+                account: addTo,
                 email: draft.email.trim(),
                 name: draft.name.trim() || undefined,
                 note: draft.note.trim() || undefined,
@@ -84,6 +102,14 @@ export default function CrmMailContactsPage() {
             })
           }}
         >
+          {boxes.length > 1 && (
+            <div className="sm:col-span-4">
+              <Label>Add it to</Label>
+              <Select value={addTo} onChange={(e) => setInto(e.target.value)} className="w-full">
+                {boxes.map((b) => <option key={b.uuid} value={b.uuid}>{b.label || b.email}</option>)}
+              </Select>
+            </div>
+          )}
           <div><Label>Email</Label><Input type="email" required value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} placeholder="someone@example.com" /></div>
           <div><Label>Name</Label><Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Kunal Chaudhari" /></div>
           <div className="sm:col-span-2"><Label>Note (optional)</Label><Input value={draft.note} onChange={(e) => setDraft({ ...draft, note: e.target.value })} placeholder="e.g. accounts contact at BCG" /></div>

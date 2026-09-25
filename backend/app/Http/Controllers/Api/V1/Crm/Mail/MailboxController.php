@@ -29,6 +29,8 @@ use Throwable;
  */
 class MailboxController extends Controller
 {
+    use ChoosesMailbox;
+
     /** Folders that hold somebody's unfinished work rather than the mailbox's mail. */
     public const PRIVATE_FOLDERS = ['drafts', 'outbox', 'scheduled'];
 
@@ -83,7 +85,11 @@ class MailboxController extends Controller
         }
         $counts['starred'] = $base()->where('is_starred', true)->where('folder', '!=', 'trash')->count();
 
-        $labels = MailLabel::where('member_id', $me->id)->orderBy('name')->get()->map(fn (MailLabel $l) => [
+        // The chosen mailbox's own labels. On All mailboxes that is every
+        // label the person has, which is the one place they belong together.
+        $labels = MailLabel::where('member_id', $me->id)
+            ->whereIn('mail_account_id', $this->mailboxIds($request, $me))
+            ->orderBy('name')->get()->map(fn (MailLabel $l) => [
             'uuid' => $l->uuid,
             'name' => $l->name,
             'color' => $l->color,

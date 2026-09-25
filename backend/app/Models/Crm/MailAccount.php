@@ -80,6 +80,32 @@ class MailAccount extends Model
 
     protected $hidden = ['imap_password', 'smtp_password'];
 
+    /**
+     * How many labels one mailbox may hold.
+     *
+     * The rail lists them in full under the folders, with no scrolling of
+     * its own on a laptop: seven folders plus a heading leave room for about
+     * twenty-five before the list needs a scrollbar to be usable, and a
+     * mailbox wanting more than that wants filters, not more labels.
+     */
+    public const LABEL_CAP = 25;
+
+    /** Everything this mailbox keeps of its own. */
+    public function labels(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(MailLabel::class, 'mail_account_id');
+    }
+
+    public function contacts(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(MailContact::class, 'mail_account_id');
+    }
+
+    public function filters(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(MailFilter::class, 'mail_account_id');
+    }
+
     protected function casts(): array
     {
         return [

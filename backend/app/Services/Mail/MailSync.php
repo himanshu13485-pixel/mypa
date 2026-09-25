@@ -39,7 +39,12 @@ class MailSync
         'archive' => ['archive', 'archives'],
     ];
 
-    public function __construct(private MailConnector $connector, private MailSender $sender, private MailGuard $guard)
+    public function __construct(
+        private MailConnector $connector,
+        private MailSender $sender,
+        private MailGuard $guard,
+        private MailFilters $filters = new MailFilters(),
+    )
     {
     }
 
@@ -301,7 +306,7 @@ class MailSync
              * and spam is not an acquaintance.
              */
             if ($folder === 'inbox' && $account->member && ($from['email'] ?? null) && (int) $verdict['score'] < 30) {
-                \App\Models\Crm\MailContact::remember($account->member, $from['email'], $from['name'] ?? null, false);
+                \App\Models\Crm\MailContact::remember($account->member, $from['email'], $from['name'] ?? null, false, $account->id);
             }
 
             foreach ($remote->getAttachments() as $attachment) {
@@ -314,6 +319,15 @@ class MailSync
                     'part' => (string) $attachment->part_number,
                 ]);
             }
+
+            /*
+             * The mailbox's own standing rules, applied while it is fresh.
+             *
+             * Labels are put on before anybody looks at the list, so a rule
+             * written this morning is already doing its job by lunchtime
+             * rather than from the next mail onwards.
+             */
+            $this->filters->apply($message);
 
             return $message;
         });

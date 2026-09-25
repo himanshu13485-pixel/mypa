@@ -18,6 +18,42 @@ export interface MailLabelTag {
   uuid: string
   name: string
   color: string
+  /** The mailbox that owns it - labels are per mailbox, not per person. */
+  account?: string | null
+  account_label?: string | null
+  filters?: { uuid: string; in_words: string; is_active: boolean; matched_count: number }[]
+}
+
+/** A standing rule: what to look for in arriving mail, and where it goes. */
+export interface MailFilter {
+  uuid: string
+  account: string | null
+  account_label: string | null
+  label: string | null
+  label_name: string | null
+  label_color: string | null
+  from_has: string | null
+  to_has: string | null
+  subject_has: string | null
+  body_has: string | null
+  body_lacks: string | null
+  has_attachment: boolean | null
+  size_op: 'gt' | 'lt' | null
+  size_kb: number | null
+  mark_read: boolean
+  star: boolean
+  skip_inbox: boolean
+  never_spam: boolean
+  is_active: boolean
+  matched_count: number
+  last_matched_at: string | null
+  /** The rule read back as a sentence, for the list. */
+  in_words: string
+}
+
+export type MailFilterBody = Partial<Omit<MailFilter, 'uuid' | 'account_label' | 'label_name' | 'label_color' | 'matched_count' | 'last_matched_at' | 'in_words'>> & {
+  /** Run it over the mail already sitting in the mailbox as well. */
+  apply_now?: boolean
 }
 
 export interface MailSummary {
@@ -280,6 +316,9 @@ export interface MailTeamMailbox {
 /** Somebody this person has written to, or heard from. */
 export interface MailContact {
   uuid: string
+  /** Which mailbox's address book this entry is in. */
+  account?: string | null
+  account_label?: string | null
   email: string
   name: string | null
   /** "Kunal Chaudhari <kunal@bcg.com>" - what an address field accepts back. */
@@ -408,22 +447,43 @@ export const mails = {
     return api.post<{ data: { path: string; url: string } }>(`${base}/accounts/${uuid}/signature-image`, form).then((r) => r.data.data)
   },
 
-  contacts: (params: { q?: string; suggest?: boolean } = {}) =>
+  /*
+   * Addresses and labels belong to a mailbox, so every one of these calls
+   * says which. "all" reads them together; writing needs a real one.
+   */
+  contacts: (params: { q?: string; suggest?: boolean; account?: string } = {}) =>
     api.get<{ data: MailContact[]; total: number }>(`${base}/contacts`, {
-      params: { q: params.q || undefined, suggest: params.suggest ? 1 : undefined },
+      params: { q: params.q || undefined, suggest: params.suggest ? 1 : undefined, account: params.account || undefined },
     }).then((r) => r.data),
-  addContact: (body: { email: string; name?: string; note?: string }) =>
+  addContact: (body: { email: string; name?: string; note?: string; account: string }) =>
     api.post<{ message: string; data: MailContact }>(`${base}/contacts`, body).then((r) => r.data),
   saveContact: (uuid: string, body: { name?: string | null; note?: string | null; is_blocked?: boolean }) =>
     api.put<{ message: string; data: MailContact }>(`${base}/contacts/${uuid}`, body).then((r) => r.data),
   removeContact: (uuid: string) => api.delete<{ message: string }>(`${base}/contacts/${uuid}`).then((r) => r.data),
 
-  labels: () => api.get<{ data: MailLabelTag[] }>(`${base}/labels`).then((r) => r.data.data),
-  addLabel: (name: string, color: string) =>
-    api.post<{ data: MailLabelTag }>(`${base}/labels`, { name, color }).then((r) => r.data.data),
+  labels: (account?: string) =>
+    api.get<{
+      data: MailLabelTag[]
+      /** How many labels one mailbox may hold, and how full each one is. */
+      cap: number
+      mailboxes: { uuid: string; label: string; email: string; labels: number }[]
+    }>(`${base}/labels`, { params: { account: account || undefined } }).then((r) => r.data),
+  addLabel: (account: string, name: string, color: string) =>
+    api.post<{ message: string; data: MailLabelTag }>(`${base}/labels`, { account, name, color }).then((r) => r.data.data),
   saveLabel: (uuid: string, name: string, color: string) =>
     api.put<{ data: MailLabelTag }>(`${base}/labels/${uuid}`, { name, color }).then((r) => r.data.data),
   removeLabel: (uuid: string) => api.delete(`${base}/labels/${uuid}`),
+
+  filters: (account?: string) =>
+    api.get<{ data: MailFilter[] }>(`${base}/filters`, { params: { account: account || undefined } }).then((r) => r.data.data),
+  addFilter: (account: string, body: MailFilterBody) =>
+    api.post<{ message: string; data: MailFilter }>(`${base}/filters`, { ...body, account }).then((r) => r.data),
+  saveFilter: (uuid: string, body: MailFilterBody) =>
+    api.put<{ message: string; data: MailFilter }>(`${base}/filters/${uuid}`, body).then((r) => r.data),
+  /** Sweep the rule back over the mail already in the mailbox. */
+  runFilter: (uuid: string) =>
+    api.post<{ message: string; data: MailFilter }>(`${base}/filters/${uuid}/run`).then((r) => r.data),
+  removeFilter: (uuid: string) => api.delete<{ message: string }>(`${base}/filters/${uuid}`).then((r) => r.data),
 
   settings: () =>
     api.get<{ data: { prefs: MailPrefs; limit: number; cap: number; is_admin: boolean; ai_available: boolean

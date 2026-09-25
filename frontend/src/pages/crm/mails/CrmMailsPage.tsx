@@ -53,7 +53,10 @@ export default function CrmMailsPage() {
   const searchBox = useRef<HTMLInputElement>(null)
 
   const { data: settings } = useQuery({ queryKey: ['mails', 'settings'], queryFn: mails.settings })
-  const { data: labels = [] } = useQuery({ queryKey: ['mails', 'labels'], queryFn: mails.labels })
+  // The chosen mailbox's own labels - the label menu on a message should
+  // only offer the labels that belong where the message lives.
+  const { data: labelSet } = useQuery({ queryKey: ['mails', 'labels', account], queryFn: () => mails.labels(account) })
+  const labels = labelSet?.data ?? []
   const { data: accounts } = useQuery({ queryKey: ['mails', 'accounts'], queryFn: mails.accounts })
   const prefs = settings?.prefs
   const accent = ACCENTS[prefs?.accent ?? 'brand'] ?? ACCENTS.brand

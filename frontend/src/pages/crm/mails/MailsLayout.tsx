@@ -225,8 +225,12 @@ export default function MailsLayout() {
             )
           })}
 
+          {/* Labels, addresses and rules belong to a mailbox, so the heading
+              says whose while one mailbox is chosen. */}
           <p className="mt-4 flex items-center justify-between px-3 pb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-            Labels
+            <span className="min-w-0 truncate">
+              {account === 'all' ? 'Labels — every mailbox' : 'Labels'}
+            </span>
             <NavLink to={crmPath('/crm/mails/labels')} className="normal-case tracking-normal text-slate-400 hover:text-slate-600" title="Manage labels">+ New</NavLink>
           </p>
           {(counts?.labels ?? []).map((l) => (
@@ -236,7 +240,11 @@ export default function MailsLayout() {
               {l.count > 0 && <span className="text-xs tabular-nums">{l.count}</span>}
             </NavLink>
           ))}
-          {(counts?.labels ?? []).length === 0 && <p className="px-3 text-xs text-slate-400">No labels yet.</p>}
+          {(counts?.labels ?? []).length === 0 && (
+            <p className="px-3 text-xs text-slate-400">
+              {account === 'all' ? 'No labels in any mailbox yet.' : 'No labels in this mailbox yet.'}
+            </p>
+          )}
 
           <NavLink to={crmPath('/crm/mails/labels')} className={({ isActive }) => clsx(railLink(isActive), 'mt-3')}>
             <Tag className="size-4" /> Manage labels
