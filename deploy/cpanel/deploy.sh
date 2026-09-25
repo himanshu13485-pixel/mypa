@@ -63,8 +63,26 @@ else
   sudo -u $APP_USER git -C "$APP_DIR" log --oneline "$BEFORE..$AFTER" | head -20
 fi
 
+# What was last deployed, not what this run happened to start from.
+#
+# A deploy that dies part-way - a migration MySQL refuses, say - has already
+# pulled. The next run then starts from the new revision and sees only the
+# one commit that fixes the migration: no frontend change, so it skips the
+# build, and the new screens never reach the docroot however many times the
+# deploy is run. The stamp is written only when a deploy finishes, so until
+# one does, every run compares against the code actually serving.
+STAMP="$APP_DIR/.deployed-revision"
+SINCE=$(cat "$STAMP" 2>/dev/null || echo "$BEFORE")
+if [ "$SINCE" != "$BEFORE" ]; then
+  echo "   last finished deploy was $SINCE — comparing against that, not $BEFORE"
+fi
+# A revision the repository no longer knows (a rewritten history, a fresh
+# clone) is no use as a baseline; build everything rather than guess.
+sudo -u $APP_USER git -C "$APP_DIR" cat-file -e "${SINCE}^{commit}" 2>/dev/null || SINCE=""
+
 changed() {
-  [ "$BEFORE" != "$AFTER" ] && ! sudo -u $APP_USER git -C "$APP_DIR" diff --quiet "$BEFORE" "$AFTER" -- "$@"
+  [ -z "$SINCE" ] && return 0
+  [ "$SINCE" != "$AFTER" ] && ! sudo -u $APP_USER git -C "$APP_DIR" diff --quiet "$SINCE" "$AFTER" -- "$@"
 }
 
 echo
@@ -141,6 +159,9 @@ if [ -n "$DOWN" ]; then
 fi
 
 echo
+# Only now, with the build published and the workers up: the next deploy
+# compares against what is actually serving.
+sudo -u $APP_USER sh -c "printf '%s' '$AFTER' > '$STAMP'" 2>/dev/null || true
 echo "== done: now running $AFTER =="
 # No hard-refresh instruction any more. Open tabs pick the new build up on
 # their own: a page that fails to load because its chunk was renamed clears
