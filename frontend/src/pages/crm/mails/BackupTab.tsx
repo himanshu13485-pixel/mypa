@@ -8,6 +8,7 @@ import { useToast } from '../../../components/Toast'
 import { Button, Input, Label, Spinner, Textarea } from '../../../components/ui'
 import { fullDate, sizeLabel } from './mailUtils'
 import { chooseFolder, folderName, localFoldersSupported, markLocalSync, writeToFolder } from './localArchive'
+import { useChosenMailbox } from './useChosenMailbox'
 
 const card = 'rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100 dark:bg-slate-900 dark:ring-slate-800 sm:p-5'
 
@@ -27,10 +28,16 @@ const DRIVERS: { key: 's3' | 'webdav' | 'gdrive'; label: string; note: string }[
  */
 export default function BackupTab() {
   const { data, isLoading } = useQuery({ queryKey: ['mails', 'backups'], queryFn: mails.backups })
+  const { chosen, picker } = useChosenMailbox()
   if (isLoading || !data) return <Spinner />
+
+  // One mailbox's archive at a time, like every other settings screen.
+  const rows = chosen ? data.data.filter((row) => row.uuid === chosen.uuid) : data.data
+  const runs = chosen ? data.runs.filter((run) => !run.mailbox || run.mailbox === chosen.email) : data.runs
 
   return (
     <div className="space-y-4">
+      {picker}
       <div className={clsx(card, 'text-sm text-slate-600 dark:text-slate-300')}>
         <p className="font-semibold text-slate-800 dark:text-slate-100">How the archive works</p>
         <p className="mt-1">
@@ -45,9 +52,9 @@ export default function BackupTab() {
       </div>
 
       {data.data.length === 0 && <p className="text-sm text-slate-500">Add a mailbox first.</p>}
-      {data.data.map((row) => <MailboxBackup key={row.uuid} row={row} />)}
+      {rows.map((row) => <MailboxBackup key={row.uuid} row={row} />)}
 
-      {data.runs.length > 0 && (
+      {runs.length > 0 && (
         <div className={card}>
           <h3 className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-100">Recent runs</h3>
           <div className="overflow-x-auto">

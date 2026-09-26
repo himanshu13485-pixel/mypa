@@ -296,6 +296,29 @@ export default function MailsLayout() {
           * moment and gives no clue which half - so Outbox was reachable
           * only by somebody who thought to swipe a row of icons.
           */}
+        {/*
+          * Which mailbox, on a phone.
+          *
+          * The rail carries this on a desktop and the rail is not there on a
+          * phone, so somebody holding two mailboxes could read only whichever
+          * one they had last chosen at a desk - with nothing on screen even
+          * saying which that was.
+          */}
+        {list.length > 1 && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900 lg:hidden">
+            <Mail className="size-4 shrink-0 text-slate-400" />
+            <select
+              value={account}
+              onChange={(e) => setAccount(e.target.value)}
+              aria-label="Which mailbox"
+              className="min-w-0 flex-1 rounded-lg bg-slate-50 px-2 py-1.5 text-xs text-slate-700 ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-200 dark:ring-slate-700"
+            >
+              <option value="all">All mailboxes</option>
+              {list.map((a) => <option key={a.uuid} value={a.uuid}>{a.label || a.email}</option>)}
+            </select>
+          </div>
+        )}
+
         <div className="relative flex shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-2 py-1.5 dark:border-slate-800 dark:bg-slate-900 lg:hidden">
           {PHONE_FOLDERS.map(({ key, icon: Icon }) => (
             <NavLink
@@ -343,6 +366,25 @@ export default function MailsLayout() {
                     )}
                   </NavLink>
                 ))}
+                {/* Labels file mail out of the Inbox, so a phone that cannot
+                    reach them cannot reach that mail at all. */}
+                {(counts?.labels ?? []).length > 0 && (
+                  <>
+                    <p className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">Labels</p>
+                    {(counts?.labels ?? []).map((l) => (
+                      <NavLink
+                        key={l.uuid}
+                        to={crmPath(`/crm/mails/label/${l.uuid}`)}
+                        className={({ isActive }) => railLink(isActive)}
+                        onClick={() => setMoreOpen(false)}
+                      >
+                        <span className="size-2.5 shrink-0 rounded-full" style={{ background: l.color }} />
+                        <span className="flex-1 truncate">{l.name}</span>
+                        {l.count > 0 && <span className="text-xs tabular-nums">{l.count}</span>}
+                      </NavLink>
+                    ))}
+                  </>
+                )}
                 <NavLink to={crmPath('/crm/mails/labels')} className={({ isActive }) => railLink(isActive)} onClick={() => setMoreOpen(false)}>
                   <Tag className="size-4" /> <span className="flex-1">Manage labels</span>
                 </NavLink>

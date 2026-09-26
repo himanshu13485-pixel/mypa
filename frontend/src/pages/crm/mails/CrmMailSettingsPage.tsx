@@ -12,6 +12,7 @@ import MailboxesTab from './MailboxesTab'
 import RichEditor from './RichEditor'
 import { ACCENTS } from './mailUtils'
 import { useMailView } from './composeStore'
+import { useChosenMailbox } from './useChosenMailbox'
 
 type Tab = 'mailboxes' | 'preferences' | 'signatures' | 'autoreply' | 'backup' | 'labels' | 'ai' | 'team'
 
@@ -208,10 +209,16 @@ function Storage() {
 /* ------------------------------------------------------------ Signatures */
 
 function SignaturesTab() {
-  const { data } = useQuery({ queryKey: ['mails', 'accounts'], queryFn: mails.accounts })
-  if (!data) return <Spinner />
-  if (!data.data.length) return <p className="text-sm text-slate-500">Add a mailbox first.</p>
-  return <div className="space-y-4">{data.data.map((a) => <SignatureCard key={a.uuid} account={a} />)}</div>
+  const { chosen, loading, picker } = useChosenMailbox()
+  if (loading) return <Spinner />
+  if (!chosen) return <p className="text-sm text-slate-500">Add a mailbox first.</p>
+
+  return (
+    <div className="space-y-4">
+      {picker}
+      <SignatureCard key={chosen.uuid} account={chosen} />
+    </div>
+  )
 }
 
 function SignatureCard({ account }: { account: MailAccountInfo }) {
@@ -336,16 +343,18 @@ function SignatureCard({ account }: { account: MailAccountInfo }) {
 /* ------------------------------------------------------------ Auto-reply */
 
 function AutoReplyTab() {
-  const { data } = useQuery({ queryKey: ['mails', 'accounts'], queryFn: mails.accounts })
-  if (!data) return <Spinner />
-  if (!data.data.length) return <p className="text-sm text-slate-500">Add a mailbox first.</p>
+  const { chosen, loading, picker } = useChosenMailbox()
+  if (loading) return <Spinner />
+  if (!chosen) return <p className="text-sm text-slate-500">Add a mailbox first.</p>
+
   return (
     <div className="space-y-4">
+      {picker}
       <p className="text-sm text-slate-500">
         Auto-replies and forwarding run as new mail is fetched (every few minutes). Each sender gets one auto-reply every four days,
         and mailing lists and robots are never answered.
       </p>
-      {data.data.map((a) => <AutoReplyCard key={a.uuid} account={a} />)}
+      <AutoReplyCard key={chosen.uuid} account={chosen} />
     </div>
   )
 }
