@@ -1255,6 +1255,27 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
                 Route::delete('/hr-policy/leave-ledger/{uuid}', [\App\Http\Controllers\Api\V1\Crm\HrPolicyController::class, 'deleteLeaveEntry']);
             });
 
+            /*
+             * Inventory: what each company sells, and what is left of it.
+             *
+             * Its own right rather than riding on invoices, because the
+             * people who count a shelf and the people who bill for it are
+             * not always the same people - and reading a price list is a
+             * far smaller thing to be trusted with than raising a bill.
+             */
+            Route::middleware('crm.member:inventory,view')->group(function () {
+                Route::get('/inventory', [\App\Http\Controllers\Api\V1\Crm\InventoryController::class, 'index']);
+                Route::get('/inventory/{uuid}/moves', [\App\Http\Controllers\Api\V1\Crm\InventoryController::class, 'moves']);
+            });
+            Route::post('/inventory', [\App\Http\Controllers\Api\V1\Crm\InventoryController::class, 'store'])
+                ->middleware('crm.member:inventory,create');
+            Route::middleware('crm.member:inventory,edit')->group(function () {
+                Route::put('/inventory/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InventoryController::class, 'update']);
+                Route::post('/inventory/{uuid}/adjust', [\App\Http\Controllers\Api\V1\Crm\InventoryController::class, 'adjust']);
+            });
+            Route::delete('/inventory/{uuid}', [\App\Http\Controllers\Api\V1\Crm\InventoryController::class, 'destroy'])
+                ->middleware('crm.member:inventory,delete');
+
             // Expenses
             Route::middleware('crm.member:expenses,view')->group(function () {
                 Route::get('/expenses', [\App\Http\Controllers\Api\V1\Crm\ExpenseController::class, 'index']);

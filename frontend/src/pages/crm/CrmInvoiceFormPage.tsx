@@ -16,6 +16,8 @@ import TableBox from '../../components/TableBox'
 
 /** One Work Order line. `custom` holds this company's own DCW values. */
 interface ItemRow {
+  /** What this line came off the company's list, where it did. */
+  inventory_item_id: string
   membership: string
   plan_name: string
   description: string
@@ -28,7 +30,7 @@ interface ItemRow {
 }
 
 const EMPTY_ITEM: ItemRow = {
-  membership: '', plan_name: '', description: '', validity_from: '', validity_to: '',
+  inventory_item_id: '', membership: '', plan_name: '', description: '', validity_from: '', validity_to: '',
   qty: '1', unit_price: '', amount_fx: '', custom: {},
 }
 
@@ -354,6 +356,7 @@ export default function CrmInvoiceFormPage() {
     })
     setItems(existing.items.map((it) => ({
       membership: it.membership ?? '',
+      inventory_item_id: it.inventory_item_id ? String(it.inventory_item_id) : '',
       plan_name: it.plan_name ?? '',
       description: it.description ?? '',
       validity_from: it.validity_from ?? '',
@@ -431,6 +434,62 @@ export default function CrmInvoiceFormPage() {
    */
   const docCurrency = (masters?.issuing_companies.find((c) => String(c.id) === head.issuing_company_id)?.currency || 'INR').toUpperCase()
   const inr = (v: number) => money(v, docCurrency)
+
+  /*
+   * What this company sells, for the lines to be picked from.
+   *
+   * Only its own: the lists are per issuing company, and a line naming the
+   * other arm's shelf would take stock out of a room this document has
+   * nothing to do with. The server refuses that too.
+   */
+  const { data: catalogue } = useQuery({
+    queryKey: ['crm', 'inventory', 'for-document', head.issuing_company_id],
+    queryFn: () => crm.inventory.list({
+      issuing_company_id: head.issuing_company_id,
+      active: 1,
+      per_page: 200,
+    }),
+    enabled: !!head.issuing_company_id,
+  })
+  const sellables = catalogue?.data ?? []
+
+  /**
+   * A line picked off the list brings its price and its tax with it.
+   *
+   * The tax only fills a box nobody has typed in - a rate somebody set by
+   * hand is an answer, and answers are not overwritten. Which boxes it
+   * fills is still the place of supply's business: one IGST line between
+   * states, or CGST and SGST split down the middle within one.
+   */
+  const pickSellable = (idx: number, uuid: string) => {
+    const picked = sellables.find((s) => s.uuid === uuid)
+    setItems((rows) => rows.map((row, i) => (i === idx ? {
+      ...row,
+      inventory_item_id: picked ? String(picked.id) : '',
+      plan_name: picked ? picked.name : row.plan_name,
+      unit_price: picked ? String(Number(picked.unit_price)) : row.unit_price,
+    } : row)))
+
+    const rate = picked?.tax_rate === null || picked?.tax_rate === undefined ? null : Number(picked.tax_rate)
+    if (rate === null || rate <= 0) return
+
+    setTaxes((t) => {
+      const next = { ...t }
+      const empty = (key: string) => !next[key] || (next[key].rate === '' && next[key].amount === '')
+      const put = (key: string, value: number) => {
+        if (!gstBlocked.has(key) && empty(key)) next[key] = { rate: String(value), amount: '' }
+      }
+
+      if (!gstBlocked.has('igst')) {
+        put('igst', rate)
+      } else {
+        put('cgst', rate / 2)
+        put('sgst', rate / 2)
+      }
+
+      return next
+    })
+  }
   // Every line that is off: the GST half that does not apply, and every tax
   // line at all when the document carries none.
   const blockedTaxes = useMemo(
@@ -692,6 +751,7 @@ export default function CrmInvoiceFormPage() {
         items: items
           .filter((r) => r.plan_name || r.description || Number(r.unit_price) > 0)
           .map((r) => ({
+            inventory_item_id: r.inventory_item_id ? Number(r.inventory_item_id) : null,
             membership: r.membership || null,
             plan_name: r.plan_name || null,
             description: r.description || null,
@@ -1052,6 +1112,9 @@ export default function CrmInvoiceFormPage() {
               <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-400 dark:border-slate-800">
                 {/* The company's Work Order method decides the columns: ours
                     as they word them, then the ones they added. */}
+                {/* Only where there is a list to pick from. A company that
+                    keeps none never sees a column asking it to. */}
+                {sellables.length > 0 && <th className="w-44 py-2 pr-2 font-medium">Item</th>}
                 {columns.map((c) => (
                   <th key={`${c.source}:${c.key}`} className="py-2 pr-2 font-medium" title={c.help ?? undefined}>
                     {c.label}{c.is_required && ' *'}
@@ -1064,6 +1127,32 @@ export default function CrmInvoiceFormPage() {
             <tbody>
               {items.map((row, idx) => (
                 <tr key={idx} className="border-b border-slate-50 align-top last:border-0 dark:border-slate-800/50">
+                  {sellables.length > 0 && (
+                    <td className="py-2 pr-2">
+                      <Select
+                        value={sellables.find((s) => String(s.id) === row.inventory_item_id)?.uuid ?? ''}
+                        onChange={(e) => pickSellable(idx, e.target.value)}
+                        className="w-full"
+                      >
+                        <option value="">Typed by hand</option>
+                        {sellables.map((s) => (
+                          <option key={s.uuid} value={s.uuid}>
+                            {s.name}{s.kind === 'product' && s.quantity !== null ? ` · ${s.quantity} left` : ''}
+                          </option>
+                        ))}
+                      </Select>
+                      {/* Said here rather than after saving: the person
+                          choosing is the one who can go and look. */}
+                      {(() => {
+                        const picked = sellables.find((s) => String(s.id) === row.inventory_item_id)
+                        const short = picked && picked.kind === 'product'
+                          && picked.quantity !== null && picked.quantity < (Number(row.qty) || 0)
+                        return short
+                          ? <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">Only {picked!.quantity} in stock.</p>
+                          : null
+                      })()}
+                    </td>
+                  )}
                   {columns.map((c) => (
                     <td key={`${c.source}:${c.key}`} className="py-2 pr-2">
                       {c.source === 'custom'

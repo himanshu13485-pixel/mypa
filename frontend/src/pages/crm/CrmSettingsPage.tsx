@@ -603,6 +603,8 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
     next_proforma_no: String(editing?.next_proforma_no ?? 1),
     is_active: editing?.is_active ?? true,
     tax_required: editing?.tax_required ?? false,
+    /* Services or products - whether this company has anything to count. */
+    sells: editing?.sells ?? 'services',
     currency: editing?.currency ?? 'INR',
     pays_salary: editing?.pays_salary ?? false,
   })
@@ -723,6 +725,23 @@ function CompanyModal({ editing, onClose, onDone }: { editing?: Company; onClose
             </Select>
             <p className="mt-1 text-xs text-slate-400">
               A non-INR company bills whole invoices in that currency; each carries a universal INR equivalent at the live rate less the FX margin.
+            </p>
+          </div>
+          <div>
+            <Label>This company sells</Label>
+            <Select
+              value={form.sells}
+              onChange={(e) => setForm((f) => ({ ...f, sells: e.target.value as 'services' | 'products' }))}
+              className="w-full"
+            >
+              <option value="services">Services — nothing to count</option>
+              <option value="products">Products — counted in Inventory</option>
+            </Select>
+            {/* Per company again: one arm may sell consultancy while the
+                other ships goods out of a room somebody has to count. */}
+            <p className="mt-1 text-xs text-slate-400">
+              Either way the company keeps a price list in Inventory, with a price and a tax rate for each thing.
+              A company selling products also keeps a count, and a tax invoice takes what it sells out of it.
             </p>
           </div>
           <label className="col-span-2 flex cursor-pointer items-start gap-3">

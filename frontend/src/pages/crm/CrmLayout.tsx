@@ -168,6 +168,10 @@ const SECTIONS: { label: string; items: NavItem[] }[] = [
     { label: 'TDS certificates', icon: FileCheck2, to: '/crm/tds-certificates', module: 'invoices' },
     { label: 'Recurring', icon: Repeat, to: '/crm/recurring', module: 'recurring' },
     { label: 'Payments', section: 'payments', icon: Banknote, to: '/crm/payments', module: 'payments', badge: 'payments' },
+    // What the company sells sits with the money rather than with the
+    // settings: it is a price list people read while billing, not a thing
+    // set up once and forgotten.
+    { label: 'Inventory', section: 'inventory', icon: Boxes, to: '/crm/inventory', module: 'inventory' },
     { label: 'Vendors', section: 'vendors', icon: Store, to: '/crm/vendors', module: 'vendors' },
     { label: 'Expenses', section: 'expenses', icon: Wallet, to: '/crm/expenses', module: 'expenses' },
     { label: 'Commissions', section: 'commissions', icon: HandCoins, to: '/crm/commissions', module: 'commissions' },

@@ -496,6 +496,8 @@ export interface CrmMasters {
     next_proforma_no: number
     /** Must this company's documents carry at least one tax line? */
     tax_required: boolean
+    /** Services or products — whether there is anything to count. */
+    sells?: 'services' | 'products'
     is_active: boolean
   }[]
   bank_accounts: {
@@ -788,6 +790,8 @@ export interface CrmInvoiceLogSummary {
 
 export interface CrmInvoiceItem {
   id?: number
+  /** What this line came off the company's list, where it did. */
+  inventory_item_id?: number | null
   membership: string | null
   plan_name: string | null
   description: string | null
@@ -1635,6 +1639,50 @@ export interface CrmVendorSummary {
   billed: number
   outstanding: number
   overdue_bills: number
+}
+
+/** One thing a company sells: a product it counts, or a service it does not. */
+export interface CrmInventoryItem {
+  uuid: string
+  /** An invoice line points at this, not at the uuid. */
+  id: number
+  name: string
+  code: string | null
+  kind: 'product' | 'service'
+  unit: string | null
+  description: string | null
+  unit_price: string
+  /** The rate this thing carries. CGST/SGST vs IGST is still place of supply's business. */
+  tax_rate: string | null
+  /** Null for a service — there is no count of an hour. */
+  quantity: number | null
+  reorder_at: number | null
+  low: boolean
+  is_active: boolean
+  issuing_company_id: number
+  issuing_company: string | null
+  currency: string
+}
+
+export interface CrmInventorySummary {
+  count: number
+  products: number
+  services: number
+  /** What is on the shelf at what it sells for — not a valuation. */
+  retail_value: number
+  out_of_stock: number
+  low: number
+}
+
+/** One change to a count, and what caused it. */
+export interface CrmInventoryMove {
+  id: number
+  qty: number
+  reason: string
+  note: string | null
+  invoice: { uuid: string; number: string } | null
+  by: string | null
+  at: string | null
 }
 
 export interface CrmExpensePayment {
@@ -2870,6 +2918,22 @@ export const crm = {
     claim: (uuid: string, payload: { invoice_uuid: string; member_uuid?: string | null; mode?: 'auto' | 'manual' }) =>
       api.post<{ message: string }>(`/crm/payments/${uuid}/claim`, payload).then((r) => r.data),
     unclaim: (uuid: string) => api.post<{ message: string }>(`/crm/payments/${uuid}/unclaim`).then((r) => r.data),
+  },
+
+  /** What each company sells, and what is left of it. */
+  inventory: {
+    list: (params: ListParams) =>
+      api.get<Paginated<CrmInventoryItem> & { summary: CrmInventorySummary }>('/crm/inventory', { params }).then((r) => r.data),
+    create: (payload: Record<string, unknown>) =>
+      api.post<{ message: string; data: CrmInventoryItem }>('/crm/inventory', payload).then((r) => r.data),
+    update: (uuid: string, payload: Record<string, unknown>) =>
+      api.put<{ message: string; data: CrmInventoryItem }>(`/crm/inventory/${uuid}`, payload).then((r) => r.data),
+    remove: (uuid: string) => api.delete<{ message: string }>(`/crm/inventory/${uuid}`).then((r) => r.data),
+    /** A count moves for a reason, never by being typed over. */
+    adjust: (uuid: string, payload: Record<string, unknown>) =>
+      api.post<{ message: string; data: CrmInventoryItem }>(`/crm/inventory/${uuid}/adjust`, payload).then((r) => r.data),
+    moves: (uuid: string, params?: ListParams) =>
+      api.get<Paginated<CrmInventoryMove>>(`/crm/inventory/${uuid}/moves`, { params }).then((r) => r.data),
   },
 
   expenses: {

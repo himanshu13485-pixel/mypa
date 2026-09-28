@@ -77,6 +77,7 @@ const CrmContestPlayPage = lazyRoute('CrmContestPlayPage', () => import('./pages
 const CrmDwrPage = lazyRoute('CrmDwrPage', () => import('./pages/crm/CrmDwrPage'))
 const CrmPunchPage = lazyRoute('CrmPunchPage', () => import('./pages/crm/CrmPunchPage'))
 const CrmPaymentsPage = lazyRoute('CrmPaymentsPage', () => import('./pages/crm/CrmPaymentsPage'))
+const CrmInventoryPage = lazyRoute('CrmInventoryPage', () => import('./pages/crm/CrmInventoryPage'))
 const CrmExpensesPage = lazyRoute('CrmExpensesPage', () => import('./pages/crm/CrmExpensesPage'))
 const CrmVendorsPage = lazyRoute('CrmVendorsPage', () => import('./pages/crm/CrmVendorsPage'))
 const CrmComplaintsPage = lazyRoute('CrmComplaintsPage', () => import('./pages/crm/CrmComplaintsPage'))
@@ -160,6 +161,7 @@ const crmScreens = (
     <Route path="incentives" element={<CrmIncentivesPage />} />
     <Route path="complaints/:uuid" element={<CrmComplaintDetailPage />} />
     <Route path="vendors" element={<CrmVendorsPage />} />
+    <Route path="inventory" element={<CrmInventoryPage />} />
     <Route path="expenses" element={<CrmExpensesPage />} />
     <Route path="salary" element={<CrmSalaryPage />} />
     <Route path="leaves" element={<CrmLeavesPage />} />
