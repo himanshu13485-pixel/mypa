@@ -551,7 +551,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/groups/{group}/chat-password', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'store']);
         Route::delete('/groups/{group}/chat-password', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'destroy']);
         Route::post('/groups/{group}/chat-password/open', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'open'])
-            ->middleware('throttle:6,1');
+            ->middleware('throttle:group-lock');
 
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markRead'])->middleware('chat.unlocked');
         // Fires on every few keystrokes, so it gets its own generous bucket

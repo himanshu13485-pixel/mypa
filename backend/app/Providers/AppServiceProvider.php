@@ -126,6 +126,30 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('chat-lock', fn (Request $request) => Limit::perMinute(6)->by($perUser($request)));
         RateLimiter::for('chat-lock-mail', fn (Request $request) => Limit::perMinutes(10, 3)->by($perUser($request)));
 
+        /*
+         * A group's password, tried - and the same lesson twice.
+         *
+         * This one shipped on an unnamed "throttle:6,1", which is exactly
+         * what the note above says not to do: it shared its six with every
+         * other request the person made, so somebody who had been using the
+         * app for a minute was refused before their first real guess.
+         *
+         * Counted per person per group, so one member fumbling their own
+         * group cannot lock their colleagues out of a different one - and
+         * refused in words that say how long to wait, rather than Laravel's
+         * bare "Too Many Attempts." at somebody who has done nothing wrong.
+         */
+        RateLimiter::for('group-lock', fn (Request $request) => Limit::perMinute(8)
+            ->by($perUser($request) . '|' . $request->route('group'))
+            ->response(function (Request $request, array $headers) {
+                $seconds = (int) ($headers['Retry-After'] ?? 60);
+
+                return response()->json([
+                    'message' => "Too many tries at the group password. Wait {$seconds} second"
+                        . ($seconds === 1 ? '' : 's') . ' and try again.',
+                ], 429, $headers);
+            }));
+
         // Searching every chat is a real query, and a box people type into.
         RateLimiter::for('message-search', fn (Request $request) => Limit::perMinute(60)->by($perUser($request)));
 
