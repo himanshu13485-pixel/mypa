@@ -105,6 +105,8 @@ api.interceptors.response.use(
        */
       const locked = error.response?.data as { scope?: string } | undefined
       if (locked?.scope === 'group') {
+        // forget() also marks it sealed, so the screen asks even when the
+        // chat list has not said the group is locked.
         const conversation = conversationInUrl(error.config?.url)
         if (conversation) useGroupUnlock.getState().forget(conversation)
       } else {

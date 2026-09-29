@@ -176,6 +176,36 @@ class GroupChatPasswordTest extends TestCase
         $this->assertSame($this->owner->name, $seen['set_by']);
     }
 
+    public function test_the_chat_list_says_the_group_is_locked_so_the_screen_can_ask(): void
+    {
+        /*
+         * The screen decides whether to ask for the password from this flag.
+         * It read false on a locked group once, because the list fetched the
+         * group with only id, uuid and name - so the password column was
+         * null on every row, the ask never appeared, and the request went
+         * anyway and came back 423 as an error nobody could act on.
+         */
+        foreach ([$this->owner, $this->member] as $person) {
+            $this->assertFalse(collect($this->actingAs($person)->getJson('/api/v1/conversations')->assertOk()->json('data'))
+                ->firstWhere('uuid', $this->chat->uuid)['group_locked']);
+        }
+
+        $this->actingAs($this->owner)->postJson("/api/v1/groups/{$this->group->uuid}/chat-password", [
+            'password' => '4821', 'password_confirmation' => '4821',
+        ])->assertOk();
+
+        foreach ([$this->owner, $this->member] as $person) {
+            $row = collect($this->actingAs($person)->getJson('/api/v1/conversations')->assertOk()->json('data'))
+                ->firstWhere('uuid', $this->chat->uuid);
+
+            $this->assertTrue($row['group_locked'], 'everybody in the group is told it is locked');
+            // The group keeps its name and its place, so nobody thinks they
+            // were removed - and the hash itself never leaves the server.
+            $this->assertSame('PWD', $row['name']);
+            $this->assertStringNotContainsString('chat_password', json_encode($row));
+        }
+    }
+
     public function test_a_locked_group_broadcasts_that_a_message_came_and_not_a_word_of_it(): void
     {
         $message = \App\Models\Message::create([

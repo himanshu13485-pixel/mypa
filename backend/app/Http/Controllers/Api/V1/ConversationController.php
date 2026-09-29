@@ -62,7 +62,15 @@ class ConversationController extends Controller
                     fn ($q) => $q->whereNull('mine.archived_at'),
                 ),
             )
-            ->with(['members.profile', 'members.settings', 'group:id,uuid,name'])
+            /*
+             * The password column comes along, because the row has to say
+             * whether the group is locked. Selecting only id, uuid and name
+             * left chat_password_hash null on every conversation, so a
+             * locked group reported itself unlocked and the screen that asks
+             * for the password never appeared - the request simply went and
+             * came back 423.
+             */
+            ->with(['members.profile', 'members.settings', 'group:id,uuid,name,chat_password_hash'])
             ->withCount('members')
             // 0 sorts before 1, so "is null = false" - the pinned ones - lead.
             ->orderByRaw('mine.pinned_at is null')
@@ -167,7 +175,7 @@ class ConversationController extends Controller
 
         return response()->json([
             'data' => $this->serialize(
-                $conversation->load(['members.profile', 'members.settings', 'group:id,uuid,name'])->loadCount('members'),
+                $conversation->load(['members.profile', 'members.settings', 'group:id,uuid,name,chat_password_hash'])->loadCount('members'),
                 $request,
             ),
         ]);

@@ -18,20 +18,37 @@ import { create } from 'zustand'
 type GroupUnlockState = {
   /** conversation uuid -> the token that opens it */
   tokens: Record<string, string>
+  /**
+   * Conversations the server has refused for want of a group password.
+   *
+   * The list says whether a group is locked, and the screen asks on the
+   * strength of it - but the server is the one that decides, and it says so
+   * in a 423. Remembering that means a chat whose row is wrong still shows
+   * the box to type the password into, rather than an error nobody can act
+   * on. It cost a released bug to learn that the flag alone is not enough.
+   */
+  sealed: Record<string, true>
   set: (conversationUuid: string, token: string) => void
+  seal: (conversationUuid: string) => void
   forget: (conversationUuid: string) => void
   clear: () => void
 }
 
 export const useGroupUnlock = create<GroupUnlockState>((set) => ({
   tokens: {},
-  set: (conversationUuid, token) => set((s) => ({ tokens: { ...s.tokens, [conversationUuid]: token } })),
+  sealed: {},
+  set: (conversationUuid, token) => set((s) => {
+    const { [conversationUuid]: _open, ...stillSealed } = s.sealed
+
+    return { tokens: { ...s.tokens, [conversationUuid]: token }, sealed: stillSealed }
+  }),
+  seal: (conversationUuid) => set((s) => ({ sealed: { ...s.sealed, [conversationUuid]: true } })),
   forget: (conversationUuid) => set((s) => {
     const { [conversationUuid]: _gone, ...rest } = s.tokens
 
-    return { tokens: rest }
+    return { tokens: rest, sealed: { ...s.sealed, [conversationUuid]: true } }
   }),
-  clear: () => set({ tokens: {} }),
+  clear: () => set({ tokens: {}, sealed: {} }),
 }))
 
 export const GROUP_UNLOCK_HEADER = 'X-Group-Unlock'

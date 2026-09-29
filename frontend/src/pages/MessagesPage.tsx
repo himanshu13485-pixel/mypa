@@ -880,7 +880,10 @@ export default function MessagesPage() {
    * has no way to take it off and would simply be typing it all day.
    */
   const groupTokens = useGroupUnlock((s) => s.tokens)
-  const groupSealed = !!selected?.group_locked && !groupTokens[selected.uuid]
+  const groupRefused = useGroupUnlock((s) => s.sealed)
+  const groupSealed = !!selected
+    && (!!selected.group_locked || !!groupRefused[selected.uuid])
+    && !groupTokens[selected.uuid]
 
   const threadSealed = !!selected && (
     groupSealed
