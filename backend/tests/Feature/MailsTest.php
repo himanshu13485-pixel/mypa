@@ -433,6 +433,63 @@ class MailsTest extends TestCase
         $this->assertSame('google', $box->fresh()->dkim_selector);
     }
 
+    public function test_a_check_that_cannot_look_anything_up_keeps_what_it_last_saw(): void
+    {
+        $box = $this->mailbox($this->admin, ['email' => 'hello@grapout.test']);
+
+        // First, a day when the resolver worked: a real reading, saved.
+        $this->app->instance(\App\Services\Mail\MailDns::class, new class extends \App\Services\Mail\MailDns
+        {
+            public function txt(string $name): array
+            {
+                return match ($name) {
+                    'grapout.test' => ['v=spf1 include:_spf.google.com ~all'],
+                    'google._domainkey.grapout.test' => ['v=DKIM1; k=rsa; p=MIGfMA0G'],
+                    '_dmarc.grapout.test' => ['v=DMARC1; p=none;'],
+                    default => [],
+                };
+            }
+
+            protected function resolves(): bool
+            {
+                return true;
+            }
+        });
+        $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/dns")
+            ->assertOk()->assertJsonPath('data.score', 80);
+        $this->assertSame(80, $box->fresh()->dns['score']);
+
+        /*
+         * Then a day when the server can resolve nothing. An empty answer
+         * from a dead resolver looks exactly like a domain with no records,
+         * and scoring that zero out of a hundred is a lie about the domain.
+         */
+        $this->app->instance(\App\Services\Mail\MailDns::class, new class extends \App\Services\Mail\MailDns
+        {
+            public function txt(string $name): array
+            {
+                return [];
+            }
+
+            protected function resolves(): bool
+            {
+                return false;
+            }
+        });
+
+        $blind = $this->actingAs($this->adminUser)->postJson("/api/v1/crm/mails/accounts/{$box->uuid}/dns")
+            ->assertOk()->json('data');
+
+        $this->assertTrue($blind['unavailable']);
+        $this->assertNull($blind['score'], 'no score at all, rather than a score of zero');
+        $this->assertStringContainsString('cannot look up any name', $blind['spf']['note']);
+        $this->assertStringContainsString('your records are not in question', $blind['dmarc']['note']);
+
+        // And what was actually seen is still there, on the card and on the row.
+        $this->assertSame(80, $box->fresh()->dns['score']);
+        $this->assertSame(80, $blind['previous']['score']);
+    }
+
     public function test_replicating_a_mailbox_copies_its_servers_under_a_new_address(): void
     {
         Queue::fake();

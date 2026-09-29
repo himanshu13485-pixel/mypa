@@ -179,7 +179,7 @@ export default function MailboxesTab() {
                 )}
 
                 {/* Why it is not 100, said outright rather than hidden in a tooltip. */}
-                {a.dns && a.dns.score < 100 && (
+                {a.dns && a.dns.score !== null && a.dns.score < 100 && (
                   <ul className="mt-1 space-y-0.5">
                     {dnsShortfall(a.dns).map((note, i) => (
                       <li key={i} className="text-xs text-amber-600 dark:text-amber-400">{note}</li>
@@ -276,7 +276,11 @@ This is what Netvork signs in with - change it at your mail provider first, then
                 {a.can_manage && (
                   <Button size="sm" variant="secondary" disabled={busyOn(a.uuid)} onClick={() => run(`dns${a.uuid}`, async () => {
                     const res = await mails.checkDns(a.uuid)
-                    said(a.uuid, [{ ok: res.spf.ok, message: `SPF: ${res.spf.note}` }, { ok: res.dkim.ok, message: `DKIM: ${res.dkim.note}` }, { ok: res.dmarc.ok, message: `DMARC: ${res.dmarc.note}` }])
+                    // One line when nothing could be looked up; three verdicts
+                    // when there were three verdicts to give.
+                    said(a.uuid, res.unavailable
+                      ? [{ ok: false, message: res.spf.note }]
+                      : [{ ok: res.spf.ok, message: `SPF: ${res.spf.note}` }, { ok: res.dkim.ok, message: `DKIM: ${res.dkim.note}` }, { ok: res.dmarc.ok, message: `DMARC: ${res.dmarc.note}` }])
                     refreshAccounts()
                   })}>
                     <ShieldCheck className="size-3.5" /> {busy === `dns${a.uuid}` ? 'Checking…' : 'Check DNS auth'}

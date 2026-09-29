@@ -298,6 +298,18 @@ class MailAccountController extends Controller
         $selector = (string) ($request->validate(['selector' => ['nullable', 'string', 'max:120']])['selector'] ?? '') ?: (string) $account->dkim_selector;
         $result = $dns->check($account->email, $selector ?: null);
 
+        /*
+         * A reading taken blind is not a reading.
+         *
+         * Saving it would throw away a good score - 80/100, every record
+         * present - and replace it with zero and three crosses, which is a
+         * lie about the domain and reads as an emergency. What was last
+         * actually seen stays until something can be seen again.
+         */
+        if (! empty($result['unavailable'])) {
+            return response()->json(['data' => $result + ['previous' => $account->dns]]);
+        }
+
         $account->forceFill([
             'dns' => $result,
             'dkim_selector' => $result['dkim']['selector'] ?? ($selector ?: null),

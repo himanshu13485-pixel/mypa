@@ -37,6 +37,16 @@ class MailDns
             ->filter()->values()->all();
     }
 
+    /**
+     * Whether this server can resolve anything at all.
+     *
+     * Overridable, like txt(), so a test can answer without a network.
+     */
+    protected function resolves(): bool
+    {
+        return MailConnector::resolverIsUp();
+    }
+
     /** The domain a mailbox sends as: the part after the @. */
     public static function domainOf(string $email): string
     {
@@ -64,6 +74,33 @@ class MailDns
         $spf = $this->spf($domain);
         $dkim = $this->dkim($domain, $selector);
         $dmarc = $this->dmarc($domain);
+
+        /*
+         * Nothing found and nothing findable are not the same answer.
+         *
+         * dns_get_record returns an empty list both when a domain publishes
+         * no records and when this server cannot ask anybody, so a broken
+         * resolver read as "you have no SPF, no DKIM and no DMARC" and
+         * scored a properly set-up domain zero out of a hundred. Somebody
+         * acting on that would go and re-publish records they already have.
+         */
+        if (! $spf['ok'] && ! $dkim['ok'] && ! $dmarc['ok'] && ! $this->resolves()) {
+            $blind = [
+                'ok' => false,
+                'record' => null,
+                'note' => 'Could not check - this server cannot look up any name at all. Its DNS needs fixing; your records are not in question.',
+            ];
+
+            return [
+                'domain' => $domain,
+                'unavailable' => true,
+                'spf' => $blind,
+                'dkim' => $blind,
+                'dmarc' => $blind,
+                'score' => null,
+                'checked_at' => now()->toIso8601String(),
+            ];
+        }
 
         $score = ($spf['ok'] ? 30 : 0)
             + ($dkim['ok'] ? 30 : 0)
