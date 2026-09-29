@@ -237,8 +237,13 @@ export default function GroupsPage() {
                   >
                     <Users className="size-4" />
                   </div>
-                  <div>
-                    <h3 className="text-sm font-semibold">{group.name}</h3>
+                  <div className="min-w-0">
+                    <h3 className="flex items-center gap-1 text-sm font-semibold">
+                      <span className="truncate">{group.name}</span>
+                      {/* The same symbol the chat list shows, so the lock
+                          reads the same from whichever side you meet it. */}
+                      {group.is_locked && <Lock className="size-3 shrink-0 text-slate-400" aria-label="Locked with a group password" />}
+                    </h3>
                     <p className="text-xs capitalize text-slate-400">{group.type} · {group.my_role}</p>
                   </div>
                 </div>

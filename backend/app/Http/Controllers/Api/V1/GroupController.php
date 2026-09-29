@@ -405,6 +405,9 @@ class GroupController extends Controller
             // Whether this is a conversation or an announcement board, and
             // whether the reader is one of the people who may post to it.
             'only_admins_post' => (bool) $group->only_admins_post,
+            // That the group has a password, never what it is - so the list
+            // can show the lock from this side as well as from Messages.
+            'is_locked' => filled($group->chat_password_hash),
             'i_manage' => $group->canManage($request->user()),
             'members_count' => $group->members_count ?? $group->members()->count(),
             'tasks_count' => $group->tasks_count ?? 0,

@@ -2314,7 +2314,21 @@ export default function MessagesPage() {
                         is held at the top, and this one will not ring. */}
                     {c.is_pinned && <Pin className="size-3 shrink-0 text-brand-500" />}
                     {c.is_muted && <BellOff className="size-3 shrink-0 text-slate-400" />}
-                    {c.is_locked && <Lock className="size-3 shrink-0 text-slate-400" aria-label="Locked" />}
+                    {/*
+                      * Two different locks, one symbol.
+                      *
+                      * is_locked is this person's own doing and nobody else
+                      * sees it; group_locked is the group's password, which
+                      * everybody in the group is behind. Both mean "you will
+                      * be asked before this opens", which is what the row has
+                      * room to say.
+                      */}
+                    {(c.is_locked || c.group_locked) && (
+                      <Lock
+                        className="size-3 shrink-0 text-slate-400"
+                        aria-label={c.group_locked ? 'Locked with the group password' : 'Locked'}
+                      />
+                    )}
                   </p>
                   <p className="truncate text-xs text-slate-400">
                     {/* The App ID, always — the dot on the avatar says where
@@ -2613,7 +2627,15 @@ export default function MessagesPage() {
                       {selected.name}
                     </button>
                   ) : (
-                    <p className="truncate text-sm font-semibold">{selected.name}</p>
+                    <p className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold">
+                      <span className="truncate">{selected.name}</span>
+                      {(selected.is_locked || selected.group_locked) && (
+                        <Lock
+                          className="size-3 shrink-0 text-slate-400"
+                          aria-label={selected.group_locked ? 'Locked with the group password' : 'Locked'}
+                        />
+                      )}
+                    </p>
                   )}
                   {selected.is_self ? (
                     <p className="text-xs text-slate-400">Notes, links and drafts - only you see them</p>

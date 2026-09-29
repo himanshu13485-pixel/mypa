@@ -396,6 +396,8 @@ export interface GroupItem {
   my_role: string | null
   /** An announcement group: everybody reads it, the admins write. */
   only_admins_post?: boolean
+  /** The group carries a password its members give to open the chat. */
+  is_locked?: boolean
   /** Whether the reader is one of the people running it. */
   i_manage?: boolean
   members_count: number

@@ -206,6 +206,24 @@ class GroupChatPasswordTest extends TestCase
         }
     }
 
+    public function test_the_groups_own_list_shows_the_lock_too(): void
+    {
+        // Whichever side somebody meets the group from - the chat list or
+        // Family and Teams - the lock reads the same.
+        $before = collect($this->actingAs($this->member)->getJson('/api/v1/groups')->assertOk()->json('data'))
+            ->firstWhere('uuid', $this->group->uuid);
+        $this->assertFalse($before['is_locked']);
+
+        $this->actingAs($this->owner)->postJson("/api/v1/groups/{$this->group->uuid}/chat-password", [
+            'password' => '4821', 'password_confirmation' => '4821',
+        ])->assertOk();
+
+        $after = collect($this->actingAs($this->member)->getJson('/api/v1/groups')->assertOk()->json('data'))
+            ->firstWhere('uuid', $this->group->uuid);
+        $this->assertTrue($after['is_locked']);
+        $this->assertStringNotContainsString('chat_password', json_encode($after));
+    }
+
     public function test_a_locked_group_broadcasts_that_a_message_came_and_not_a_word_of_it(): void
     {
         $message = \App\Models\Message::create([
