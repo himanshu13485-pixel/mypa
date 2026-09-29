@@ -175,7 +175,17 @@ class MailConnector
         $hint = null;
 
         if (str_contains($lower, 'getaddrinfo') || str_contains($lower, 'no such host') || str_contains($lower, 'name or service not known')) {
-            $hint = "There is no server called \"{$host}\" - check the spelling with whoever hosts the mailbox.";
+            /*
+             * Two different faults wearing one message.
+             *
+             * The resolver says "not known" both when a name really does not
+             * exist and when it could not ask anybody - a broken
+             * /etc/resolv.conf, a local named that has stopped. Only the
+             * first is the mailbox's fault, and sending somebody to check
+             * their spelling when the name is perfectly good and their own
+             * server cannot look anything up wastes a day.
+             */
+            $hint = "This server could not look up \"{$host}\". Either the name is wrong - check it with whoever hosts the mailbox - or this server's own DNS is not answering. If \"{$host}\" resolves from your laptop, it is the second.";
             // The one everybody gets wrong: Amazon SES is email-smtp, not smtp.
             if ($host && preg_match('/^smtp\.([a-z0-9-]+)\.amazonaws\.com$/i', $host, $m)) {
                 $hint .= " Amazon SES is \"email-smtp.{$m[1]}.amazonaws.com\", not \"smtp.\".";
