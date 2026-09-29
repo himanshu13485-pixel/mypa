@@ -1183,6 +1183,20 @@ export default function MessagesPage() {
   }
   const draftOwner = useRef<string | null | undefined>(undefined)
 
+  /*
+   * Which chats are holding something unsent, for the list to say so.
+   *
+   * The drafts themselves have always been kept - typed, left, and found
+   * again on coming back - but only the composer knew. A row gave no sign,
+   * so a half-written message was remembered by the app and forgotten by
+   * the person, which is the one thing a draft exists to prevent.
+   */
+  const [drafted, setDrafted] = useState<Record<string, true>>(() =>
+    Object.fromEntries(Object.entries(readDrafts()).filter(([, text]) => !!text).map(([uuid]) => [uuid, true])))
+  const noteDrafts = (all: Record<string, string>) => setDrafted(
+    Object.fromEntries(Object.entries(all).filter(([, text]) => !!text).map(([uuid]) => [uuid, true])),
+  )
+
   useEffect(() => {
     const uuid = selected?.uuid ?? null
     if (draftOwner.current === uuid) return
@@ -1200,6 +1214,7 @@ export default function MessagesPage() {
     if (draft) all[uuid] = draft
     else delete all[uuid]
     try { localStorage.setItem(draftsKey, JSON.stringify(all)) } catch { /* a private window keeps it for the visit */ }
+    noteDrafts(all)
   }, [draft, editing]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const invalidateMessages = () => {
@@ -2328,6 +2343,13 @@ export default function MessagesPage() {
                         className="size-3 shrink-0 text-slate-400"
                         aria-label={c.group_locked ? 'Locked with the group password' : 'Locked'}
                       />
+                    )}
+                    {/* Something typed here and never sent. Not on the chat
+                        being read, where the words are on screen anyway. */}
+                    {drafted[c.uuid] && c.uuid !== selected?.uuid && (
+                      <span className="shrink-0 text-[11px] font-normal text-amber-600 dark:text-amber-400">
+                        (Draft)
+                      </span>
                     )}
                   </p>
                   <p className="truncate text-xs text-slate-400">

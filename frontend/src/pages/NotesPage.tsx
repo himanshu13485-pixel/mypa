@@ -278,6 +278,19 @@ export default function NotesPage() {
               setError(null)
               saveMutation.mutate()
             }}
+            /*
+             * Only the Save button saves.
+             *
+             * A form with a submit button in it submits on Enter from any of
+             * its fields - so a return pressed in the Title, the colour or
+             * the password saved the note without anybody meaning to, which
+             * reads as the editor saving on its own while you write. Enter
+             * inside the note body is a new line and always was; that is a
+             * contentEditable, not a form field, and is untouched by this.
+             */
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') e.preventDefault()
+            }}
             className="space-y-4"
           >
             <ErrorNote message={error} />
