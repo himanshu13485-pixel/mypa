@@ -38,13 +38,13 @@ class MailDns
     }
 
     /**
-     * Whether this server can resolve anything at all.
+     * Whether this server can reach anything at all.
      *
      * Overridable, like txt(), so a test can answer without a network.
      */
     protected function resolves(): bool
     {
-        return MailConnector::resolverIsUp();
+        return MailConnector::canReachTheInternet();
     }
 
     /** The domain a mailbox sends as: the part after the @. */

@@ -540,9 +540,10 @@ class MailsTest extends TestCase
          * to leave the mailbox alone - correcting a host that was right all
          * along is exactly what the old wording talked somebody into.
          */
-        $blind = \App\Services\Mail\MailConnector::explain($unknown, 'mail.zma.app', 993, 'incoming', resolverUp: false);
-        $this->assertStringContainsString('cannot look up any name at all', $blind);
+        $blind = \App\Services\Mail\MailConnector::explain($unknown, 'mail.zma.app', 993, 'incoming', online: false);
+        $this->assertStringContainsString('no way out to the internet', $blind);
         $this->assertStringContainsString('leave its settings alone', $blind);
+        $this->assertStringContainsString('network', $blind);
         $this->assertStringNotContainsString('check the spelling', $blind);
 
         $refused = new \RuntimeException('535 5.7.8 Authentication credentials invalid');
