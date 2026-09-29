@@ -195,6 +195,22 @@ class NoteController extends Controller
             'group_uuid' => ['sometimes', 'nullable', 'uuid'],
         ]);
 
+        /*
+         * A note is written with bold, bullets and links now, so its body is
+         * HTML rather than typing. Cleaned through the same sanitiser the
+         * mail reader uses - scripts, event handlers, iframes and
+         * javascript: links all go - because a note is shared with
+         * colleagues, and a note that could run something in their browser
+         * would be the neatest way to hand them a payload.
+         *
+         * Plain text keeps working untouched: nothing without a tag in it is
+         * changed by this, so every note written before today reads exactly
+         * as it did.
+         */
+        if (filled($data['body'] ?? null) && str_contains((string) $data['body'], '<')) {
+            $data['body'] = \App\Services\Mail\MailHtml::sanitize((string) $data['body']);
+        }
+
         if (array_key_exists('group_uuid', $data)) {
             $group = $data['group_uuid']
                 ? Group::withMember($request->user())->where('uuid', $data['group_uuid'])->firstOrFail()

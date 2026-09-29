@@ -6,6 +6,7 @@ import { clsx } from 'clsx'
 import { badges as badgesApi, notes as notesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
+import RichEditor from './crm/mails/RichEditor'
 import {
   Button,
   Card,
@@ -17,7 +18,6 @@ import {
   Pager,
   Select,
   SkeletonCards,
-  Textarea,
 } from '../components/ui'
 import type { Note } from '../types'
 
@@ -39,6 +39,30 @@ const emptyForm: NoteFormState = {
   color: '',
   is_pinned: false,
   password: '',
+}
+
+/**
+ * Older notes are plain text; the editor speaks HTML.
+ *
+ * Without this the line breaks somebody typed would vanish the first time
+ * they opened an old note to edit it - the note would look rewritten by the
+ * act of opening it, which is the sort of thing that stops people trusting
+ * an editor.
+ */
+function asHtml(body: string): string {
+  if (!body) return ''
+  if (/<[a-z][\s\S]*>/i.test(body)) return body
+
+  const escape = (line: string) => line
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  // A blank line starts a paragraph; a single one is a line break inside it.
+  return body
+    .split(/\n{2,}/)
+    .map((block) => '<p>' + block.split('\n').map(escape).join('<br>') + '</p>')
+    .join('')
 }
 
 export default function NotesPage() {
@@ -274,7 +298,23 @@ export default function NotesPage() {
             {form.type === 'text' ? (
               <div>
                 <Label>Content</Label>
-                <Textarea rows={8} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />
+                {/*
+                  * The same editor the mail compose window uses - bold,
+                  * italic, underline, bullets, numbering, links - rather
+                  * than a second one written for notes alone. A note people
+                  * share with colleagues deserves the formatting that makes
+                  * a list read as a list.
+                  *
+                  * A note written before today is plain text with newlines
+                  * in it, which a rich editor would run together into one
+                  * paragraph, so it is turned into lines on the way in.
+                  */}
+                <RichEditor
+                  value={asHtml(form.body)}
+                  onChange={(html) => setForm({ ...form, body: html })}
+                  placeholder="Write the note…"
+                  minHeight={260}
+                />
               </div>
             ) : (
               <div>

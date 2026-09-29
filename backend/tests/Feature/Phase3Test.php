@@ -57,6 +57,41 @@ class Phase3Test extends TestCase
         $this->actingAs($this->user)->deleteJson("/api/v1/notes/{$uuid}")->assertOk();
     }
 
+    public function test_a_note_keeps_its_formatting_and_loses_anything_that_runs(): void
+    {
+        /*
+         * A note is written with bold, bullets and links now, and shared with
+         * colleagues - so a note that could run something in their browser
+         * would be the neatest way to hand them a payload.
+         */
+        $made = $this->actingAs($this->user)->postJson('/api/v1/notes', [
+            'title' => 'Handover',
+            'body' => '<p><strong>Do this</strong></p><ul><li>One</li><li>Two</li></ul>'
+                . '<p onclick="steal()">Note</p><script>alert(1)</script>'
+                . '<a href="javascript:bad()">tap</a><a href="https://ok.test">fine</a>',
+        ])->assertCreated();
+
+        $body = $made->json('data.body');
+
+        // The writing survives.
+        $this->assertStringContainsString('<strong>Do this</strong>', $body);
+        $this->assertStringContainsString('<li>One</li>', $body);
+        $this->assertStringContainsString('https://ok.test', $body);
+
+        // Everything that could act does not.
+        $this->assertStringNotContainsString('script', $body);
+        $this->assertStringNotContainsString('onclick', $body);
+        $this->assertStringNotContainsString('javascript:', $body);
+
+        // And a note written as plain text is left exactly as it was typed.
+        $plain = $this->actingAs($this->user)->postJson('/api/v1/notes', [
+            'title' => 'Plain', 'body' => "Line one
+Line two",
+        ])->assertCreated()->json('data.body');
+        $this->assertSame("Line one
+Line two", $plain);
+    }
+
     public function test_password_protected_note_hides_content(): void
     {
         $response = $this->actingAs($this->user)->postJson('/api/v1/notes', [
