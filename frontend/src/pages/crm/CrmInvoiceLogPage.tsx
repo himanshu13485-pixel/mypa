@@ -137,7 +137,7 @@ export default function CrmInvoiceLogPage() {
           className="crm-filters mb-4 flex flex-wrap items-center gap-2"
           onSubmit={(e) => { e.preventDefault(); setPage(1); setApplied(search) }}
         >
-          <div className="relative min-w-0 flex-1 sm:max-w-[220px]">
+          <div className="crm-filter-search relative w-full shrink-0 grow-0 sm:w-[260px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Number or client…" className="w-full pl-9" />
           </div>

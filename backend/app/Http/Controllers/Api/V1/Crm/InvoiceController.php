@@ -123,9 +123,19 @@ class InvoiceController extends Controller
                 fn ($q) => $q->with('convertedTo:id,uuid,number,converted_from_id'));
 
         if ($search = trim((string) $request->query('search'))) {
+            /*
+             * The number, or anything that finds the client.
+             *
+             * Client::matching is the one place that decides what finds a
+             * client - company, person, e-mail, alternate e-mail, mobile,
+             * telephone, GST number, city - and the Clients screen and the
+             * picker on a new invoice both ask through it. This list did
+             * not, so a client findable everywhere else was findable here
+             * by company name alone.
+             */
             $query->where(function ($q) use ($search) {
                 $q->where('number', 'like', "%{$search}%")
-                    ->orWhereHas('client', fn ($c) => $c->where('company_name', 'like', "%{$search}%"));
+                    ->orWhereHas('client', fn ($c) => $c->matching($search));
             });
         }
         // Checkbox filters: any of the values ticked.

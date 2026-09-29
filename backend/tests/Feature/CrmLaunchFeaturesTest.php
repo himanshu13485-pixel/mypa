@@ -872,6 +872,36 @@ class CrmLaunchFeaturesTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_the_invoice_list_finds_a_client_by_anything_on_the_record(): void
+    {
+        $company = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Acme Billing']);
+        $client = \App\Models\Crm\Client::create([
+            'organization_id' => $this->org->id, 'company_name' => 'Boston Consulting Group',
+            'contact_person' => 'Hema Baid', 'email' => 'hema@bcg.test', 'mobile' => '9820011223',
+            'created_by' => $this->adminUser->id,
+        ]);
+        $number = \App\Models\Crm\Invoice::where('uuid', $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices', [
+            'kind' => 'invoice', 'issuing_company_id' => $company->id, 'client_uuid' => $client->uuid,
+            'invoice_date' => now()->toDateString(), 'due_date' => '2026-12-31',
+            'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online', 'dispatch_status' => 'pending',
+            'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31',
+                'plan_name' => 'Plan A', 'qty' => 1, 'unit_price' => 1000]],
+        ])->assertCreated()->json('data.uuid'))->value('number');
+
+        // Whatever the person asking happens to have to hand finds it: the
+        // number, the company, the person, the address, the mobile.
+        foreach ([$number, 'Boston', 'Hema', 'hema@bcg.test', '98200'] as $term) {
+            $this->assertCount(1, $this->actingAs($this->adminUser)
+                ->getJson('/api/v1/crm/invoices?search=' . urlencode($term))
+                ->assertOk()->json('data'), "searching for {$term}");
+        }
+
+        // And something that is on no record at all finds nothing.
+        $this->assertCount(0, $this->actingAs($this->adminUser)
+            ->getJson('/api/v1/crm/invoices?search=nobodyhere')->assertOk()->json('data'));
+    }
+
     public function test_an_invoice_mail_copies_the_salesperson_and_whoever_else_is_named(): void
     {
         \Illuminate\Support\Facades\Mail::fake();
