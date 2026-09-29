@@ -719,6 +719,27 @@ export interface ChatSearchHit {
   created_at: string | null
 }
 
+/**
+ * The group's own password: the admins' to set, everybody in the group to
+ * give.
+ *
+ * Separate from the chat password in `chatLock`, which is one person's own
+ * arrangement over their own copy of a chat and invisible to the room.
+ */
+export const groupLock = {
+  show: (group: string) =>
+    api.get<{ data: { has_password: boolean; set_at: string | null; set_by: string | null; i_manage: boolean; window_minutes: number } }>(
+      `/groups/${group}/chat-password`,
+    ).then((r) => r.data.data),
+  save: (group: string, body: { current_password?: string; password: string; password_confirmation: string }) =>
+    api.post<{ message: string; data: { unlock_token: string } }>(`/groups/${group}/chat-password`, body).then((r) => r.data),
+  remove: (group: string, password: string) =>
+    api.delete<{ message: string }>(`/groups/${group}/chat-password`, { data: { password } }).then((r) => r.data),
+  open: (group: string, password: string) =>
+    api.post<{ data: { unlock_token: string; window_minutes: number } }>(`/groups/${group}/chat-password/open`, { password })
+      .then((r) => r.data.data),
+}
+
 export const chat = {
   /**
    * My chats. Archived ones are kept out of the way until asked for by

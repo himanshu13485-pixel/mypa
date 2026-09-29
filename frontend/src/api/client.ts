@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { unlockHeaders, useChatUnlock } from '../lib/chatUnlock'
+import { conversationInUrl, groupUnlockHeaders, useGroupUnlock } from '../lib/groupUnlock'
 import { useAuthStore } from '../stores/auth'
 import { disconnectEcho } from '../lib/echo'
 import { clearGuestPass, guestRequestPath, readGuestPass } from '../lib/guestPass'
@@ -21,6 +22,9 @@ api.interceptors.request.use((config) => {
   // background traffic must never be what keeps a chat unlocked.
   if (/^\/(conversations|messages|people)\b/.test(config.url ?? '')) {
     Object.assign(config.headers, unlockHeaders())
+    // And the group's own proof, which belongs to one conversation rather
+    // than to the person, so it is chosen by what the request is asking for.
+    Object.assign(config.headers, groupUnlockHeaders(config.url))
   }
 
   /*
@@ -94,7 +98,18 @@ api.interceptors.response.use(
     // The unlock ran out on the server: forget it here too, so every locked
     // screen goes back to asking instead of failing quietly.
     if (error.response?.status === 423) {
-      useChatUnlock.getState().clear()
+      /*
+       * Which lock ran out. A group's proof is no reason to throw away the
+       * person's own chat unlock, or the other way round - forgetting both
+       * would send somebody back through two doors when one had closed.
+       */
+      const locked = error.response?.data as { scope?: string } | undefined
+      if (locked?.scope === 'group') {
+        const conversation = conversationInUrl(error.config?.url)
+        if (conversation) useGroupUnlock.getState().forget(conversation)
+      } else {
+        useChatUnlock.getState().clear()
+      }
     }
 
     // A guest's half hour is up. Say so where they are, rather than letting it

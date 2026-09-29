@@ -542,6 +542,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/messages/search', [MessageController::class, 'search'])->middleware('throttle:message-search');
         Route::post('/conversations', [ConversationController::class, 'store']);
         Route::get('/groups/{group}/conversation', [ConversationController::class, 'forGroup']);
+        /*
+         * A group's own password: set and taken off by its owner or admins,
+         * given by everybody in it. Deliberately not behind chat.unlocked -
+         * these are the routes somebody uses to get past the lock.
+         */
+        Route::get('/groups/{group}/chat-password', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'show']);
+        Route::post('/groups/{group}/chat-password', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'store']);
+        Route::delete('/groups/{group}/chat-password', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'destroy']);
+        Route::post('/groups/{group}/chat-password/open', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'open'])
+            ->middleware('throttle:6,1');
+
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markRead'])->middleware('chat.unlocked');
         // Fires on every few keystrokes, so it gets its own generous bucket
         // rather than eating the shared per-minute allowance.

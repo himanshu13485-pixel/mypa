@@ -24,7 +24,8 @@ import { clsx } from 'clsx'
 import { chat, chatLock, type ChatSearchHit } from '../api/endpoints'
 import { useOpenedAttachments } from '../lib/attachmentsOpened'
 import { attachmentHeaders, hiddenFolderPassword, searchMeansMe, useChatUnlock } from '../lib/chatUnlock'
-import { ChatLockSettings, ChatPasswordPrompt, ForgotChatPassword, LockedThread, SetChatPassword } from '../components/ChatLockDialogs'
+import { useGroupUnlock } from '../lib/groupUnlock'
+import { ChatLockSettings, ChatPasswordPrompt, ForgotChatPassword, LockedGroupThread, LockedThread, SetChatPassword } from '../components/ChatLockDialogs'
 import { errorMessage } from '../api/client'
 import { DELETE_WINDOW_HOURS, withinEditWindow } from '../lib/editWindow'
 import { countUnseen, seenIdsOf } from '../lib/unseenMessages'
@@ -870,8 +871,20 @@ export default function MessagesPage() {
   const [openedLocked, setOpenedLocked] = useState<Set<string>>(new Set())
   useEffect(() => { if (!unlockToken) setOpenedLocked(new Set()) }, [unlockToken])
 
+  /*
+   * The group's own lock, which is a different door from the two below it.
+   *
+   * Its password belongs to the group rather than to this person, so it is
+   * answered with its own proof and kept until that proof runs out - not
+   * re-asked on every visit the way a personal lock is, because a member
+   * has no way to take it off and would simply be typing it all day.
+   */
+  const groupTokens = useGroupUnlock((s) => s.tokens)
+  const groupSealed = !!selected?.group_locked && !groupTokens[selected.uuid]
+
   const threadSealed = !!selected && (
-    (!!selected.is_locked && !openedLocked.has(selected.uuid))
+    groupSealed
+    || (!!selected.is_locked && !openedLocked.has(selected.uuid))
     || (!!(selected.is_locked || selected.is_hidden) && !unlockToken)
   )
 
@@ -3164,7 +3177,13 @@ export default function MessagesPage() {
             )}
 
             {/* A locked chat shows the lock, and nothing of what is in it. */}
-            {threadSealed ? (
+            {groupSealed ? (
+              <LockedGroupThread
+                name={selected.name}
+                group={selected.group_uuid ?? ''}
+                conversation={selected.uuid}
+              />
+            ) : threadSealed ? (
               <LockedThread
                 name={selected.name}
                 onUnlocked={() => setOpenedLocked((prev) => new Set(prev).add(selected.uuid))}

@@ -621,6 +621,12 @@ class ConversationController extends Controller
             'unread_count' => $unread,
             'is_muted' => $myPivot?->muted_at !== null,
             'is_archived' => $myPivot?->archived_at !== null,
+            /*
+             * The group's own lock, which everybody in the group sees - as
+             * against the two below it, which are one person's arrangement
+             * and invisible to the rest of the room.
+             */
+            'group_locked' => filled($conversation->group?->chat_password_hash),
             // One person's own arrangement: the others in the chat never see these.
             'is_locked' => $myPivot?->locked_at !== null,
             'is_hidden' => $myPivot?->hidden_at !== null,

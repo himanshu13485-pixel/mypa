@@ -577,6 +577,11 @@ export interface ConversationItem {
   unread_count: number
   is_muted: boolean
   is_archived: boolean
+  /**
+   * The group itself is behind a password its admins set. Unlike is_locked
+   * below, everybody in the group sees this and everybody is asked for it.
+   */
+  group_locked?: boolean
   /** This person has put the chat behind their chat password. Nobody else sees it. */
   is_locked?: boolean
   /** Out of the list, in the folder only the password opens. */

@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { useConnectBase } from '../lib/connectBase'
 import {
-  Check, CheckSquare, Copy, CopyPlus, Link as LinkIcon, Pencil, Plus, RefreshCw, Trash2, UserPlus,
+  Check, CheckSquare, Copy, CopyPlus, Link as LinkIcon, Lock, Pencil, Plus, RefreshCw, Trash2, UserPlus,
   Users, X,
 } from 'lucide-react'
-import { badges as badgesApi, groups as groupsApi } from '../api/endpoints'
+import { badges as badgesApi, groupLock as groupLockApi, groups as groupsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
@@ -375,6 +375,9 @@ export default function GroupsPage() {
               </Link>
             </div>
 
+            {/* The group's own password, which everybody in the group gives. */}
+            <GroupPassword group={detail.uuid} canManage={canManage} />
+
             {/* An announcement group: everybody reads it, the admins write.
                 Enforced on the server too — a closed group that is only
                 closed in the interface is not closed. */}
@@ -712,6 +715,127 @@ export default function GroupsPage() {
             )}
           </div>
         </Modal>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The group's own password.
+ *
+ * Different from the chat password in Settings, which is one person's own
+ * arrangement over their own copy of a chat and invisible to everybody
+ * else. This one belongs to the group: its owner and admins set it, and
+ * everybody in the group gives it to open the chat - the admins included,
+ * because an admin's phone is as easy to pick up as anybody's.
+ */
+function GroupPassword({ group, canManage }: { group: string; canManage: boolean }) {
+  const [lock, setLock] = useState<{ has_password: boolean; set_by: string | null; window_minutes: number } | null>(null)
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({ current_password: '', password: '', password_confirmation: '' })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const read = useCallback(() => {
+    groupLockApi.show(group).then(setLock).catch(() => setLock(null))
+  }, [group])
+  useEffect(() => { read() }, [read])
+
+  if (!lock) return null
+
+  const run = (work: Promise<unknown>) => {
+    setBusy(true)
+    setError(null)
+    work
+      .then(() => { setForm({ current_password: '', password: '', password_confirmation: '' }); setOpen(false); read() })
+      .catch((err) => setError(errorMessage(err)))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm dark:bg-slate-800/60">
+      <div className="flex flex-wrap items-center gap-2">
+        <Lock className="size-4 shrink-0 text-slate-400" />
+        <span className="min-w-0 flex-1">
+          {lock.has_password ? 'This group is locked' : 'No password on this group'}
+          <span className="block text-xs text-slate-400">
+            {lock.has_password
+              ? `Everyone in the group is asked for it, and stays in for ${lock.window_minutes} minutes.${lock.set_by ? ` Set by ${lock.set_by}.` : ''}`
+              : 'A password here asks everybody in the group - you as well - before the chat will open.'}
+          </span>
+        </span>
+        {canManage && (
+          <Button size="sm" variant="secondary" onClick={() => { setOpen((v) => !v); setError(null) }}>
+            {lock.has_password ? 'Change' : 'Set a password'}
+          </Button>
+        )}
+      </div>
+
+      {!canManage && lock.has_password && (
+        <p className="mt-1 text-xs text-slate-400">
+          Ask {lock.set_by ?? 'an admin'} for it. Only the group&rsquo;s owner and admins can change it.
+        </p>
+      )}
+
+      {open && canManage && (
+        <div className="mt-2 space-y-2">
+          {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+          {lock.has_password && (
+            <Input
+              type="password"
+              autoComplete="off"
+              placeholder="Current password"
+              value={form.current_password}
+              onChange={(e) => setForm({ ...form, current_password: e.target.value })}
+            />
+          )}
+          <Input
+            type="password"
+            autoComplete="new-password"
+            placeholder="New password (at least 4 characters)"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+          />
+          <Input
+            type="password"
+            autoComplete="new-password"
+            placeholder="New password again"
+            value={form.password_confirmation}
+            onChange={(e) => setForm({ ...form, password_confirmation: e.target.value })}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={busy || form.password.length < 4 || form.password !== form.password_confirmation}
+              onClick={() => run(groupLockApi.save(group, {
+                current_password: lock.has_password ? form.current_password : undefined,
+                password: form.password,
+                password_confirmation: form.password_confirmation,
+              }))}
+            >
+              {busy ? 'Saving…' : 'Save'}
+            </Button>
+            {lock.has_password && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy || !form.current_password}
+                onClick={() => {
+                  if (!window.confirm('Take the password off? The group opens for everyone in it again.')) return
+                  run(groupLockApi.remove(group, form.current_password))
+                }}
+              >
+                Remove the password
+              </Button>
+            )}
+          </div>
+          {lock.has_password && (
+            <p className="text-xs text-slate-400">
+              Changing or removing it asks for the current one, and shuts out everybody who is
+              already inside on the old password.
+            </p>
+          )}
+        </div>
       )}
     </div>
   )

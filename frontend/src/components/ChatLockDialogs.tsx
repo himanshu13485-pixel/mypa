@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { KeyRound, Lock, Mail } from 'lucide-react'
-import { chatLock, type ChatLockStatus } from '../api/endpoints'
+import { chatLock, groupLock as groupLockApi, type ChatLockStatus } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import { useChatUnlock } from '../lib/chatUnlock'
+import { useGroupUnlock } from '../lib/groupUnlock'
 import { Button, ErrorNote, Input, Label, Modal } from './ui'
 
 /**
@@ -353,6 +354,68 @@ export function ChatLockSettings({ status, onChange, onForgot, onChanged, onClos
  *
  * Its name and nothing of its contents, and one box for the password.
  */
+/**
+ * A group behind its own password.
+ *
+ * Nothing like "forgot it" here: the password is the group's, not this
+ * person's, so the way back in is to ask whoever runs the group. An admin
+ * changes it from the group's own screen.
+ */
+export function LockedGroupThread({ name, group, conversation, setBy }: {
+  name: string
+  group: string
+  conversation: string
+  setBy?: string | null
+}) {
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const give = () => {
+    if (password.length < 4) return
+    setBusy(true)
+    setError(null)
+    groupLockApi.open(group, password)
+      .then((res) => {
+        useGroupUnlock.getState().set(conversation, res.unlock_token)
+        setPassword('')
+      })
+      .catch((err) => setError(errorMessage(err)))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+      <div className="rounded-full bg-slate-100 p-4 dark:bg-slate-800">
+        <Lock className="size-7 text-slate-400" />
+      </div>
+      <div>
+        <p className="font-medium text-slate-700 dark:text-slate-200">{name} is locked</p>
+        <p className="mt-1 max-w-sm text-sm text-slate-500">
+          This group has a password of its own. Everybody in it is asked{setBy ? `, and ${setBy} set it` : ''}.
+        </p>
+      </div>
+      <form
+        className="flex w-full max-w-xs flex-col gap-2"
+        onSubmit={(e) => { e.preventDefault(); give() }}
+      >
+        <Input
+          type="password"
+          autoComplete="off"
+          autoFocus
+          placeholder="Group password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
+        <Button type="submit" disabled={busy || password.length < 4}>
+          {busy ? 'Opening…' : 'Open the group'}
+        </Button>
+      </form>
+    </div>
+  )
+}
+
 export function LockedThread({ name, onUnlocked, onForgot }: {
   name: string
   onUnlocked: () => void
