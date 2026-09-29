@@ -167,7 +167,39 @@ class MailConnector
      * order they happen: the name does not exist, nothing answers on that
      * port, the certificate is wrong, or the sign-in was refused.
      */
-    public static function explain(Throwable $e, ?string $host, int $port, string $side): string
+    /**
+     * Can this server look anything up at all?
+     *
+     * Asked only when a name has already failed, and answered by trying
+     * names that have nothing to do with the mailbox or each other. If none
+     * of them resolve either, the fault is this server's resolver and no
+     * amount of correcting the mailbox will help - which is worth saying
+     * before somebody edits a host that was right all along.
+     *
+     * The answer is remembered for the request, because one failed sync can
+     * ask several times over and each miss costs a resolver timeout.
+     */
+    public static function resolverIsUp(): bool
+    {
+        static $answer = null;
+        if ($answer !== null) {
+            return $answer;
+        }
+
+        foreach (['one.one.one.one', 'dns.google'] as $known) {
+            if (gethostbyname($known) !== $known) {
+                return $answer = true;
+            }
+        }
+
+        return $answer = false;
+    }
+
+    /**
+     * @param  bool|null  $resolverUp  Whether this server can resolve anything
+     *                                 at all; null asks nothing and says less.
+     */
+    public static function explain(Throwable $e, ?string $host, int $port, string $side, ?bool $resolverUp = null): string
     {
         $raw = self::plain($e);
         $lower = mb_strtolower($raw);
@@ -185,7 +217,11 @@ class MailConnector
              * their spelling when the name is perfectly good and their own
              * server cannot look anything up wastes a day.
              */
-            $hint = "This server could not look up \"{$host}\". Either the name is wrong - check it with whoever hosts the mailbox - or this server's own DNS is not answering. If \"{$host}\" resolves from your laptop, it is the second.";
+            $hint = $resolverUp === false
+                // Proved, not guessed: names with nothing to do with this
+                // mailbox do not resolve here either.
+                ? "This server cannot look up any name at all right now, so this is nothing to do with the mailbox - leave its settings alone. Its DNS needs fixing: check /etc/resolv.conf and whether the local resolver is running."
+                : "This server could not look up \"{$host}\". Either the name is wrong - check it with whoever hosts the mailbox - or this server's own DNS is not answering. If \"{$host}\" resolves from your laptop, it is the second.";
             // The one everybody gets wrong: Amazon SES is email-smtp, not smtp.
             if ($host && preg_match('/^smtp\.([a-z0-9-]+)\.amazonaws\.com$/i', $host, $m)) {
                 $hint .= " Amazon SES is \"email-smtp.{$m[1]}.amazonaws.com\", not \"smtp.\".";

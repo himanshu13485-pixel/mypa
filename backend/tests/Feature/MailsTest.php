@@ -478,6 +478,16 @@ class MailsTest extends TestCase
         $advice = \App\Services\Mail\MailConnector::explain($unknown, 'smtp.us-east-1.amazonaws.com', 465, 'outgoing');
         $this->assertStringContainsString('email-smtp.us-east-1.amazonaws.com', $advice);
 
+        /*
+         * A server that cannot resolve anything is told so plainly, and told
+         * to leave the mailbox alone - correcting a host that was right all
+         * along is exactly what the old wording talked somebody into.
+         */
+        $blind = \App\Services\Mail\MailConnector::explain($unknown, 'mail.zma.app', 993, 'incoming', resolverUp: false);
+        $this->assertStringContainsString('cannot look up any name at all', $blind);
+        $this->assertStringContainsString('leave its settings alone', $blind);
+        $this->assertStringNotContainsString('check the spelling', $blind);
+
         $refused = new \RuntimeException('535 5.7.8 Authentication credentials invalid');
         $this->assertStringContainsString('app password', \App\Services\Mail\MailConnector::explain($refused, 'smtp.gmail.com', 587, 'outgoing'));
     }

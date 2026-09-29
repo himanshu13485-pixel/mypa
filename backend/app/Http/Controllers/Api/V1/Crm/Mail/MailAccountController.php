@@ -248,7 +248,7 @@ class MailAccountController extends Controller
             return response()->json(['data' => [
                 'ok' => false,
                 'folders' => [],
-                'message' => MailConnector::explain($e, $account->imap_host, (int) $account->imap_port, 'incoming'),
+                'message' => MailConnector::explain($e, $account->imap_host, (int) $account->imap_port, 'incoming', MailConnector::resolverIsUp()),
             ]]);
         }
     }
@@ -284,7 +284,7 @@ class MailAccountController extends Controller
         } catch (Throwable $e) {
             return response()->json(['data' => [
                 'ok' => false,
-                'message' => MailConnector::explain($e, $account->smtp_host, (int) $account->smtp_port, 'outgoing'),
+                'message' => MailConnector::explain($e, $account->smtp_host, (int) $account->smtp_port, 'outgoing', MailConnector::resolverIsUp()),
             ]]);
         }
     }
