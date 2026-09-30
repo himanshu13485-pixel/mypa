@@ -113,7 +113,15 @@ export default function NotesPage() {
   const savedSnapshot = useRef<string>('')
   const autosaveTimer = useRef<number | null>(null)
 
-  const payloadOf = (f: NoteFormState): Record<string, unknown> => {
+  /*
+   * The password is never carried by an autosave.
+   *
+   * Autosave fires while somebody is still typing, and a password saved
+   * halfway through typing it is a note locked with "Lohit@1" - a lock
+   * nobody knows the key to, made by the app being helpful. Protection
+   * changes on the explicit save and nowhere else.
+   */
+  const payloadOf = (f: NoteFormState, withPassword = false): Record<string, unknown> => {
     const payload: Record<string, unknown> = {
       title: f.title,
       type: f.type,
@@ -122,15 +130,15 @@ export default function NotesPage() {
       color: f.color || null,
       is_pinned: f.is_pinned,
     }
-    if (f.password) payload.password = f.password
+    if (withPassword && f.password) payload.password = f.password
 
     return payload
   }
 
   const saveMutation = useMutation({
     mutationFn: () => (editing
-      ? notesApi.update(editing.uuid, payloadOf(form), unlockPassword || undefined)
-      : notesApi.create(payloadOf(form))),
+      ? notesApi.update(editing.uuid, payloadOf(form, true), unlockPassword || undefined)
+      : notesApi.create(payloadOf(form, true))),
     onSuccess: () => {
       invalidate()
       close()
@@ -183,6 +191,27 @@ export default function NotesPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form, showForm])
 
+  /**
+   * Off with the lock.
+   *
+   * The server has always accepted a null password from the note's owner
+   * and taken the protection off; nothing on screen ever sent one, so a
+   * note once locked stayed locked for good.
+   */
+  const unprotect = async () => {
+    if (!editing) return
+    if (!window.confirm('Take the password off this note? Anybody it is shared with will be able to open it.')) return
+    try {
+      const fresh = await notesApi.update(editing.uuid, { password: null }, unlockPassword || undefined)
+      setEditing(fresh)
+      setForm((f) => ({ ...f, password: '' }))
+      setUnlockPassword('')
+      invalidate()
+    } catch (err) {
+      setError(errorMessage(err))
+    }
+  }
+
   const deleteMutation = useMutation({
     mutationFn: (uuid: string) => notesApi.remove(uuid),
     onSuccess: invalidate,
@@ -209,23 +238,44 @@ export default function NotesPage() {
     onError: (err) => setError(errorMessage(err)),
   })
 
+  /*
+   * The browser's own prompt shows what is typed into it, in a box nobody
+   * can mask - so a note's password was read out to the room every time
+   * somebody opened it. This one is a password field like any other.
+   */
+  const [unlocking, setUnlocking] = useState<Note | null>(null)
+  const [unlockTry, setUnlockTry] = useState('')
+  const [unlockError, setUnlockError] = useState<string | null>(null)
+  const [unlockBusy, setUnlockBusy] = useState(false)
+
   const openNote = async (note: Note) => {
     setError(null)
     setUnlockPassword('')
     if (note.is_locked) {
-      const password = prompt('This note is password protected. Enter the password:')
-      if (password === null) return
-      try {
-        const full = await notesApi.get(note.uuid, password)
-        setUnlockPassword(password)
-        startEdit(full)
-      } catch {
-        alert('Wrong password.')
-      }
+      setUnlockTry('')
+      setUnlockError(null)
+      setUnlocking(note)
+
       return
     }
     const full = await notesApi.get(note.uuid)
     startEdit(full)
+  }
+
+  const tryUnlock = async () => {
+    if (!unlocking || !unlockTry) return
+    setUnlockBusy(true)
+    setUnlockError(null)
+    try {
+      const full = await notesApi.get(unlocking.uuid, unlockTry)
+      setUnlockPassword(unlockTry)
+      setUnlocking(null)
+      startEdit(full)
+    } catch {
+      setUnlockError('That is not the password for this note.')
+    } finally {
+      setUnlockBusy(false)
+    }
   }
 
   const startEdit = (note: Note) => {
@@ -354,6 +404,40 @@ export default function NotesPage() {
         </>
       )}
 
+      {/*
+        * Asking for a note's password.
+        *
+        * The browser's own prompt() cannot mask what is typed into it, so
+        * opening a protected note read its password out to anybody in the
+        * room - and to anybody watching a screen share, which is how most of
+        * these get seen.
+        */}
+      {unlocking && (
+        <Modal title={unlocking.title} onClose={() => setUnlocking(null)}>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => { e.preventDefault(); void tryUnlock() }}
+          >
+            <p className="text-sm text-slate-500">This note is password protected.</p>
+            <Input
+              type="password"
+              autoComplete="off"
+              autoFocus
+              value={unlockTry}
+              onChange={(e) => setUnlockTry(e.target.value)}
+              placeholder="Password"
+            />
+            {unlockError && <p className="text-xs text-red-600 dark:text-red-400">{unlockError}</p>}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setUnlocking(null)}>Cancel</Button>
+              <Button type="submit" disabled={unlockBusy || !unlockTry}>
+                {unlockBusy ? 'Opening…' : 'Open the note'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {/* Editor */}
       {showForm && (
         <Modal title={editing ? 'Edit note' : 'New note'} onClose={close} wide>
@@ -477,6 +561,21 @@ export default function NotesPage() {
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   placeholder="Protect this note"
                 />
+                {/* A password is applied by Save and close and never by the
+                    autosave, which would otherwise lock the note with
+                    whatever half of it had been typed so far. */}
+                {form.password && (
+                  <p className="mt-1 text-xs text-slate-400">Applied when you press Save and close.</p>
+                )}
+                {editing?.is_locked && editing?.is_own && !form.password && (
+                  <button
+                    type="button"
+                    onClick={() => void unprotect()}
+                    className="mt-1 text-xs text-red-600 hover:underline dark:text-red-400"
+                  >
+                    Remove the password
+                  </button>
+                )}
               </div>
               <label className="flex items-center gap-2 text-sm sm:pb-2">
                 <input

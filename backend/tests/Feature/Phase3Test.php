@@ -120,6 +120,28 @@ Line two", $plain);
             ->assertJsonPath('data.body', 'PIN is 1234');
     }
 
+    public function test_the_owner_can_take_a_notes_password_off_again(): void
+    {
+        $note = $this->actingAs($this->user)->postJson('/api/v1/notes', [
+            'title' => 'Locked', 'body' => 'Secret', 'password' => 'hunter2',
+        ])->assertCreated()->json('data');
+        $this->assertTrue($note['is_locked']);
+
+        // Shut without it.
+        $this->actingAs($this->user)->getJson("/api/v1/notes/{$note['uuid']}")->assertStatus(423);
+
+        // A null password is what takes the protection off - and it needs the
+        // current one, since reading the note needs it.
+        $opened = $this->actingAs($this->user)
+            ->putJson("/api/v1/notes/{$note['uuid']}", ['password' => null, 'note_password' => 'hunter2'])
+            ->assertOk()->json('data');
+        $this->assertFalse($opened['is_locked']);
+
+        // Open to its owner again, and its writing is still there.
+        $this->assertSame('Secret', $this->actingAs($this->user)
+            ->getJson("/api/v1/notes/{$note['uuid']}")->assertOk()->json('data.body'));
+    }
+
     public function test_note_sharing_and_permissions(): void
     {
         $note = Note::create(['user_id' => $this->user->id, 'title' => 'Shared', 'body' => 'Hello']);
