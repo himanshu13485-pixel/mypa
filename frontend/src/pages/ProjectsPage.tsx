@@ -1008,28 +1008,42 @@ function UnlockProjectCard({ project, onUnlocked }: { project: ProjectItem; onUn
             />
             <Button onClick={() => unlock(value)} disabled={!value || busy}>Open</Button>
           </div>
-          {project.is_owner && (
+          {/*
+            * The way back in belongs to the owner.
+            *
+            * The code goes to their own inbox now rather than round the
+            * admins, so this is a button rather than a request somebody
+            * else has to notice. Anybody the project was shared with sees
+            * who to ask instead of an empty space where the way back should
+            * be - which is what they saw before.
+            */}
+          {project.is_owner ? (
             <div className="mt-3 flex justify-center gap-4 text-xs">
               <button
                 className="text-brand-600 hover:underline"
                 onClick={() => {
                   projectsApi.requestPasswordReset(project.uuid)
-                    .then((r) => setMessage(r.message))
+                    .then((r) => { setMessage(r.message); setShowReset(true) })
                     .catch((err) => setError(errorMessage(err)))
                 }}
               >
-                Forgot? Ask an admin for a reset code
+                Forgot it? Email me a code
               </button>
               <button className="text-slate-400 hover:underline" onClick={() => setShowReset(true)}>
-                Have a reset code?
+                Have a code already?
               </button>
             </div>
+          ) : (
+            <p className="mt-3 text-xs text-slate-400">
+              Forgotten it? {project.owner?.name ?? 'The owner'} can reset it - the code goes to their
+              own e-mail, so only they can.
+            </p>
           )}
         </>
       ) : (
         <div className="mx-auto mt-3 max-w-xs space-y-2 text-left">
           <div>
-            <Label>Reset code (from the admin email)</Label>
+            <Label>Reset code (from the e-mail)</Label>
             <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="6-digit code" autoFocus />
           </div>
           <div>
