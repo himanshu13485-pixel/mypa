@@ -368,12 +368,16 @@ export interface FileItem {
   created_at: string
   deleted_at?: string
   owner?: { uuid: string; name: string }
+  /** How many other people this was given to directly. */
+  shared_count?: number
 }
 
 export interface FolderItem {
   uuid: string
   name: string
   files_count?: number
+  /** How many other people this was given to directly. */
+  shared_count?: number
   created_at?: string
 }
 
