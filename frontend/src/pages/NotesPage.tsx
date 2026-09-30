@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, Pin, Plus, Share2, Trash2, Users, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
@@ -97,27 +97,91 @@ export default function NotesPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['notes'] })
 
+  /*
+   * Writing is saved as it is written.
+   *
+   * A note is where somebody puts the thing they are about to forget, and
+   * asking them to remember a button first is the wrong way round. So the
+   * note saves itself a moment after the typing stops, and Save note is
+   * there for finishing rather than for keeping.
+   *
+   * A pause rather than a keystroke: saving on every letter would be a
+   * request per letter, and a note is written in bursts.
+   */
+  const AUTOSAVE_PAUSE_MS = 900
+  const [saved, setSaved] = useState<'clean' | 'dirty' | 'saving' | 'saved'>('clean')
+  const savedSnapshot = useRef<string>('')
+  const autosaveTimer = useRef<number | null>(null)
+
+  const payloadOf = (f: NoteFormState): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {
+      title: f.title,
+      type: f.type,
+      body: f.type === 'text' ? f.body : null,
+      checklist: f.type === 'checklist' ? f.checklist.filter((c) => c.text.trim()) : null,
+      color: f.color || null,
+      is_pinned: f.is_pinned,
+    }
+    if (f.password) payload.password = f.password
+
+    return payload
+  }
+
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const payload: Record<string, unknown> = {
-        title: form.title,
-        type: form.type,
-        body: form.type === 'text' ? form.body : null,
-        checklist: form.type === 'checklist' ? form.checklist.filter((c) => c.text.trim()) : null,
-        color: form.color || null,
-        is_pinned: form.is_pinned,
-      }
-      if (form.password) payload.password = form.password
-      return editing
-        ? notesApi.update(editing.uuid, payload, unlockPassword || undefined)
-        : notesApi.create(payload)
-    },
+    mutationFn: () => (editing
+      ? notesApi.update(editing.uuid, payloadOf(form), unlockPassword || undefined)
+      : notesApi.create(payloadOf(form))),
     onSuccess: () => {
       invalidate()
       close()
     },
     onError: (err) => setError(errorMessage(err)),
   })
+
+  /**
+   * The same save, without shutting the dialog.
+   *
+   * A note with no title has nothing to be listed under, so it waits - a
+   * row called "Untitled" appearing the moment somebody starts typing is
+   * worse than waiting for them to say what it is.
+   */
+  const autosave = async (f: NoteFormState) => {
+    if (!f.title.trim()) return
+    const snapshot = JSON.stringify(payloadOf(f))
+    if (snapshot === savedSnapshot.current) return
+
+    setSaved('saving')
+    try {
+      if (editing) {
+        await notesApi.update(editing.uuid, payloadOf(f), unlockPassword || undefined)
+      } else {
+        // The first save is what gives it a uuid; from here it is an edit,
+        // so a note is never created twice by its own second keystroke.
+        const made = await notesApi.create(payloadOf(f))
+        setEditing(made)
+      }
+      savedSnapshot.current = snapshot
+      setSaved('saved')
+      invalidate()
+    } catch (err) {
+      setSaved('dirty')
+      setError(errorMessage(err))
+    }
+  }
+
+  // The pause, restarted by every keystroke and cleared when the dialog goes.
+  useEffect(() => {
+    if (!showForm) return
+    const snapshot = JSON.stringify(payloadOf(form))
+    if (snapshot === savedSnapshot.current) return
+
+    setSaved('dirty')
+    if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = window.setTimeout(() => { void autosave(form) }, AUTOSAVE_PAUSE_MS)
+
+    return () => { if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, showForm])
 
   const deleteMutation = useMutation({
     mutationFn: (uuid: string) => notesApi.remove(uuid),
@@ -166,6 +230,24 @@ export default function NotesPage() {
 
   const startEdit = (note: Note) => {
     setEditing(note)
+    setSaved('clean')
+    /*
+     * What is on the server, so merely opening a note does not save it.
+     *
+     * Without this the first run of the autosave effect sees a form it has
+     * never saved and writes it back unchanged - a pointless version on
+     * every note anybody so much as looked at.
+     */
+    const opened: NoteFormState = {
+      title: note.title,
+      type: note.type,
+      body: note.body ?? '',
+      checklist: note.checklist ?? [],
+      color: note.color ?? '',
+      is_pinned: note.is_pinned,
+      password: '',
+    }
+    savedSnapshot.current = JSON.stringify(payloadOf(opened))
     setForm({
       title: note.title,
       type: note.type,
@@ -179,10 +261,13 @@ export default function NotesPage() {
   }
 
   const close = () => {
+    if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current)
     setShowForm(false)
     setEditing(null)
     setForm(emptyForm)
     setUnlockPassword('')
+    setSaved('clean')
+    savedSnapshot.current = ''
   }
 
   const notesList = data?.data ?? []
@@ -403,12 +488,34 @@ export default function NotesPage() {
               </label>
             </div>
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {/*
+                * What the note has done with itself, said quietly.
+                *
+                * Writing that saves without being asked has to say so, or
+                * nobody believes it and everybody keeps pressing the button
+                * anyway. "Untitled" waits for a title, because that is the
+                * one thing keeping it from being saved.
+                */}
+              <span className="mr-auto text-xs text-slate-400" aria-live="polite">
+                {!form.title.trim()
+                  ? 'Give it a title and it saves itself'
+                  : saved === 'saving'
+                    ? 'Saving…'
+                    : saved === 'dirty'
+                      ? 'Unsaved changes'
+                      : saved === 'saved'
+                        ? 'Saved'
+                        : ''}
+              </span>
+              {/* Cancel while it has never been saved, because then there
+                  is genuinely something to throw away. Once autosave has
+                  made it, closing is all that is left to do. */}
               <Button type="button" variant="secondary" onClick={close}>
-                Cancel
+                {editing ? 'Close' : 'Cancel'}
               </Button>
               <Button type="submit" disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? 'Saving…' : 'Save note'}
+                {saveMutation.isPending ? 'Saving…' : 'Save and close'}
               </Button>
             </div>
           </form>
