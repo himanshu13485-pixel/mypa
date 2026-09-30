@@ -412,6 +412,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/projects/{project}/unshare', [\App\Http\Controllers\Api\V1\ProjectController::class, 'unshare']);
         Route::get('/projects/{project}/summary', [\App\Http\Controllers\Api\V1\ProjectController::class, 'summary']);
         Route::get('/projects/{project}/export', [\App\Http\Controllers\Api\V1\ProjectController::class, 'export']);
+        // The paperwork behind one line of the ledger.
+        Route::post('/projects/{project}/entries/{entry}/files', [\App\Http\Controllers\Api\V1\ProjectController::class, 'storeEntryFile']);
+        Route::get('/projects/{project}/entries/{entry}/files/{fileUuid}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'downloadEntryFile']);
+        Route::delete('/projects/{project}/entries/{entry}/files/{fileUuid}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'destroyEntryFile']);
+
+        // A note's own way back in, to the owner's own address.
+        Route::post('/notes/{note}/request-password-reset', [\App\Http\Controllers\Api\V1\NoteController::class, 'requestPasswordReset'])
+            ->middleware('throttle:chat-lock-mail');
+        Route::post('/notes/{note}/reset-password', [\App\Http\Controllers\Api\V1\NoteController::class, 'resetPassword'])
+            ->middleware('throttle:chat-lock');
+
         Route::post('/projects/{project}/request-password-reset', [\App\Http\Controllers\Api\V1\ProjectController::class, 'requestPasswordReset']);
         Route::post('/projects/{project}/reset-password', [\App\Http\Controllers\Api\V1\ProjectController::class, 'resetPassword']);
 

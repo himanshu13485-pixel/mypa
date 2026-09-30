@@ -139,7 +139,7 @@ class ProjectLedgerTest extends TestCase
         $this->actingAs($viewer)->getJson("/api/v1/projects/{$project['uuid']}/entries")->assertForbidden();
     }
 
-    public function test_password_lock_and_admin_reset_flow(): void
+    public function test_password_lock_and_the_admin_reset_fallback(): void
     {
         \Illuminate\Support\Facades\Mail::fake();
         $admin = User::factory()->create();
@@ -165,9 +165,12 @@ class ProjectLedgerTest extends TestCase
                 'entry_date' => now()->toDateString(), 'description' => 'Locked entry', 'direction' => 'debit', 'amount' => 100,
             ])->assertCreated();
 
-        // Owner forgot: request pings admins; only an admin can issue the code.
-        $this->actingAs($this->user)->postJson("/api/v1/projects/{$project['uuid']}/request-password-reset")->assertOk();
-        $this->assertEquals('project_reset_request', $admin->notifications()->first()->data['kind']);
+        /*
+         * An admin can still issue a code - for the times somebody wants
+         * a person looked at before a project is reopened. The owner's
+         * own self-service route is covered in
+         * ProjectPaperworkAndNoteReportsTest.
+         */
         $this->actingAs($this->user)->postJson("/api/v1/admin/projects/{$project['uuid']}/send-password-reset")->assertForbidden();
 
         $this->actingAs($admin)->postJson("/api/v1/admin/projects/{$project['uuid']}/send-password-reset")->assertOk();

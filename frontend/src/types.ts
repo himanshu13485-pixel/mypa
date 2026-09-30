@@ -348,6 +348,8 @@ export interface Note {
   is_pinned: boolean
   is_locked: boolean
   is_own: boolean
+  /** Writes to its owner on the days it changed, as a project's ledger does. */
+  daily_report?: boolean
   group?: { uuid: string; name: string } | null
   owner?: { uuid: string; name: string; username?: string | null } | null
   shared_with?: NoteShare[]
@@ -754,6 +756,17 @@ export interface ProjectEntryItem {
   reminder_at?: string | null
   created_by?: string | null
   updated_by?: string | null
+  /** The bill, the receipt, the photograph of the delivery. */
+  files?: ProjectEntryFile[]
+}
+
+/** One piece of paperwork behind a ledger line. */
+export interface ProjectEntryFile {
+  uuid: string
+  name: string
+  mime?: string | null
+  size?: number | null
+  created_at?: string
 }
 
 export interface ProjectSummaryRow {

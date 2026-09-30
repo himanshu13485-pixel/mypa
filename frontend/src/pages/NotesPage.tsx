@@ -28,6 +28,7 @@ interface NoteFormState {
   checklist: { text: string; done?: boolean }[]
   color: string
   is_pinned: boolean
+  daily_report: boolean
   password: string
 }
 
@@ -38,6 +39,7 @@ const emptyForm: NoteFormState = {
   checklist: [],
   color: '',
   is_pinned: false,
+  daily_report: false,
   password: '',
 }
 
@@ -129,6 +131,7 @@ export default function NotesPage() {
       checklist: f.type === 'checklist' ? f.checklist.filter((c) => c.text.trim()) : null,
       color: f.color || null,
       is_pinned: f.is_pinned,
+      daily_report: f.daily_report,
     }
     if (withPassword && f.password) payload.password = f.password
 
@@ -254,12 +257,50 @@ export default function NotesPage() {
     if (note.is_locked) {
       setUnlockTry('')
       setUnlockError(null)
+      setForgotSent(null)
+      setCode('')
+      setFreshPassword('')
       setUnlocking(note)
 
       return
     }
     const full = await notesApi.get(note.uuid)
     startEdit(full)
+  }
+
+  const [forgotSent, setForgotSent] = useState<string | null>(null)
+  const [code, setCode] = useState('')
+  const [freshPassword, setFreshPassword] = useState('')
+
+  const forgotPassword = async () => {
+    if (!unlocking) return
+    setUnlockError(null)
+    try {
+      const res = await notesApi.requestPasswordReset(unlocking.uuid)
+      setForgotSent(res.message)
+    } catch (err) {
+      setUnlockError(errorMessage(err))
+    }
+  }
+
+  const redeemCode = async () => {
+    if (!unlocking || !code) return
+    setUnlockError(null)
+    try {
+      await notesApi.resetPassword(unlocking.uuid, code, freshPassword || undefined)
+      const was = unlocking
+      setCode('')
+      setFreshPassword('')
+      setForgotSent(null)
+      setUnlocking(null)
+      invalidate()
+      // Straight in, with the new password if one was given.
+      const full = await notesApi.get(was.uuid, freshPassword || undefined)
+      setUnlockPassword(freshPassword || '')
+      startEdit(full)
+    } catch (err) {
+      setUnlockError(errorMessage(err))
+    }
   }
 
   const tryUnlock = async () => {
@@ -295,6 +336,7 @@ export default function NotesPage() {
       checklist: note.checklist ?? [],
       color: note.color ?? '',
       is_pinned: note.is_pinned,
+      daily_report: !!note.daily_report,
       password: '',
     }
     savedSnapshot.current = JSON.stringify(payloadOf(opened))
@@ -305,6 +347,7 @@ export default function NotesPage() {
       checklist: note.checklist ?? [],
       color: note.color ?? '',
       is_pinned: note.is_pinned,
+      daily_report: !!note.daily_report,
       password: '',
     })
     setShowForm(true)
@@ -428,12 +471,45 @@ export default function NotesPage() {
               placeholder="Password"
             />
             {unlockError && <p className="text-xs text-red-600 dark:text-red-400">{unlockError}</p>}
-            <div className="flex justify-end gap-2">
+            {forgotSent && <p className="text-xs text-emerald-600 dark:text-emerald-400">{forgotSent}</p>}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {/*
+                * A note behind a forgotten password used to be a lost note:
+                * there was no way back at all, which made the lock a
+                * shredder for anybody who wrote the password down badly.
+                */}
+              {unlocking.is_own && (
+                <button
+                  type="button"
+                  className="mr-auto text-xs text-brand-600 hover:underline"
+                  onClick={() => void forgotPassword()}
+                >
+                  Forgot it? Email me a code
+                </button>
+              )}
               <Button type="button" variant="secondary" onClick={() => setUnlocking(null)}>Cancel</Button>
               <Button type="submit" disabled={unlockBusy || !unlockTry}>
                 {unlockBusy ? 'Opening…' : 'Open the note'}
               </Button>
             </div>
+            {forgotSent && (
+              <div className="space-y-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+                <p className="text-xs text-slate-500">
+                  Type the code from the e-mail. Leave the new password blank to take the password off
+                  the note altogether.
+                </p>
+                <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Six-digit code" />
+                <Input
+                  type="password"
+                  value={freshPassword}
+                  onChange={(e) => setFreshPassword(e.target.value)}
+                  placeholder="New password (optional)"
+                />
+                <Button type="button" size="sm" disabled={!code} onClick={() => void redeemCode()}>
+                  Use the code
+                </Button>
+              </div>
+            )}
           </form>
         </Modal>
       )}
@@ -577,14 +653,36 @@ export default function NotesPage() {
                   </button>
                 )}
               </div>
-              <label className="flex items-center gap-2 text-sm sm:pb-2">
-                <input
-                  type="checkbox"
-                  checked={form.is_pinned}
-                  onChange={(e) => setForm({ ...form, is_pinned: e.target.checked })}
-                />
-                Pin note
-              </label>
+              <div className="space-y-1.5 sm:pb-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.is_pinned}
+                    onChange={(e) => setForm({ ...form, is_pinned: e.target.checked })}
+                  />
+                  Pin note
+                </label>
+                {/*
+                  * The same letter a project's ledger sends, for the place
+                  * people keep the thing they are about to forget. Only on
+                  * the days it changed - a daily mail that arrives on days
+                  * with nothing in it is one people stop opening.
+                  */}
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={form.daily_report}
+                    onChange={(e) => setForm({ ...form, daily_report: e.target.checked })}
+                  />
+                  <span>
+                    Email me a daily report
+                    <span className="block text-xs text-slate-400">
+                      On the days it changed. A note with a password is named but never quoted.
+                    </span>
+                  </span>
+                </label>
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-2">

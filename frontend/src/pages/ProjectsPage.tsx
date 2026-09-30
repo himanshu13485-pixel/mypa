@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowDownCircle, ArrowUpCircle, Bell, Briefcase, Download, Pencil, Plus, Search, Share2, Trash2,
+  ArrowDownCircle, ArrowUpCircle, Bell, Briefcase, Download, Paperclip, Pencil, Plus, Search, Share2, Trash2,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { clsx } from 'clsx'
 import { projects as projectsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
+import { useToast } from '../components/Toast'
+import { saveBlob } from '../lib/download'
 import { useAuthStore } from '../stores/auth'
 import type { ProjectItem, ProjectEntryItem, ProjectSummaryRow } from '../types'
 import {
@@ -580,6 +582,21 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
                           {e.updated_by && `${e.created_by ? ' · ' : ''}edited by ${e.updated_by}`}
                         </span>
                       )}
+                      {/*
+                        * The bill behind the number.
+                        *
+                        * An entry is a line in a ledger and what proves it
+                        * used to live in somebody's phone. Here it sits with
+                        * the line, and rides out with the daily report when
+                        * the line changes.
+                        */}
+                      <EntryPaperwork
+                        project={project.uuid}
+                        entry={e}
+                        password={pw}
+                        canEdit={canEdit}
+                        onChanged={invalidate}
+                      />
                     </td>
                     <td className="px-3 py-2 text-slate-500">{e.counterparty ?? '—'}</td>
                     <td className="px-3 py-2 text-xs capitalize text-slate-500">
@@ -970,5 +987,100 @@ function UnlockProjectCard({ project, onUnlocked }: { project: ProjectItem; onUn
         </div>
       )}
     </Card>
+  )
+}
+
+/**
+ * The paperwork behind one line of the ledger.
+ *
+ * A bill, a receipt, a photograph of the delivery, the signed measurement
+ * sheet. Kept with the entry rather than in somebody's phone - and carried
+ * out with the daily report when the entry it belongs to changes, so the
+ * bill arrives with the number instead of after a phone call asking for it.
+ */
+function EntryPaperwork({ project, entry, password, canEdit, onChanged }: {
+  project: string
+  entry: ProjectEntryItem
+  password?: string
+  canEdit: boolean
+  onChanged: () => void
+}) {
+  const { toast, toastError } = useToast()
+  const picker = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const files = entry.files ?? []
+
+  const add = async (chosen: File[]) => {
+    if (!chosen.length) return
+    setBusy(true)
+    try {
+      for (const file of chosen.slice(0, Math.max(0, 10 - files.length))) {
+        await projectsApi.entryFiles.add(project, entry.uuid, file, password)
+      }
+      toast(chosen.length === 1 ? 'Attached.' : `${chosen.length} files attached.`, 'success')
+      onChanged()
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      {files.map((f) => (
+        <span key={f.uuid} className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] dark:bg-slate-800">
+          <button
+            type="button"
+            className="max-w-[10rem] truncate hover:underline"
+            title={`Download ${f.name}`}
+            onClick={() => projectsApi.entryFiles.download(project, entry.uuid, f.uuid, password)
+              .then((blob) => saveBlob(blob, f.name))
+              .catch((err) => toastError(errorMessage(err)))}
+          >
+            <Paperclip className="mr-0.5 inline size-2.5" />{f.name}
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              aria-label={`Remove ${f.name}`}
+              className="text-slate-400 hover:text-red-600"
+              onClick={() => {
+                if (!window.confirm(`Remove "${f.name}" from this entry?`)) return
+                projectsApi.entryFiles.remove(project, entry.uuid, f.uuid, password)
+                  .then(onChanged)
+                  .catch((err) => toastError(errorMessage(err)))
+              }}
+            >
+              ×
+            </button>
+          )}
+        </span>
+      ))}
+
+      {canEdit && files.length < 10 && (
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => picker.current?.click()}
+            className="rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800"
+          >
+            <Paperclip className="mr-0.5 inline size-2.5" />{busy ? 'Attaching…' : 'Attach'}
+          </button>
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const chosen = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              void add(chosen)
+            }}
+          />
+        </>
+      )}
+    </div>
   )
 }

@@ -454,6 +454,13 @@ export const notes = {
       headers: password ? { 'X-Note-Password': password } : {},
     }).then((r) => r.data.data),
   remove: (uuid: string) => api.delete(`/notes/${uuid}`),
+  /* The owner's own way back into a note whose password has gone. */
+  requestPasswordReset: (uuid: string) =>
+    api.post<{ message: string }>(`/notes/${uuid}/request-password-reset`).then((r) => r.data),
+  resetPassword: (uuid: string, code: string, newPassword?: string) =>
+    api.post<{ message: string }>(`/notes/${uuid}/reset-password`, {
+      code, new_password: newPassword || null,
+    }).then((r) => r.data),
   share: (uuid: string, app_id: string, permission: 'view' | 'edit') =>
     api.post<{ message: string; data: Note }>(`/notes/${uuid}/share`, { app_id, permission }).then((r) => r.data.data),
   unshare: (uuid: string, userUuid: string) =>
@@ -1045,6 +1052,23 @@ export const projects = {
     api.get<{ data: import('../types').ProjectSummaryRow[]; contributors: import('../types').ProjectContributor[] }>(
       `/projects/${uuid}/summary`, { params, ...pwHeaders(pw) },
     ).then((r) => r.data),
+  /* The paperwork behind one line of the ledger. */
+  entryFiles: {
+    add: (uuid: string, entryUuid: string, file: File, pw?: string) => {
+      const form = new FormData()
+      form.append('file', file)
+
+      return api.post<{ message: string; data: import('../types').ProjectEntryFile }>(
+        `/projects/${uuid}/entries/${entryUuid}/files`, form, pwHeaders(pw),
+      ).then((r) => r.data)
+    },
+    download: (uuid: string, entryUuid: string, fileUuid: string, pw?: string) =>
+      api.get(`/projects/${uuid}/entries/${entryUuid}/files/${fileUuid}`, { responseType: 'blob', ...pwHeaders(pw) })
+        .then((r) => r.data as Blob),
+    remove: (uuid: string, entryUuid: string, fileUuid: string, pw?: string) =>
+      api.delete<{ message: string }>(`/projects/${uuid}/entries/${entryUuid}/files/${fileUuid}`, pwHeaders(pw))
+        .then((r) => r.data),
+  },
   requestPasswordReset: (uuid: string) =>
     api.post<{ message: string }>(`/projects/${uuid}/request-password-reset`).then((r) => r.data),
   resetPassword: (uuid: string, code: string, newPassword: string) =>

@@ -4,9 +4,11 @@ namespace App\Console\Commands;
 
 use App\Mail\ProjectDailyReport;
 use App\Models\Project;
+use App\Models\ProjectEntryFile;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * Daily project ledger reports: mailed once a day, ONLY when the ledger
@@ -34,14 +36,14 @@ class SendProjectDailyReports extends Command
 
                     // First report ever: everything counts as new.
                     $since = $project->last_reported_at;
-                    $changes = $since
-                        ? $project->entries()
-                            ->where(fn ($q) => $q->where('created_at', '>', $since)->orWhere('updated_at', '>', $since))
-                            ->count()
-                        : $project->entries()->count();
+                    $moved = $project->entries()
+                        ->when($since, fn ($q) => $q->where(fn ($w) => $w->where('created_at', '>', $since)->orWhere('updated_at', '>', $since)));
+                    $changes = (clone $moved)->count();
                     if ($changes === 0) {
                         continue; // nothing new — stay quiet today
                     }
+
+                    $entryFiles = $this->paperworkFor((clone $moved)->pluck('id'));
 
                     [$contents, $name, $mime] = $project->report_format === 'pdf'
                         ? $this->pdfReport($project)
@@ -54,6 +56,7 @@ class SendProjectDailyReports extends Command
                         $contents,
                         $name,
                         $mime,
+                        $entryFiles,
                     ));
                     $project->updateQuietly(['last_reported_at' => now()]);
                     $sent++;
@@ -172,5 +175,38 @@ class SendProjectDailyReports extends Command
     protected function nowString(): string
     {
         return now()->format('d M Y, H:i');
+    }
+
+    /**
+     * The files hanging off the entries that moved, read off the disk now.
+     *
+     * Read rather than referenced, because the mail is queued and opened
+     * later - by which time a path can be gone. Bounded twice over: a
+     * report is meant to be read on a phone, and a mail server that refuses
+     * a twenty-megabyte attachment sends nothing at all rather than the
+     * numbers without the paperwork.
+     */
+    protected function paperworkFor($entryIds): array
+    {
+        $files = [];
+        $budget = 8 * 1024 * 1024;
+
+        foreach (ProjectEntryFile::whereIn('project_entry_id', $entryIds)->orderBy('id')->limit(20)->get() as $file) {
+            if (! Storage::disk('local')->exists($file->path)) {
+                continue;
+            }
+            $size = (int) ($file->size ?: Storage::disk('local')->size($file->path));
+            if ($size > $budget) {
+                continue;
+            }
+            $budget -= $size;
+            $files[] = [
+                'name' => $file->name,
+                'mime' => $file->mime ?: 'application/octet-stream',
+                'body' => (string) Storage::disk('local')->get($file->path),
+            ];
+        }
+
+        return $files;
     }
 }

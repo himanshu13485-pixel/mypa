@@ -191,6 +191,9 @@ class NoteController extends Controller
             'checklist.*.done' => ['sometimes', 'boolean'],
             'color' => ['nullable', 'string', 'max:16'],
             'is_pinned' => ['sometimes', 'boolean'],
+            // A note can write to you every day it changed, the way a
+            // project's ledger already does.
+            'daily_report' => ['sometimes', 'boolean'],
             'password' => ['sometimes', 'nullable', 'string', 'min:4', 'max:100'],
             'group_uuid' => ['sometimes', 'nullable', 'uuid'],
         ]);
@@ -222,6 +225,75 @@ class NoteController extends Controller
         return $data;
     }
 
+    // ---- Password reset, and the daily letter -------------------------------
+
+    /**
+     * Forgot a note's password: a code to the owner's own address.
+     *
+     * A note behind a forgotten password was a lost note - there was no way
+     * back at all, which made the lock a shredder for anybody who wrote the
+     * password down badly. The owner's own inbox is the proof that matters.
+     */
+    public function requestPasswordReset(Request $request, Note $note): JsonResponse
+    {
+        abort_unless($note->user_id === $request->user()->id, 403, 'Only the note\'s owner can reset its password.');
+        abort_unless($note->password_hash, 422, 'This note has no password.');
+
+        $me = $request->user();
+        abort_unless($me->email && $me->email_verified_at, 422,
+            'Confirm your e-mail address first - a code can only go to an address you have proved you can read.');
+
+        $minutes = max(5, (int) (\App\Models\AppSetting::get('otp_expiry_minutes') ?: 10));
+        $code = (string) random_int(100000, 999999);
+
+        $note->forceFill([
+            'reset_code_hash' => Hash::make($code),
+            'reset_code_expires_at' => now()->addMinutes($minutes),
+        ])->save();
+
+        $me->notify(new \App\Notifications\ItemPasswordResetNotification('note', $note->title, $code, $minutes));
+
+        [$name, $domain] = array_pad(explode('@', $me->email, 2), 2, '');
+
+        return response()->json([
+            'message' => 'A code has been sent to '
+                . mb_substr($name, 0, 2) . str_repeat('*', max(1, mb_strlen($name) - 2)) . '@' . $domain . '.',
+        ]);
+    }
+
+    /** The code from the e-mail, and a new password - or none at all. */
+    public function resetPassword(Request $request, Note $note): JsonResponse
+    {
+        abort_unless($note->user_id === $request->user()->id, 403, 'Only the note\'s owner can reset its password.');
+
+        $data = $request->validate([
+            'code' => ['required', 'string'],
+            // Blank takes the password off entirely, which is what somebody
+            // who has forgotten it usually wants.
+            'new_password' => ['nullable', 'string', 'min:4', 'max:100'],
+        ]);
+
+        abort_unless(
+            $note->reset_code_hash
+                && $note->reset_code_expires_at?->isFuture()
+                && Hash::check($data['code'], $note->reset_code_hash),
+            422,
+            'That code is wrong or has expired - ask for a new one.',
+        );
+
+        $note->forceFill([
+            'password_hash' => filled($data['new_password'] ?? null) ? Hash::make($data['new_password']) : null,
+            'reset_code_hash' => null,
+            'reset_code_expires_at' => null,
+        ])->save();
+
+        return response()->json([
+            'message' => filled($data['new_password'] ?? null)
+                ? 'Password changed - the note now opens with your new one.'
+                : 'The password is off. The note opens without one.',
+        ]);
+    }
+
     protected function passwordOk(Request $request, Note $note): bool
     {
         $password = $request->header('X-Note-Password') ?? $request->input('note_password');
@@ -241,6 +313,7 @@ class NoteController extends Controller
             'is_pinned' => $note->is_pinned,
             'is_locked' => $locked,
             'is_own' => $note->user_id === $request->user()->id,
+            'daily_report' => (bool) $note->daily_report,
             'group' => $note->group ? ['uuid' => $note->group->uuid, 'name' => $note->group->name] : null,
             // Who else is on this note. Everybody who can see the note can see
             // the list - otherwise there is no way to tell where it has gone.

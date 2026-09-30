@@ -79,7 +79,7 @@ class ProjectController extends Controller
         $this->authorizeUnlocked($request, $project);
 
         $entries = $this->filteredEntries($request, $project)
-            ->with(['creator:id,uuid,name', 'editor:id,uuid,name'])
+            ->with(['creator:id,uuid,name', 'editor:id,uuid,name', 'files'])
             ->orderByDesc('entry_date')
             ->orderByDesc('id')
             ->paginate(25);
@@ -348,28 +348,60 @@ class ProjectController extends Controller
         return response()->json(['message' => "Access removed for {$target->name}."]);
     }
 
-    // ---- Password reset (admin-issued codes) --------------------------------
+    // ---- Password reset -----------------------------------------------------
 
-    /** Owner forgot the project password: ping the admins to send a reset code. */
+    /**
+     * Forgot the project password: a code to the owner's own address.
+     *
+     * It used to go round the admins - the owner asked, an admin noticed,
+     * an admin sent a code - which made a forgotten password somebody
+     * else's morning and left the owner waiting on it. The owner's own
+     * inbox is the proof that matters: whoever can read it is the owner,
+     * and whoever merely picked up the phone is not.
+     *
+     * The admin route still exists for the times somebody wants a person
+     * looked at before a project is reopened; it is simply no longer the
+     * only way back in.
+     */
     public function requestPasswordReset(Request $request, Project $project): JsonResponse
     {
         $this->authorizeOwner($request, $project);
         abort_unless($project->password_hash, 422, 'This project has no password.');
 
-        $admins = \App\Models\User::whereHas('roles', fn ($r) => $r->whereIn('slug', ['admin', 'super_admin']))->get();
-        foreach ($admins as $admin) {
-            $admin->notify(new \App\Notifications\SocialNotification(
-                'project_reset_request',
-                "{$request->user()->name} forgot the password of project \u{201C}{$project->name}\u{201D} and needs a reset code.",
-                ['project_uuid' => $project->uuid, 'owner' => $request->user()->name],
-                '/admin',
-            ));
-        }
+        $me = $request->user();
 
-        return response()->json(['message' => 'The admins have been asked to send you a reset code by email.']);
+        /*
+         * An account with no address of its own cannot be sent a code by
+         * anybody - not by us, and not by an admin, whose route mails the
+         * owner too. Saying so beats pretending something is on its way.
+         */
+        abort_unless($me->email, 422, 'Add an e-mail address to your account first - a reset code has to go somewhere.');
+
+        $minutes = max(5, (int) (\App\Models\AppSetting::get('otp_expiry_minutes') ?: 10));
+        $code = (string) random_int(100000, 999999);
+
+        $project->forceFill([
+            'reset_code_hash' => \Illuminate\Support\Facades\Hash::make($code),
+            'reset_code_expires_at' => now()->addMinutes($minutes),
+        ])->save();
+
+        $me->notify(new \App\Notifications\ItemPasswordResetNotification('project', $project->name, $code, $minutes));
+
+        return response()->json([
+            'message' => 'A code has been sent to ' . $this->masked($me->email) . '.',
+            'data' => ['sent_to' => $this->masked($me->email)],
+        ]);
     }
 
-    /** Owner redeems the admin-issued code and sets a fresh password. */
+    /** Enough of an address to recognise, not enough to read out. */
+    protected function masked(string $email): string
+    {
+        [$name, $domain] = array_pad(explode('@', $email, 2), 2, '');
+
+        return mb_substr($name, 0, 2) . str_repeat('*', max(1, mb_strlen($name) - 2)) . '@' . $domain;
+    }
+
+    /** Owner redeems the code from the e-mail and sets a fresh password. */
     public function resetPassword(Request $request, Project $project): JsonResponse
     {
         $this->authorizeOwner($request, $project);
@@ -384,7 +416,7 @@ class ProjectController extends Controller
                 && $project->reset_code_expires_at?->isFuture()
                 && \Illuminate\Support\Facades\Hash::check($data['code'], $project->reset_code_hash),
             422,
-            'That reset code is wrong or has expired - ask an admin for a new one.'
+            'That reset code is wrong or has expired - ask for a new one.'
         );
 
         $project->forceFill([
@@ -545,6 +577,68 @@ class ProjectController extends Controller
             'reminder_at' => $entry->reminder_at?->toIso8601String(),
             'created_by' => $entry->relationLoaded('creator') && $entry->creator ? $entry->creator->name : null,
             'updated_by' => $entry->relationLoaded('editor') && $entry->editor ? $entry->editor->name : null,
+            // The paperwork behind the line, so the row can show it without
+            // a second request per entry.
+            'files' => $entry->relationLoaded('files')
+                ? $entry->files->map(fn ($f) => $f->serialize())->values()
+                : [],
         ];
+    }
+
+    // ---- The paperwork behind an entry --------------------------------------
+
+    /**
+     * Attach a bill, a receipt, a photograph of the delivery.
+     *
+     * An entry is a line in a ledger - "cement, 50 bags, 18,400" - and what
+     * proves it used to live in somebody's phone. Ten to a line is more
+     * paperwork than any line has, and keeps the daily report sendable.
+     */
+    public function storeEntryFile(Request $request, Project $project, ProjectEntry $entry): JsonResponse
+    {
+        $this->authorizeEdit($request, $project);
+        $this->authorizeUnlocked($request, $project);
+        abort_unless($entry->project_id === $project->id, 404);
+
+        $request->validate(['file' => ['required', 'file', 'max:10240']]);
+        abort_if($entry->files()->count() >= 10, 422, 'That entry already holds ten files. Remove one first.');
+
+        $file = $request->file('file');
+        $stored = $file->store('project-files/' . $project->id . '/' . $entry->id, 'local');
+
+        $row = $entry->files()->create([
+            'project_id' => $project->id,
+            'name' => mb_substr((string) $file->getClientOriginalName(), 0, 200),
+            'path' => $stored,
+            'mime' => $file->getClientMimeType(),
+            'size' => $file->getSize(),
+            'uploaded_by' => $request->user()->id,
+        ]);
+
+        return response()->json(['message' => 'Attached.', 'data' => $row->serialize()], 201);
+    }
+
+    public function downloadEntryFile(Request $request, Project $project, ProjectEntry $entry, string $fileUuid): \Symfony\Component\HttpFoundation\StreamedResponse
+    {
+        $this->authorizeView($request, $project);
+        $this->authorizeUnlocked($request, $project);
+        abort_unless($entry->project_id === $project->id, 404);
+
+        $row = $entry->files()->where('uuid', $fileUuid)->firstOrFail();
+
+        return \Illuminate\Support\Facades\Storage::disk('local')->download($row->path, $row->name);
+    }
+
+    public function destroyEntryFile(Request $request, Project $project, ProjectEntry $entry, string $fileUuid): JsonResponse
+    {
+        $this->authorizeEdit($request, $project);
+        $this->authorizeUnlocked($request, $project);
+        abort_unless($entry->project_id === $project->id, 404);
+
+        $row = $entry->files()->where('uuid', $fileUuid)->firstOrFail();
+        \Illuminate\Support\Facades\Storage::disk('local')->delete($row->path);
+        $row->delete();
+
+        return response()->json(['message' => 'Removed.']);
     }
 }

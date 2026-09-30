@@ -36,6 +36,12 @@ class ProjectEntry extends Model
         return 'uuid';
     }
 
+    /** The bill, the receipt, the photograph of the delivery. */
+    public function files(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ProjectEntryFile::class, 'project_entry_id');
+    }
+
     public function project(): BelongsTo
     {
         return $this->belongsTo(Project::class);
