@@ -691,6 +691,10 @@ function EntryFormModal({
       : { ...emptyEntryForm, currency: project.base_currency },
   )
   const [error, setError] = useState<string | null>(null)
+  /* Files chosen while writing the entry, uploaded once it has a uuid. */
+  const [waiting, setWaiting] = useState<File[]>([])
+  const picker = useRef<HTMLInputElement>(null)
+  const already = entry?.files ?? []
 
   const save = useMutation({
     mutationFn: () => {
@@ -702,10 +706,28 @@ function EntryFormModal({
         reminder_at: form.reminder_at || null,
       }
       return entry
-        ? projectsApi.updateEntry(project.uuid, entry.uuid, payload, pw)
+        ? projectsApi.updateEntry(project.uuid, entry.uuid, payload, pw).then(() => entry.uuid)
         : projectsApi.createEntry(project.uuid, payload, pw)
+          .then((res) => (res as { data?: { uuid?: string } })?.data?.uuid)
     },
-    onSuccess: () => {
+    onSuccess: async (entryUuid) => {
+      /*
+       * The paperwork goes up after the line exists.
+       *
+       * A new entry has no uuid until it is saved, so files picked while
+       * writing it wait here rather than being refused - which is the same
+       * shape as a bank account's documents in Billing setup, and the
+       * reason the picker does not simply upload as you choose.
+       */
+      if (entryUuid && waiting.length) {
+        for (const file of waiting) {
+          try {
+            await projectsApi.entryFiles.add(project.uuid, entryUuid, file, pw)
+          } catch (err) {
+            setError(errorMessage(err))
+          }
+        }
+      }
       onSaved()
       onClose()
     },
@@ -785,6 +807,57 @@ function EntryFormModal({
           <Input type="datetime-local" value={form.reminder_at} onChange={(e) => setForm({ ...form, reminder_at: e.target.value })} />
           <p className="mt-1 text-[11px] text-slate-400">Rings an in-app / push / email alert at this time — e.g. to collect a pending payment.</p>
         </div>
+
+        {/*
+          * The bill, here where somebody writing the entry looks for it.
+          *
+          * It is on the row in the ledger too, for adding one to a line
+          * written weeks ago - but nobody goes looking there while the
+          * entry is still being typed.
+          */}
+        <div>
+          <Label>Attachments (bill, receipt, photo)</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => picker.current?.click()}>
+              <Paperclip className="size-3.5" /> Attach files
+            </Button>
+            <span className="text-[11px] text-slate-400">
+              Any format, up to 10 MB each, ten to an entry.
+              {!entry && ' They go up when you add the entry.'}
+            </span>
+          </div>
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const chosen = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              const room = 10 - already.length - waiting.length
+              if (room <= 0) return
+              setWaiting([...waiting, ...chosen.slice(0, room).filter((f) => f.size <= 10 * 1024 * 1024)])
+            }}
+          />
+          {(already.length > 0 || waiting.length > 0) && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {already.map((f) => (
+                <span key={f.uuid} className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] dark:bg-slate-800">
+                  <Paperclip className="size-2.5 text-slate-400" /> {f.name}
+                </span>
+              ))}
+              {waiting.map((f, i) => (
+                <span key={f.name + i} className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800">
+                  <Paperclip className="size-2.5 text-slate-400" /> {f.name}
+                  <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setWaiting(waiting.filter((_, j) => j !== i))}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Saving…' : entry ? 'Save changes' : 'Add entry'}</Button>
