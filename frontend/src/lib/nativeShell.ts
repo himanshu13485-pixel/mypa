@@ -9,38 +9,15 @@
  */
 import { api } from '../api/client'
 import { useAuthStore } from '../stores/auth'
+import { bridge, inNativeShell } from './nativeBridge'
 
-type Listener = (payload: { value?: string; notification?: { data?: Record<string, string> } }) => void
-type BridgePlugin = {
-  addListener: (event: string, cb: Listener) => void
-  start?: (options: { label?: string }) => Promise<void>
-  stop?: () => Promise<void>
-  setSpeakerphone?: (options: { on: boolean }) => Promise<void>
-  listAudioDevices?: () => Promise<{ devices: { kind: string; label: string }[] }>
-  resetAudio?: () => Promise<void>
-  minimizeApp?: () => void
-  requestPermissions?: () => Promise<{ receive?: string }>
-  register?: () => Promise<void>
-  createChannel?: (channel: {
-    id: string
-    name: string
-    description?: string
-    importance: number
-    visibility?: number
-    vibration?: boolean
-    /** Filename in the shell's res/raw, extension included. */
-    sound?: string
-  }) => Promise<void>
-}
-type Bridge = {
-  isNativePlatform?: () => boolean
-  Plugins?: Record<string, BridgePlugin>
-}
-
-const bridge = (): Bridge | undefined => (window as { Capacitor?: Bridge }).Capacitor
-
-/** Inside the installed app, as opposed to a browser tab of the same site. */
-export const inNativeShell = (): boolean => !!bridge()?.isNativePlatform?.()
+/*
+ * Re-exported from where it has always been asked for. The question itself
+ * lives in nativeBridge now, so that asking it does not pull this file - and
+ * the API client behind it - into anything that only needed to know which of
+ * the two places it is running in.
+ */
+export { inNativeShell }
 
 export function installNativeShell(): void {
   if (!inNativeShell()) return

@@ -14,6 +14,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MessageController extends Controller
@@ -935,6 +936,78 @@ class MessageController extends Controller
         $me = $request->user();
         abort_unless($conversation->hasMember($me), 403);
 
+        $attachment = $this->attachmentIn($conversation, $attachmentId);
+
+        return Storage::disk('local')->download($attachment->path, $attachment->name, [
+            'Content-Type' => $attachment->mime_type ?? 'application/octet-stream',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * A link to this attachment that carries its own permission.
+     *
+     * The Android app is a WebView, and a WebView cannot save a file the way
+     * a browser does: there is no download handling in it at all, so the blob
+     * the web app builds with the auth header is simply dropped on the floor.
+     * Nothing happened when somebody tapped a file, which is exactly what was
+     * reported.
+     *
+     * What a WebView can do is hand a plain https URL to Android's download
+     * manager - but the download manager is a different process and carries
+     * none of our headers, so the URL has to prove itself. Hence a signature
+     * on the URL rather than a token in a header.
+     *
+     * Short-lived, because an address that proves its own permission is only
+     * safe while it is nearly expired: two minutes is longer than the tap
+     * that follows it and shorter than anything worth passing around. The
+     * membership and the chat lock are checked here, where the person is
+     * known; the signature then stands in for that check for those two
+     * minutes, the same way a file share link does.
+     */
+    public function attachmentLink(Request $request, Conversation $conversation, int $attachmentId): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $attachment = $this->attachmentIn($conversation, $attachmentId);
+
+        return response()->json(['data' => [
+            'url' => URL::temporarySignedRoute('chat.attachment.signed', now()->addMinutes(2), [
+                'conversation' => $conversation->uuid,
+                'attachmentId' => $attachment->id,
+            ]),
+            'name' => $attachment->name,
+        ]]);
+    }
+
+    /**
+     * The same file, fetched by a signed URL instead of a session.
+     *
+     * No `auth` here on purpose - the download manager has no session to
+     * offer. The signature is the whole credential, and Laravel's `signed`
+     * middleware has already refused anything tampered with or expired by
+     * the time this runs.
+     */
+    public function downloadSignedAttachment(Conversation $conversation, int $attachmentId): StreamedResponse
+    {
+        $attachment = $this->attachmentIn($conversation, $attachmentId);
+
+        return Storage::disk('local')->download($attachment->path, $attachment->name, [
+            'Content-Type' => $attachment->mime_type ?? 'application/octet-stream',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * An attachment of this conversation, or a 404.
+     *
+     * Scoped to the conversation rather than looked up by id alone, so a
+     * number from one thread cannot name a file in another - and a deleted
+     * message's attachment stops being reachable with it.
+     */
+    private function attachmentIn(Conversation $conversation, int $attachmentId): MessageAttachment
+    {
         $attachment = MessageAttachment::whereHas(
             'message',
             fn ($m) => $m->where('conversation_id', $conversation->id)->whereNull('deleted_at'),
@@ -942,9 +1015,6 @@ class MessageController extends Controller
 
         abort_unless(Storage::disk('local')->exists($attachment->path), 404);
 
-        return Storage::disk('local')->download($attachment->path, $attachment->name, [
-            'Content-Type' => $attachment->mime_type ?? 'application/octet-stream',
-            'X-Content-Type-Options' => 'nosniff',
-        ]);
+        return $attachment;
     }
 }

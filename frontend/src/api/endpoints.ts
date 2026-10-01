@@ -857,6 +857,15 @@ export const chat = {
       `/conversations/${uuid}/retention`, { auto_delete_hours: hours },
     ).then((r) => r.data),
   attachmentUrl: (uuid: string, attachmentId: number) => `/api/v1/conversations/${uuid}/attachments/${attachmentId}`,
+  /*
+   * A link that carries its own permission, for the Android app's downloader.
+   * Good for two minutes - see MessageController::attachmentLink. The chat
+   * password's proof rides along on the /conversations path, as ever.
+   */
+  attachmentLink: (uuid: string, attachmentId: number) =>
+    api.get<{ data: { url: string; name: string } }>(
+      `/conversations/${uuid}/attachments/${attachmentId}/link`,
+    ).then((r) => r.data.data),
 }
 
 // --- Calls ------------------------------------------------------------------

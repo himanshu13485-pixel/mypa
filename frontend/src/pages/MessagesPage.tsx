@@ -2120,7 +2120,14 @@ export default function MessagesPage() {
       key: 'forward',
       icon: <Forward className="size-3.5" />,
       label: 'Forward',
-      run: () => { setForwarding([m]); setPickedChats(new Set()) },
+      run: () => {
+        // The comment above this list said forward was held back with reply
+        // and reactions. It was not: the check was never written here, so a
+        // file nobody had looked at could be passed straight on.
+        if (notTakenDown(m)) return askToDownloadFirst()
+        setForwarding([m])
+        setPickedChats(new Set())
+      },
     },
     // Kept privately - nobody else in the thread is told.
     {
@@ -2600,10 +2607,24 @@ export default function MessagesPage() {
                     className="tap rounded-lg p-2 text-slate-500 hover:bg-white/60 disabled:opacity-40 dark:hover:bg-slate-800"
                     title={selection.size > MAX_FORWARD_AT_ONCE
                       ? `${MAX_FORWARD_AT_ONCE} messages at a time is the limit`
-                      : 'Forward'}
+                      : picked.some(notTakenDown)
+                        ? 'Download the file first'
+                        : 'Forward'}
                     aria-label="Forward selected"
-                    disabled={selection.size > MAX_FORWARD_AT_ONCE}
-                    onClick={() => { setForwarding(picked); setPickedChats(new Set()) }}
+                    disabled={selection.size > MAX_FORWARD_AT_ONCE || picked.some(notTakenDown)}
+                    onClick={() => {
+                      /*
+                       * Said rather than only greyed out.
+                       *
+                       * The button above is disabled for this, but a selection
+                       * can hold a file that was ticked before anybody thought
+                       * about downloading it - and a control that does nothing
+                       * when pressed explains nothing.
+                       */
+                      if (picked.some(notTakenDown)) return askToDownloadFirst()
+                      setForwarding(picked)
+                      setPickedChats(new Set())
+                    }}
                   >
                     <Forward className="size-4" />
                   </button>
@@ -3308,7 +3329,10 @@ export default function MessagesPage() {
                       onClick={selecting
                         ? (e) => {
                           e.preventDefault()
-                          if (notTakenDown(m)) return askToDownloadFirst()
+                          // Ticking an undownloaded file is refused; unticking
+                          // one never is, or a selection that got one into it
+                          // somehow could not be undone either.
+                          if (!selection.has(m.uuid) && notTakenDown(m)) return askToDownloadFirst()
                           setSelection(toggleSelected(selection, m.uuid))
                         }
                         : undefined}

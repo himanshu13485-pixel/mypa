@@ -49,6 +49,20 @@ Route::prefix('v1')->group(function () {
         ->middleware('throttle:file-link')
         ->where('token', '[A-Za-z0-9]{32,64}');
 
+    /*
+     * A chat attachment, fetched by a signature instead of a session.
+     *
+     * The Android app is a WebView and cannot save a file the way a browser
+     * does, so the file is handed to the phone's download manager - another
+     * process, carrying none of our headers. The signature on the URL is
+     * what stands in for them, and it is good for two minutes from the tap
+     * that asked for it. Membership and the chat lock were checked when the
+     * link was issued; see MessageController::attachmentLink.
+     */
+    Route::get('/conversations/{conversation}/attachments/{attachmentId}/download', [MessageController::class, 'downloadSignedAttachment'])
+        ->middleware(['signed', 'throttle:file-link'])
+        ->name('chat.attachment.signed');
+
     // Join a meeting with a passcode and no account. Throttled hard: this is
     // the one door into the app that no session guards.
     // A browser reporting that it broke. Open on purpose: the errors most worth
@@ -602,6 +616,15 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/conversations/{conversation}/clear', [MessageController::class, 'clear'])->middleware('chat.unlocked');
         Route::post('/conversations/{conversation}/messages/{message}/react', [MessageController::class, 'react'])->middleware('chat.unlocked');
         Route::get('/conversations/{conversation}/attachments/{attachmentId}', [MessageController::class, 'downloadAttachment'])->middleware('chat.unlocked');
+        /*
+         * A link the Android app can hand to the phone's download manager.
+         *
+         * Asked for here, where the person is known and the chat lock still
+         * applies; what comes back proves its own permission for two minutes
+         * because the download manager carries none of ours. See
+         * MessageController::attachmentLink.
+         */
+        Route::get('/conversations/{conversation}/attachments/{attachmentId}/link', [MessageController::class, 'attachmentLink'])->middleware('chat.unlocked');
 
         // Calls
         /*

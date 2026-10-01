@@ -5,6 +5,9 @@ import { chat } from '../api/endpoints'
 import { attachmentHeaders } from '../lib/chatUnlock'
 import { fileSize, shortName } from '../lib/attachmentLabels'
 import { useOpenedAttachments } from '../lib/attachmentsOpened'
+import { saveFile } from '../lib/download'
+import { inNativeShell } from '../lib/nativeBridge'
+import { useToast } from './Toast'
 
 /**
  * What an attachment looks like in a thread.
@@ -66,6 +69,9 @@ export default function MessageAttachment({
   own: boolean
 }) {
   const [brokenImage, setBrokenImage] = useState(false)
+  // A second tap while the first is still fetching would download it twice.
+  const [busy, setBusy] = useState(false)
+  const { toastError } = useToast()
 
   /*
    * Treated as an image only while it behaves like one.
@@ -93,19 +99,39 @@ export default function MessageAttachment({
 
   const reveal = () => markOpened(attachment.id)
 
+  /*
+   * Taking the file down.
+   *
+   * Marked as taken only once it has been, and not before: the old order
+   * marked it the moment the chip was tapped, so a download that failed -
+   * which, inside the Android app, was every one of them - still counted as
+   * having the file, and the person could forward something they had never
+   * seen. Which is the whole of what the mark is for.
+   */
   const download = async () => {
-    // Taking a file down counts as having it, so it can be passed on.
-    markOpened(attachment.id)
-    const res = await fetch(chat.attachmentUrl(conversationUuid, attachment.id), {
-      headers: attachmentHeaders(),
-    })
-    const blob = await res.blob()
-    const href = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = href
-    link.download = attachment.name
-    link.click()
-    URL.revokeObjectURL(href)
+    if (busy) return
+    setBusy(true)
+    try {
+      await saveFile(
+        attachment.name,
+        async () => {
+          const res = await fetch(chat.attachmentUrl(conversationUuid, attachment.id), {
+            headers: attachmentHeaders(),
+          })
+          // Without this a refusal is saved as the file: an error page, under
+          // the right name, which looks like a corrupt download.
+          if (!res.ok) throw new Error(String(res.status))
+
+          return res.blob()
+        },
+        async () => (await chat.attachmentLink(conversationUuid, attachment.id)).url,
+      )
+      markOpened(attachment.id)
+    } catch {
+      toastError('That file would not download. Try again in a moment.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   if (isImage) {
@@ -137,7 +163,15 @@ export default function MessageAttachment({
     return (
       <button
         type="button"
-        onClick={() => url && window.open(url, '_blank', 'noopener')}
+        /*
+         * Full size, or - in the app - saved.
+         *
+         * A new window onto a blob URL is another thing a WebView will not
+         * do: Capacitor keeps blob: inside the shell on purpose, so the tap
+         * opened a blank page over the thread. Saving it is what somebody
+         * tapping a photo in the app actually gets from their phone.
+         */
+        onClick={() => (inNativeShell() ? void download() : url && window.open(url, '_blank', 'noopener'))}
         className="mt-1 block overflow-hidden rounded-lg"
         title={attachment.name}
       >
