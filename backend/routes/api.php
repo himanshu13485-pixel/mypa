@@ -28,7 +28,7 @@ use Illuminate\Support\Facades\Route;
 
 // Gateway webhooks (unauthenticated; protected by signature verification).
 Route::post('/webhooks/cashfree', [\App\Http\Controllers\Api\WebhookController::class, 'cashfree'])
-    ->middleware('throttle:120,1');
+    ->middleware('throttle:gateway-webhook');
 
 Route::prefix('v1')->group(function () {
 
@@ -37,16 +37,16 @@ Route::prefix('v1')->group(function () {
     // against that company's own secret, is the whole guard. The company is
     // in the path because each brings its own Cashfree account.
     Route::post('/crm/webhooks/cashfree/{organizationUuid}', [\App\Http\Controllers\Api\V1\Crm\CashfreeWebhookController::class, 'handle'])
-        ->middleware('throttle:120,1');
+        ->middleware('throttle:gateway-webhook');
 
     // Public pricing
     Route::get('/plans', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'plans'])
-        ->middleware('throttle:30,1');
+        ->middleware('throttle:public-plans');
 
     // Public file share link. The token is the whole check, so this is
     // throttled to make guessing one impractical.
     Route::get('/f/{token}', [FileController::class, 'downloadByLink'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:file-link')
         ->where('token', '[A-Za-z0-9]{32,64}');
 
     // Join a meeting with a passcode and no account. Throttled hard: this is
@@ -55,17 +55,17 @@ Route::prefix('v1')->group(function () {
 // knowing about are the ones that stop someone signing in, and those have no
 // token to offer. Throttled, and everything it stores is truncated.
 Route::post('/client-errors', [\App\Http\Controllers\Api\V1\ClientErrorController::class, 'store'])
-    ->middleware('throttle:20,1');
+    ->middleware('throttle:client-errors');
 
 // Is this code worth showing a password box for? Answered before anyone types
 // anything, so a meeting with no password says "sign in" up front instead of
 // after a failed attempt. Booleans only — no title, nothing a guessed code
 // could harvest.
 Route::get('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'peek'])
-    ->middleware('throttle:30,1');
+    ->middleware('throttle:meeting-peek');
 
 Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'join'])
-        ->middleware('throttle:10,1');
+        ->middleware('throttle:meeting-join');
 
 // The browser moved a push subscription. Open because a service worker holds
 // no session and this can fire with no tab to lend it one; the old endpoint is
@@ -78,7 +78,7 @@ Route::post('/push/calls/{call}/decline', [\App\Http\Controllers\Api\V1\CallCont
     ->middleware('signed');
 
 Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'rotate'])
-    ->middleware('throttle:20,1');
+    ->middleware('throttle:push-rotate');
 
 /*
  * Booking links: the second door with no session behind it.
@@ -94,19 +94,19 @@ Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionContro
  * handful of requests as somebody flicks between weeks; booking is once.
  */
 Route::get('/book/{slug}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'page'])
-    ->middleware('throttle:60,1');
+    ->middleware('throttle:booking-page');
 Route::get('/book/{slug}/slots', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'slots'])
-    ->middleware('throttle:60,1');
+    ->middleware('throttle:booking-slots');
 Route::post('/book/{slug}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'book'])
-    ->middleware('throttle:10,1');
+    ->middleware('throttle:booking-create');
 
 // Managing a booking already made. The token is the credential.
 Route::get('/bookings/{token}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'show'])
-    ->middleware('throttle:30,1')->where('token', '[A-Za-z0-9]{64}');
+    ->middleware('throttle:booking-view')->where('token', '[A-Za-z0-9]{64}');
 Route::post('/bookings/{token}/cancel', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'cancel'])
-    ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]{64}');
+    ->middleware('throttle:booking-change')->where('token', '[A-Za-z0-9]{64}');
 Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'reschedule'])
-    ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]{64}');
+    ->middleware('throttle:booking-change')->where('token', '[A-Za-z0-9]{64}');
 
     /*
      * What a guest may do, and nothing else.
@@ -123,7 +123,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/guest/meetings/{meeting}/leave', [\App\Http\Controllers\Api\V1\MeetingController::class, 'leave']);
         Route::post('/guest/meetings/{meeting}/heartbeat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'heartbeat']);
         Route::post('/guest/meetings/{meeting}/signal', [\App\Http\Controllers\Api\V1\MeetingController::class, 'signal'])
-            ->middleware('throttle:240,1');
+            ->middleware('throttle:guest-signal');
         Route::post('/guest/meetings/{meeting}/name', [\App\Http\Controllers\Api\V1\MeetingController::class, 'rename']);
         Route::post('/guest/meetings/{meeting}/react', [\App\Http\Controllers\Api\V1\MeetingController::class, 'react']);
         /*
@@ -137,7 +137,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
          * part of the panel a guest does not get.
          */
         Route::post('/guest/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chat'])
-            ->middleware('throttle:60,1');
+            ->middleware('throttle:guest-chat');
         // A guest in the room needs the same token a member does — they are
         // in the same meeting, and the pass they hold is only good for it.
         Route::post('/guest/meetings/{meeting}/realtime-token', [\App\Http\Controllers\Api\V1\MeetingController::class, 'realtimeToken']);
@@ -147,17 +147,15 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
     });
 
     // --- Public auth (strictly throttled) --------------------------------
-    Route::middleware('throttle:10,1')->group(function () {
+    Route::middleware('throttle:public-auth')->group(function () {
         /*
-         * Sign-up is throttled harder than the rest of this group.
-         *
-         * Ten a minute is a reasonable allowance for somebody mistyping a
-         * password; it is 14,000 accounts a day from one address. Nobody
-         * signs up three times in a minute, and an office behind one NAT
-         * still has three tries a minute between them.
+         * Sign-up is throttled harder than the rest of this group, on a
+         * counter of its own - see the 'sign-up' limiter for why it has to
+         * be named and why three a minute was refusing people on their
+         * first attempt.
          */
         Route::post('/auth/register', [AuthController::class, 'register'])
-            ->middleware('throttle:3,1');
+            ->middleware('throttle:sign-up');
         Route::post('/auth/login', [AuthController::class, 'login']);
         Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
         Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
@@ -172,13 +170,13 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
      * no account yet — that is the entire point of the link.
      */
     Route::get('/invite/{code}', [\App\Http\Controllers\Api\V1\InviteController::class, 'show'])
-        ->middleware('throttle:30,1')->where('code', '[A-Za-z0-9]{8,24}');
+        ->middleware('throttle:invite-peek')->where('code', '[A-Za-z0-9]{8,24}');
 
     Route::get('/auth/suggest-username', [AuthController::class, 'suggestUsername'])
-        ->middleware('throttle:30,1');
+        ->middleware('throttle:username-check');
 
     Route::get('/auth/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
-        ->middleware(['signed', 'throttle:6,1'])
+        ->middleware(['signed', 'throttle:email-verify-link'])
         ->name('verification.verify');
 
     // --- Authenticated ----------------------------------------------------

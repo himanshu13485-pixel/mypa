@@ -182,5 +182,57 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('checkout', fn (Request $request) => Limit::perMinute(10)->by($perUser($request)));
         RateLimiter::for('payment-verify', fn (Request $request) => Limit::perMinute(30)->by($perUser($request)));
         RateLimiter::for('report-file', fn (Request $request) => Limit::perMinute(10)->by($perUser($request)));
+
+        /*
+         * And the same fault again on the public side, where it is worse.
+         *
+         * Everything above is keyed on the person. Out here nobody has
+         * signed in, so an inline throttle keys on the address alone - and
+         * every public route then shared one counter per visitor, with the
+         * tightest number on any of them deciding when all of them stopped
+         * answering.
+         *
+         * It showed as "Too many attempts" on somebody's first ever
+         * registration. The sign-up form asks for a username suggestion
+         * while you type your name; those lookups, on the same counter, had
+         * already spent the register route's three a minute before the
+         * person pressed the button. Behind a NAT or a proxy they would have
+         * been spending strangers' allowance as well.
+         */
+        RateLimiter::for('public-auth', fn (Request $request) => Limit::perMinute(10)->by($perUser($request)));
+
+        /*
+         * Signing up, on a counter of its own at last.
+         *
+         * Five rather than three, because a rejected form still counts: a
+         * username already taken, then a password too short, then a
+         * mistyped confirmation is an ordinary first minute on a sign-up
+         * page, and at three the next try - the one that would have worked -
+         * was refused. Five is still 7,200 accounts a day from one address,
+         * which is not a door worth walking through.
+         */
+        RateLimiter::for('sign-up', fn (Request $request) => Limit::perMinute(5)->by($perUser($request)));
+        RateLimiter::for('username-check', fn (Request $request) => Limit::perMinute(30)->by($perUser($request)));
+        RateLimiter::for('invite-peek', fn (Request $request) => Limit::perMinute(30)->by($perUser($request)));
+        RateLimiter::for('email-verify-link', fn (Request $request) => Limit::perMinute(6)->by($perUser($request)));
+
+        // The rest of the open door, each holding the number it always had.
+        RateLimiter::for('public-plans', fn (Request $request) => Limit::perMinute(30)->by($perUser($request)));
+        RateLimiter::for('file-link', fn (Request $request) => Limit::perMinute(60)->by($perUser($request)));
+        RateLimiter::for('client-errors', fn (Request $request) => Limit::perMinute(20)->by($perUser($request)));
+        RateLimiter::for('gateway-webhook', fn (Request $request) => Limit::perMinute(120)->by($perUser($request)));
+        RateLimiter::for('push-rotate', fn (Request $request) => Limit::perMinute(20)->by($perUser($request)));
+
+        // Meetings and booking links: the two doors with no account behind
+        // them. Reading stays looser than writing, as it was.
+        RateLimiter::for('meeting-peek', fn (Request $request) => Limit::perMinute(30)->by($perUser($request)));
+        RateLimiter::for('meeting-join', fn (Request $request) => Limit::perMinute(10)->by($perUser($request)));
+        RateLimiter::for('guest-signal', fn (Request $request) => Limit::perMinute(240)->by($perUser($request)));
+        RateLimiter::for('guest-chat', fn (Request $request) => Limit::perMinute(60)->by($perUser($request)));
+        RateLimiter::for('booking-page', fn (Request $request) => Limit::perMinute(60)->by($perUser($request)));
+        RateLimiter::for('booking-slots', fn (Request $request) => Limit::perMinute(60)->by($perUser($request)));
+        RateLimiter::for('booking-create', fn (Request $request) => Limit::perMinute(10)->by($perUser($request)));
+        RateLimiter::for('booking-view', fn (Request $request) => Limit::perMinute(30)->by($perUser($request)));
+        RateLimiter::for('booking-change', fn (Request $request) => Limit::perMinute(10)->by($perUser($request)));
     }
 }
