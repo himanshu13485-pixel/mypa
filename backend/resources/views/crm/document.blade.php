@@ -137,10 +137,21 @@
 <meta charset="utf-8">
 <title>{{ $invoice->number }}</title>
 <style>
-  @page { margin: 36px 40px; }
+  /*
+   * The top margin carries the letterhead that repeats on page two onwards.
+   *
+   * dompdf cannot repeat a block of markup across pages, so the band is
+   * drawn onto the finished pages by the renderer (see continuationLetterhead
+   * in InvoiceController). The margin is what keeps the body clear of it.
+   *
+   * It is kept as shallow as the band will fit into, because @page applies
+   * to every page: anything reserved here is taken off page one too, where
+   * there is no band, and page one is the page that has to fit.
+   */
+  @page { margin: 34px 30px 26px; }
   /* DejaVu is dompdf's built-in face and the one that carries ₹. */
   * { font-family: DejaVu Sans, sans-serif; }
-  body { color: #0f172a; font-size: 14px; margin: 0; line-height: 1.35; }
+  body { color: #0f172a; font-size: 11.5px; margin: 0; line-height: 1.3; }
   table { width: 100%; border-collapse: collapse; }
   td, th { vertical-align: top; }
 
@@ -148,46 +159,56 @@
   .s400 { color: #94a3b8; }
   .s500 { color: #64748b; }
   .s600 { color: #475569; }
-  .xs { font-size: 12px; }
+  .xs { font-size: 10px; }
   .right { text-align: right; }
 
-  .head td { padding: 0 0 16px; border-bottom: 1px solid #f1f5f9; }
-  .head .company { font-size: 18px; font-weight: bold; color: #0f172a; }
-  .head .kind { font-size: 16px; font-weight: bold; text-transform: uppercase; letter-spacing: .05em; color: #334155; }
-  .chip { display: inline-block; margin-top: 4px; padding: 2px 8px; border-radius: 9px; background: #f1f5f9; color: #64748b; font-size: 11px; }
+  .head td { padding: 0 0 10px; border-bottom: 1px solid #f1f5f9; }
+  .head .company { font-size: 15px; font-weight: bold; color: #0f172a; }
+  .head .kind { font-size: 13px; font-weight: bold; text-transform: uppercase; letter-spacing: .05em; color: #334155; }
+  .chip { display: inline-block; margin-top: 3px; padding: 1px 6px; border-radius: 9px; background: #f1f5f9; color: #64748b; font-size: 9.5px; }
 
-  .parties td { padding: 16px 0; border-bottom: 1px solid #f1f5f9; }
-  .label { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
+  .parties td { padding: 10px 0; border-bottom: 1px solid #f1f5f9; }
+  .label { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; }
 
-  .lines th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 8px 12px 8px 0; border-bottom: 1px solid #f1f5f9; }
-  .lines td { padding: 10px 12px 10px 0; border-bottom: 1px solid #f8fafc; }
+  .lines th { text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 5px 10px 5px 0; border-bottom: 1px solid #f1f5f9; }
+  .lines td { padding: 6px 10px 6px 0; border-bottom: 1px solid #f8fafc; }
   .lines th.num, .lines td.num { text-align: right; }
   .lines th.last, .lines td.last { padding-right: 0; }
-  .keyword { display: inline-block; margin: 4px 4px 0 0; padding: 2px 8px; border-radius: 9px; font-size: 11px; }
+  .keyword { display: inline-block; margin: 3px 3px 0 0; padding: 1px 6px; border-radius: 9px; font-size: 9.5px; }
   .nowrap { white-space: nowrap; }
 
   .totals { width: 100%; }
   .totals td { padding: 2px 0; }
-  .totals .grand td { border-top: 1px solid #e2e8f0; padding-top: 6px; font-size: 16px; font-weight: bold; color: #0f172a; }
+  .totals .grand td { border-top: 1px solid #e2e8f0; padding-top: 5px; font-size: 13px; font-weight: bold; color: #0f172a; }
 
-  .payments { margin-top: 20px; }
-  .payments th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 6px 12px 6px 0; border-bottom: 1px solid #e2e8f0; }
-  .payments td { padding: 6px 12px 6px 0; border-bottom: 1px solid #f8fafc; }
+  .payments { margin-top: 14px; }
+  .payments th { text-align: left; font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: #94a3b8; padding: 4px 10px 4px 0; border-bottom: 1px solid #e2e8f0; }
+  .payments td { padding: 4px 10px 4px 0; border-bottom: 1px solid #f8fafc; }
   .payments .num { text-align: right; padding-right: 0; }
 
   /* The note carries terms - a contract value split into an advance and a
      balance - so it is printed to be read, not as fine print. */
-  .notes { margin-top: 16px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0;
-           border-radius: 6px; font-size: 12.5px; line-height: 1.6; color: #334155; }
+  .notes { margin-top: 10px; padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0;
+           border-radius: 6px; font-size: 10.5px; line-height: 1.5; color: #334155; }
   .bank-lines { border-collapse: collapse; margin-top: 2px }
     .bank-lines td { padding: 0 8px 1px 0; vertical-align: top }
     .bank-lines td:first-child { color: #555; white-space: nowrap }
-    .bank { margin-top: 24px; font-size: 12px; color: #475569; }
-  .sign { margin-top: 32px; text-align: right; font-size: 12px; color: #64748b; }
+    .bank { margin-top: 16px; font-size: 10px; color: #475569; }
+  .sign { margin-top: 20px; text-align: right; font-size: 10px; color: #64748b; }
   /* Capped so a large upload cannot push the signatory line onto a page of
      its own. */
-  .stamp img { max-height: 76px; max-width: 150px; margin: 4px 0; }
-  .legal { margin-top: 20px; text-align: center; font-size: 11px; color: #64748b; }
+  .stamp img { max-height: 60px; max-width: 130px; margin: 3px 0; }
+  .legal { margin-top: 12px; text-align: center; font-size: 9.5px; color: #64748b; }
+
+  /*
+   * What must not be torn in half by a page break.
+   *
+   * A row split across two pages is unreadable, and a signing block with
+   * the stamp on one page and "Authorised signatory" on the next looks
+   * like two different documents. Where to break is the renderer's to
+   * choose; where not to is ours.
+   */
+  .lines tr, .payments tr, .totals, .notes, .bank, .sign, .legal { page-break-inside: avoid; }
 </style>
 </head>
 <body>
@@ -197,11 +218,11 @@
   <tr>
     <td>
       @if (!empty($logoPath))
-        <img src="{{ $logoPath }}" alt="" style="max-height:52px; max-width:180px; margin-bottom:6px">
+        <img src="{{ $logoPath }}" alt="" style="max-height:42px; max-width:150px; margin-bottom:5px">
       @elseif (!empty($letterhead))
         {{-- The paper already carries the logo. Its space is kept so the rest
              of the page sits where it does on an ordinary print. --}}
-        <div style="height:52px; margin-bottom:6px"></div>
+        <div style="height:42px; margin-bottom:5px"></div>
       @endif
       <div class="company">{{ $company?->name ?? 'Invoice' }}</div>
       @if ($company?->address)<div class="xs s500" style="margin-top:2px; max-width:320px">{{ $company->address }}</div>@endif
@@ -447,7 +468,7 @@
   @if (!empty($stampPath))
     <div class="stamp"><img src="{{ $stampPath }}" alt=""></div>
   @else
-    <div style="height:48px"></div>
+    <div style="height:38px"></div>
   @endif
   <div>Authorised signatory</div>
 </div>
