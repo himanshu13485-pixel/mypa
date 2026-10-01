@@ -11,6 +11,7 @@ use App\Models\MessageAttachment;
 use App\Models\MessageDeletion;
 use App\Models\MessageStar;
 use App\Models\User;
+use App\Services\ImageThumbnail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
@@ -841,6 +842,9 @@ class MessageController extends Controller
                 // Remove stored attachment data as well.
                 foreach ($message->attachments as $attachment) {
                     Storage::disk('local')->delete($attachment->path);
+                    // And the small copy the thread was drawn from, which is
+                    // the same picture and would otherwise outlive it.
+                    app(ImageThumbnail::class)->forget($attachment->path);
                 }
                 $message->attachments()->delete();
                 $message->update(['body' => null]);
@@ -937,6 +941,32 @@ class MessageController extends Controller
         abort_unless($conversation->hasMember($me), 403);
 
         $attachment = $this->attachmentIn($conversation, $attachmentId);
+
+        /*
+         * The small copy, for drawing a picture in a bubble.
+         *
+         * A phone photo is several megabytes and thousands of pixels wide,
+         * and the bubble is a couple of hundred pixels across - so the thread
+         * was spending the whole file to draw a stamp, once per person and
+         * once per picture, and sat on "Loading…" while it did. Asked for by
+         * the thread; never by a download, which wants the real thing.
+         *
+         * Falls back to the original whenever a thumbnail cannot be made, so
+         * a picture this server cannot shrink still arrives.
+         */
+        if ($request->boolean('thumb')) {
+            $thumb = app(ImageThumbnail::class)->for($attachment->path, $attachment->mime_type);
+
+            if ($thumb !== null) {
+                return Storage::disk('local')->response($thumb, $attachment->name, [
+                    'Content-Type' => 'image/jpeg',
+                    'X-Content-Type-Options' => 'nosniff',
+                    // Immutable: a thumbnail is derived from a file that
+                    // never changes, so a second look should cost nothing.
+                    'Cache-Control' => 'private, max-age=86400',
+                ]);
+            }
+        }
 
         return Storage::disk('local')->download($attachment->path, $attachment->name, [
             'Content-Type' => $attachment->mime_type ?? 'application/octet-stream',
