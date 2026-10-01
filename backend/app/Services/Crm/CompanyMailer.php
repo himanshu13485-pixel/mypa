@@ -242,6 +242,42 @@ class CompanyMailer
         ];
     }
 
+    /**
+     * Every mailbox a document could be sent from.
+     *
+     * The default is the issuing company's own, and that is right almost
+     * always - a Corpcio invoice should leave Corpcio's mailbox. But a
+     * client who has only ever heard from GrapOut sometimes needs to hear
+     * from GrapOut, so the choice is offered rather than assumed.
+     *
+     * Only companies whose mailbox is actually set up: an address nobody
+     * has filled in is not somewhere mail can leave from, and offering it
+     * would be offering a failure.
+     *
+     * @return array<int, array{id: int, label: string, address: string, name: string}>
+     */
+    public function senders(): array
+    {
+        $configured = (array) ($this->settings()['company_senders'] ?? []);
+
+        return \App\Models\Crm\IssuingCompany::where('organization_id', $this->org->id)
+            ->orderBy('name')
+            ->get(['id', 'name'])
+            ->map(function ($company) use ($configured) {
+                $sender = $configured[(string) $company->id] ?? null;
+
+                return self::isSetUp($sender) ? [
+                    'id' => (int) $company->id,
+                    'label' => $company->name,
+                    'address' => (string) $sender['from_address'],
+                    'name' => (string) ($sender['from_name'] ?? $company->name),
+                ] : null;
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
     /** A company's own mailbox as a mailer, or the server default. */
     private function transportFor(?array $sender): Mailer
     {

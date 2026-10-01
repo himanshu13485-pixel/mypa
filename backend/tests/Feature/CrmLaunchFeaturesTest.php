@@ -902,6 +902,58 @@ class CrmLaunchFeaturesTest extends TestCase
             ->getJson('/api/v1/crm/invoices?search=nobodyhere')->assertOk()->json('data'));
     }
 
+    public function test_an_invoice_can_be_sent_as_another_company_that_has_a_mailbox(): void
+    {
+        config(['mail.default' => 'array']);
+
+        $mine = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'Corpcio Global LLC']);
+        $other = IssuingCompany::create(['organization_id' => $this->org->id, 'name' => 'GrapOut']);
+
+        // Only a company with a mailbox actually set up is somewhere mail
+        // can leave from, so only those are offered.
+        $this->org->forceFill(['settings' => array_merge((array) $this->org->settings, [
+            'communication' => [
+                'email_enabled' => true,
+                'company_senders' => [
+                    (string) $other->id => ['from_address' => 'admin@grapout.test', 'from_name' => 'GrapOut Admin'],
+                ],
+            ],
+        ])])->save();
+
+        $client = \App\Models\Crm\Client::create([
+            'organization_id' => $this->org->id, 'company_name' => 'Buyer Ltd',
+            'email' => 'buyer@client.test', 'created_by' => $this->adminUser->id,
+        ]);
+        $uuid = $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices', [
+            'kind' => 'invoice', 'issuing_company_id' => $mine->id, 'client_uuid' => $client->uuid,
+            'invoice_date' => now()->toDateString(), 'due_date' => '2026-12-31',
+            'client_category' => 'new', 'pricing_tier' => 'regular', 'terms_of_payment' => '100% advance',
+            'subscription_type' => 'online', 'dispatch_status' => 'pending',
+            'items' => [['membership' => 'Standard', 'validity_from' => '2026-01-01', 'validity_to' => '2026-12-31',
+                'plan_name' => 'Plan A', 'qty' => 1, 'unit_price' => 1000]],
+        ])->assertCreated()->json('data.uuid');
+
+        $offered = $this->actingAs($this->adminUser)->getJson('/api/v1/crm/invoices/' . $uuid)
+            ->assertOk()->json('data.senders');
+        $this->assertSame(['GrapOut'], collect($offered)->pluck('label')->all());
+
+        // Named, it goes from that one instead of this document's own company.
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices/' . $uuid . '/email', [
+            'sender_company' => $other->id,
+        ])->assertOk();
+
+        $sent = collect(app('mail.manager')->mailer('array')->getSymfonyTransport()->messages())
+            ->map(fn ($m) => $m->getOriginalMessage())->last();
+        $this->assertSame('admin@grapout.test', $sent->getFrom()[0]->getAddress());
+
+        // A company belonging to somebody else is not a sender anybody can name.
+        $theirs = Organization::create(['name' => 'Other Ltd', 'code' => 'OTHR']);
+        $stranger = IssuingCompany::create(['organization_id' => $theirs->id, 'name' => 'Not Mine']);
+        $this->actingAs($this->adminUser)->postJson('/api/v1/crm/invoices/' . $uuid . '/email', [
+            'sender_company' => $stranger->id,
+        ])->assertStatus(422);
+    }
+
     public function test_an_invoice_mail_copies_the_salesperson_and_whoever_else_is_named(): void
     {
         \Illuminate\Support\Facades\Mail::fake();

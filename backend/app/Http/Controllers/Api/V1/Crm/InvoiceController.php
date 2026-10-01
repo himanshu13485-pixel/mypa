@@ -388,14 +388,20 @@ class InvoiceController extends Controller
          * leaves from that company's own mailbox or from the house one.
          */
         $sender = null;
+        $senders = [];
         try {
-            $sender = (new \App\Services\Crm\CompanyMailer($request->attributes->get('crm_org')))
-                ->senderFor($invoice->issuing_company_id, 'invoice');
+            $mailer = new \App\Services\Crm\CompanyMailer($request->attributes->get('crm_org'));
+            $sender = $mailer->senderFor($invoice->issuing_company_id, 'invoice');
+            // And the others it could go from, so the dialog can offer them
+            // rather than only naming the one it is about to use.
+            $senders = $mailer->senders();
         } catch (\Throwable) {
             // Mail switched off, or nothing set up: the dialog says so itself.
         }
 
-        return response()->json(['data' => $this->serialize($invoice, full: true) + ['sender' => $sender]]);
+        return response()->json([
+            'data' => $this->serialize($invoice, full: true) + ['sender' => $sender, 'senders' => $senders],
+        ]);
     }
 
     public function update(Request $request, string $uuid): JsonResponse
@@ -798,6 +804,17 @@ class InvoiceController extends Controller
             'cc' => ['nullable', 'array', 'max:10'],
             'cc.*' => ['email'],
             'from' => ['nullable', \Illuminate\Validation\Rule::in(['default', 'invoice', 'dues'])],
+            /*
+             * Somewhere other than this document's own company.
+             *
+             * The issuing company's mailbox is right almost always, and is
+             * what happens when this is left out. A client who has only ever
+             * heard from GrapOut sometimes needs to hear from GrapOut, so
+             * the sender can be named - but only one of this organisation's
+             * own companies, never an address typed into the request.
+             */
+            'sender_company' => ['nullable', 'integer',
+                \Illuminate\Validation\Rule::exists('crm_issuing_companies', 'id')->where('organization_id', $org->id)],
             'message' => ['nullable', 'string', 'max:2000'],
             // The bank's own paperwork, filed once in Billing setup and
             // ticked on here - a cancelled cheque, a bank letter, a W-9.
@@ -821,7 +838,7 @@ class InvoiceController extends Controller
         // The issuing company's own sender/mailbox first; the chosen
         // purpose-level sender when the company has none.
         $resolved = (new \App\Services\Crm\CompanyMailer($org))
-            ->resolve($invoice->issuing_company_id, $data['from'] ?? 'invoice');
+            ->resolve($data['sender_company'] ?? $invoice->issuing_company_id, $data['from'] ?? 'invoice');
         $mailer = $resolved['mailer'];
         $fromAddress = $resolved['address'];
         $fromName = $resolved['name'];

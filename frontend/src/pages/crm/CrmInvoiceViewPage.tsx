@@ -820,6 +820,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
           sender={inv.sender ?? null}
           company={inv.issuing_company?.name ?? null}
           bankDocuments={inv.bank?.documents ?? []}
+          senders={inv.senders ?? []}
           pending={emailMutation.isPending}
           onSend={(payload) => emailMutation.mutate(payload)}
           onClose={() => setEmailing(false)}
@@ -863,7 +864,7 @@ It disappears from the ledger and the numbering keeps a gap where it was. Cancel
   )
 }
 
-function EmailModal({ clientEmail, salesperson, sender, company, bankDocuments, pending, onSend, onClose }: {
+function EmailModal({ clientEmail, salesperson, sender, company, bankDocuments, senders, pending, onSend, onClose }: {
   clientEmail: string
   salesperson: { name: string | null; email?: string | null } | null
   /** Who it will actually go out as, worked out by the server. */
@@ -871,8 +872,10 @@ function EmailModal({ clientEmail, salesperson, sender, company, bankDocuments, 
   company: string | null
   /** Papers filed on this document's bank account, in Billing setup. */
   bankDocuments: BankDocument[]
+  /** Every mailbox this organisation could send from. */
+  senders: { id: number; label: string; address: string; name: string }[]
   pending: boolean
-  onSend: (payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string; documents?: string[] }) => void
+  onSend: (payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; sender_company?: number; message?: string; documents?: string[] }) => void
   onClose: () => void
 }) {
   const [to, setTo] = useState(clientEmail)
@@ -882,6 +885,8 @@ function EmailModal({ clientEmail, salesperson, sender, company, bankDocuments, 
   const [extras, setExtras] = useState<string[]>([])
   const [nextExtra, setNextExtra] = useState('')
   const [from, setFrom] = useState<'default' | 'invoice' | 'dues'>('invoice')
+  /* A mailbox chosen outright, instead of this document's own company. */
+  const [senderCompany, setSenderCompany] = useState<number | null>(null)
   const [message, setMessage] = useState('')
   /*
    * The bank's own paperwork, filed in Billing setup.
@@ -951,10 +956,38 @@ function EmailModal({ clientEmail, salesperson, sender, company, bankDocuments, 
         </div>
         <div>
           <Label>Send from</Label>
-          <Select value={from} onChange={(e) => setFrom(e.target.value as typeof from)} className="w-full">
+          <Select
+            value={senderCompany ? `company:${senderCompany}` : from}
+            onChange={(e) => {
+              const picked = e.target.value
+              if (picked.startsWith('company:')) {
+                setSenderCompany(Number(picked.slice(8)))
+              } else {
+                setSenderCompany(null)
+                setFrom(picked as typeof from)
+              }
+            }}
+            className="w-full"
+          >
             <option value="invoice">Invoice sender (Communication setup)</option>
             <option value="default">General company sender</option>
             <option value="dues">Dues / follow-up sender</option>
+            {/*
+              * Any other mailbox the company has set up.
+              *
+              * The issuing company's own is right almost always - a Corpcio
+              * invoice should leave Corpcio's mailbox - but a client who has
+              * only ever heard from GrapOut sometimes needs to hear from
+              * GrapOut, and that was not possible without editing the
+              * Communication setup first.
+              */}
+            {senders.length > 0 && (
+              <optgroup label="Send as another company">
+                {senders.map((m) => (
+                  <option key={m.id} value={`company:${m.id}`}>{m.label} — {m.address}</option>
+                ))}
+              </optgroup>
+            )}
           </Select>
           {/*
             * What will actually happen, before the button is pressed.
@@ -1004,7 +1037,7 @@ function EmailModal({ clientEmail, salesperson, sender, company, bankDocuments, 
           <Label>Message (optional — a standard line goes otherwise)</Label>
           <Textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={3} className="w-full" />
         </div>
-        <Button className="w-full" disabled={!to || pending} onClick={() => onSend({ to, cc, from, message: message || undefined, documents: ticked.length ? ticked : undefined })}>
+        <Button className="w-full" disabled={!to || pending} onClick={() => onSend({ to, cc, from, sender_company: senderCompany ?? undefined, message: message || undefined, documents: ticked.length ? ticked : undefined })}>
           {pending ? 'Sending…' : cc.length
             ? `Send with PDF, copying ${cc.length} ${cc.length === 1 ? 'person' : 'people'}`
             : 'Send with PDF attached'}
