@@ -12,6 +12,7 @@ use App\Support\TextCase;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -826,6 +827,10 @@ class MasterController extends Controller
             // Whether this company's documents must carry tax. Its own answer,
             // because a domestic arm and an export arm differ on it.
             'tax_required' => ['nullable', 'boolean'],
+            // Services or products: what this company sells, and therefore
+            // whether there is anything to count. Its own answer again -
+            // one arm may sell consultancy while the other ships goods.
+            'sells' => ['nullable', Rule::in(['services', 'products'])],
         ]);
         if (array_key_exists('currency', $data)) {
             $data['currency'] = strtoupper((string) ($data['currency'] ?: 'INR'));
@@ -852,7 +857,7 @@ class MasterController extends Controller
          * stored value standing, which is what sending nothing at all does
          * and what sending nothing in particular ought to do too.
          */
-        foreach (['invoice_prefix', 'proforma_prefix', 'next_invoice_no', 'next_proforma_no', 'is_active', 'pays_salary', 'tax_required'] as $field) {
+        foreach (['invoice_prefix', 'proforma_prefix', 'next_invoice_no', 'next_proforma_no', 'is_active', 'pays_salary', 'tax_required', 'sells'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === null) {
                 unset($data[$field]);
             }

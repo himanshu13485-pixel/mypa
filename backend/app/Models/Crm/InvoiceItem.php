@@ -10,7 +10,7 @@ class InvoiceItem extends Model
     protected $table = 'crm_invoice_items';
 
     protected $fillable = [
-        'invoice_id', 'membership', 'plan_name', 'description', 'custom_fields',
+        'invoice_id', 'inventory_item_id', 'membership', 'plan_name', 'description', 'custom_fields',
         'validity_from', 'validity_to', 'qty', 'unit_price', 'amount', 'amount_fx', 'sort',
     ];
 

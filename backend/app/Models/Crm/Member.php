@@ -63,6 +63,11 @@ class Member extends Model
         'recurring' => 'Recurring invoices',
         'payments' => 'Payments, payment links & reminders',
         'expenses' => 'Expenses',
+        // What the company sells and what is left of it. Its own right:
+        // counting a shelf and billing for it are different jobs, often
+        // different people, and reading a price list is a far smaller
+        // thing to be trusted with than raising an invoice.
+        'inventory' => 'Inventory — the price list and the counts',
         'vendors' => 'Vendors',
         'commissions' => 'Commissions',
         'salary' => 'Salary runs',

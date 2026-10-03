@@ -8,6 +8,7 @@ use App\Models\Crm\ActivityLog;
 use App\Models\Crm\BankAccount;
 use App\Models\Crm\Client;
 use App\Models\Crm\CustomField;
+use App\Models\Crm\InventoryItem;
 use App\Models\Crm\Invoice;
 use App\Models\Crm\InvoicePayment;
 use App\Models\Crm\IssuingCompany;
@@ -16,6 +17,7 @@ use App\Services\Crm\ClientBusinessStatus;
 use App\Models\Crm\PaymentInboxEntry;
 use App\Services\Crm\GatewayCharge;
 use App\Services\Crm\InvoiceConverter;
+use App\Services\Crm\Stock;
 use App\Support\Gst;
 use App\Support\TextCase;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -364,10 +366,15 @@ class InvoiceController extends Controller
         ClientBusinessStatus::restate($org->id, $invoice->client_id);
         $this->scheduleDispatch($org, $invoice);
         $invoice->schedulePaymentChase();
+        // What has been sold has left the room - if this is a tax invoice
+        // and it is final. A draft holds nothing and a quote takes nothing.
+        $short = Stock::sync($invoice);
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, $invoice->kind . '.created', $invoice, $this->trail($invoice));
 
         return response()->json([
-            'message' => ($invoice->kind === 'proforma' ? 'Proforma invoice ' : 'Invoice ') . $invoice->number . ' created.',
+            'stock_short' => $short,
+            'message' => ($invoice->kind === 'proforma' ? 'Proforma invoice ' : 'Invoice ') . $invoice->number . ' created.'
+                . ($short ? ' Stock is short: ' . implode('; ', $short) . '.' : ''),
             'data' => $this->serialize($invoice->fresh()->load(['client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email'])),
         ], 201);
     }
@@ -430,10 +437,21 @@ class InvoiceController extends Controller
         // The date may have moved, which changes who came first.
         ClientBusinessStatus::restate($org->id, $invoice->client_id);
         $this->scheduleDispatch($org, $invoice);
+        /*
+         * The counts follow the document wherever it went.
+         *
+         * A line changed from four to three gives one back, a line taken
+         * off gives all of it back, a draft made final takes its lines out
+         * and a final one sent back to draft returns them. None of that is
+         * worked out here - the document is simply shown to the counts
+         * again, and they settle the difference.
+         */
+        $short = Stock::sync($invoice->fresh());
         ActivityLog::record($request->attributes->get('crm_member'), $org->id, $invoice->kind . '.updated', $invoice, $this->trail($invoice));
 
         return response()->json([
-            'message' => 'Saved.',
+            'stock_short' => $short,
+            'message' => 'Saved.' . ($short ? ' Stock is short: ' . implode('; ', $short) . '.' : ''),
             'data' => $this->serialize($invoice->fresh()->load(['client', 'issuingCompany', 'items', 'taxes', 'member.user:id,name,email'])),
         ]);
     }
@@ -450,6 +468,8 @@ class InvoiceController extends Controller
         $invoice->update(['status' => 'cancelled', 'updated_by' => $request->user()->id]);
         // A sale called off never happened, so the next document is the first.
         ClientBusinessStatus::restate($invoice->organization_id, $invoice->client_id);
+        // And the goods never left: whatever this document took, it gives back.
+        Stock::release($invoice);
         ActivityLog::record($request->attributes->get('crm_member'), $invoice->organization_id, $invoice->kind . '.cancelled', $invoice, $this->trail($invoice));
 
         return response()->json(['message' => $invoice->number . ' cancelled.']);
@@ -483,6 +503,14 @@ class InvoiceController extends Controller
             $invoice->kind . '.deleted', $invoice, $this->trail($invoice));
         $clientId = $invoice->client_id;
         $orgId = $invoice->organization_id;
+        /*
+         * Before it goes, not with it.
+         *
+         * The moves would be swept away by the delete on their own, and
+         * the stock would stay gone - deducted by a document that no
+         * longer exists to explain it. Handed back first.
+         */
+        Stock::release($invoice);
         $invoice->delete();
         ClientBusinessStatus::restate($orgId, $clientId);
 
@@ -521,6 +549,8 @@ class InvoiceController extends Controller
 
             ActivityLog::record($request->attributes->get('crm_member'), $invoice->organization_id,
                 $invoice->kind . '.deleted', $invoice, $this->trail($invoice));
+            // Given back before the document that took it disappears.
+            Stock::release($invoice);
             $invoice->delete();
             $deleted++;
         }
@@ -1688,6 +1718,10 @@ class InvoiceController extends Controller
             'notes' => ['nullable', 'string', 'max:5000'],
             'items' => ['required', 'array', 'min:1'],
             // A list, so wider than the one name each used to hold.
+            // The thing being sold, where it came off the company's own
+            // list. Free text still works: a line typed by hand is a line,
+            // and every line raised before there was a list is one.
+            'items.*.inventory_item_id' => ['nullable', 'integer'],
             'items.*.membership' => ['nullable', 'string', 'max:512'],
             'items.*.plan_name' => ['nullable', 'string', 'max:512'],
             'items.*.description' => ['nullable', 'string', 'max:512'],
@@ -1760,6 +1794,25 @@ class InvoiceController extends Controller
 
         if (! empty($data['fx_currency'])) {
             $data['fx_currency'] = TextCase::code($data['fx_currency']);
+        }
+
+        /*
+         * A line may only name something this company actually sells.
+         *
+         * The lists are per issuing company, so a line pointing at the
+         * other arm's shelf would take stock out of a room this document
+         * has nothing to do with. Refused rather than quietly dropped: a
+         * form that sends one is wrong, and saying so is how it gets fixed.
+         */
+        $itemIds = collect($items)->pluck('inventory_item_id')->filter()->unique();
+        if ($itemIds->isNotEmpty()) {
+            $mine = InventoryItem::where('organization_id', $orgId)
+                ->where('issuing_company_id', $company?->id)
+                ->whereIn('id', $itemIds)
+                ->pluck('id');
+            if ($mine->count() !== $itemIds->count()) {
+                abort(422, 'A line names something this company does not sell.');
+            }
         }
 
         // Server-side arithmetic: the stored totals always agree with the lines.
@@ -2522,6 +2575,10 @@ class InvoiceController extends Controller
             'notes' => $i->notes,
             'items' => $i->items->map(fn ($it) => [
                 'id' => $it->id,
+                // What it came off, where it came off the list at all -
+                // so editing the document keeps the line attached to the
+                // thing whose count it moved.
+                'inventory_item_id' => $it->inventory_item_id,
                 'membership' => $it->membership,
                 'plan_name' => $it->plan_name,
                 'description' => $it->description,
