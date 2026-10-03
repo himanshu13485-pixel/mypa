@@ -42,17 +42,35 @@ const blankForm = (p?: MailProvider): AccountForm => ({
 })
 
 /** SPF ✓ / DKIM ✗ - what the receiving world can check, at a glance. */
-function DnsChip({ label, ok, note }: { label: string; ok: boolean; note: string }) {
+/**
+ * One of the three records, and how much of its mark it earned.
+ *
+ * A record can be there and still not be doing its job: DMARC set to
+ * p=none watches and tells nobody off, which is worth half. Showing that
+ * as a plain green tick beside "80/100" leaves somebody staring at three
+ * ticks wondering where the missing twenty went.
+ */
+function DnsChip({ label, ok, note, half }: { label: string; ok: boolean; note: string; half?: boolean }) {
   return (
     <span
       title={note}
       className={clsx('rounded-full px-2 py-0.5 text-[11px] font-semibold',
-        ok ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300'
+        ok
+          ? (half
+            ? 'bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300'
+            : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300')
           : 'bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300')}
     >
-      {label} {ok ? '✓' : '✗'}
+      {label} {ok ? (half ? '~' : '✓') : '✗'}
     </span>
   )
+}
+
+/** What the missing marks were lost to, in the words of the checks themselves. */
+function dnsShortfall(dns: NonNullable<MailAccountInfo['dns']>): string[] {
+  return [dns.spf, dns.dkim, dns.dmarc]
+    .filter((check) => !check.ok || check.policy === 'none')
+    .map((check) => check.note)
 }
 
 /**
@@ -155,9 +173,18 @@ export default function MailboxesTab() {
                   <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
                     <DnsChip label="SPF" ok={a.dns.spf.ok} note={a.dns.spf.note} />
                     <DnsChip label="DKIM" ok={a.dns.dkim.ok} note={a.dns.dkim.note} />
-                    <DnsChip label="DMARC" ok={a.dns.dmarc.ok} note={a.dns.dmarc.note} />
+                    <DnsChip label="DMARC" ok={a.dns.dmarc.ok} note={a.dns.dmarc.note} half={a.dns.dmarc.policy === 'none'} />
                     <span className="text-xs text-slate-400">score {a.dns.score}/100 · checked {mailDate(a.dns.checked_at)}</span>
                   </p>
+                )}
+
+                {/* Why it is not 100, said outright rather than hidden in a tooltip. */}
+                {a.dns && a.dns.score !== null && a.dns.score < 100 && (
+                  <ul className="mt-1 space-y-0.5">
+                    {dnsShortfall(a.dns).map((note, i) => (
+                      <li key={i} className="text-xs text-amber-600 dark:text-amber-400">{note}</li>
+                    ))}
+                  </ul>
                 )}
 
                 {/*
@@ -249,7 +276,11 @@ This is what Netvork signs in with - change it at your mail provider first, then
                 {a.can_manage && (
                   <Button size="sm" variant="secondary" disabled={busyOn(a.uuid)} onClick={() => run(`dns${a.uuid}`, async () => {
                     const res = await mails.checkDns(a.uuid)
-                    said(a.uuid, [{ ok: res.spf.ok, message: `SPF: ${res.spf.note}` }, { ok: res.dkim.ok, message: `DKIM: ${res.dkim.note}` }, { ok: res.dmarc.ok, message: `DMARC: ${res.dmarc.note}` }])
+                    // One line when nothing could be looked up; three verdicts
+                    // when there were three verdicts to give.
+                    said(a.uuid, res.unavailable
+                      ? [{ ok: false, message: res.spf.note }]
+                      : [{ ok: res.spf.ok, message: `SPF: ${res.spf.note}` }, { ok: res.dkim.ok, message: `DKIM: ${res.dkim.note}` }, { ok: res.dmarc.ok, message: `DMARC: ${res.dmarc.note}` }])
                     refreshAccounts()
                   })}>
                     <ShieldCheck className="size-3.5" /> {busy === `dns${a.uuid}` ? 'Checking…' : 'Check DNS auth'}

@@ -454,6 +454,13 @@ export const notes = {
       headers: password ? { 'X-Note-Password': password } : {},
     }).then((r) => r.data.data),
   remove: (uuid: string) => api.delete(`/notes/${uuid}`),
+  /* The owner's own way back into a note whose password has gone. */
+  requestPasswordReset: (uuid: string) =>
+    api.post<{ message: string }>(`/notes/${uuid}/request-password-reset`).then((r) => r.data),
+  resetPassword: (uuid: string, code: string, newPassword?: string) =>
+    api.post<{ message: string }>(`/notes/${uuid}/reset-password`, {
+      code, new_password: newPassword || null,
+    }).then((r) => r.data),
   share: (uuid: string, app_id: string, permission: 'view' | 'edit') =>
     api.post<{ message: string; data: Note }>(`/notes/${uuid}/share`, { app_id, permission }).then((r) => r.data.data),
   unshare: (uuid: string, userUuid: string) =>
@@ -719,6 +726,27 @@ export interface ChatSearchHit {
   created_at: string | null
 }
 
+/**
+ * The group's own password: the admins' to set, everybody in the group to
+ * give.
+ *
+ * Separate from the chat password in `chatLock`, which is one person's own
+ * arrangement over their own copy of a chat and invisible to the room.
+ */
+export const groupLock = {
+  show: (group: string) =>
+    api.get<{ data: { has_password: boolean; set_at: string | null; set_by: string | null; i_manage: boolean; window_minutes: number } }>(
+      `/groups/${group}/chat-password`,
+    ).then((r) => r.data.data),
+  save: (group: string, body: { current_password?: string; password: string; password_confirmation: string }) =>
+    api.post<{ message: string; data: { unlock_token: string } }>(`/groups/${group}/chat-password`, body).then((r) => r.data),
+  remove: (group: string, password: string) =>
+    api.delete<{ message: string }>(`/groups/${group}/chat-password`, { data: { password } }).then((r) => r.data),
+  open: (group: string, password: string) =>
+    api.post<{ data: { unlock_token: string; window_minutes: number } }>(`/groups/${group}/chat-password/open`, { password })
+      .then((r) => r.data.data),
+}
+
 export const chat = {
   /**
    * My chats. Archived ones are kept out of the way until asked for by
@@ -829,6 +857,15 @@ export const chat = {
       `/conversations/${uuid}/retention`, { auto_delete_hours: hours },
     ).then((r) => r.data),
   attachmentUrl: (uuid: string, attachmentId: number) => `/api/v1/conversations/${uuid}/attachments/${attachmentId}`,
+  /*
+   * A link that carries its own permission, for the Android app's downloader.
+   * Good for two minutes - see MessageController::attachmentLink. The chat
+   * password's proof rides along on the /conversations path, as ever.
+   */
+  attachmentLink: (uuid: string, attachmentId: number) =>
+    api.get<{ data: { url: string; name: string } }>(
+      `/conversations/${uuid}/attachments/${attachmentId}/link`,
+    ).then((r) => r.data.data),
 }
 
 // --- Calls ------------------------------------------------------------------
@@ -1024,6 +1061,23 @@ export const projects = {
     api.get<{ data: import('../types').ProjectSummaryRow[]; contributors: import('../types').ProjectContributor[] }>(
       `/projects/${uuid}/summary`, { params, ...pwHeaders(pw) },
     ).then((r) => r.data),
+  /* The paperwork behind one line of the ledger. */
+  entryFiles: {
+    add: (uuid: string, entryUuid: string, file: File, pw?: string) => {
+      const form = new FormData()
+      form.append('file', file)
+
+      return api.post<{ message: string; data: import('../types').ProjectEntryFile }>(
+        `/projects/${uuid}/entries/${entryUuid}/files`, form, pwHeaders(pw),
+      ).then((r) => r.data)
+    },
+    download: (uuid: string, entryUuid: string, fileUuid: string, pw?: string) =>
+      api.get(`/projects/${uuid}/entries/${entryUuid}/files/${fileUuid}`, { responseType: 'blob', ...pwHeaders(pw) })
+        .then((r) => r.data as Blob),
+    remove: (uuid: string, entryUuid: string, fileUuid: string, pw?: string) =>
+      api.delete<{ message: string }>(`/projects/${uuid}/entries/${entryUuid}/files/${fileUuid}`, pwHeaders(pw))
+        .then((r) => r.data),
+  },
   requestPasswordReset: (uuid: string) =>
     api.post<{ message: string }>(`/projects/${uuid}/request-password-reset`).then((r) => r.data),
   resetPassword: (uuid: string, code: string, newPassword: string) =>

@@ -28,7 +28,7 @@ use Illuminate\Support\Facades\Route;
 
 // Gateway webhooks (unauthenticated; protected by signature verification).
 Route::post('/webhooks/cashfree', [\App\Http\Controllers\Api\WebhookController::class, 'cashfree'])
-    ->middleware('throttle:120,1');
+    ->middleware('throttle:gateway-webhook');
 
 Route::prefix('v1')->group(function () {
 
@@ -37,17 +37,31 @@ Route::prefix('v1')->group(function () {
     // against that company's own secret, is the whole guard. The company is
     // in the path because each brings its own Cashfree account.
     Route::post('/crm/webhooks/cashfree/{organizationUuid}', [\App\Http\Controllers\Api\V1\Crm\CashfreeWebhookController::class, 'handle'])
-        ->middleware('throttle:120,1');
+        ->middleware('throttle:gateway-webhook');
 
     // Public pricing
     Route::get('/plans', [\App\Http\Controllers\Api\V1\SubscriptionController::class, 'plans'])
-        ->middleware('throttle:30,1');
+        ->middleware('throttle:public-plans');
 
     // Public file share link. The token is the whole check, so this is
     // throttled to make guessing one impractical.
     Route::get('/f/{token}', [FileController::class, 'downloadByLink'])
-        ->middleware('throttle:60,1')
+        ->middleware('throttle:file-link')
         ->where('token', '[A-Za-z0-9]{32,64}');
+
+    /*
+     * A chat attachment, fetched by a signature instead of a session.
+     *
+     * The Android app is a WebView and cannot save a file the way a browser
+     * does, so the file is handed to the phone's download manager - another
+     * process, carrying none of our headers. The signature on the URL is
+     * what stands in for them, and it is good for two minutes from the tap
+     * that asked for it. Membership and the chat lock were checked when the
+     * link was issued; see MessageController::attachmentLink.
+     */
+    Route::get('/conversations/{conversation}/attachments/{attachmentId}/download', [MessageController::class, 'downloadSignedAttachment'])
+        ->middleware(['signed', 'throttle:file-link'])
+        ->name('chat.attachment.signed');
 
     // Join a meeting with a passcode and no account. Throttled hard: this is
     // the one door into the app that no session guards.
@@ -55,17 +69,17 @@ Route::prefix('v1')->group(function () {
 // knowing about are the ones that stop someone signing in, and those have no
 // token to offer. Throttled, and everything it stores is truncated.
 Route::post('/client-errors', [\App\Http\Controllers\Api\V1\ClientErrorController::class, 'store'])
-    ->middleware('throttle:20,1');
+    ->middleware('throttle:client-errors');
 
 // Is this code worth showing a password box for? Answered before anyone types
 // anything, so a meeting with no password says "sign in" up front instead of
 // after a failed attempt. Booleans only — no title, nothing a guessed code
 // could harvest.
 Route::get('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'peek'])
-    ->middleware('throttle:30,1');
+    ->middleware('throttle:meeting-peek');
 
 Route::post('/meetings/{code}/guest', [\App\Http\Controllers\Api\V1\MeetingGuestController::class, 'join'])
-        ->middleware('throttle:10,1');
+        ->middleware('throttle:meeting-join');
 
 // The browser moved a push subscription. Open because a service worker holds
 // no session and this can fire with no tab to lend it one; the old endpoint is
@@ -78,7 +92,7 @@ Route::post('/push/calls/{call}/decline', [\App\Http\Controllers\Api\V1\CallCont
     ->middleware('signed');
 
 Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'rotate'])
-    ->middleware('throttle:20,1');
+    ->middleware('throttle:push-rotate');
 
 /*
  * Booking links: the second door with no session behind it.
@@ -94,19 +108,19 @@ Route::post('/push/rotate', [\App\Http\Controllers\Api\V1\PushSubscriptionContro
  * handful of requests as somebody flicks between weeks; booking is once.
  */
 Route::get('/book/{slug}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'page'])
-    ->middleware('throttle:60,1');
+    ->middleware('throttle:booking-page');
 Route::get('/book/{slug}/slots', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'slots'])
-    ->middleware('throttle:60,1');
+    ->middleware('throttle:booking-slots');
 Route::post('/book/{slug}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'book'])
-    ->middleware('throttle:10,1');
+    ->middleware('throttle:booking-create');
 
 // Managing a booking already made. The token is the credential.
 Route::get('/bookings/{token}', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'show'])
-    ->middleware('throttle:30,1')->where('token', '[A-Za-z0-9]{64}');
+    ->middleware('throttle:booking-view')->where('token', '[A-Za-z0-9]{64}');
 Route::post('/bookings/{token}/cancel', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'cancel'])
-    ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]{64}');
+    ->middleware('throttle:booking-change')->where('token', '[A-Za-z0-9]{64}');
 Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\PublicBookingController::class, 'reschedule'])
-    ->middleware('throttle:10,1')->where('token', '[A-Za-z0-9]{64}');
+    ->middleware('throttle:booking-change')->where('token', '[A-Za-z0-9]{64}');
 
     /*
      * What a guest may do, and nothing else.
@@ -123,7 +137,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/guest/meetings/{meeting}/leave', [\App\Http\Controllers\Api\V1\MeetingController::class, 'leave']);
         Route::post('/guest/meetings/{meeting}/heartbeat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'heartbeat']);
         Route::post('/guest/meetings/{meeting}/signal', [\App\Http\Controllers\Api\V1\MeetingController::class, 'signal'])
-            ->middleware('throttle:240,1');
+            ->middleware('throttle:guest-signal');
         Route::post('/guest/meetings/{meeting}/name', [\App\Http\Controllers\Api\V1\MeetingController::class, 'rename']);
         Route::post('/guest/meetings/{meeting}/react', [\App\Http\Controllers\Api\V1\MeetingController::class, 'react']);
         /*
@@ -137,7 +151,7 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
          * part of the panel a guest does not get.
          */
         Route::post('/guest/meetings/{meeting}/chat', [\App\Http\Controllers\Api\V1\MeetingController::class, 'chat'])
-            ->middleware('throttle:60,1');
+            ->middleware('throttle:guest-chat');
         // A guest in the room needs the same token a member does — they are
         // in the same meeting, and the pass they hold is only good for it.
         Route::post('/guest/meetings/{meeting}/realtime-token', [\App\Http\Controllers\Api\V1\MeetingController::class, 'realtimeToken']);
@@ -147,17 +161,15 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
     });
 
     // --- Public auth (strictly throttled) --------------------------------
-    Route::middleware('throttle:10,1')->group(function () {
+    Route::middleware('throttle:public-auth')->group(function () {
         /*
-         * Sign-up is throttled harder than the rest of this group.
-         *
-         * Ten a minute is a reasonable allowance for somebody mistyping a
-         * password; it is 14,000 accounts a day from one address. Nobody
-         * signs up three times in a minute, and an office behind one NAT
-         * still has three tries a minute between them.
+         * Sign-up is throttled harder than the rest of this group, on a
+         * counter of its own - see the 'sign-up' limiter for why it has to
+         * be named and why three a minute was refusing people on their
+         * first attempt.
          */
         Route::post('/auth/register', [AuthController::class, 'register'])
-            ->middleware('throttle:3,1');
+            ->middleware('throttle:sign-up');
         Route::post('/auth/login', [AuthController::class, 'login']);
         Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
         Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
@@ -172,13 +184,13 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
      * no account yet — that is the entire point of the link.
      */
     Route::get('/invite/{code}', [\App\Http\Controllers\Api\V1\InviteController::class, 'show'])
-        ->middleware('throttle:30,1')->where('code', '[A-Za-z0-9]{8,24}');
+        ->middleware('throttle:invite-peek')->where('code', '[A-Za-z0-9]{8,24}');
 
     Route::get('/auth/suggest-username', [AuthController::class, 'suggestUsername'])
-        ->middleware('throttle:30,1');
+        ->middleware('throttle:username-check');
 
     Route::get('/auth/email/verify/{id}/{hash}', [AuthController::class, 'verifyEmail'])
-        ->middleware(['signed', 'throttle:6,1'])
+        ->middleware(['signed', 'throttle:email-verify-link'])
         ->name('verification.verify');
 
     // --- Authenticated ----------------------------------------------------
@@ -412,6 +424,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/projects/{project}/unshare', [\App\Http\Controllers\Api\V1\ProjectController::class, 'unshare']);
         Route::get('/projects/{project}/summary', [\App\Http\Controllers\Api\V1\ProjectController::class, 'summary']);
         Route::get('/projects/{project}/export', [\App\Http\Controllers\Api\V1\ProjectController::class, 'export']);
+        // The paperwork behind one line of the ledger.
+        Route::post('/projects/{project}/entries/{entry}/files', [\App\Http\Controllers\Api\V1\ProjectController::class, 'storeEntryFile']);
+        Route::get('/projects/{project}/entries/{entry}/files/{fileUuid}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'downloadEntryFile']);
+        Route::delete('/projects/{project}/entries/{entry}/files/{fileUuid}', [\App\Http\Controllers\Api\V1\ProjectController::class, 'destroyEntryFile']);
+
+        // A note's own way back in, to the owner's own address.
+        Route::post('/notes/{note}/request-password-reset', [\App\Http\Controllers\Api\V1\NoteController::class, 'requestPasswordReset'])
+            ->middleware('throttle:chat-lock-mail');
+        Route::post('/notes/{note}/reset-password', [\App\Http\Controllers\Api\V1\NoteController::class, 'resetPassword'])
+            ->middleware('throttle:chat-lock');
+
         Route::post('/projects/{project}/request-password-reset', [\App\Http\Controllers\Api\V1\ProjectController::class, 'requestPasswordReset']);
         Route::post('/projects/{project}/reset-password', [\App\Http\Controllers\Api\V1\ProjectController::class, 'resetPassword']);
 
@@ -542,6 +565,17 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::get('/messages/search', [MessageController::class, 'search'])->middleware('throttle:message-search');
         Route::post('/conversations', [ConversationController::class, 'store']);
         Route::get('/groups/{group}/conversation', [ConversationController::class, 'forGroup']);
+        /*
+         * A group's own password: set and taken off by its owner or admins,
+         * given by everybody in it. Deliberately not behind chat.unlocked -
+         * these are the routes somebody uses to get past the lock.
+         */
+        Route::get('/groups/{group}/chat-password', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'show']);
+        Route::post('/groups/{group}/chat-password', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'store']);
+        Route::delete('/groups/{group}/chat-password', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'destroy']);
+        Route::post('/groups/{group}/chat-password/open', [\App\Http\Controllers\Api\V1\GroupLockController::class, 'open'])
+            ->middleware('throttle:group-lock');
+
         Route::post('/conversations/{conversation}/read', [ConversationController::class, 'markRead'])->middleware('chat.unlocked');
         // Fires on every few keystrokes, so it gets its own generous bucket
         // rather than eating the shared per-minute allowance.
@@ -582,6 +616,15 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::post('/conversations/{conversation}/clear', [MessageController::class, 'clear'])->middleware('chat.unlocked');
         Route::post('/conversations/{conversation}/messages/{message}/react', [MessageController::class, 'react'])->middleware('chat.unlocked');
         Route::get('/conversations/{conversation}/attachments/{attachmentId}', [MessageController::class, 'downloadAttachment'])->middleware('chat.unlocked');
+        /*
+         * A link the Android app can hand to the phone's download manager.
+         *
+         * Asked for here, where the person is known and the chat lock still
+         * applies; what comes back proves its own permission for two minutes
+         * because the download manager carries none of ours. See
+         * MessageController::attachmentLink.
+         */
+        Route::get('/conversations/{conversation}/attachments/{attachmentId}/link', [MessageController::class, 'attachmentLink'])->middleware('chat.unlocked');
 
         // Calls
         /*

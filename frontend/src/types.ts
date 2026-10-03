@@ -348,6 +348,8 @@ export interface Note {
   is_pinned: boolean
   is_locked: boolean
   is_own: boolean
+  /** Writes to its owner on the days it changed, as a project's ledger does. */
+  daily_report?: boolean
   group?: { uuid: string; name: string } | null
   owner?: { uuid: string; name: string; username?: string | null } | null
   shared_with?: NoteShare[]
@@ -368,12 +370,16 @@ export interface FileItem {
   created_at: string
   deleted_at?: string
   owner?: { uuid: string; name: string }
+  /** How many other people this was given to directly. */
+  shared_count?: number
 }
 
 export interface FolderItem {
   uuid: string
   name: string
   files_count?: number
+  /** How many other people this was given to directly. */
+  shared_count?: number
   created_at?: string
 }
 
@@ -396,6 +402,8 @@ export interface GroupItem {
   my_role: string | null
   /** An announcement group: everybody reads it, the admins write. */
   only_admins_post?: boolean
+  /** The group carries a password its members give to open the chat. */
+  is_locked?: boolean
   /** Whether the reader is one of the people running it. */
   i_manage?: boolean
   members_count: number
@@ -577,6 +585,11 @@ export interface ConversationItem {
   unread_count: number
   is_muted: boolean
   is_archived: boolean
+  /**
+   * The group itself is behind a password its admins set. Unlike is_locked
+   * below, everybody in the group sees this and everybody is asked for it.
+   */
+  group_locked?: boolean
   /** This person has put the chat behind their chat password. Nobody else sees it. */
   is_locked?: boolean
   /** Out of the list, in the folder only the password opens. */
@@ -743,6 +756,17 @@ export interface ProjectEntryItem {
   reminder_at?: string | null
   created_by?: string | null
   updated_by?: string | null
+  /** The bill, the receipt, the photograph of the delivery. */
+  files?: ProjectEntryFile[]
+}
+
+/** One piece of paperwork behind a ledger line. */
+export interface ProjectEntryFile {
+  uuid: string
+  name: string
+  mime?: string | null
+  size?: number | null
+  created_at?: string
 }
 
 export interface ProjectSummaryRow {

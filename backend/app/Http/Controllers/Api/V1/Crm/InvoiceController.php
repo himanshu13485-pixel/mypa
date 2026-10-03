@@ -125,9 +125,19 @@ class InvoiceController extends Controller
                 fn ($q) => $q->with('convertedTo:id,uuid,number,converted_from_id'));
 
         if ($search = trim((string) $request->query('search'))) {
+            /*
+             * The number, or anything that finds the client.
+             *
+             * Client::matching is the one place that decides what finds a
+             * client - company, person, e-mail, alternate e-mail, mobile,
+             * telephone, GST number, city - and the Clients screen and the
+             * picker on a new invoice both ask through it. This list did
+             * not, so a client findable everywhere else was findable here
+             * by company name alone.
+             */
             $query->where(function ($q) use ($search) {
                 $q->where('number', 'like', "%{$search}%")
-                    ->orWhereHas('client', fn ($c) => $c->where('company_name', 'like', "%{$search}%"));
+                    ->orWhereHas('client', fn ($c) => $c->matching($search));
             });
         }
         // Checkbox filters: any of the values ticked.
@@ -385,14 +395,20 @@ class InvoiceController extends Controller
          * leaves from that company's own mailbox or from the house one.
          */
         $sender = null;
+        $senders = [];
         try {
-            $sender = (new \App\Services\Crm\CompanyMailer($request->attributes->get('crm_org')))
-                ->senderFor($invoice->issuing_company_id, 'invoice');
+            $mailer = new \App\Services\Crm\CompanyMailer($request->attributes->get('crm_org'));
+            $sender = $mailer->senderFor($invoice->issuing_company_id, 'invoice');
+            // And the others it could go from, so the dialog can offer them
+            // rather than only naming the one it is about to use.
+            $senders = $mailer->senders();
         } catch (\Throwable) {
             // Mail switched off, or nothing set up: the dialog says so itself.
         }
 
-        return response()->json(['data' => $this->serialize($invoice, full: true) + ['sender' => $sender]]);
+        return response()->json([
+            'data' => $this->serialize($invoice, full: true) + ['sender' => $sender, 'senders' => $senders],
+        ]);
     }
 
     public function update(Request $request, string $uuid): JsonResponse
@@ -818,6 +834,17 @@ class InvoiceController extends Controller
             'cc' => ['nullable', 'array', 'max:10'],
             'cc.*' => ['email'],
             'from' => ['nullable', \Illuminate\Validation\Rule::in(['default', 'invoice', 'dues'])],
+            /*
+             * Somewhere other than this document's own company.
+             *
+             * The issuing company's mailbox is right almost always, and is
+             * what happens when this is left out. A client who has only ever
+             * heard from GrapOut sometimes needs to hear from GrapOut, so
+             * the sender can be named - but only one of this organisation's
+             * own companies, never an address typed into the request.
+             */
+            'sender_company' => ['nullable', 'integer',
+                \Illuminate\Validation\Rule::exists('crm_issuing_companies', 'id')->where('organization_id', $org->id)],
             'message' => ['nullable', 'string', 'max:2000'],
             // The bank's own paperwork, filed once in Billing setup and
             // ticked on here - a cancelled cheque, a bank letter, a W-9.
@@ -841,7 +868,7 @@ class InvoiceController extends Controller
         // The issuing company's own sender/mailbox first; the chosen
         // purpose-level sender when the company has none.
         $resolved = (new \App\Services\Crm\CompanyMailer($org))
-            ->resolve($invoice->issuing_company_id, $data['from'] ?? 'invoice');
+            ->resolve($data['sender_company'] ?? $invoice->issuing_company_id, $data['from'] ?? 'invoice');
         $mailer = $resolved['mailer'];
         $fromAddress = $resolved['address'];
         $fromName = $resolved['name'];
@@ -1431,7 +1458,90 @@ class InvoiceController extends Controller
             'bank' => $this->bankFor($invoice),
         ])->setPaper('a4');
 
+        // Rendered here, rather than left for whoever asks for the bytes,
+        // because the letterhead below can only be painted onto pages that
+        // already exist.
+        $pdf->render();
+        $this->continuationLetterhead($pdf, $invoice, $letterhead ? null : $logoPath);
+
         return $pdf;
+    }
+
+    /**
+     * The letterhead again, on page two and after.
+     *
+     * A long invoice used to spill onto a bare second sheet - the rubber
+     * stamp and the signatory line alone on unbranded paper, looking like a
+     * page that had come adrift from something else. Printed invoices repeat
+     * their letterhead for exactly this reason.
+     *
+     * Painted onto the finished pages rather than written in the template,
+     * because dompdf has no way to repeat a block of markup across pages;
+     * the page's top margin is what holds the space for it. Page one is
+     * skipped - it has the real header, in full, already.
+     *
+     * The document has to have been rendered before this runs. page_script()
+     * is not a hook that fires later: it walks the pages that exist when it
+     * is called, and before rendering there is exactly one, empty. Called
+     * too early it silently paints nothing - which is how it was first
+     * written, and why the test counts what is on the page.
+     *
+     * Skipped entirely for a letterhead print, where the paper carries the
+     * branding and the whole point is that we do not.
+     */
+    private function continuationLetterhead($pdf, Invoice $invoice, ?string $logoPath): void
+    {
+        $name = (string) ($invoice->issuingCompany?->name ?? '');
+        if ($name === '') {
+            return;
+        }
+
+        $logo = $logoPath && is_file($logoPath) ? $logoPath : null;
+        $number = (string) $invoice->number;
+
+        $pdf->getDomPDF()->getCanvas()->page_script(
+            function ($pageNumber, $pageCount, $canvas, $fontMetrics) use ($name, $number, $logo) {
+                if ($pageNumber < 2) {
+                    return;
+                }
+
+                // Points from the top of the sheet. The band has to finish
+                // above where the body starts - the page's top margin, 34px
+                // or about 25pt - or it prints over the first row of the
+                // table. Shallow, because that margin is charged to page one
+                // as well, and page one is the page that has to fit.
+                $edge = 30;
+                $top = 11;
+                $rule = 23;
+                $width = $canvas->get_width();
+
+                $left = $edge;
+
+                if ($logo) {
+                    // Height only; dompdf keeps the ratio from the file.
+                    // Short enough to stay clear of the rule below it.
+                    $canvas->image($logo, $left, $top - 7, null, 16);
+                    $left += 76;
+                }
+
+                $font = $fontMetrics->getFont('DejaVu Sans', 'bold');
+                $canvas->text($left, $top, $name, $font, 9, [0.06, 0.09, 0.16]);
+
+                $small = $fontMetrics->getFont('DejaVu Sans', 'normal');
+                $tail = $number . '  ·  page ' . $pageNumber . ' of ' . $pageCount;
+                $canvas->text(
+                    $width - $edge - $fontMetrics->getTextWidth($tail, $small, 8),
+                    $top + 1,
+                    $tail,
+                    $small,
+                    8,
+                    [0.39, 0.45, 0.55],
+                );
+
+                // A hairline under it, the same grey the header rule uses.
+                $canvas->line($edge, $rule, $width - $edge, $rule, [0.95, 0.96, 0.97], 0.8);
+            },
+        );
     }
 
     // ---- Invoice Log / Proforma Log ----------------------------------------

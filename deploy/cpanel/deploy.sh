@@ -37,6 +37,24 @@ done
 "$PHP" -r 'exit(version_compare(PHP_VERSION, "8.4.1", ">=") ? 0 : 1);' \
   || { echo "!! $PHP is $("$PHP" -r 'echo PHP_VERSION;') — composer.lock needs >= 8.4.1"; exit 1; }
 
+# A way out to the internet, before anything needs one.
+#
+# git, composer and npm all fetch, and the first of them to fail says so in
+# its own words - "Could not resolve host: github.com" reads as a git problem
+# when the machine simply has no egress at all. Asked without DNS, because
+# DNS is the first thing to go when egress does, and with a deadline, so a
+# dead network cannot hang the deploy instead of ending it.
+OUT=""
+for resolver in 1.1.1.1 8.8.8.8; do
+  timeout 3 bash -c "</dev/tcp/$resolver/53" 2>/dev/null && { OUT=yes; break; }
+done
+[ -n "$OUT" ] || {
+  echo "!! this server cannot reach the internet - git, composer and npm all need it."
+  echo "   Nothing has been changed, and the sites keep running on what is already deployed."
+  echo "   Check the route out, the firewall and the host, then run this again."
+  exit 1
+}
+
 site_code() {
   local code
   code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 20 \

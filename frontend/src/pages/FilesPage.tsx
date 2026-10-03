@@ -5,7 +5,9 @@ import {
   Check, Copy, Link2, Pencil, RotateCcw, Share2, Trash2, Upload, Users,
 } from 'lucide-react'
 import { badges as badgesApi, files as filesApi } from '../api/endpoints'
+import { clsx } from 'clsx'
 import { errorMessage } from '../api/client'
+import { filesFromDrop, foldersIn } from '../lib/dropUpload'
 import { useToast } from '../components/Toast'
 import { PickUserModal } from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
@@ -33,6 +35,25 @@ async function authedDownload(uuid: string, name: string) {
   a.download = name
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/**
+ * That this is not only mine.
+ *
+ * A file or folder gave no sign of having been shared, so the only way to
+ * know was to open the share dialog on each one in turn - and the usual way
+ * somebody finds out is by being surprised. The icon says it at a glance and
+ * the line underneath says with how many, or by whom.
+ */
+function SharedMark({ count, by }: { count?: number; by?: string }) {
+  if (!count && !by) return null
+
+  return (
+    <Share2
+      className="size-3 shrink-0 text-brand-500"
+      aria-label={by ? `Shared by ${by}` : `Shared with ${count} ${count === 1 ? 'person' : 'people'}`}
+    />
+  )
 }
 
 export default function FilesPage() {
@@ -102,6 +123,62 @@ export default function FilesPage() {
     onError: (err) => toastError(errorMessage(err)),
   })
 
+  /*
+   * Dragging files and folders in.
+   *
+   * A dropped folder is not in dataTransfer.files at all - the browser only
+   * admits to a directory through webkitGetAsEntry, and only while the drop
+   * is still being handled. So the tree is read out first, then the folders
+   * are made here in the same shape, then each file goes into the one it
+   * came from.
+   */
+  const [dropping, setDropping] = useState(false)
+  const [landing, setLanding] = useState<string | null>(null)
+
+  const takeDrop = async (transfer: DataTransfer) => {
+    const { files: dropped, truncated } = await filesFromDrop(transfer)
+    if (!dropped.length) return
+
+    if (truncated) {
+      toastError('That is more than 200 files. The first 200 are going up - drop the rest after.')
+    }
+
+    try {
+      /*
+       * Every folder in the drop, made before anything is put in it, and
+       * remembered by its path so the second file in a folder goes into the
+       * one the first file made rather than into a second copy of it.
+       */
+      const made = new Map<string, string | undefined>([['', folder]])
+      for (const path of foldersIn(dropped)) {
+        setLanding(path.join('/'))
+        const parent = made.get(path.slice(0, -1).join('/'))
+        const res = await filesApi.createFolder(path[path.length - 1], parent)
+        made.set(path.join('/'), (res.data as { data?: { uuid?: string } })?.data?.uuid)
+      }
+
+      // Grouped by destination, so one folder is one request rather than one
+      // request per file in it.
+      const byFolder = new Map<string, File[]>()
+      for (const { file, path } of dropped) {
+        const key = path.join('/')
+        byFolder.set(key, [...(byFolder.get(key) ?? []), file])
+      }
+
+      for (const [key, list] of byFolder) {
+        setLanding(key || 'this folder')
+        await filesApi.upload(list, made.get(key))
+      }
+
+      toast(dropped.length === 1 ? 'Uploaded.' : `${dropped.length} files uploaded.`, 'success')
+      invalidate()
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setLanding(null)
+    }
+  }
+
   const usage = data?.usage
 
   return (
@@ -143,7 +220,38 @@ export default function FilesPage() {
       </div>
 
       {view === 'mine' && (
-        <>
+        <div
+          /*
+           * The whole of My files takes a drop, not a small target inside it.
+           * Somebody dragging a folder in aims at the page, and a strip they
+           * have to hit is a strip they will miss.
+           */
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return
+            e.preventDefault()
+            if (!dropping) setDropping(true)
+          }}
+          onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropping(false) }}
+          onDrop={(e) => {
+            if (!e.dataTransfer.types.includes('Files')) return
+            e.preventDefault()
+            setDropping(false)
+            void takeDrop(e.dataTransfer)
+          }}
+          className={clsx(
+            'relative space-y-4 rounded-2xl transition-colors',
+            dropping && 'outline-dashed outline-2 outline-offset-4 outline-brand-500',
+          )}
+        >
+          {/* What is about to happen, and then what is happening. */}
+          {(dropping || landing) && (
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center">
+              <span className="rounded-full bg-brand-600 px-3 py-1 text-xs font-medium text-white shadow-lift">
+                {landing ? `Uploading into ${landing}…` : 'Let go to upload here'}
+              </span>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Breadcrumb */}
             <div className="flex items-center gap-1 text-sm text-slate-500">
@@ -204,7 +312,7 @@ export default function FilesPage() {
             <SkeletonCards count={6} />
           ) : !data || (data.folders.length === 0 && data.files.length === 0) ? (
             <Card>
-              <EmptyState title="This folder is empty" hint="Upload files or create a folder." />
+              <EmptyState title="This folder is empty" hint="Drag files or folders in, or use Upload." />
             </Card>
           ) : (
             <div className="space-y-1.5">
@@ -212,8 +320,14 @@ export default function FilesPage() {
                 <Card key={f.uuid} className="flex items-center gap-3 p-3">
                   <Folder className="size-5 shrink-0 text-amber-500" />
                   <button className="min-w-0 flex-1 text-left" onClick={() => setFolder(f.uuid)}>
-                    <p className="truncate text-sm font-medium">{f.name}</p>
-                    <p className="text-xs text-slate-400">{f.files_count} file(s)</p>
+                    <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                      <span className="truncate">{f.name}</span>
+                      <SharedMark count={f.shared_count} />
+                    </p>
+                    <p className="text-xs text-slate-400">
+                      {f.files_count} file(s)
+                      {!!f.shared_count && ` · shared with ${f.shared_count}`}
+                    </p>
                   </button>
                   <button
                     className="rounded p-1.5 text-slate-400 hover:text-brand-600"
@@ -249,11 +363,18 @@ export default function FilesPage() {
                 <Card key={f.uuid} className="flex items-center gap-3 p-3">
                   <FileIcon className="size-5 shrink-0 text-slate-400" />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{f.name}</p>
+                    <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+                      <span className="truncate">{f.name}</span>
+                      <SharedMark count={f.shared_count} by={f.owner?.name} />
+                    </p>
                     {/* "application/vnd.openxmlformats-officedocument…" is three
                         wrapped lines on a phone, and it is the least useful
                         thing in the row. */}
-                    <p className="truncate text-xs text-slate-400">{formatBytes(f.size)} · {f.mime_type ?? 'unknown'}</p>
+                    <p className="truncate text-xs text-slate-400">
+                      {formatBytes(f.size)} · {f.mime_type ?? 'unknown'}
+                      {!!f.shared_count && ` · shared with ${f.shared_count}`}
+                      {f.owner && ` · shared by ${f.owner.name}`}
+                    </p>
                   </div>
                   <button
                     className="rounded p-1.5 text-slate-400 hover:text-brand-600"
@@ -302,7 +423,7 @@ export default function FilesPage() {
               ))}
             </div>
           )}
-        </>
+        </div>
       )}
 
       {view === 'shared' && (

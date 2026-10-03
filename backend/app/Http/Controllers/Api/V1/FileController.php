@@ -27,18 +27,23 @@ class FileController extends Controller
         $folders = Folder::where('user_id', $user->id)
             ->where('parent_id', $folder?->id)
             ->orderBy('name')
-            ->withCount('files')
+            ->withCount(['files', 'sharedWith'])
             ->get()
             ->map(fn ($f) => [
                 'uuid' => $f->uuid,
                 'name' => $f->name,
                 'files_count' => $f->files_count,
+                // How many other people can open it - so the row can say it
+                // is shared rather than leaving somebody to open the share
+                // dialog on each folder in turn to find out.
+                'shared_count' => $f->shared_with_count,
                 'created_at' => $f->created_at,
             ]);
 
         $files = File::where('user_id', $user->id)
             ->where('folder_id', $folder?->id)
             ->orderBy('name')
+            ->withCount('sharedWith')
             ->get()
             ->map(fn ($f) => $this->serialize($f, $request));
 
@@ -512,6 +517,19 @@ class FileController extends Controller
             'size' => $file->size,
             'is_own' => $file->user_id === $request->user()->id,
             'folder_uuid' => $file->folder?->uuid,
+            /*
+             * Who else has this.
+             *
+             * shared_count is the people it was given to directly; owner is
+             * filled in when somebody else gave it to me. Between them a row
+             * can say "shared with 2" or "shared by Priyanshu" without
+             * anybody opening anything to find out.
+             */
+            'shared_count' => $file->shared_with_count ?? $file->sharedWith()->count(),
+            'owner' => $file->user_id === $request->user()->id ? null : ($file->user ? [
+                'uuid' => $file->user->uuid,
+                'name' => $file->user->name,
+            ] : null),
             'created_at' => $file->created_at,
         ];
     }

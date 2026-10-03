@@ -811,6 +811,8 @@ export interface CrmInvoiceFull extends CrmInvoiceRow {
    * house sender when it does not.
    */
   sender?: { address: string; name: string; source: 'company' | 'house' | 'settings'; company: string | null } | null
+  /** Every mailbox this organisation has set up, to send as one of them. */
+  senders?: { id: number; label: string; address: string; name: string }[]
   /**
    * Where the document tells the client to pay — the issuing company's own
    * account, or an org-wide one. Resolved server-side so the printed page
@@ -3520,7 +3522,7 @@ export const crm = {
      * setup - nothing is uploaded at send time, so what reaches a client
      * is always something somebody deliberately put there.
      */
-    email: (uuid: string, payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; message?: string; documents?: string[] }) =>
+    email: (uuid: string, payload: { to?: string; cc?: string[]; from?: 'default' | 'invoice' | 'dues'; sender_company?: number; message?: string; documents?: string[] }) =>
       api.post<{ message: string }>(`/crm/invoices/${uuid}/email`, payload).then((r) => r.data),
   },
 

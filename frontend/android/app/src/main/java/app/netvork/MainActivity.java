@@ -34,6 +34,9 @@ public class MainActivity extends BridgeActivity {
         // exist when a push lands is silently downgraded to the FCM
         // library's own fallback, losing both the sound and the heads-up.
         NotificationChannels.ensure(this);
+        // A WebView has no downloading of its own, so files people were sent
+        // could not be saved at all until this. See Downloads.
+        Downloads.install(this, getBridge().getWebView());
         cancelNamedNotification(getIntent());
     }
 

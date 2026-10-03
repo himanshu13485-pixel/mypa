@@ -248,7 +248,7 @@ class MailAccountController extends Controller
             return response()->json(['data' => [
                 'ok' => false,
                 'folders' => [],
-                'message' => MailConnector::explain($e, $account->imap_host, (int) $account->imap_port, 'incoming'),
+                'message' => MailConnector::explain($e, $account->imap_host, (int) $account->imap_port, 'incoming', MailConnector::canReachTheInternet()),
             ]]);
         }
     }
@@ -284,7 +284,7 @@ class MailAccountController extends Controller
         } catch (Throwable $e) {
             return response()->json(['data' => [
                 'ok' => false,
-                'message' => MailConnector::explain($e, $account->smtp_host, (int) $account->smtp_port, 'outgoing'),
+                'message' => MailConnector::explain($e, $account->smtp_host, (int) $account->smtp_port, 'outgoing', MailConnector::canReachTheInternet()),
             ]]);
         }
     }
@@ -297,6 +297,18 @@ class MailAccountController extends Controller
 
         $selector = (string) ($request->validate(['selector' => ['nullable', 'string', 'max:120']])['selector'] ?? '') ?: (string) $account->dkim_selector;
         $result = $dns->check($account->email, $selector ?: null);
+
+        /*
+         * A reading taken blind is not a reading.
+         *
+         * Saving it would throw away a good score - 80/100, every record
+         * present - and replace it with zero and three crosses, which is a
+         * lie about the domain and reads as an emergency. What was last
+         * actually seen stays until something can be seen again.
+         */
+        if (! empty($result['unavailable'])) {
+            return response()->json(['data' => $result + ['previous' => $account->dns]]);
+        }
 
         $account->forceFill([
             'dns' => $result,

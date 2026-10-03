@@ -46,6 +46,9 @@ class PurgeExpiredMessages extends Command
                                     $totalFiles++;
                                     if (! $dry) {
                                         Storage::disk('local')->delete($attachment->path);
+                                        // And its thumbnail, which is the
+                                        // same picture in miniature.
+                                        app(\App\Services\ImageThumbnail::class)->forget($attachment->path);
                                     }
                                 }
                                 $totalMessages++;

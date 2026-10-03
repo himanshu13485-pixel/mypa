@@ -11,9 +11,11 @@ use App\Models\MessageAttachment;
 use App\Models\MessageDeletion;
 use App\Models\MessageStar;
 use App\Models\User;
+use App\Services\ImageThumbnail;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class MessageController extends Controller
@@ -840,6 +842,9 @@ class MessageController extends Controller
                 // Remove stored attachment data as well.
                 foreach ($message->attachments as $attachment) {
                     Storage::disk('local')->delete($attachment->path);
+                    // And the small copy the thread was drawn from, which is
+                    // the same picture and would otherwise outlive it.
+                    app(ImageThumbnail::class)->forget($attachment->path);
                 }
                 $message->attachments()->delete();
                 $message->update(['body' => null]);
@@ -935,6 +940,104 @@ class MessageController extends Controller
         $me = $request->user();
         abort_unless($conversation->hasMember($me), 403);
 
+        $attachment = $this->attachmentIn($conversation, $attachmentId);
+
+        /*
+         * The small copy, for drawing a picture in a bubble.
+         *
+         * A phone photo is several megabytes and thousands of pixels wide,
+         * and the bubble is a couple of hundred pixels across - so the thread
+         * was spending the whole file to draw a stamp, once per person and
+         * once per picture, and sat on "Loading…" while it did. Asked for by
+         * the thread; never by a download, which wants the real thing.
+         *
+         * Falls back to the original whenever a thumbnail cannot be made, so
+         * a picture this server cannot shrink still arrives.
+         */
+        if ($request->boolean('thumb')) {
+            $thumb = app(ImageThumbnail::class)->for($attachment->path, $attachment->mime_type);
+
+            if ($thumb !== null) {
+                return Storage::disk('local')->response($thumb, $attachment->name, [
+                    'Content-Type' => 'image/jpeg',
+                    'X-Content-Type-Options' => 'nosniff',
+                    // Immutable: a thumbnail is derived from a file that
+                    // never changes, so a second look should cost nothing.
+                    'Cache-Control' => 'private, max-age=86400',
+                ]);
+            }
+        }
+
+        return Storage::disk('local')->download($attachment->path, $attachment->name, [
+            'Content-Type' => $attachment->mime_type ?? 'application/octet-stream',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * A link to this attachment that carries its own permission.
+     *
+     * The Android app is a WebView, and a WebView cannot save a file the way
+     * a browser does: there is no download handling in it at all, so the blob
+     * the web app builds with the auth header is simply dropped on the floor.
+     * Nothing happened when somebody tapped a file, which is exactly what was
+     * reported.
+     *
+     * What a WebView can do is hand a plain https URL to Android's download
+     * manager - but the download manager is a different process and carries
+     * none of our headers, so the URL has to prove itself. Hence a signature
+     * on the URL rather than a token in a header.
+     *
+     * Short-lived, because an address that proves its own permission is only
+     * safe while it is nearly expired: two minutes is longer than the tap
+     * that follows it and shorter than anything worth passing around. The
+     * membership and the chat lock are checked here, where the person is
+     * known; the signature then stands in for that check for those two
+     * minutes, the same way a file share link does.
+     */
+    public function attachmentLink(Request $request, Conversation $conversation, int $attachmentId): JsonResponse
+    {
+        $me = $request->user();
+        abort_unless($conversation->hasMember($me), 403);
+
+        $attachment = $this->attachmentIn($conversation, $attachmentId);
+
+        return response()->json(['data' => [
+            'url' => URL::temporarySignedRoute('chat.attachment.signed', now()->addMinutes(2), [
+                'conversation' => $conversation->uuid,
+                'attachmentId' => $attachment->id,
+            ]),
+            'name' => $attachment->name,
+        ]]);
+    }
+
+    /**
+     * The same file, fetched by a signed URL instead of a session.
+     *
+     * No `auth` here on purpose - the download manager has no session to
+     * offer. The signature is the whole credential, and Laravel's `signed`
+     * middleware has already refused anything tampered with or expired by
+     * the time this runs.
+     */
+    public function downloadSignedAttachment(Conversation $conversation, int $attachmentId): StreamedResponse
+    {
+        $attachment = $this->attachmentIn($conversation, $attachmentId);
+
+        return Storage::disk('local')->download($attachment->path, $attachment->name, [
+            'Content-Type' => $attachment->mime_type ?? 'application/octet-stream',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * An attachment of this conversation, or a 404.
+     *
+     * Scoped to the conversation rather than looked up by id alone, so a
+     * number from one thread cannot name a file in another - and a deleted
+     * message's attachment stops being reachable with it.
+     */
+    private function attachmentIn(Conversation $conversation, int $attachmentId): MessageAttachment
+    {
         $attachment = MessageAttachment::whereHas(
             'message',
             fn ($m) => $m->where('conversation_id', $conversation->id)->whereNull('deleted_at'),
@@ -942,9 +1045,6 @@ class MessageController extends Controller
 
         abort_unless(Storage::disk('local')->exists($attachment->path), 404);
 
-        return Storage::disk('local')->download($attachment->path, $attachment->name, [
-            'Content-Type' => $attachment->mime_type ?? 'application/octet-stream',
-            'X-Content-Type-Options' => 'nosniff',
-        ]);
+        return $attachment;
     }
 }

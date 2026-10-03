@@ -21,6 +21,14 @@ class ProjectDailyReport extends Mailable
         public string $fileContents,  // csv text or pdf binary
         public string $fileName,
         public string $fileMime,
+        /**
+         * The paperwork behind the entries that changed, already read off
+         * the disk: [name, mime, contents]. Read before queueing, because a
+         * queued mail is opened later and a path may be gone by then.
+         *
+         * @var array<int, array{name: string, mime: string, body: string}>
+         */
+        public array $entryFiles = [],
     ) {
     }
 
@@ -65,6 +73,13 @@ class ProjectDailyReport extends Mailable
         return [
             Attachment::fromData(fn () => $this->fileContents, $this->fileName)
                 ->withMime($this->fileMime),
+            // Then whatever was attached to the lines that changed, so the
+            // bill arrives with the number rather than after a phone call
+            // asking for it.
+            ...array_map(
+                fn (array $file) => Attachment::fromData(fn () => $file['body'], $file['name'])->withMime($file['mime']),
+                $this->entryFiles,
+            ),
         ];
     }
 }

@@ -39,6 +39,8 @@ Schedule::command('mypa:goal-reminders')->dailyAt('08:30')->withoutOverlapping()
 
 // Daily ledger emails go out at 6 AM, only for projects that changed.
 Schedule::command('mypa:project-daily-reports')->dailyAt('06:00')->withoutOverlapping();
+// The same post, a few minutes later so the two do not queue together.
+Schedule::command('mypa:note-daily-reports')->dailyAt('06:10')->withoutOverlapping();
 
 // Subscription lifecycle: expiry, renewal reminders, stale order cleanup.
 Schedule::command('mypa:subscription-lifecycle')->dailyAt('07:30')->withoutOverlapping();

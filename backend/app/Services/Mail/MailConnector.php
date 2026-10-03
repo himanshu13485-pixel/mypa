@@ -167,7 +167,49 @@ class MailConnector
      * order they happen: the name does not exist, nothing answers on that
      * port, the certificate is wrong, or the sign-in was refused.
      */
-    public static function explain(Throwable $e, ?string $host, int $port, string $side): string
+    /**
+     * Can this server reach anything at all?
+     *
+     * Asked only when a name has already failed to resolve, and answered
+     * without using DNS: an ordinary TCP connection to a public resolver's
+     * address, with a short deadline of its own. If even that will not open,
+     * the machine has no way out to the internet and the mailbox is not the
+     * thing to go and correct.
+     *
+     * Deliberately not another name lookup. The first version asked the
+     * resolver two more questions, which cost nothing when DNS is healthy
+     * and blocks for the full timeout on each one when it is not - slowest
+     * in exactly the case it was written for. A connection with a deadline
+     * cannot do that.
+     *
+     * The answer is remembered for the request, because one failed sync can
+     * ask several times over.
+     */
+    public static function canReachTheInternet(): bool
+    {
+        static $answer = null;
+        if ($answer !== null) {
+            return $answer;
+        }
+
+        // Two well-known addresses, so one being unreachable proves nothing.
+        foreach (['1.1.1.1', '8.8.8.8'] as $address) {
+            $socket = @fsockopen($address, 53, $code, $note, 2);
+            if ($socket) {
+                fclose($socket);
+
+                return $answer = true;
+            }
+        }
+
+        return $answer = false;
+    }
+
+    /**
+     * @param  bool|null  $online  Whether this server can reach the internet
+     *                             at all; null asks nothing and says less.
+     */
+    public static function explain(Throwable $e, ?string $host, int $port, string $side, ?bool $online = null): string
     {
         $raw = self::plain($e);
         $lower = mb_strtolower($raw);
@@ -175,7 +217,21 @@ class MailConnector
         $hint = null;
 
         if (str_contains($lower, 'getaddrinfo') || str_contains($lower, 'no such host') || str_contains($lower, 'name or service not known')) {
-            $hint = "There is no server called \"{$host}\" - check the spelling with whoever hosts the mailbox.";
+            /*
+             * Two different faults wearing one message.
+             *
+             * The resolver says "not known" both when a name really does not
+             * exist and when it could not ask anybody - a broken
+             * /etc/resolv.conf, a local named that has stopped. Only the
+             * first is the mailbox's fault, and sending somebody to check
+             * their spelling when the name is perfectly good and their own
+             * server cannot look anything up wastes a day.
+             */
+            $hint = $online === false
+                // Proved, not guessed: this server cannot open a connection
+                // to the wider internet either, so no name would resolve.
+                ? 'This server has no way out to the internet at all right now, which is why no name resolves. Nothing to do with the mailbox - leave its settings alone. Somebody needs to look at the server\'s network: its route out, its firewall, or its host.'
+                : "This server could not look up \"{$host}\". Either the name is wrong - check it with whoever hosts the mailbox - or this server cannot reach its DNS. If \"{$host}\" resolves from your laptop, it is the second.";
             // The one everybody gets wrong: Amazon SES is email-smtp, not smtp.
             if ($host && preg_match('/^smtp\.([a-z0-9-]+)\.amazonaws\.com$/i', $host, $m)) {
                 $hint .= " Amazon SES is \"email-smtp.{$m[1]}.amazonaws.com\", not \"smtp.\".";

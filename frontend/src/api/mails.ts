@@ -139,8 +139,11 @@ export interface MailDnsResult {
   spf: MailDnsCheck
   dkim: MailDnsCheck
   dmarc: MailDnsCheck
-  score: number
+  /** null when the check could not run - see `unavailable`. */
+  score: number | null
   checked_at: string
+  /** The server could not resolve anything, so nothing was learned. */
+  unavailable?: boolean
 }
 
 export interface MailPerson {

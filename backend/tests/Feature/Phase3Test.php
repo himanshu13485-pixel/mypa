@@ -57,6 +57,41 @@ class Phase3Test extends TestCase
         $this->actingAs($this->user)->deleteJson("/api/v1/notes/{$uuid}")->assertOk();
     }
 
+    public function test_a_note_keeps_its_formatting_and_loses_anything_that_runs(): void
+    {
+        /*
+         * A note is written with bold, bullets and links now, and shared with
+         * colleagues - so a note that could run something in their browser
+         * would be the neatest way to hand them a payload.
+         */
+        $made = $this->actingAs($this->user)->postJson('/api/v1/notes', [
+            'title' => 'Handover',
+            'body' => '<p><strong>Do this</strong></p><ul><li>One</li><li>Two</li></ul>'
+                . '<p onclick="steal()">Note</p><script>alert(1)</script>'
+                . '<a href="javascript:bad()">tap</a><a href="https://ok.test">fine</a>',
+        ])->assertCreated();
+
+        $body = $made->json('data.body');
+
+        // The writing survives.
+        $this->assertStringContainsString('<strong>Do this</strong>', $body);
+        $this->assertStringContainsString('<li>One</li>', $body);
+        $this->assertStringContainsString('https://ok.test', $body);
+
+        // Everything that could act does not.
+        $this->assertStringNotContainsString('script', $body);
+        $this->assertStringNotContainsString('onclick', $body);
+        $this->assertStringNotContainsString('javascript:', $body);
+
+        // And a note written as plain text is left exactly as it was typed.
+        $plain = $this->actingAs($this->user)->postJson('/api/v1/notes', [
+            'title' => 'Plain', 'body' => "Line one
+Line two",
+        ])->assertCreated()->json('data.body');
+        $this->assertSame("Line one
+Line two", $plain);
+    }
+
     public function test_password_protected_note_hides_content(): void
     {
         $response = $this->actingAs($this->user)->postJson('/api/v1/notes', [
@@ -83,6 +118,28 @@ class Phase3Test extends TestCase
             ->getJson("/api/v1/notes/{$uuid}")
             ->assertOk()
             ->assertJsonPath('data.body', 'PIN is 1234');
+    }
+
+    public function test_the_owner_can_take_a_notes_password_off_again(): void
+    {
+        $note = $this->actingAs($this->user)->postJson('/api/v1/notes', [
+            'title' => 'Locked', 'body' => 'Secret', 'password' => 'hunter2',
+        ])->assertCreated()->json('data');
+        $this->assertTrue($note['is_locked']);
+
+        // Shut without it.
+        $this->actingAs($this->user)->getJson("/api/v1/notes/{$note['uuid']}")->assertStatus(423);
+
+        // A null password is what takes the protection off - and it needs the
+        // current one, since reading the note needs it.
+        $opened = $this->actingAs($this->user)
+            ->putJson("/api/v1/notes/{$note['uuid']}", ['password' => null, 'note_password' => 'hunter2'])
+            ->assertOk()->json('data');
+        $this->assertFalse($opened['is_locked']);
+
+        // Open to its owner again, and its writing is still there.
+        $this->assertSame('Secret', $this->actingAs($this->user)
+            ->getJson("/api/v1/notes/{$note['uuid']}")->assertOk()->json('data.body'));
     }
 
     public function test_note_sharing_and_permissions(): void

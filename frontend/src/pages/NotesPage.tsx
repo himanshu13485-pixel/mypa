@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Lock, Pin, Plus, Share2, Trash2, Users, X } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
@@ -6,6 +6,7 @@ import { clsx } from 'clsx'
 import { badges as badgesApi, notes as notesApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
+import RichEditor from './crm/mails/RichEditor'
 import {
   Button,
   Card,
@@ -17,7 +18,6 @@ import {
   Pager,
   Select,
   SkeletonCards,
-  Textarea,
 } from '../components/ui'
 import type { Note } from '../types'
 
@@ -28,6 +28,7 @@ interface NoteFormState {
   checklist: { text: string; done?: boolean }[]
   color: string
   is_pinned: boolean
+  daily_report: boolean
   password: string
 }
 
@@ -38,7 +39,32 @@ const emptyForm: NoteFormState = {
   checklist: [],
   color: '',
   is_pinned: false,
+  daily_report: false,
   password: '',
+}
+
+/**
+ * Older notes are plain text; the editor speaks HTML.
+ *
+ * Without this the line breaks somebody typed would vanish the first time
+ * they opened an old note to edit it - the note would look rewritten by the
+ * act of opening it, which is the sort of thing that stops people trusting
+ * an editor.
+ */
+function asHtml(body: string): string {
+  if (!body) return ''
+  if (/<[a-z][\s\S]*>/i.test(body)) return body
+
+  const escape = (line: string) => line
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+
+  // A blank line starts a paragraph; a single one is a line break inside it.
+  return body
+    .split(/\n{2,}/)
+    .map((block) => '<p>' + block.split('\n').map(escape).join('<br>') + '</p>')
+    .join('')
 }
 
 export default function NotesPage() {
@@ -73,27 +99,121 @@ export default function NotesPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['notes'] })
 
+  /*
+   * Writing is saved as it is written.
+   *
+   * A note is where somebody puts the thing they are about to forget, and
+   * asking them to remember a button first is the wrong way round. So the
+   * note saves itself a moment after the typing stops, and Save note is
+   * there for finishing rather than for keeping.
+   *
+   * A pause rather than a keystroke: saving on every letter would be a
+   * request per letter, and a note is written in bursts.
+   */
+  const AUTOSAVE_PAUSE_MS = 900
+  const [saved, setSaved] = useState<'clean' | 'dirty' | 'saving' | 'saved'>('clean')
+  const savedSnapshot = useRef<string>('')
+  const autosaveTimer = useRef<number | null>(null)
+
+  /*
+   * The password is never carried by an autosave.
+   *
+   * Autosave fires while somebody is still typing, and a password saved
+   * halfway through typing it is a note locked with "Lohit@1" - a lock
+   * nobody knows the key to, made by the app being helpful. Protection
+   * changes on the explicit save and nowhere else.
+   */
+  const payloadOf = (f: NoteFormState, withPassword = false): Record<string, unknown> => {
+    const payload: Record<string, unknown> = {
+      title: f.title,
+      type: f.type,
+      body: f.type === 'text' ? f.body : null,
+      checklist: f.type === 'checklist' ? f.checklist.filter((c) => c.text.trim()) : null,
+      color: f.color || null,
+      is_pinned: f.is_pinned,
+      daily_report: f.daily_report,
+    }
+    if (withPassword && f.password) payload.password = f.password
+
+    return payload
+  }
+
   const saveMutation = useMutation({
-    mutationFn: () => {
-      const payload: Record<string, unknown> = {
-        title: form.title,
-        type: form.type,
-        body: form.type === 'text' ? form.body : null,
-        checklist: form.type === 'checklist' ? form.checklist.filter((c) => c.text.trim()) : null,
-        color: form.color || null,
-        is_pinned: form.is_pinned,
-      }
-      if (form.password) payload.password = form.password
-      return editing
-        ? notesApi.update(editing.uuid, payload, unlockPassword || undefined)
-        : notesApi.create(payload)
-    },
+    mutationFn: () => (editing
+      ? notesApi.update(editing.uuid, payloadOf(form, true), unlockPassword || undefined)
+      : notesApi.create(payloadOf(form, true))),
     onSuccess: () => {
       invalidate()
       close()
     },
     onError: (err) => setError(errorMessage(err)),
   })
+
+  /**
+   * The same save, without shutting the dialog.
+   *
+   * A note with no title has nothing to be listed under, so it waits - a
+   * row called "Untitled" appearing the moment somebody starts typing is
+   * worse than waiting for them to say what it is.
+   */
+  const autosave = async (f: NoteFormState) => {
+    if (!f.title.trim()) return
+    const snapshot = JSON.stringify(payloadOf(f))
+    if (snapshot === savedSnapshot.current) return
+
+    setSaved('saving')
+    try {
+      if (editing) {
+        await notesApi.update(editing.uuid, payloadOf(f), unlockPassword || undefined)
+      } else {
+        // The first save is what gives it a uuid; from here it is an edit,
+        // so a note is never created twice by its own second keystroke.
+        const made = await notesApi.create(payloadOf(f))
+        setEditing(made)
+      }
+      savedSnapshot.current = snapshot
+      setSaved('saved')
+      invalidate()
+    } catch (err) {
+      setSaved('dirty')
+      setError(errorMessage(err))
+    }
+  }
+
+  // The pause, restarted by every keystroke and cleared when the dialog goes.
+  useEffect(() => {
+    if (!showForm) return
+    const snapshot = JSON.stringify(payloadOf(form))
+    if (snapshot === savedSnapshot.current) return
+
+    setSaved('dirty')
+    if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = window.setTimeout(() => { void autosave(form) }, AUTOSAVE_PAUSE_MS)
+
+    return () => { if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, showForm])
+
+  /**
+   * Off with the lock.
+   *
+   * The server has always accepted a null password from the note's owner
+   * and taken the protection off; nothing on screen ever sent one, so a
+   * note once locked stayed locked for good.
+   */
+  const unprotect = async () => {
+    if (!editing) return
+    if (!window.confirm('Take the password off this note? Anybody it is shared with will be able to open it.')) return
+    try {
+      const fresh = await notesApi.update(editing.uuid, { password: null }, unlockPassword || undefined)
+      setEditing(fresh)
+      setForm((f) => ({ ...f, password: '' }))
+      setUnlockPassword('')
+      invalidate()
+    } catch (err) {
+      setError(errorMessage(err))
+    }
+  }
 
   const deleteMutation = useMutation({
     mutationFn: (uuid: string) => notesApi.remove(uuid),
@@ -121,27 +241,105 @@ export default function NotesPage() {
     onError: (err) => setError(errorMessage(err)),
   })
 
+  /*
+   * The browser's own prompt shows what is typed into it, in a box nobody
+   * can mask - so a note's password was read out to the room every time
+   * somebody opened it. This one is a password field like any other.
+   */
+  const [unlocking, setUnlocking] = useState<Note | null>(null)
+  const [unlockTry, setUnlockTry] = useState('')
+  const [unlockError, setUnlockError] = useState<string | null>(null)
+  const [unlockBusy, setUnlockBusy] = useState(false)
+
   const openNote = async (note: Note) => {
     setError(null)
     setUnlockPassword('')
     if (note.is_locked) {
-      const password = prompt('This note is password protected. Enter the password:')
-      if (password === null) return
-      try {
-        const full = await notesApi.get(note.uuid, password)
-        setUnlockPassword(password)
-        startEdit(full)
-      } catch {
-        alert('Wrong password.')
-      }
+      setUnlockTry('')
+      setUnlockError(null)
+      setForgotSent(null)
+      setCode('')
+      setFreshPassword('')
+      setUnlocking(note)
+
       return
     }
     const full = await notesApi.get(note.uuid)
     startEdit(full)
   }
 
+  const [forgotSent, setForgotSent] = useState<string | null>(null)
+  const [code, setCode] = useState('')
+  const [freshPassword, setFreshPassword] = useState('')
+
+  const forgotPassword = async () => {
+    if (!unlocking) return
+    setUnlockError(null)
+    try {
+      const res = await notesApi.requestPasswordReset(unlocking.uuid)
+      setForgotSent(res.message)
+    } catch (err) {
+      setUnlockError(errorMessage(err))
+    }
+  }
+
+  const redeemCode = async () => {
+    if (!unlocking || !code) return
+    setUnlockError(null)
+    try {
+      await notesApi.resetPassword(unlocking.uuid, code, freshPassword || undefined)
+      const was = unlocking
+      setCode('')
+      setFreshPassword('')
+      setForgotSent(null)
+      setUnlocking(null)
+      invalidate()
+      // Straight in, with the new password if one was given.
+      const full = await notesApi.get(was.uuid, freshPassword || undefined)
+      setUnlockPassword(freshPassword || '')
+      startEdit(full)
+    } catch (err) {
+      setUnlockError(errorMessage(err))
+    }
+  }
+
+  const tryUnlock = async () => {
+    if (!unlocking || !unlockTry) return
+    setUnlockBusy(true)
+    setUnlockError(null)
+    try {
+      const full = await notesApi.get(unlocking.uuid, unlockTry)
+      setUnlockPassword(unlockTry)
+      setUnlocking(null)
+      startEdit(full)
+    } catch {
+      setUnlockError('That is not the password for this note.')
+    } finally {
+      setUnlockBusy(false)
+    }
+  }
+
   const startEdit = (note: Note) => {
     setEditing(note)
+    setSaved('clean')
+    /*
+     * What is on the server, so merely opening a note does not save it.
+     *
+     * Without this the first run of the autosave effect sees a form it has
+     * never saved and writes it back unchanged - a pointless version on
+     * every note anybody so much as looked at.
+     */
+    const opened: NoteFormState = {
+      title: note.title,
+      type: note.type,
+      body: note.body ?? '',
+      checklist: note.checklist ?? [],
+      color: note.color ?? '',
+      is_pinned: note.is_pinned,
+      daily_report: !!note.daily_report,
+      password: '',
+    }
+    savedSnapshot.current = JSON.stringify(payloadOf(opened))
     setForm({
       title: note.title,
       type: note.type,
@@ -149,16 +347,20 @@ export default function NotesPage() {
       checklist: note.checklist ?? [],
       color: note.color ?? '',
       is_pinned: note.is_pinned,
+      daily_report: !!note.daily_report,
       password: '',
     })
     setShowForm(true)
   }
 
   const close = () => {
+    if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current)
     setShowForm(false)
     setEditing(null)
     setForm(emptyForm)
     setUnlockPassword('')
+    setSaved('clean')
+    savedSnapshot.current = ''
   }
 
   const notesList = data?.data ?? []
@@ -245,6 +447,73 @@ export default function NotesPage() {
         </>
       )}
 
+      {/*
+        * Asking for a note's password.
+        *
+        * The browser's own prompt() cannot mask what is typed into it, so
+        * opening a protected note read its password out to anybody in the
+        * room - and to anybody watching a screen share, which is how most of
+        * these get seen.
+        */}
+      {unlocking && (
+        <Modal title={unlocking.title} onClose={() => setUnlocking(null)}>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => { e.preventDefault(); void tryUnlock() }}
+          >
+            <p className="text-sm text-slate-500">This note is password protected.</p>
+            <Input
+              type="password"
+              autoComplete="off"
+              autoFocus
+              value={unlockTry}
+              onChange={(e) => setUnlockTry(e.target.value)}
+              placeholder="Password"
+            />
+            {unlockError && <p className="text-xs text-red-600 dark:text-red-400">{unlockError}</p>}
+            {forgotSent && <p className="text-xs text-emerald-600 dark:text-emerald-400">{forgotSent}</p>}
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {/*
+                * A note behind a forgotten password used to be a lost note:
+                * there was no way back at all, which made the lock a
+                * shredder for anybody who wrote the password down badly.
+                */}
+              {unlocking.is_own && (
+                <button
+                  type="button"
+                  className="mr-auto text-xs text-brand-600 hover:underline"
+                  onClick={() => void forgotPassword()}
+                >
+                  Forgot it? Email me a code
+                </button>
+              )}
+              <Button type="button" variant="secondary" onClick={() => setUnlocking(null)}>Cancel</Button>
+              <Button type="submit" disabled={unlockBusy || !unlockTry}>
+                {unlockBusy ? 'Opening…' : 'Open the note'}
+              </Button>
+            </div>
+            {forgotSent && (
+              <div className="space-y-2 rounded-xl bg-slate-50 p-3 dark:bg-slate-800/60">
+                <p className="text-xs text-slate-500">
+                  Type the code from the e-mail. Leave the new password blank to take the password off
+                  the note altogether.
+                </p>
+                <Input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Six-digit code" />
+                <Input
+                  type="password"
+                  value={freshPassword}
+                  onChange={(e) => setFreshPassword(e.target.value)}
+                  placeholder="New password (optional)"
+                />
+                <Button type="button" size="sm" disabled={!code} onClick={() => void redeemCode()}>
+                  Use the code
+                </Button>
+              </div>
+            )}
+          </form>
+        </Modal>
+      )}
+
       {/* Editor */}
       {showForm && (
         <Modal title={editing ? 'Edit note' : 'New note'} onClose={close} wide>
@@ -253,6 +522,19 @@ export default function NotesPage() {
               e.preventDefault()
               setError(null)
               saveMutation.mutate()
+            }}
+            /*
+             * Only the Save button saves.
+             *
+             * A form with a submit button in it submits on Enter from any of
+             * its fields - so a return pressed in the Title, the colour or
+             * the password saved the note without anybody meaning to, which
+             * reads as the editor saving on its own while you write. Enter
+             * inside the note body is a new line and always was; that is a
+             * contentEditable, not a form field, and is untouched by this.
+             */
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') e.preventDefault()
             }}
             className="space-y-4"
           >
@@ -274,7 +556,23 @@ export default function NotesPage() {
             {form.type === 'text' ? (
               <div>
                 <Label>Content</Label>
-                <Textarea rows={8} value={form.body} onChange={(e) => setForm({ ...form, body: e.target.value })} />
+                {/*
+                  * The same editor the mail compose window uses - bold,
+                  * italic, underline, bullets, numbering, links - rather
+                  * than a second one written for notes alone. A note people
+                  * share with colleagues deserves the formatting that makes
+                  * a list read as a list.
+                  *
+                  * A note written before today is plain text with newlines
+                  * in it, which a rich editor would run together into one
+                  * paragraph, so it is turned into lines on the way in.
+                  */}
+                <RichEditor
+                  value={asHtml(form.body)}
+                  onChange={(html) => setForm({ ...form, body: html })}
+                  placeholder="Write the note…"
+                  minHeight={260}
+                />
               </div>
             ) : (
               <div>
@@ -339,23 +637,82 @@ export default function NotesPage() {
                   onChange={(e) => setForm({ ...form, password: e.target.value })}
                   placeholder="Protect this note"
                 />
+                {/* A password is applied by Save and close and never by the
+                    autosave, which would otherwise lock the note with
+                    whatever half of it had been typed so far. */}
+                {form.password && (
+                  <p className="mt-1 text-xs text-slate-400">Applied when you press Save and close.</p>
+                )}
+                {editing?.is_locked && editing?.is_own && !form.password && (
+                  <button
+                    type="button"
+                    onClick={() => void unprotect()}
+                    className="mt-1 text-xs text-red-600 hover:underline dark:text-red-400"
+                  >
+                    Remove the password
+                  </button>
+                )}
               </div>
-              <label className="flex items-center gap-2 text-sm sm:pb-2">
-                <input
-                  type="checkbox"
-                  checked={form.is_pinned}
-                  onChange={(e) => setForm({ ...form, is_pinned: e.target.checked })}
-                />
-                Pin note
-              </label>
+              <div className="space-y-1.5 sm:pb-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.is_pinned}
+                    onChange={(e) => setForm({ ...form, is_pinned: e.target.checked })}
+                  />
+                  Pin note
+                </label>
+                {/*
+                  * The same letter a project's ledger sends, for the place
+                  * people keep the thing they are about to forget. Only on
+                  * the days it changed - a daily mail that arrives on days
+                  * with nothing in it is one people stop opening.
+                  */}
+                <label className="flex items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={form.daily_report}
+                    onChange={(e) => setForm({ ...form, daily_report: e.target.checked })}
+                  />
+                  <span>
+                    Email me a daily report
+                    <span className="block text-xs text-slate-400">
+                      On the days it changed. A note with a password is named but never quoted.
+                    </span>
+                  </span>
+                </label>
+              </div>
             </div>
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {/*
+                * What the note has done with itself, said quietly.
+                *
+                * Writing that saves without being asked has to say so, or
+                * nobody believes it and everybody keeps pressing the button
+                * anyway. "Untitled" waits for a title, because that is the
+                * one thing keeping it from being saved.
+                */}
+              <span className="mr-auto text-xs text-slate-400" aria-live="polite">
+                {!form.title.trim()
+                  ? 'Give it a title and it saves itself'
+                  : saved === 'saving'
+                    ? 'Saving…'
+                    : saved === 'dirty'
+                      ? 'Unsaved changes'
+                      : saved === 'saved'
+                        ? 'Saved'
+                        : ''}
+              </span>
+              {/* Cancel while it has never been saved, because then there
+                  is genuinely something to throw away. Once autosave has
+                  made it, closing is all that is left to do. */}
               <Button type="button" variant="secondary" onClick={close}>
-                Cancel
+                {editing ? 'Close' : 'Cancel'}
               </Button>
               <Button type="submit" disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? 'Saving…' : 'Save note'}
+                {saveMutation.isPending ? 'Saving…' : 'Save and close'}
               </Button>
             </div>
           </form>

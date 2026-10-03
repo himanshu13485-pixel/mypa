@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowDownCircle, ArrowUpCircle, Bell, Briefcase, Download, Pencil, Plus, Search, Share2, Trash2,
+  ArrowDownCircle, ArrowUpCircle, Bell, Briefcase, Download, Paperclip, Pencil, Plus, Search, Share2, Trash2,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import { clsx } from 'clsx'
 import { projects as projectsApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
 import UserSuggest from '../components/UserSuggest'
+import { useToast } from '../components/Toast'
+import { saveBlob } from '../lib/download'
 import { useAuthStore } from '../stores/auth'
 import type { ProjectItem, ProjectEntryItem, ProjectSummaryRow } from '../types'
 import {
@@ -580,6 +582,21 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
                           {e.updated_by && `${e.created_by ? ' · ' : ''}edited by ${e.updated_by}`}
                         </span>
                       )}
+                      {/*
+                        * The bill behind the number.
+                        *
+                        * An entry is a line in a ledger and what proves it
+                        * used to live in somebody's phone. Here it sits with
+                        * the line, and rides out with the daily report when
+                        * the line changes.
+                        */}
+                      <EntryPaperwork
+                        project={project.uuid}
+                        entry={e}
+                        password={pw}
+                        canEdit={canEdit}
+                        onChanged={invalidate}
+                      />
                     </td>
                     <td className="px-3 py-2 text-slate-500">{e.counterparty ?? '—'}</td>
                     <td className="px-3 py-2 text-xs capitalize text-slate-500">
@@ -674,6 +691,10 @@ function EntryFormModal({
       : { ...emptyEntryForm, currency: project.base_currency },
   )
   const [error, setError] = useState<string | null>(null)
+  /* Files chosen while writing the entry, uploaded once it has a uuid. */
+  const [waiting, setWaiting] = useState<File[]>([])
+  const picker = useRef<HTMLInputElement>(null)
+  const already = entry?.files ?? []
 
   const save = useMutation({
     mutationFn: () => {
@@ -685,10 +706,28 @@ function EntryFormModal({
         reminder_at: form.reminder_at || null,
       }
       return entry
-        ? projectsApi.updateEntry(project.uuid, entry.uuid, payload, pw)
+        ? projectsApi.updateEntry(project.uuid, entry.uuid, payload, pw).then(() => entry.uuid)
         : projectsApi.createEntry(project.uuid, payload, pw)
+          .then((res) => (res as { data?: { uuid?: string } })?.data?.uuid)
     },
-    onSuccess: () => {
+    onSuccess: async (entryUuid) => {
+      /*
+       * The paperwork goes up after the line exists.
+       *
+       * A new entry has no uuid until it is saved, so files picked while
+       * writing it wait here rather than being refused - which is the same
+       * shape as a bank account's documents in Billing setup, and the
+       * reason the picker does not simply upload as you choose.
+       */
+      if (entryUuid && waiting.length) {
+        for (const file of waiting) {
+          try {
+            await projectsApi.entryFiles.add(project.uuid, entryUuid, file, pw)
+          } catch (err) {
+            setError(errorMessage(err))
+          }
+        }
+      }
       onSaved()
       onClose()
     },
@@ -768,6 +807,57 @@ function EntryFormModal({
           <Input type="datetime-local" value={form.reminder_at} onChange={(e) => setForm({ ...form, reminder_at: e.target.value })} />
           <p className="mt-1 text-[11px] text-slate-400">Rings an in-app / push / email alert at this time — e.g. to collect a pending payment.</p>
         </div>
+
+        {/*
+          * The bill, here where somebody writing the entry looks for it.
+          *
+          * It is on the row in the ledger too, for adding one to a line
+          * written weeks ago - but nobody goes looking there while the
+          * entry is still being typed.
+          */}
+        <div>
+          <Label>Attachments (bill, receipt, photo)</Label>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => picker.current?.click()}>
+              <Paperclip className="size-3.5" /> Attach files
+            </Button>
+            <span className="text-[11px] text-slate-400">
+              Any format, up to 10 MB each, ten to an entry.
+              {!entry && ' They go up when you add the entry.'}
+            </span>
+          </div>
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const chosen = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              const room = 10 - already.length - waiting.length
+              if (room <= 0) return
+              setWaiting([...waiting, ...chosen.slice(0, room).filter((f) => f.size <= 10 * 1024 * 1024)])
+            }}
+          />
+          {(already.length > 0 || waiting.length > 0) && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {already.map((f) => (
+                <span key={f.uuid} className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] dark:bg-slate-800">
+                  <Paperclip className="size-2.5 text-slate-400" /> {f.name}
+                </span>
+              ))}
+              {waiting.map((f, i) => (
+                <span key={f.name + i} className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800">
+                  <Paperclip className="size-2.5 text-slate-400" /> {f.name}
+                  <button type="button" aria-label={`Remove ${f.name}`} onClick={() => setWaiting(waiting.filter((_, j) => j !== i))}>
+                    ×
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={save.isPending}>{save.isPending ? 'Saving…' : entry ? 'Save changes' : 'Add entry'}</Button>
@@ -918,28 +1008,42 @@ function UnlockProjectCard({ project, onUnlocked }: { project: ProjectItem; onUn
             />
             <Button onClick={() => unlock(value)} disabled={!value || busy}>Open</Button>
           </div>
-          {project.is_owner && (
+          {/*
+            * The way back in belongs to the owner.
+            *
+            * The code goes to their own inbox now rather than round the
+            * admins, so this is a button rather than a request somebody
+            * else has to notice. Anybody the project was shared with sees
+            * who to ask instead of an empty space where the way back should
+            * be - which is what they saw before.
+            */}
+          {project.is_owner ? (
             <div className="mt-3 flex justify-center gap-4 text-xs">
               <button
                 className="text-brand-600 hover:underline"
                 onClick={() => {
                   projectsApi.requestPasswordReset(project.uuid)
-                    .then((r) => setMessage(r.message))
+                    .then((r) => { setMessage(r.message); setShowReset(true) })
                     .catch((err) => setError(errorMessage(err)))
                 }}
               >
-                Forgot? Ask an admin for a reset code
+                Forgot it? Email me a code
               </button>
               <button className="text-slate-400 hover:underline" onClick={() => setShowReset(true)}>
-                Have a reset code?
+                Have a code already?
               </button>
             </div>
+          ) : (
+            <p className="mt-3 text-xs text-slate-400">
+              Forgotten it? {project.owner?.name ?? 'The owner'} can reset it - the code goes to their
+              own e-mail, so only they can.
+            </p>
           )}
         </>
       ) : (
         <div className="mx-auto mt-3 max-w-xs space-y-2 text-left">
           <div>
-            <Label>Reset code (from the admin email)</Label>
+            <Label>Reset code (from the e-mail)</Label>
             <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="6-digit code" autoFocus />
           </div>
           <div>
@@ -970,5 +1074,100 @@ function UnlockProjectCard({ project, onUnlocked }: { project: ProjectItem; onUn
         </div>
       )}
     </Card>
+  )
+}
+
+/**
+ * The paperwork behind one line of the ledger.
+ *
+ * A bill, a receipt, a photograph of the delivery, the signed measurement
+ * sheet. Kept with the entry rather than in somebody's phone - and carried
+ * out with the daily report when the entry it belongs to changes, so the
+ * bill arrives with the number instead of after a phone call asking for it.
+ */
+function EntryPaperwork({ project, entry, password, canEdit, onChanged }: {
+  project: string
+  entry: ProjectEntryItem
+  password?: string
+  canEdit: boolean
+  onChanged: () => void
+}) {
+  const { toast, toastError } = useToast()
+  const picker = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const files = entry.files ?? []
+
+  const add = async (chosen: File[]) => {
+    if (!chosen.length) return
+    setBusy(true)
+    try {
+      for (const file of chosen.slice(0, Math.max(0, 10 - files.length))) {
+        await projectsApi.entryFiles.add(project, entry.uuid, file, password)
+      }
+      toast(chosen.length === 1 ? 'Attached.' : `${chosen.length} files attached.`, 'success')
+      onChanged()
+    } catch (err) {
+      toastError(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      {files.map((f) => (
+        <span key={f.uuid} className="flex items-center gap-1 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] dark:bg-slate-800">
+          <button
+            type="button"
+            className="max-w-[10rem] truncate hover:underline"
+            title={`Download ${f.name}`}
+            onClick={() => projectsApi.entryFiles.download(project, entry.uuid, f.uuid, password)
+              .then((blob) => saveBlob(blob, f.name))
+              .catch((err) => toastError(errorMessage(err)))}
+          >
+            <Paperclip className="mr-0.5 inline size-2.5" />{f.name}
+          </button>
+          {canEdit && (
+            <button
+              type="button"
+              aria-label={`Remove ${f.name}`}
+              className="text-slate-400 hover:text-red-600"
+              onClick={() => {
+                if (!window.confirm(`Remove "${f.name}" from this entry?`)) return
+                projectsApi.entryFiles.remove(project, entry.uuid, f.uuid, password)
+                  .then(onChanged)
+                  .catch((err) => toastError(errorMessage(err)))
+              }}
+            >
+              ×
+            </button>
+          )}
+        </span>
+      ))}
+
+      {canEdit && files.length < 10 && (
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => picker.current?.click()}
+            className="rounded px-1.5 py-0.5 text-[10px] text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800"
+          >
+            <Paperclip className="mr-0.5 inline size-2.5" />{busy ? 'Attaching…' : 'Attach'}
+          </button>
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            hidden
+            onChange={(e) => {
+              const chosen = Array.from(e.target.files ?? [])
+              e.target.value = ''
+              void add(chosen)
+            }}
+          />
+        </>
+      )}
+    </div>
   )
 }

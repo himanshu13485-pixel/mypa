@@ -24,7 +24,8 @@ import { clsx } from 'clsx'
 import { chat, chatLock, type ChatSearchHit } from '../api/endpoints'
 import { useOpenedAttachments } from '../lib/attachmentsOpened'
 import { attachmentHeaders, hiddenFolderPassword, searchMeansMe, useChatUnlock } from '../lib/chatUnlock'
-import { ChatLockSettings, ChatPasswordPrompt, ForgotChatPassword, LockedThread, SetChatPassword } from '../components/ChatLockDialogs'
+import { useGroupUnlock } from '../lib/groupUnlock'
+import { ChatLockSettings, ChatPasswordPrompt, ForgotChatPassword, LockedGroupThread, LockedThread, SetChatPassword } from '../components/ChatLockDialogs'
 import { errorMessage } from '../api/client'
 import { DELETE_WINDOW_HOURS, withinEditWindow } from '../lib/editWindow'
 import { countUnseen, seenIdsOf } from '../lib/unseenMessages'
@@ -870,8 +871,23 @@ export default function MessagesPage() {
   const [openedLocked, setOpenedLocked] = useState<Set<string>>(new Set())
   useEffect(() => { if (!unlockToken) setOpenedLocked(new Set()) }, [unlockToken])
 
+  /*
+   * The group's own lock, which is a different door from the two below it.
+   *
+   * Its password belongs to the group rather than to this person, so it is
+   * answered with its own proof and kept until that proof runs out - not
+   * re-asked on every visit the way a personal lock is, because a member
+   * has no way to take it off and would simply be typing it all day.
+   */
+  const groupTokens = useGroupUnlock((s) => s.tokens)
+  const groupRefused = useGroupUnlock((s) => s.sealed)
+  const groupSealed = !!selected
+    && (!!selected.group_locked || !!groupRefused[selected.uuid])
+    && !groupTokens[selected.uuid]
+
   const threadSealed = !!selected && (
-    (!!selected.is_locked && !openedLocked.has(selected.uuid))
+    groupSealed
+    || (!!selected.is_locked && !openedLocked.has(selected.uuid))
     || (!!(selected.is_locked || selected.is_hidden) && !unlockToken)
   )
 
@@ -1167,6 +1183,20 @@ export default function MessagesPage() {
   }
   const draftOwner = useRef<string | null | undefined>(undefined)
 
+  /*
+   * Which chats are holding something unsent, for the list to say so.
+   *
+   * The drafts themselves have always been kept - typed, left, and found
+   * again on coming back - but only the composer knew. A row gave no sign,
+   * so a half-written message was remembered by the app and forgotten by
+   * the person, which is the one thing a draft exists to prevent.
+   */
+  const [drafted, setDrafted] = useState<Record<string, true>>(() =>
+    Object.fromEntries(Object.entries(readDrafts()).filter(([, text]) => !!text).map(([uuid]) => [uuid, true])))
+  const noteDrafts = (all: Record<string, string>) => setDrafted(
+    Object.fromEntries(Object.entries(all).filter(([, text]) => !!text).map(([uuid]) => [uuid, true])),
+  )
+
   useEffect(() => {
     const uuid = selected?.uuid ?? null
     if (draftOwner.current === uuid) return
@@ -1184,6 +1214,7 @@ export default function MessagesPage() {
     if (draft) all[uuid] = draft
     else delete all[uuid]
     try { localStorage.setItem(draftsKey, JSON.stringify(all)) } catch { /* a private window keeps it for the visit */ }
+    noteDrafts(all)
   }, [draft, editing]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const invalidateMessages = () => {
@@ -2089,7 +2120,14 @@ export default function MessagesPage() {
       key: 'forward',
       icon: <Forward className="size-3.5" />,
       label: 'Forward',
-      run: () => { setForwarding([m]); setPickedChats(new Set()) },
+      run: () => {
+        // The comment above this list said forward was held back with reply
+        // and reactions. It was not: the check was never written here, so a
+        // file nobody had looked at could be passed straight on.
+        if (notTakenDown(m)) return askToDownloadFirst()
+        setForwarding([m])
+        setPickedChats(new Set())
+      },
     },
     // Kept privately - nobody else in the thread is told.
     {
@@ -2298,7 +2336,28 @@ export default function MessagesPage() {
                         is held at the top, and this one will not ring. */}
                     {c.is_pinned && <Pin className="size-3 shrink-0 text-brand-500" />}
                     {c.is_muted && <BellOff className="size-3 shrink-0 text-slate-400" />}
-                    {c.is_locked && <Lock className="size-3 shrink-0 text-slate-400" aria-label="Locked" />}
+                    {/*
+                      * Two different locks, one symbol.
+                      *
+                      * is_locked is this person's own doing and nobody else
+                      * sees it; group_locked is the group's password, which
+                      * everybody in the group is behind. Both mean "you will
+                      * be asked before this opens", which is what the row has
+                      * room to say.
+                      */}
+                    {(c.is_locked || c.group_locked) && (
+                      <Lock
+                        className="size-3 shrink-0 text-slate-400"
+                        aria-label={c.group_locked ? 'Locked with the group password' : 'Locked'}
+                      />
+                    )}
+                    {/* Something typed here and never sent. Not on the chat
+                        being read, where the words are on screen anyway. */}
+                    {drafted[c.uuid] && c.uuid !== selected?.uuid && (
+                      <span className="shrink-0 text-[11px] font-normal text-amber-600 dark:text-amber-400">
+                        (Draft)
+                      </span>
+                    )}
                   </p>
                   <p className="truncate text-xs text-slate-400">
                     {/* The App ID, always — the dot on the avatar says where
@@ -2548,10 +2607,24 @@ export default function MessagesPage() {
                     className="tap rounded-lg p-2 text-slate-500 hover:bg-white/60 disabled:opacity-40 dark:hover:bg-slate-800"
                     title={selection.size > MAX_FORWARD_AT_ONCE
                       ? `${MAX_FORWARD_AT_ONCE} messages at a time is the limit`
-                      : 'Forward'}
+                      : picked.some(notTakenDown)
+                        ? 'Download the file first'
+                        : 'Forward'}
                     aria-label="Forward selected"
-                    disabled={selection.size > MAX_FORWARD_AT_ONCE}
-                    onClick={() => { setForwarding(picked); setPickedChats(new Set()) }}
+                    disabled={selection.size > MAX_FORWARD_AT_ONCE || picked.some(notTakenDown)}
+                    onClick={() => {
+                      /*
+                       * Said rather than only greyed out.
+                       *
+                       * The button above is disabled for this, but a selection
+                       * can hold a file that was ticked before anybody thought
+                       * about downloading it - and a control that does nothing
+                       * when pressed explains nothing.
+                       */
+                      if (picked.some(notTakenDown)) return askToDownloadFirst()
+                      setForwarding(picked)
+                      setPickedChats(new Set())
+                    }}
                   >
                     <Forward className="size-4" />
                   </button>
@@ -2597,7 +2670,15 @@ export default function MessagesPage() {
                       {selected.name}
                     </button>
                   ) : (
-                    <p className="truncate text-sm font-semibold">{selected.name}</p>
+                    <p className="flex min-w-0 items-center gap-1 truncate text-sm font-semibold">
+                      <span className="truncate">{selected.name}</span>
+                      {(selected.is_locked || selected.group_locked) && (
+                        <Lock
+                          className="size-3 shrink-0 text-slate-400"
+                          aria-label={selected.group_locked ? 'Locked with the group password' : 'Locked'}
+                        />
+                      )}
+                    </p>
                   )}
                   {selected.is_self ? (
                     <p className="text-xs text-slate-400">Notes, links and drafts - only you see them</p>
@@ -3164,7 +3245,13 @@ export default function MessagesPage() {
             )}
 
             {/* A locked chat shows the lock, and nothing of what is in it. */}
-            {threadSealed ? (
+            {groupSealed ? (
+              <LockedGroupThread
+                name={selected.name}
+                group={selected.group_uuid ?? ''}
+                conversation={selected.uuid}
+              />
+            ) : threadSealed ? (
               <LockedThread
                 name={selected.name}
                 onUnlocked={() => setOpenedLocked((prev) => new Set(prev).add(selected.uuid))}
@@ -3242,7 +3329,10 @@ export default function MessagesPage() {
                       onClick={selecting
                         ? (e) => {
                           e.preventDefault()
-                          if (notTakenDown(m)) return askToDownloadFirst()
+                          // Ticking an undownloaded file is refused; unticking
+                          // one never is, or a selection that got one into it
+                          // somehow could not be undone either.
+                          if (!selection.has(m.uuid) && notTakenDown(m)) return askToDownloadFirst()
                           setSelection(toggleSelected(selection, m.uuid))
                         }
                         : undefined}

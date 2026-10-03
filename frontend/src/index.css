@@ -641,6 +641,16 @@ select optgroup {
     flex: 1 1 calc(50% - 0.25rem);
   }
 
+  /*
+   * The search box keeps the whole line.
+   *
+   * Half a line beside a dropdown is not enough to read a company name back
+   * in, and it is the control people reach for first.
+   */
+  .crm-filters > .crm-filter-search {
+    flex: 1 1 100%;
+  }
+
   /* A date range is a label and two boxes: it needs the whole line. */
   .crm-filters > label:has(input[type="date"]) {
     flex-basis: 100%;

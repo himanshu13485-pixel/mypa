@@ -17,15 +17,20 @@ class Note extends Model
     protected $fillable = [
         'user_id', 'group_id', 'title', 'body', 'type', 'checklist',
         'color', 'is_pinned', 'password_hash',
+        // The way back in, and the daily letter out.
+        'reset_code_hash', 'reset_code_expires_at', 'daily_report', 'last_reported_at',
     ];
 
-    protected $hidden = ['password_hash'];
+    protected $hidden = ['password_hash', 'reset_code_hash'];
 
     protected function casts(): array
     {
         return [
             'checklist' => 'array',
             'is_pinned' => 'boolean',
+            'daily_report' => 'boolean',
+            'reset_code_expires_at' => 'datetime',
+            'last_reported_at' => 'datetime',
         ];
     }
 

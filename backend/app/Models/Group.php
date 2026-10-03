@@ -51,7 +51,7 @@ class Group extends Model
 
     protected function casts(): array
     {
-        return ['only_admins_post' => 'boolean'];
+        return ['only_admins_post' => 'boolean', 'chat_password_set_at' => 'datetime'];
     }
 
     public function owner(): BelongsTo
@@ -102,6 +102,12 @@ class Group extends Model
     public function scopeWithMember(Builder $query, User $user): Builder
     {
         return $query->whereHas('members', fn ($m) => $m->where('users.id', $user->id));
+    }
+
+    /** Whoever last set the group's password, so members know who to ask. */
+    public function chatPasswordSetBy(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'chat_password_set_by');
     }
 
     public function roleOf(User $user): ?string
