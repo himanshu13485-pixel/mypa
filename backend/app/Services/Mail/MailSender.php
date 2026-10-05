@@ -6,6 +6,7 @@ use App\Models\Crm\MailAccount;
 use App\Models\Crm\MailMessage;
 use Illuminate\Mail\Message as LaravelMessage;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -128,11 +129,29 @@ class MailSender
                     $headers->addTextHeader('Auto-Submitted', 'auto-replied');
                 }
 
+                /*
+                 * Asked of the disk, not built by hand.
+                 *
+                 * These files are written through Storage's "local" disk,
+                 * whose root is storage/app/private - not storage/app. A
+                 * path glued together here looked in the wrong folder,
+                 * found nothing, and the `if` below quietly sent the mail
+                 * without its attachment. Nobody was told: not the sender,
+                 * who watched it go, and not the recipient, who had no way
+                 * to know a file had been meant for them.
+                 *
+                 * A file that really is missing is now worth saying so
+                 * about, for the same reason.
+                 */
+                $disk = Storage::disk('local');
                 foreach ($mail['attachments'] ?? [] as $file) {
-                    $path = storage_path('app/' . ltrim($file->path, '/'));
-                    if (is_file($path)) {
-                        $m->attach($path, ['as' => $file->filename, 'mime' => $file->mime]);
+                    if (! $disk->exists($file->path)) {
+                        throw new RuntimeException(
+                            'The attachment "' . $file->filename . '" could not be found, so the mail was not sent.',
+                        );
                     }
+
+                    $m->attach($disk->path($file->path), ['as' => $file->filename, 'mime' => $file->mime]);
                 }
             },
         );

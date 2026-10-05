@@ -309,10 +309,14 @@ class MailboxController extends Controller
         ];
 
         if ($attachment->path) {
-            $path = storage_path('app/' . ltrim($attachment->path, '/'));
-            abort_unless(is_file($path), 404);
+            // The same disk that wrote it is asked where it put it. Built
+            // by hand this pointed at storage/app rather than the local
+            // disk's storage/app/private, so every file we hold ourselves -
+            // anything attached to a mail going out - answered 404.
+            $disk = Storage::disk('local');
+            abort_unless($disk->exists($attachment->path), 404);
 
-            return response()->file($path, $headers);
+            return response()->file($disk->path($attachment->path), $headers);
         }
 
         abort_unless($message->remote_folder && $message->uid, 404, 'This attachment is not on the server any more.');
