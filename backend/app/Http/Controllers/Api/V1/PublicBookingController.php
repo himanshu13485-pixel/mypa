@@ -104,6 +104,15 @@ class PublicBookingController extends Controller
             'starts_at' => ['required', 'date'],
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'max:255'],
+            /*
+             * A number to ring, if they want to give one.
+             *
+             * Optional on purpose: a booking link's whole value is that it
+             * takes seconds, and a required phone number is the field that
+             * makes somebody close the tab. The email stays required because
+             * the joining link travels on it.
+             */
+            'phone' => ['nullable', 'string', 'max:32'],
             'note' => ['nullable', 'string', 'max:2000'],
             // The guard's own fields: read by SignupGuard, never stored.
             'company_website' => ['nullable', 'string', 'max:255'],
@@ -212,6 +221,7 @@ class PublicBookingController extends Controller
             'uuid' => $booking->uuid,
             'name' => $booking->name,
             'email' => $booking->email,
+            'phone' => $booking->phone,
             'note' => $booking->note,
             'starts_at' => $booking->starts_at->toIso8601String(),
             'ends_at' => $booking->ends_at->toIso8601String(),

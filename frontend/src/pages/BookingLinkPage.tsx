@@ -346,6 +346,13 @@ function Bookings() {
                 <p className="text-xs text-slate-500 dark:text-slate-400">
                   {booking.name} · {booking.email}
                 </p>
+                {/* Dialable, because the reason for asking is a host who
+                    needs to reach somebody in the next two minutes. */}
+                {booking.phone && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    <a href={`tel:${booking.phone}`} className="hover:underline">{booking.phone}</a>
+                  </p>
+                )}
                 {booking.note && (
                   <p className="mt-1 whitespace-pre-line text-xs text-slate-400">{booking.note}</p>
                 )}

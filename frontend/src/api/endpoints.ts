@@ -1223,7 +1223,7 @@ export const publicBookingApi = {
     api
       .get<{ data: { duration_minutes: number; slots: string[] } }>(`/book/${slug}/slots`, { params: { from, to } })
       .then((r) => r.data.data),
-  book: (slug: string, payload: { starts_at: string; name: string; email: string; note?: string; timezone: string }) =>
+  book: (slug: string, payload: { starts_at: string; name: string; email: string; phone?: string; note?: string; timezone: string }) =>
     api.post<{ data: BookingDetail }>(`/book/${slug}`, payload).then((r) => r.data.data),
 
   detail: (token: string) => api.get<{ data: BookingDetail }>(`/bookings/${token}`).then((r) => r.data.data),

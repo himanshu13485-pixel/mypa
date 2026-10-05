@@ -102,7 +102,11 @@ class BookingService
             $event = Event::create([
                 'user_id' => $host->id,
                 'title' => $title,
-                'description' => trim(($guest['note'] ?? '') . "\n\nBooked by {$guest['name']} <{$guest['email']}>"),
+                'description' => trim(($guest['note'] ?? '')
+                    . "\n\nBooked by {$guest['name']} <{$guest['email']}>"
+                    // Where a host looks two minutes before a meeting, so the
+                    // number belongs here and not only in a list elsewhere.
+                    . (($guest['phone'] ?? null) ? "\nPhone: {$guest['phone']}" : '')),
                 'type' => 'meeting',
                 'starts_at' => $start,
                 'ends_at' => $end,
@@ -118,6 +122,7 @@ class BookingService
                 'event_id' => $event->id,
                 'name' => $guest['name'],
                 'email' => $guest['email'],
+                'phone' => $guest['phone'] ?? null,
                 'note' => $guest['note'] ?? null,
                 'guest_timezone' => $guest['timezone'] ?? 'UTC',
                 'starts_at' => $start,

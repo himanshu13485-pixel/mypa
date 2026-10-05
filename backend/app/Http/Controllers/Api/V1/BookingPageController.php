@@ -177,6 +177,9 @@ class BookingPageController extends Controller
             'uuid' => $booking->uuid,
             'name' => $booking->name,
             'email' => $booking->email,
+            // The point of asking for it: somebody running late needs a way
+            // to say so that is quicker than email.
+            'phone' => $booking->phone,
             'note' => $booking->note,
             'starts_at' => $booking->starts_at->toIso8601String(),
             'ends_at' => $booking->ends_at->toIso8601String(),

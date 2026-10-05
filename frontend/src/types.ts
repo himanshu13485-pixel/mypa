@@ -952,6 +952,8 @@ export interface BookingRow {
   uuid: string
   name: string
   email: string
+  /** Given or not: the booking form asks for it but does not insist. */
+  phone: string | null
   note: string | null
   starts_at: string
   ends_at: string
@@ -1051,6 +1053,8 @@ export interface BookingDetail {
   uuid: string
   name: string
   email: string
+  /** Given or not: the booking form asks for it but does not insist. */
+  phone: string | null
   note: string | null
   starts_at: string
   ends_at: string

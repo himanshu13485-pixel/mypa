@@ -240,6 +240,7 @@ function BookingForm({
 }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
   const [note, setNote] = useState('')
   const guard = useSignupGuard()
   const [busy, setBusy] = useState(false)
@@ -255,7 +256,7 @@ function BookingForm({
     setError(null)
     try {
       onBooked(await publicBookingApi.book(slug, {
-        starts_at: startsAt, name, email, note, timezone: VIEWER_TZ,
+        starts_at: startsAt, name, email, phone, note, timezone: VIEWER_TZ,
         // A public form is the other door worth wedging: a script filling
         // it takes real slots out of somebody's diary.
         ...guard.fields,
@@ -291,6 +292,27 @@ function BookingForm({
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
           <p className="mt-1 text-xs text-slate-400">
             The joining link goes here — and it is the only way back to this booking if you need to move it.
+          </p>
+        </div>
+        <div>
+          <Label>Your mobile number (optional)</Label>
+          {/*
+            * tel, so a phone offers its number pad rather than its alphabet.
+            * Optional, and said so on the label: a booking link's whole value
+            * is that it takes seconds, and a required number is the field
+            * that makes somebody close the tab.
+            */}
+          <Input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            maxLength={32}
+            placeholder="+91 98765 43210"
+          />
+          <p className="mt-1 text-xs text-slate-400">
+            Only used if they need to reach you about this meeting.
           </p>
         </div>
         <div>
