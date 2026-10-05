@@ -25,6 +25,7 @@ import { chat, chatLock, type ChatSearchHit } from '../api/endpoints'
 import { useOpenedAttachments } from '../lib/attachmentsOpened'
 import { attachmentHeaders, hiddenFolderPassword, searchMeansMe, useChatUnlock } from '../lib/chatUnlock'
 import { useGroupUnlock } from '../lib/groupUnlock'
+import { plain, spans } from '../lib/chatFormat'
 import { ChatLockSettings, ChatPasswordPrompt, ForgotChatPassword, LockedGroupThread, LockedThread, SetChatPassword } from '../components/ChatLockDialogs'
 import { errorMessage } from '../api/client'
 import { DELETE_WINDOW_HOURS, withinEditWindow } from '../lib/editWindow'
@@ -287,6 +288,42 @@ function linkify(text: string, own: boolean) {
     }
 
     return part
+  })
+}
+
+/**
+ * A message as it was meant to read.
+ *
+ * The marks people already type - *bold*, _italic_, ~struck through~,
+ * `code` - applied over the links and @names the chat has always picked
+ * out. Formatting is worked out first and linking runs inside each
+ * piece, so a link inside a bold phrase is still a link, and a star
+ * inside `code` is still a star.
+ */
+function formatted(text: string, own: boolean) {
+  const parts = spans(text)
+  if (parts.length === 1 && parts[0].marks.length === 0) return linkify(text, own)
+
+  return parts.map((part, i) => {
+    // Code is shown exactly as typed, so nothing is linked inside it.
+    const inner = part.marks.includes('code') ? part.text : linkify(part.text, own)
+
+    return (
+      <span
+        key={i}
+        className={clsx(
+          part.marks.includes('bold') && 'font-semibold',
+          part.marks.includes('italic') && 'italic',
+          part.marks.includes('strike') && 'line-through',
+          part.marks.includes('code') && clsx(
+            'rounded px-1 py-0.5 font-mono text-[0.9em]',
+            own ? 'bg-white/20' : 'bg-slate-200/70 dark:bg-slate-700/70',
+          ),
+        )}
+      >
+        {inner}
+      </span>
+    )
   })
 }
 
@@ -3381,14 +3418,14 @@ export default function MessagesPage() {
                           )}
                         >
                           <span className="font-medium">{m.reply_to.sender_name ?? 'Deleted account'}: </span>
-                          <span className="line-clamp-2">{m.reply_to.body ?? '…'}</span>
+                          <span className="line-clamp-2">{m.reply_to.body ? plain(m.reply_to.body) : "…"}</span>
                         </button>
                       )}
                       {m.is_deleted ? (
                         <p className="italic opacity-60">Message deleted</p>
                       ) : (
                         <>
-                          {m.body && <p data-msg-body className="whitespace-pre-wrap break-words">{linkify(m.body, m.is_own)}</p>}
+                          {m.body && <p data-msg-body className="whitespace-pre-wrap break-words">{formatted(m.body, m.is_own)}</p>}
                           {/* The way out of "Select text": the phone's own
                               handles have no Done button of their own. */}
                           {selectableFor === m.uuid && (
@@ -3732,7 +3769,7 @@ export default function MessagesPage() {
               {(replyTo || editing) && (
                 <div className="mb-2 flex items-center justify-between rounded-lg bg-slate-100 px-3 py-1.5 text-xs dark:bg-slate-800">
                   <span className="truncate">
-                    {editing ? 'Editing message' : `Replying to ${replyTo?.sender?.name ?? 'message'}: ${replyTo?.body ?? ''}`}
+                    {editing ? 'Editing message' : `Replying to ${replyTo?.sender?.name ?? "message"}: ${plain(replyTo?.body ?? "")}`}
                   </span>
                   <button onClick={() => { setReplyTo(null); setEditing(null); setDraft('') }}>
                     <X className="size-3.5" />
