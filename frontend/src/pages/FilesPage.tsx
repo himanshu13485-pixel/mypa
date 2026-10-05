@@ -12,7 +12,8 @@ import { useToast } from '../components/Toast'
 import { PickUserModal } from '../components/UserSuggest'
 import { useAuthStore } from '../stores/auth'
 import { Button, Card, EmptyState, Modal, SkeletonCards } from '../components/ui'
-import { usePrompt } from '../components/Prompt'
+import { usePrompt } from '../components/Prompt'
+import { saveBlob } from '../lib/download'
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
@@ -29,12 +30,7 @@ async function authedDownload(uuid: string, name: string) {
     return
   }
   const blob = await res.blob()
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  a.click()
-  URL.revokeObjectURL(url)
+  saveBlob(blob, name)
 }
 
 /**

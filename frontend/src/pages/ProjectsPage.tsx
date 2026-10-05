@@ -358,12 +358,7 @@ function ProjectLedger({ project, onEdit }: { project: ProjectItem; onEdit: () =
     })
     if (!res.ok) return alert('Export failed.')
     const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${project.name}-ledger.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    saveBlob(blob, `${project.name}-ledger.csv`)
   }
 
   if (locked) {

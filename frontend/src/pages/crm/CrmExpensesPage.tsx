@@ -14,7 +14,8 @@ import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsOf } from '../../lib/multiFilter'
 import { money as sharedMoney } from '../../lib/money'
-import TableBox from '../../components/TableBox'
+import TableBox from '../../components/TableBox'
+import { saveBlob } from '../../lib/download'
 
 const PAY_STATES = [
   { value: 'unpaid', label: 'Unpaid' },
@@ -220,12 +221,7 @@ export default function CrmExpensesPage() {
     if (!doc) return
     try {
       const blob = await crm.expenses.downloadBill(e.uuid, doc.uuid)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = doc.name
-      a.click()
-      URL.revokeObjectURL(url)
+      saveBlob(blob, doc.name)
     } catch (err) {
       toastError(errorMessage(err))
     }

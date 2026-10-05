@@ -11,7 +11,8 @@ import { useToast } from '../../../components/Toast'
 import { Button, LoadError, Spinner } from '../../../components/ui'
 import MailFrame from './MailFrame'
 import { useComposer } from './composeStore'
-import { fullDate, sizeLabel, who } from './mailUtils'
+import { fullDate, sizeLabel, who } from './mailUtils'
+import { saveBlob } from '../../../lib/download'
 
 /** "Kunal Chaudhari <kunal@bcg.com>, hema@bcg.com" - names kept beside addresses. */
 const addressList = (people: { email: string; name?: string | null }[]): string =>
@@ -23,12 +24,7 @@ const initials = (s: string) => s.split(/[\s@.]+/).filter(Boolean).slice(0, 2).m
 async function download(uuid: string, id: number, filename: string, onError: (m: string) => void) {
   try {
     const blob = await mails.attachment(uuid, id)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    saveBlob(blob, filename)
   } catch (err) {
     onError(errorMessage(err))
   }

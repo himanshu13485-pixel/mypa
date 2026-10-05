@@ -18,7 +18,8 @@ import { money } from '../../lib/money'
 import { CHART_COLORS, ColumnChart, LineChart } from './charts'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, onlyOne, optionsFrom, optionsOf } from '../../lib/multiFilter'
-import TableBox from '../../components/TableBox'
+import TableBox from '../../components/TableBox'
+import { saveBlob } from '../../lib/download'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 })
 
@@ -327,12 +328,7 @@ function InvoicesList() {
               onClick={async () => {
                 try {
                   const blob = await crm.exports.invoicesCsv({ kind })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `${kind}s-export.csv`
-                  a.click()
-                  URL.revokeObjectURL(url)
+                  saveBlob(blob, `${kind}s-export.csv`)
                 } catch { /* the server names the refusal */ }
               }}
             >

@@ -24,7 +24,8 @@ import {
   Textarea,
 } from '../components/ui'
 import { useIsPhone } from '../lib/useMediaQuery'
-import { EVENT_TYPES, type CalendarEvent, type CalendarFeedTask } from '../types'
+import { EVENT_TYPES, type CalendarEvent, type CalendarFeedTask } from '../types'
+import { saveBlob } from '../lib/download'
 
 interface EventFormState {
   title: string
@@ -167,12 +168,7 @@ export default function CalendarPage() {
     const token = JSON.parse(localStorage.getItem('mypa-auth') ?? '{}')?.state?.token
     const res = await fetch(eventsApi.icsUrl, { headers: { Authorization: `Bearer ${token}` } })
     const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'mypa-calendar.ics'
-    a.click()
-    URL.revokeObjectURL(url)
+    saveBlob(blob, 'mypa-calendar.ics')
   }
 
   return (

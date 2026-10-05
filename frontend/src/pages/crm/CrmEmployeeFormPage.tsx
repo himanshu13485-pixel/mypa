@@ -12,6 +12,7 @@ import { useToast } from '../../components/Toast'
 import { Button, Card, ErrorNote, Input, Label, Modal, Select, Spinner, Textarea } from '../../components/ui'
 import { crmPath } from '../../lib/crmPath'
 import TableBox from '../../components/TableBox'
+import { saveBlob } from '../../lib/download'
 
 const TITLES = ['Mr.', 'Mrs.', 'Miss', 'Ms.', 'Dr.']
 
@@ -1618,12 +1619,7 @@ function DocumentsCard({ uuid, existing }: { uuid: string; existing: CrmEmployee
   const download = async (docUuid: string, docName: string) => {
     try {
       const blob = await crm.employees.downloadDocument(uuid, docUuid)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = docName
-      a.click()
-      URL.revokeObjectURL(url)
+      saveBlob(blob, docName)
     } catch (err) {
       toastError(errorMessage(err))
     }

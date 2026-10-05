@@ -13,7 +13,8 @@ import { photoUrl } from '../../lib/avatars'
 import { KeywordChips } from '../../components/KeywordChips'
 import { readsAsKeywords } from '../../lib/keywords'
 import { money } from '../../lib/money'
-import TableBox from '../../components/TableBox'
+import TableBox from '../../components/TableBox'
+import { saveBlob } from '../../lib/download'
 
 /** "9.000" reads as 9, "2.500" as 2.5. */
 const trimRate = (v: string) => String(Number(v))
@@ -99,12 +100,7 @@ export default function CrmInvoiceViewPage() {
   const downloadPdf = async () => {
     try {
       const blob = await crm.invoices.pdf(uuid!, letterhead)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${inv?.number ?? 'document'}.pdf`
-      a.click()
-      URL.revokeObjectURL(url)
+      saveBlob(blob, `${inv?.number ?? 'document'}.pdf`)
     } catch (err) {
       toastError(errorMessage(err))
     }

@@ -7,6 +7,7 @@ import { Button, Card, Select, Spinner } from '../../components/ui'
 import { CHART_COLORS, ColumnChart, DonutChart, HBarChart, Legend } from './charts'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam } from '../../lib/multiFilter'
+import { saveBlob } from '../../lib/download'
 
 const inr = (v: number) => '₹' + Math.round(v).toLocaleString('en-IN')
 
@@ -46,12 +47,7 @@ export default function CrmReportsPage() {
       ...data.monthly.map((m) => [m.month, m.invoiced, m.received, m.expenses, m.payroll]),
     ]
     const csv = rows.map((r) => r.join(',')).join('\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = range ? `crm-report-${range.from}-to-${range.to}.csv` : `crm-report-${months}m.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    saveBlob(new Blob([csv], { type: 'text/csv' }), range ? `crm-report-${range.from}-to-${range.to}.csv` : `crm-report-${months}m.csv`)
   }
 
   if (isLoading || !data) {

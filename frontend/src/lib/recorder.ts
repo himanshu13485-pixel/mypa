@@ -1,3 +1,5 @@
+import { saveBlob } from './download'
+
 /**
  * Client-side meeting/call recording: composites every visible <video> tile
  * inside a container onto a canvas (grid layout, 15 fps) and mixes all audio
@@ -107,13 +109,8 @@ export function startCompositeRecording(opts: {
     clearInterval(drawTimer)
     audioCtx.close().catch(() => undefined)
     const blob = new Blob(chunks, { type: 'video/webm' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
     const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, '-')
-    a.href = url
-    a.download = `${opts.fileLabel}-${stamp}.webm`
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    saveBlob(blob, `${opts.fileLabel}-${stamp}.webm`)
     opts.onStop?.()
   }
   recorder.start(1000)

@@ -14,6 +14,7 @@ import { EmailLink, PhoneLink } from '../../components/ContactLink'
 import { ErrorPill, StatusPill } from './CrmComplaintsPage'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { crmPath } from '../../lib/crmPath'
+import { saveBlob } from '../../lib/download'
 
 export default function CrmComplaintDetailPage() {
   const { uuid = '' } = useParams()
@@ -579,12 +580,7 @@ function Attachments({ uuid, complaint, canEdit, onChange }: {
   const download = async (doc: { uuid: string; name: string }) => {
     try {
       const blob = await crm.complaints.downloadFile(uuid, doc.uuid)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = doc.name
-      a.click()
-      URL.revokeObjectURL(url)
+      saveBlob(blob, doc.name)
     } catch (err) {
       toastError(errorMessage(err))
     }

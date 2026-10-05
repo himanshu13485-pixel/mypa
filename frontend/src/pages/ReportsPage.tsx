@@ -4,7 +4,8 @@ import { Download } from 'lucide-react'
 import { format } from 'date-fns'
 import { reports } from '../api/endpoints'
 import { useAuthStore } from '../stores/auth'
-import { Button, Card, Skeleton } from '../components/ui'
+import { Button, Card, Skeleton } from '../components/ui'
+import { saveBlob } from '../lib/download'
 
 function StatTile({ label, value, suffix }: { label: string; value: number | string; suffix?: string }) {
   return (
@@ -51,12 +52,7 @@ export default function ReportsPage() {
     const token = useAuthStore.getState().token
     const res = await fetch(reports.csvUrl, { headers: { Authorization: `Bearer ${token}` } })
     const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'mypa-tasks.csv'
-    a.click()
-    URL.revokeObjectURL(url)
+    saveBlob(blob, 'mypa-tasks.csv')
   }
 
   if (isLoading || !summary) {

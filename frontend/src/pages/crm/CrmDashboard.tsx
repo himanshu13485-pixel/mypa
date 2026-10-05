@@ -12,7 +12,8 @@ import { crm, crmMeQuery, CRM_LEAD_STATUS_LABELS, CRM_PAYMENT_STATUS_LABELS } fr
 import { Card, EmptyState, Spinner , Select } from '../../components/ui'
 import { CHART_COLORS, DonutChart, HBarChart } from './charts'
 import { crmPath } from '../../lib/crmPath'
-import TableBox from '../../components/TableBox'
+import TableBox from '../../components/TableBox'
+import { saveBlob } from '../../lib/download'
 
 const LEAD_STATUS_COLORS: Record<string, string> = {
   unattended: CHART_COLORS[2],
@@ -268,12 +269,7 @@ function MyHrFileCard() {
   const download = async (uuid: string, name: string) => {
     try {
       const blob = await crm.employees.downloadMyDocument(uuid)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = name
-      a.click()
-      URL.revokeObjectURL(url)
+      saveBlob(blob, name)
     } catch { /* the server names the refusal */ }
   }
 

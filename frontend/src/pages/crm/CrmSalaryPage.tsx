@@ -78,13 +78,8 @@ export default function CrmSalaryPage() {
   const downloadPdf = async (s: CrmSalarySlip) => {
     try {
       const blob = await crm.salary.pdf(s.uuid)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'payslip-' + (s.member?.name ?? 'employee').toLowerCase().split(' ').join('-')
-        + '-' + s.year + '-' + String(s.month).padStart(2, '0') + '.pdf'
-      a.click()
-      URL.revokeObjectURL(url)
+      saveBlob(blob, 'payslip-' + (s.member?.name ?? 'employee').toLowerCase().split(' ').join('-')
+        + '-' + s.year + '-' + String(s.month).padStart(2, '0') + '.pdf')
     } catch (err) {
       toastError(errorMessage(err))
     }

@@ -8,7 +8,8 @@ import { useToast } from '../../../components/Toast'
 import { Button, Input, Label, Spinner, Textarea } from '../../../components/ui'
 import { fullDate, sizeLabel } from './mailUtils'
 import { chooseFolder, folderName, localFoldersSupported, markLocalSync, writeToFolder } from './localArchive'
-import { useChosenMailbox } from './useChosenMailbox'
+import { useChosenMailbox } from './useChosenMailbox'
+import { saveBlob } from '../../../lib/download'
 
 const card = 'rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-100 dark:bg-slate-900 dark:ring-slate-800 sm:p-5'
 
@@ -129,12 +130,7 @@ function MailboxBackup({ row }: { row: MailBackupRow }) {
 
   const downloadZip = async (): Promise<Blob> => {
     const blob = await mails.exportArchive(row.uuid)
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `mails-${row.email}-${new Date().toISOString().slice(0, 10)}.zip`
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    saveBlob(blob, `mails-${row.email}-${new Date().toISOString().slice(0, 10)}.zip`)
 
     return blob
   }

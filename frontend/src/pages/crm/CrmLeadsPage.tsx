@@ -15,7 +15,8 @@ import { listFromParam, listParamOf, rememberList } from '../../lib/listReturn'
 import { crmPath } from '../../lib/crmPath'
 import { MultiSelect } from '../../components/MultiSelect'
 import { listParam, optionsFrom, optionsOf } from '../../lib/multiFilter'
-import TableBox from '../../components/TableBox'
+import TableBox from '../../components/TableBox'
+import { saveBlob } from '../../lib/download'
 
 const inr = (v: number | string) => '₹' + Number(v || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })
 
@@ -566,12 +567,7 @@ export default function CrmLeadsPage() {
                     follow_up_from: fuFrom || undefined,
                     follow_up_to: fuTo || undefined,
                   })
-                  const url = URL.createObjectURL(blob)
-                  const a = document.createElement('a')
-                  a.href = url
-                  a.download = `leads-export.csv`
-                  a.click()
-                  URL.revokeObjectURL(url)
+                  saveBlob(blob, `leads-export.csv`)
                 } catch (err) {
                   toastError(errorMessage(err))
                 } finally {

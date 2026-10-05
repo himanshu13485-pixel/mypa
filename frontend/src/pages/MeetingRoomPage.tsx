@@ -46,6 +46,7 @@ import type { MeetingHostAction, MeetingParticipant, MeetingSignalPayload } from
 import { normalizeSdp } from '../lib/sdp'
 import { Avatar } from '../lib/avatars'
 import { usePrompt } from '../components/Prompt'
+import { saveBlob } from '../lib/download'
 
 const REACTIONS: Record<string, string> = {
   thumbsup: '\u{1F44D}', clap: '\u{1F44F}', heart: '\u{2764}\u{FE0F}', laugh: '\u{1F602}',
@@ -2237,12 +2238,7 @@ export default function MeetingRoomPage() {
     const res = await fetch(meetingsApi.chatFileUrl(code, fileUuid), { headers: { Authorization: `Bearer ${token}` } })
     if (!res.ok) return toastError('Download failed.')
     const blob = await res.blob()
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    saveBlob(blob, name)
   }
 
   const changeMyName = async () => {
