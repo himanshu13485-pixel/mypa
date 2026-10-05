@@ -31,13 +31,17 @@ use Throwable;
 class MailsFixDates extends Command
 {
     protected $signature = 'mails:fix-dates {--pretend : Say what would change, change nothing}
-                                            {--account= : One mailbox, by its email address}';
+                                            {--account= : One mailbox, by its email address}
+                                            {--days= : Only mail this many days old or newer}';
 
     protected $description = 'Re-read message dates from the mail server, for mail filed before dates were converted';
 
     public function handle(MailConnector $connector): int
     {
         $pretend = (bool) $this->option('pretend');
+        // Recent mail is what anybody is actually reading; the archive can
+        // wait, or be done overnight in its own run.
+        $days = (int) $this->option('days') ?: null;
 
         $accounts = MailAccount::where('status', 'active')->whereNotNull('imap_host')
             ->when($this->option('account'), fn ($q, $email) => $q->where('email', $email))
@@ -72,43 +76,56 @@ class MailsFixDates extends Command
                 }
 
                 /*
-                 * Headers only. The date is in them, the body is what makes
-                 * a sync slow, and nothing here needs reading.
+                 * Only the messages we actually hold, and only the headers.
+                 *
+                 * Asking the folder for everything meant waiting on mail
+                 * this app has never seen, with nothing on screen while it
+                 * went - which reads as a hang rather than as work. The
+                 * uids are already here, so they are what is asked for.
                  */
-                try {
-                    $remote = $folder->query()->leaveUnread()->setFetchBody(false)->softFail()->all()->get();
-                } catch (Throwable $e) {
-                    $this->warn('   ' . $path . ': ' . MailConnector::plain($e));
+                $ours = MailMessage::where('mail_account_id', $account->id)
+                    ->where('remote_folder', $path)->whereNotNull('uid')
+                    ->when($days, fn ($q) => $q->where('date', '>=', now()->subDays($days)))
+                    ->orderBy('id')
+                    ->get(['id', 'uid', 'date']);
+
+                if ($ours->isEmpty()) {
                     continue;
                 }
 
-                $dates = [];
-                foreach ($remote as $one) {
-                    $dates[(int) $one->uid] = $one->date?->first()?->toDate();
+                $this->line('   ' . $path . ' — ' . $ours->count() . ' to check');
+                $bar = $this->output->createProgressBar($ours->count());
+
+                foreach ($ours as $message) {
+                    $bar->advance();
+
+                    try {
+                        $remote = $folder->query()->leaveUnread()->setFetchBody(false)->softFail()
+                            ->getMessageByUid((int) $message->uid);
+                    } catch (Throwable) {
+                        $remote = null;
+                    }
+
+                    $raw = $remote?->date?->first()?->toDate();
+                    if (! $raw) {
+                        $gone++;
+                        continue;
+                    }
+
+                    $right = MailSync::localise($raw);
+                    if ($message->date && $right->equalTo($message->date)) {
+                        $same++;
+                        continue;
+                    }
+
+                    $fixed++;
+                    if (! $pretend) {
+                        $message->forceFill(['date' => $right])->saveQuietly();
+                    }
                 }
 
-                MailMessage::where('mail_account_id', $account->id)
-                    ->where('remote_folder', $path)->whereNotNull('uid')
-                    ->chunkById(200, function ($messages) use ($dates, $pretend, &$fixed, &$gone, &$same) {
-                        foreach ($messages as $message) {
-                            $raw = $dates[(int) $message->uid] ?? null;
-                            if (! $raw) {
-                                $gone++;
-                                continue;
-                            }
-
-                            $right = MailSync::localise($raw);
-                            if ($message->date && $right->equalTo($message->date)) {
-                                $same++;
-                                continue;
-                            }
-
-                            $fixed++;
-                            if (! $pretend) {
-                                $message->forceFill(['date' => $right])->saveQuietly();
-                            }
-                        }
-                    });
+                $bar->finish();
+                $this->newLine();
             }
 
             $client->disconnect();
