@@ -54,6 +54,7 @@ class MailsFixDates extends Command
         }
 
         $fixed = $gone = $same = 0;
+        $stopped = [];
 
         foreach ($accounts as $account) {
             $this->line($account->email);
@@ -61,7 +62,8 @@ class MailsFixDates extends Command
             try {
                 $client = $connector->imap($account);
             } catch (Throwable $e) {
-                $this->warn('   could not be reached: ' . MailConnector::plain($e));
+                $this->warn('   could not be reached: '.MailConnector::plain($e));
+
                 continue;
             }
 
@@ -69,70 +71,105 @@ class MailsFixDates extends Command
                 ->whereNotNull('remote_folder')->whereNotNull('uid')
                 ->distinct()->pluck('remote_folder');
 
-            foreach ($folders as $path) {
-                $folder = $client->getFolderByPath($path);
-                if (! $folder) {
-                    continue;
-                }
+            /*
+             * A host that hangs up costs its own mailbox, not the run.
+             *
+             * One server dropping the connection used to end everything -
+             * the command died where it stood, and whoever started it had
+             * no idea how far it had got or which mailboxes were still
+             * untouched. Each mailbox is now its own attempt, and the one
+             * that failed is named at the end.
+             */
+            try {
+                foreach ($folders as $path) {
+                    $folder = $client->getFolderByPath($path);
+                    if (! $folder) {
+                        continue;
+                    }
 
-                /*
-                 * Only the messages we actually hold, and only the headers.
-                 *
-                 * Asking the folder for everything meant waiting on mail
-                 * this app has never seen, with nothing on screen while it
-                 * went - which reads as a hang rather than as work. The
-                 * uids are already here, so they are what is asked for.
-                 */
-                $ours = MailMessage::where('mail_account_id', $account->id)
-                    ->where('remote_folder', $path)->whereNotNull('uid')
-                    ->when($days, fn ($q) => $q->where('date', '>=', now()->subDays($days)))
-                    ->orderBy('id')
-                    ->get(['id', 'uid', 'date']);
+                    $ours = MailMessage::where('mail_account_id', $account->id)
+                        ->where('remote_folder', $path)->whereNotNull('uid')
+                        ->when($days, fn ($q) => $q->where('date', '>=', now()->subDays($days)))
+                        ->orderBy('uid')
+                        ->get(['id', 'uid', 'date']);
 
-                if ($ours->isEmpty()) {
-                    continue;
-                }
+                    if ($ours->isEmpty()) {
+                        continue;
+                    }
 
-                $this->line('   ' . $path . ' — ' . $ours->count() . ' to check');
-                $bar = $this->output->createProgressBar($ours->count());
-
-                foreach ($ours as $message) {
-                    $bar->advance();
-
+                    /*
+                     * One request for the whole folder, not one per message.
+                     *
+                     * Asked one at a time this took minutes a mailbox and fell
+                     * over whenever a mail host hung up part way through - and
+                     * it was never necessary: IMAP hands back a batch of
+                     * headers in a single command, which is exactly what the
+                     * five-minute sync has always done. Headers only; the
+                     * bodies are what make a sync slow and nothing here reads
+                     * them.
+                     *
+                     * From the lowest uid we hold, so mail older than this
+                     * window is never asked for.
+                     */
                     try {
                         $remote = $folder->query()->leaveUnread()->setFetchBody(false)->softFail()
-                            ->getMessageByUid((int) $message->uid);
-                    } catch (Throwable) {
-                        $remote = null;
-                    }
+                            ->getByUidGreater(max(0, (int) $ours->first()->uid - 1));
+                    } catch (Throwable $e) {
+                        $this->warn('   '.$path.': '.MailConnector::plain($e));
 
-                    $raw = $remote?->date?->first()?->toDate();
-                    if (! $raw) {
-                        $gone++;
                         continue;
                     }
 
-                    $right = MailSync::localise($raw);
-                    if ($message->date && $right->equalTo($message->date)) {
-                        $same++;
-                        continue;
+                    $dates = [];
+                    foreach ($remote as $one) {
+                        $dates[(int) $one->uid] = $one->date?->first()?->toDate();
                     }
 
-                    $fixed++;
-                    if (! $pretend) {
-                        $message->forceFill(['date' => $right])->saveQuietly();
+                    $here = 0;
+                    foreach ($ours as $message) {
+                        $raw = $dates[(int) $message->uid] ?? null;
+                        if (! $raw) {
+                            $gone++;
+
+                            continue;
+                        }
+
+                        $right = MailSync::localise($raw);
+                        if ($message->date && $right->equalTo($message->date)) {
+                            $same++;
+
+                            continue;
+                        }
+
+                        $fixed++;
+                        $here++;
+                        if (! $pretend) {
+                            $message->forceFill(['date' => $right])->saveQuietly();
+                        }
                     }
+
+                    $this->line('   '.$path.' — '.$ours->count().' checked, '.$here.' put right');
                 }
-
-                $bar->finish();
-                $this->newLine();
+            } catch (Throwable $e) {
+                $stopped[] = $account->email;
+                $this->warn('   stopped part way: '.MailConnector::plain($e));
             }
 
-            $client->disconnect();
+            try {
+                $client->disconnect();
+            } catch (Throwable) {
+                // Already gone, which is how we got here.
+            }
         }
 
-        $this->info(($pretend ? 'Would correct ' : 'Corrected ') . $fixed . ' message(s); '
-            . $same . ' were already right; ' . $gone . ' are no longer on the server.');
+        $this->info(($pretend ? 'Would correct ' : 'Corrected ').$fixed.' message(s); '
+            .$same.' were already right; '.$gone.' are no longer on the server.');
+
+        if ($stopped) {
+            // Named, because a run that was cut short in the middle of a
+            // mailbox and a run that finished look identical otherwise.
+            $this->warn('Run again for: '.implode(', ', $stopped));
+        }
 
         return self::SUCCESS;
     }
