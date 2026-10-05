@@ -49,6 +49,28 @@ class MailSync
     }
 
     /**
+     * A mail's own date, in this office's clock.
+     *
+     * Mail carries the sender's offset: a colleague in London sends at
+     * 09:00 +0000, which is half past two in the afternoon here. The
+     * column keeps no offset - like every other datetime in this app it
+     * holds plain local time - so a date arriving in somebody else's
+     * timezone has to be converted before it is written, not after.
+     *
+     * Without this it was written as 09:00 and read back as 09:00 here, so
+     * a mail that arrived this afternoon claimed to have arrived this
+     * morning, and the list sorted it accordingly. Mail from Indian
+     * senders looked perfectly right, which is what made it so puzzling:
+     * only correspondents abroad were wrong, and always by their own
+     * distance from here.
+     */
+    public static function localise(?\DateTimeInterface $date): Carbon
+    {
+        return ($date ? Carbon::instance($date) : Carbon::now())
+            ->setTimezone(config('app.timezone'));
+    }
+
+    /**
      * Which server folder is which of ours.
      *
      * By name, because the flags servers are meant to mark them with are not
@@ -313,7 +335,7 @@ class MailSync
                 'has_attachments' => $remote->hasAttachments(),
                 'is_read' => $flags->contains('seen') || $folder === 'sent' || $folder === 'drafts',
                 'is_starred' => $flags->contains('flagged'),
-                'date' => $date ? Carbon::instance($date) : now(),
+                'date' => self::localise($date),
                 'size' => (int) ($remote->size ?? 0) ?: null,
                 'spam_score' => (int) $verdict['score'],
                 'spam_reasons' => $verdict['reasons'] ?: null,

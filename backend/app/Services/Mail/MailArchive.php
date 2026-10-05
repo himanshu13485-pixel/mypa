@@ -365,7 +365,7 @@ class MailArchive
                 'body_text' => $text ?: null,
                 'snippet' => MailHtml::snippet($text, $html),
                 'is_read' => true,
-                'date' => $parsed->date?->first()?->toDate() ?: now(),
+                'date' => MailSync::localise($parsed->date?->first()?->toDate()),
                 'size' => strlen($raw),
             ]);
 
