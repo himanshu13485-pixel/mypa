@@ -60,17 +60,18 @@ class BookingPhoneTest extends TestCase
             'starts_at' => CarbonImmutable::parse('2026-09-02 11:00', 'Asia/Kolkata')->utc()->toIso8601String(),
             'name' => 'Riya',
             'email' => 'riya@example.com',
+            'phone' => '+919876543210',
             'timezone' => 'Asia/Kolkata',
         ], $overrides));
     }
 
     public function test_a_number_given_is_kept(): void
     {
-        $this->book(['phone' => '+91 98765 43210'])
+        $this->book(['phone' => '+919876543210'])
             ->assertCreated()
-            ->assertJsonPath('data.phone', '+91 98765 43210');
+            ->assertJsonPath('data.phone', '+919876543210');
 
-        $this->assertDatabaseHas('bookings', ['email' => 'riya@example.com', 'phone' => '+91 98765 43210']);
+        $this->assertDatabaseHas('bookings', ['email' => 'riya@example.com', 'phone' => '+919876543210']);
     }
 
     public function test_the_number_reaches_the_host_where_they_will_look(): void
@@ -81,7 +82,7 @@ class BookingPhoneTest extends TestCase
         // before a meeting - not a list on another screen.
         $description = (string) Event::where('user_id', $this->host->id)->value('description');
 
-        $this->assertStringContainsString('+91 98765 43210', $description);
+        $this->assertStringContainsString('+919876543210', $description);
         // And none of what was already there is lost to make room for it.
         $this->assertStringContainsString('About the pilot.', $description);
         $this->assertStringContainsString('riya@example.com', $description);
@@ -89,34 +90,67 @@ class BookingPhoneTest extends TestCase
 
     public function test_the_host_sees_it_on_their_own_list_of_bookings(): void
     {
-        $this->book(['phone' => '+91 98765 43210'])->assertCreated();
+        $this->book(['phone' => '+919876543210'])->assertCreated();
 
         $this->actingAs($this->host)
             ->getJson('/api/v1/booking-page/bookings')
             ->assertOk()
-            ->assertJsonPath('data.0.phone', '+91 98765 43210');
+            ->assertJsonPath('data.0.phone', '+919876543210');
     }
 
-    public function test_booking_without_a_number_still_works(): void
+    public function test_booking_without_a_number_is_refused(): void
     {
-        // The field is optional and has to stay optional: this is the whole
-        // reason it is not required.
-        $this->book()->assertCreated()->assertJsonPath('data.phone', null);
+        // Required now: the host needs a way to reach whoever booked, and
+        // the minutes before a meeting are not the time to discover there
+        // isn't one.
+        $this->book(['phone' => null])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('phone');
 
-        $this->assertDatabaseHas('bookings', ['email' => 'riya@example.com', 'phone' => null]);
-    }
-
-    public function test_an_absurdly_long_number_is_refused(): void
-    {
-        $this->book(['phone' => str_repeat('9', 40)])
+        $this->book(['phone' => ''])
             ->assertUnprocessable()
             ->assertJsonValidationErrors('phone');
     }
 
-    public function test_a_blank_number_is_treated_as_no_number(): void
+    public function test_a_number_without_a_country_is_refused(): void
     {
-        // What an empty field posts, and it must not become an empty string
-        // sitting where a number should be.
-        $this->book(['phone' => ''])->assertCreated()->assertJsonPath('data.phone', null);
+        /*
+         * The form sends a country code and digits joined together, so a
+         * number arriving without one did not come from the form. Refusing
+         * it is what keeps the column in one shape - which is the whole
+         * point of having asked for the country separately.
+         */
+        $this->book(['phone' => '9876543210'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('phone');
+    }
+
+    public function test_however_somebody_spaced_it(): void
+    {
+        // Typed by a person rather than sent by the form. The booking is not
+        // refused over punctuation, and one shape is still what is stored.
+        $this->book(['phone' => '+919876543210'])
+            ->assertCreated()
+            ->assertJsonPath('data.phone', '+919876543210');
+    }
+
+    public function test_a_number_that_is_not_a_number_is_refused(): void
+    {
+        $this->book(['phone' => '+' . str_repeat('9', 40)])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('phone');
+
+        $this->book(['phone' => '+91 ring me'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('phone');
+    }
+
+    public function test_a_country_other_than_india_is_taken_as_given(): void
+    {
+        // Every dialling code in the world is on the list, and the point of
+        // that list is that a number from anywhere survives the journey.
+        $this->book(['phone' => '+971501234567'])
+            ->assertCreated()
+            ->assertJsonPath('data.phone', '+971501234567');
     }
 }

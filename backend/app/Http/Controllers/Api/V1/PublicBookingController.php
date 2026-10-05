@@ -100,19 +100,34 @@ class PublicBookingController extends Controller
          */
         SignupGuard::assertHuman($request, 'name');
 
+        /*
+         * However they spaced it.
+         *
+         * The form sends a country code and digits already joined, so this
+         * changes nothing for anybody using it. But a number typed with
+         * spaces or brackets is still that number, and refusing it over
+         * punctuation would be refusing a booking over nothing. Cleaned
+         * here, before the rule below, so what is stored is one shape and
+         * what is accepted is whatever a person reasonably types.
+         */
+        if ($request->filled('phone')) {
+            $request->merge(['phone' => preg_replace('/[^0-9+]/', '', (string) $request->input('phone'))]);
+        }
+
         $data = $request->validate([
             'starts_at' => ['required', 'date'],
             'name' => ['required', 'string', 'max:120'],
             'email' => ['required', 'email', 'max:255'],
             /*
-             * A number to ring, if they want to give one.
+             * A number to ring, and now a required one.
              *
-             * Optional on purpose: a booking link's whole value is that it
-             * takes seconds, and a required phone number is the field that
-             * makes somebody close the tab. The email stays required because
-             * the joining link travels on it.
+             * The host needs a way to reach whoever booked in the minutes
+             * before a meeting - a call running late, a link that will not
+             * open - and an email is a poor way to say "I am two minutes
+             * away". It arrives as a country code and digits, so what is
+             * stored is one number in one shape rather than four.
              */
-            'phone' => ['nullable', 'string', 'max:32'],
+            'phone' => ['required', 'string', 'max:32', 'regex:/^\+[0-9]{6,20}$/'],
             'note' => ['nullable', 'string', 'max:2000'],
             // The guard's own fields: read by SignupGuard, never stored.
             'company_website' => ['nullable', 'string', 'max:255'],

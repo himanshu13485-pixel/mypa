@@ -1,4 +1,5 @@
-import { COUNTRIES, DEFAULT_DIAL, flagOf } from '../lib/countries'
+import { useEffect, useState } from 'react'
+import { COUNTRIES, DEFAULT_DIAL, flagOf, joinDial, splitDial } from '../lib/countries'
 import { Input, Label, Select } from './ui'
 
 /**
@@ -76,3 +77,52 @@ export function MobileField({
 }
 
 export { DEFAULT_DIAL }
+
+/**
+ * The same field, for a record that stores one string.
+ *
+ * A client's mobile is a single column holding the whole number, which is
+ * right - the number is one thing - but a form has to show it as two. This
+ * takes the stored value apart to display it and puts it back together on
+ * every keystroke, so nothing outside has to know the field has two halves.
+ *
+ * The chosen country is held here rather than read back out of the value,
+ * because an empty number stores an empty string: pick a country, and before
+ * you have typed a digit there is nothing left in the value to remember it
+ * by. It would snap back to India between the choice and the first keystroke,
+ * which is precisely the moment somebody is choosing a different country.
+ */
+export function DialField({ value, onChange, ...rest }: {
+  /** The whole number as stored: "+919310325393", or empty. */
+  value: string
+  onChange: (whole: string) => void
+  label?: string
+  hint?: string
+  placeholder?: string
+  disabled?: boolean
+  required?: boolean
+}) {
+  const national = splitDial(value).national
+  const [code, setCode] = useState(() => splitDial(value).code)
+
+  /*
+   * Follow the record when one is loaded into the form - but only when it
+   * actually carries a number. A cleared field keeps whatever country the
+   * person has chosen, for the reason above.
+   */
+  useEffect(() => {
+    const incoming = splitDial(value)
+    if (incoming.national !== '' && incoming.code !== code) setCode(incoming.code)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
+  return (
+    <MobileField
+      {...rest}
+      countryCode={code}
+      number={national}
+      onCountryCode={(picked) => { setCode(picked); onChange(joinDial(picked, national)) }}
+      onNumber={(digits) => onChange(joinDial(code, digits))}
+    />
+  )
+}

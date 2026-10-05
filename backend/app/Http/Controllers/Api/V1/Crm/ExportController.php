@@ -146,6 +146,12 @@ class ExportController extends Controller
             ->when(QueryList::of($request, 'status'), fn ($q, $v) => $q->whereIn('lead_status', $v))
             ->when(QueryList::of($request, 'source'), fn ($q, $v) => $q->whereIn('source', $v))
             ->when(QueryList::of($request, 'member'), fn ($q, $v) => $q->whereHas('assignedMember', fn ($m) => $m->whereIn('uuid', $v)))
+            // Who handed it out, as on the screen - "download what I am
+            // looking at" has to include the filter somebody just used.
+            ->when(QueryList::of($request, 'assigned_by'), fn ($q, $v) => $q->whereIn(
+                'assigned_by',
+                Member::where('organization_id', $org->id)->whereIn('uuid', $v)->select('user_id'),
+            ))
             // The two dates the screen asks separately: when it came in, and
             // when it is next owed a call.
             ->when($request->query('date_from'), fn ($q, $v) => $q->whereDate('created_at', '>=', $v))
@@ -164,7 +170,7 @@ class ExportController extends Controller
 
         ActivityLog::record($me, $org->id, 'export.leads', $org, [
             'filters' => array_filter($request->only([
-                'status', 'source', 'member', 'search',
+                'status', 'source', 'member', 'assigned_by', 'search',
                 'date_from', 'date_to', 'follow_up_from', 'follow_up_to',
             ])),
         ]);

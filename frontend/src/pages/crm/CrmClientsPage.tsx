@@ -8,6 +8,7 @@ import { crm, crmMeQuery, crmAllows, CRM_CLIENT_CATEGORY_LABELS, type CrmClient 
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
+import { DialField } from '../../components/MobileField'
 import { PhoneLink } from '../../components/ContactLink'
 import { codeCase, companyCase, emailCase, nameCase } from './textCase'
 import { crmPath } from '../../lib/crmPath'
@@ -638,14 +639,23 @@ export default function CrmClientsPage() {
                 <Label>Contact person</Label>
                 <Input value={form.contact_person} onChange={(e) => set('contact_person', e.target.value)} onBlur={() => tidy('contact_person', nameCase)} className="w-full" disabled={billingLocked} />
               </div>
-              <div>
-                <Label>Mobile</Label>
-                <Input value={form.mobile} onChange={(e) => set('mobile', e.target.value)} className="w-full" disabled={billingLocked} />
-              </div>
-              <div>
-                <Label>Telephone</Label>
-                <Input value={form.telephone} onChange={(e) => set('telephone', e.target.value)} className="w-full" disabled={billingLocked} />
-              </div>
+              {/* A country and then digits, on both - a landline has a
+                  country as much as a mobile does, and a records field that
+                  takes one format in one box and another in the next is how
+                  it ends up holding four. */}
+              <DialField
+                label="Mobile"
+                value={form.mobile}
+                onChange={(whole) => set('mobile', whole)}
+                disabled={billingLocked}
+              />
+              <DialField
+                label="Telephone"
+                value={form.telephone}
+                onChange={(whole) => set('telephone', whole)}
+                disabled={billingLocked}
+                placeholder="1123456789"
+              />
               <div>
                 <Label>Email</Label>
                 <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} onBlur={() => tidy('email', emailCase)} className="w-full" disabled={billingLocked} />

@@ -279,3 +279,56 @@ export function flagOf(iso: string): string {
 
 /** India first — most of the people using this are dialling from there. */
 export const DEFAULT_DIAL = '+91'
+
+/**
+ * Every dialling code, longest first.
+ *
+ * Longest first because the codes are prefixes of one another: 1 is North
+ * America, 91 is India, 971 is the Emirates. Taking the first that matches a
+ * number beginning 971 would read it as 9 - which is nobody - or as 97, which
+ * is somewhere else entirely.
+ */
+const BY_LENGTH = [...new Set(COUNTRIES.map((c) => c.dial))]
+  .sort((a, b) => b.length - a.length)
+
+/**
+ * A stored number, split back into the country and the rest.
+ *
+ * What is stored is one string - "+919310325393" - because that is the whole
+ * number and the only thing worth keeping. A form that wants to let somebody
+ * change it has to take it apart again, and the only honest way to do that is
+ * to ask which dialling code it starts with.
+ *
+ * A number with no code is read as Indian, which is what every number in the
+ * records was before this field had a country at all.
+ */
+export function splitDial(stored: string | null | undefined): { code: string; national: string } {
+  const raw = (stored ?? '').trim()
+  if (raw === '') return { code: DEFAULT_DIAL, national: '' }
+
+  if (!raw.startsWith('+')) {
+    // No code given. Historic rows are Indian numbers, sometimes written
+    // with the trunk 0 in front, which is not part of the number.
+    return { code: DEFAULT_DIAL, national: raw.replace(/\D/g, '').replace(/^0+/, '') }
+  }
+
+  const digits = raw.slice(1).replace(/\D/g, '')
+  const code = BY_LENGTH.find((dial) => digits.startsWith(dial))
+
+  return code
+    ? { code: `+${code}`, national: digits.slice(code.length) }
+    : { code: DEFAULT_DIAL, national: digits }
+}
+
+/**
+ * The two halves back into one number, or nothing at all.
+ *
+ * A country code on its own is not a phone number - it is the answer to a
+ * question nobody asked - so an empty national part stores an empty string
+ * rather than a lonely "+91".
+ */
+export function joinDial(code: string, national: string): string {
+  const digits = national.replace(/\D/g, '')
+
+  return digits === '' ? '' : `${code}${digits}`
+}

@@ -63,6 +63,27 @@ class LeadController extends Controller
         if ($assigned = QueryList::of($request, 'assigned_to')) {
             $query->whereHas('assignedMember', fn ($m) => $m->whereIn('uuid', $assigned));
         }
+        /*
+         * Who handed it out, which is a different question from who holds it.
+         *
+         * The list already says both - "Satish Singh, by Manisha" - but only
+         * one of them could be filtered on. A manager asking "what did I give
+         * out last week, and what came of it" had no way to ask it, and
+         * neither had anybody checking that a particular person's allocations
+         * were being worked.
+         *
+         * Taken as member uuids, the same as the filter above, because the
+         * dropdown offers the same people. They are resolved to the user
+         * behind each member, which is what a lead actually records.
+         */
+        if ($assigners = QueryList::of($request, 'assigned_by')) {
+            $org = $request->attributes->get('crm_org');
+
+            $query->whereIn('assigned_by', Member::query()
+                ->where('organization_id', $org->id)
+                ->whereIn('uuid', $assigners)
+                ->select('user_id'));
+        }
         if ($from = $request->query('date_from')) {
             $query->whereDate('created_at', '>=', $from);
         }

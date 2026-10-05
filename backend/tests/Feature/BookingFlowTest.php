@@ -71,6 +71,8 @@ class BookingFlowTest extends TestCase
             'starts_at' => $this->slot(),
             'name' => 'Riya',
             'email' => 'riya@example.com',
+            // Required since the host needs a way to reach whoever booked.
+            'phone' => '+919876543210',
             'note' => 'Wanted to talk about the pilot.',
             'timezone' => 'Asia/Kolkata',
         ], $overrides));

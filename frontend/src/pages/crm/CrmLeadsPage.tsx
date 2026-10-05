@@ -7,6 +7,7 @@ import { crm, crmMeQuery, crmAllows, CRM_LEAD_STATUS_LABELS, type CrmLead } from
 import { errorMessage } from '../../api/client'
 import { useToast } from '../../components/Toast'
 import { Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Pager, Select, Spinner, Textarea } from '../../components/ui'
+import { DialField } from '../../components/MobileField'
 import { PhoneLink } from '../../components/ContactLink'
 import { companyCase, emailCase, nameCase } from './textCase'
 import { describeParsed, parseLeadText } from '../../lib/leadText'
@@ -59,6 +60,8 @@ export default function CrmLeadsPage() {
   const [status, setStatus] = useState<string[] | null>(() => listFromParam(params.get('status')))
   const [source, setSource] = useState<string[] | null>(() => listFromParam(params.get('source')))
   const [assigned, setAssigned] = useState<string[] | null>(() => listFromParam(params.get('assigned')))
+  /* Who handed the lead out, which is a different question from who holds it. */
+  const [assignedBy, setAssignedBy] = useState<string[] | null>(() => listFromParam(params.get('by')))
   const [dueOnly, setDueOnly] = useState(() => params.get('due') === '1')
   /*
    * Today's list: the follow-ups dated today, plus anything urgent. The
@@ -94,6 +97,7 @@ export default function CrmLeadsPage() {
     put('status', listParamOf(status))
     put('source', listParamOf(source))
     put('assigned', listParamOf(assigned))
+    put('by', listParamOf(assignedBy))
     put('due', dueOnly ? '1' : null)
     put('today', todayOnly ? '1' : null)
     put('from', from || null)
@@ -106,7 +110,7 @@ export default function CrmLeadsPage() {
     // Remembered too, for the lead's own Back button, which cannot know how it was reached.
     rememberList('leads', location.pathname + (next.toString() ? `?${next}` : ''))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applied, status, source, assigned, dueOnly, todayOnly, from, to, fuFrom, fuTo, page])
+  }, [applied, status, source, assigned, assignedBy, dueOnly, todayOnly, from, to, fuFrom, fuTo, page])
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<CrmLead | null>(null)
   const [form, setForm] = useState({ ...EMPTY_FORM })
@@ -126,13 +130,14 @@ export default function CrmLeadsPage() {
 
   const { data: masters } = useQuery({ queryKey: ['crm', 'masters'], queryFn: crm.masters })
   const { data, isLoading } = useQuery({
-    queryKey: ['crm', 'leads', applied, status, source, assigned, dueOnly, todayOnly, from, to, fuFrom, fuTo, page],
+    queryKey: ['crm', 'leads', applied, status, source, assigned, assignedBy, dueOnly, todayOnly, from, to, fuFrom, fuTo, page],
     queryFn: () =>
       crm.leads.list({
         search: applied || undefined,
         lead_status: listParam(status),
         source: listParam(source),
         assigned_to: listParam(assigned),
+        assigned_by: listParam(assignedBy),
         due: dueOnly ? 1 : undefined,
         today: todayOnly ? 1 : undefined,
         date_from: from || undefined,
@@ -464,6 +469,23 @@ export default function CrmLeadsPage() {
             onChange={(v) => { setAssigned(v); setPage(1) }}
             className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
           />
+          {/*
+            * The other half of what the list already shows.
+            *
+            * Each row says who holds the lead and who gave it to them -
+            * "Satish Singh, by Manisha" - but only the first could be
+            * filtered on. A manager asking what they handed out last week,
+            * or checking that one person's allocations are being worked,
+            * had no way to ask.
+            */}
+          <MultiSelect
+            label="Assigned by"
+            allLabel="Anyone"
+            options={(masters?.members ?? []).map((m) => ({ value: m.uuid, label: m.name ?? '—' }))}
+            value={assignedBy}
+            onChange={(v) => { setAssignedBy(v); setPage(1) }}
+            className="min-w-0 flex-1 basis-[calc(50%-0.25rem)] sm:flex-none sm:basis-auto sm:min-w-[11rem]"
+          />
           <button
             type="button"
             onClick={() => { setTodayOnly((t) => { if (!t) setDueOnly(false); return !t }); setPage(1) }}
@@ -538,6 +560,7 @@ export default function CrmLeadsPage() {
                     status: listParam(status),
                     source: listParam(source),
                     member: listParam(assigned),
+                    assigned_by: listParam(assignedBy),
                     date_from: from || undefined,
                     date_to: to || undefined,
                     follow_up_from: fuFrom || undefined,
@@ -774,16 +797,22 @@ export default function CrmLeadsPage() {
                 <Label>Contact person</Label>
                 <Input value={form.contact_person} onChange={(e) => set('contact_person', e.target.value)} onBlur={() => tidy('contact_person', nameCase)} className="w-full" />
               </div>
-              <div>
-                <Label>Mobile</Label>
-                <Input value={form.mobile} onChange={(e) => set('mobile', e.target.value)} className="w-full"
-                  disabled={!!editing && !isManager} title={!!editing && !isManager ? 'Contact changes need your Admin' : undefined} />
-              </div>
-              <div>
-                <Label>Phone</Label>
-                <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} className="w-full"
-                  disabled={!!editing && !isManager} title={!!editing && !isManager ? 'Contact changes need your Admin' : undefined} />
-              </div>
+              {/* A country and then digits, the same on both. The lead's
+                  numbers are what identify it, so the format they are typed
+                  in is not a matter of taste. */}
+              <DialField
+                label="Mobile"
+                value={form.mobile}
+                onChange={(whole) => set('mobile', whole)}
+                disabled={!!editing && !isManager}
+              />
+              <DialField
+                label="Phone"
+                value={form.phone}
+                onChange={(whole) => set('phone', whole)}
+                disabled={!!editing && !isManager}
+                placeholder="1123456789"
+              />
               <div>
                 <Label>Email</Label>
                 <Input type="email" value={form.email} onChange={(e) => set('email', e.target.value)} onBlur={() => tidy('email', emailCase)} className="w-full"
