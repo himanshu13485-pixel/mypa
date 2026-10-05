@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   Archive, ArrowDown, Bell, BellOff, Camera, Check, CheckCheck, CheckSquare, ChevronLeft, Clock, Copy, Eraser, Flag, Forward, Megaphone, Mic, MoreVertical, Palette, Paperclip, Pencil, Phone, Pin, Plus,
   Reply, Search, Send, Star,
-  Smile, Square, TextSelect, Trash2, Video, X,
+  Smile, Square, TextSelect, Trash2, Type, Video, X,
   Eye, EyeOff, Lock, LockOpen, StickyNote,
 } from 'lucide-react'
 import { badges as badgesApi, conversationMembers, removeConversationMember, reportsApi } from '../api/endpoints'
@@ -327,6 +327,67 @@ function formatted(text: string, own: boolean) {
   })
 }
 
+/**
+ * What the marks do, for somebody who has not met them before.
+ *
+ * Kept by the box rather than buried in a settings page, because the
+ * moment anybody wonders about this is the moment they are typing - and
+ * each line shows the thing itself beside what was typed to get it, so
+ * there is nothing to take on trust.
+ */
+function FormattingHelp({ onClose }: { onClose: () => void }) {
+  const rows: [string, string, string][] = [
+    ['*text*', 'font-semibold', 'Bold'],
+    ['_text_', 'italic', 'Italic'],
+    ['~text~', 'line-through', 'Struck through'],
+    ['`text`', 'font-mono text-[0.9em] rounded bg-slate-200/70 px-1 dark:bg-slate-700/70', 'Code'],
+  ]
+
+  return (
+    <Modal title="Formatting a message" onClose={onClose}>
+      <div className="space-y-3">
+        <p className="text-sm text-slate-500">
+          Type these around a word or a phrase and the message sends with it already formatted.
+        </p>
+
+        <div className="overflow-hidden rounded-xl ring-1 ring-slate-200 dark:ring-slate-700">
+          {rows.map(([typed, className, label], i) => (
+            <div
+              key={typed}
+              className={clsx(
+                'flex items-center gap-3 px-3 py-2.5 text-sm',
+                i > 0 && 'border-t border-slate-100 dark:border-slate-800',
+              )}
+            >
+              <code className="w-24 shrink-0 font-mono text-xs text-slate-500">{typed}</code>
+              <span className={clsx('flex-1', className)}>{label}</span>
+            </div>
+          ))}
+          <div className="flex items-center gap-3 border-t border-slate-100 px-3 py-2.5 text-sm dark:border-slate-800">
+            <code className="w-24 shrink-0 font-mono text-xs text-slate-500">```text```</code>
+            <span className="flex-1 rounded bg-slate-200/70 px-1 font-mono text-[0.9em] dark:bg-slate-700/70">
+              A block of code
+            </span>
+          </div>
+        </div>
+
+        <p className="text-sm text-slate-500">
+          They can be combined — <code className="font-mono text-xs">*_like this_*</code> is{' '}
+          <span className="font-semibold italic">bold and italic</span>.
+        </p>
+
+        {/* The part worth saying out loud: nothing changes unless it was
+            meant to. People paste code and do arithmetic in here. */}
+        <p className="text-xs text-slate-400">
+          A mark only counts when it hugs a word, so <code className="font-mono">2 * 3 * 4</code> stays a sum
+          and <code className="font-mono">get_user_id</code> keeps its underscores. A mark with nothing closing
+          it is left exactly as typed.
+        </p>
+      </div>
+    </Modal>
+  )
+}
+
 function VoiceRecorder({ onSend }: { onSend: (blob: Blob, seconds: number) => void }) {
   const { toastError } = useToast()
   const [recording, setRecording] = useState(false)
@@ -494,6 +555,7 @@ export default function MessagesPage() {
   const [pickedChat, setSelected] = useState<ConversationItem | null>(null)
   const [draft, setDraft] = useState('')
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
+  const [formattingHelp, setFormattingHelp] = useState(false)
 
   /**
    * Back to the message a reply is answering.
@@ -3819,6 +3881,21 @@ export default function MessagesPage() {
                 >
                   <Camera className="size-4" />
                 </button>
+                {/* Beside the box, because the moment anybody wonders how
+                    to make a word bold is the moment they are typing it. */}
+                <button
+                  type="button"
+                  className={clsx(
+                    'rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-brand-600 dark:hover:bg-slate-800',
+                    !moreOpen && 'hidden sm:inline-flex',
+                  )}
+                  title="How to make text bold, italic or code"
+                  aria-label="Formatting help"
+                  onClick={() => { setMoreOpen(false); setFormattingHelp(true) }}
+                >
+                  <Type className="size-4" />
+                </button>
+                {formattingHelp && <FormattingHelp onClose={() => setFormattingHelp(false)} />}
                 {cameraOpen && (
                   <CameraCapture
                     onClose={() => setCameraOpen(false)}
