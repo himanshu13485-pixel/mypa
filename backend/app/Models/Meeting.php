@@ -116,6 +116,35 @@ class Meeting extends Model
         return (bool) $this->passcode;
     }
 
+    /** The booking that made this room, if a booking link did. */
+    public function booking(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(Booking::class);
+    }
+
+    /**
+     * Is this a room nobody may open until its host does?
+     *
+     * A booking link hands a stranger an address and a password days in
+     * advance. Without this they could walk in on Friday for a meeting set
+     * for Monday, and the first arrival - them - would mark the meeting
+     * started, so the host's own screen would say it had already happened.
+     *
+     * Only booked meetings. A meeting two colleagues set up between
+     * themselves has no guest and no host-in-the-formal-sense, and making
+     * whoever arrives first wait for a particular person would be a worse
+     * answer than the one we have.
+     *
+     * Once it has been started the question is settled for good: a host who
+     * steps out for a moment must not shut the room behind them.
+     */
+    public function awaitsHost(): bool
+    {
+        return $this->started_at === null
+            && $this->scheduled_at !== null
+            && $this->booking()->exists();
+    }
+
     /**
      * Was this meeting ever meant to happen at a particular time?
      *

@@ -287,6 +287,8 @@ Route::post('/bookings/{token}/reschedule', [\App\Http\Controllers\Api\V1\Public
         Route::put('/booking-page', [BookingPageController::class, 'update']);
         Route::get('/booking-page/bookings', [BookingPageController::class, 'bookings']);
         Route::post('/booking-page/bookings/{booking}/cancel', [BookingPageController::class, 'cancelBooking']);
+        // The host moving a booking, which until now only the guest could do.
+        Route::post('/booking-page/bookings/{booking}/reschedule', [BookingPageController::class, 'rescheduleBooking']);
 
         Route::get('/push/public-key', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'publicKey']);
         Route::post('/push/subscribe', [\App\Http\Controllers\Api\V1\PushSubscriptionController::class, 'subscribe']);

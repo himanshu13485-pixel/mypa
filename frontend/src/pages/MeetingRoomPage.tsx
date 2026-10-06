@@ -220,6 +220,8 @@ export default function MeetingRoomPage() {
 
   const [peers, setPeers] = useState<Peer[]>([])
   const [phase, setPhase] = useState<'loading' | 'lobby' | 'joining' | 'waiting' | 'denied' | 'removed' | 'in' | 'ended' | 'error'>('loading')
+  /* Waiting on a host to start a booked meeting, rather than to be admitted. */
+  const [awaitingHost, setAwaitingHost] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [lobbyError, setLobbyError] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
@@ -1059,10 +1061,14 @@ export default function MeetingRoomPage() {
         cam_on: opts ? opts.camOn : true,
       })
       if ('waiting' in info && info.waiting) {
+        // Which door they are outside: a host who has not admitted them, or
+        // a booked meeting whose host has not arrived. Different waits, and
+        // the second one ends without anybody pressing anything.
+        setAwaitingHost(!!info.awaiting_host)
         setPhase('waiting')
         return
       }
-      const room = info as Exclude<typeof info, { waiting: true }>
+      const room = info as Exclude<typeof info, { waiting: true; awaiting_host?: boolean }>
       joinedRef.current = true
       setPhase('in')
       setApprovalOn(room.requires_approval ?? null)
@@ -1538,6 +1544,23 @@ export default function MeetingRoomPage() {
       clearInterval(timer)
     }
   }, [phase, code, teardown, user?.uuid, joinRoom, offerTo, removePeer, escalateToSfu])
+
+  /*
+   * Waiting on a host who has not started a booked meeting yet.
+   *
+   * The waiting room proper ends on an 'admitted' signal, because somebody
+   * presses a button to end it. Nobody presses anything here - the host
+   * simply arrives, and the room opens - so there is nothing to send and
+   * this asks again instead. Every five seconds, which is slow enough to
+   * cost nothing and quick enough that a guest does not notice the wait.
+   */
+  useEffect(() => {
+    if (phase !== 'waiting' || !awaitingHost) return
+
+    const timer = setInterval(() => { void joinRoom() }, 5_000)
+
+    return () => clearInterval(timer)
+  }, [phase, awaitingHost, joinRoom])
 
   /**
    * Closing the tab or navigating away never runs a normal request, so the
@@ -2645,10 +2668,13 @@ export default function MeetingRoomPage() {
   if (phase === 'waiting') {
     return (
       <Card className="mx-auto mt-10 max-w-md text-center">
-        <p className="text-sm font-semibold">Asking the host to let you in…</p>
+        <p className="text-sm font-semibold">
+          {awaitingHost ? 'Waiting for the host to start the meeting…' : 'Asking the host to let you in…'}
+        </p>
         <p className="mt-1 text-xs text-slate-400">
-          The host has a waiting room on. You will join automatically the moment they admit you —
-          keep this page open.
+          {awaitingHost
+            ? 'The meeting has not been started yet. You will join automatically the moment it is — keep this page open.'
+            : 'The host has a waiting room on. You will join automatically the moment they admit you — keep this page open.'}
         </p>
         <Button className="mt-4" variant="secondary" onClick={() => { onClosed(); navigate('/meetings') }}>Cancel</Button>
       </Card>

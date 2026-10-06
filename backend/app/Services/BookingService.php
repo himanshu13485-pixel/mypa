@@ -169,7 +169,7 @@ class BookingService
      * stays valid. Cancelling and re-creating would invalidate both and send
      * somebody a second email contradicting the first.
      */
-    public function reschedule(Booking $booking, CarbonImmutable $start): ?Booking
+    public function reschedule(Booking $booking, CarbonImmutable $start, string $by = 'guest'): ?Booking
     {
         $page = $booking->page;
         if (! $page || $booking->status === 'cancelled') {
@@ -200,7 +200,9 @@ class BookingService
         });
 
         if ($moved) {
-            $this->tell($moved->fresh()->load(['host', 'meeting', 'page']), 'rescheduled');
+            // Who moved it, so the host's own bell does not tell them the
+            // guest did something they did themselves a second ago.
+            $this->tell($moved->fresh()->load(['host', 'meeting', 'page']), 'rescheduled', $by);
         }
 
         return $moved;
@@ -229,7 +231,9 @@ class BookingService
             'cancelled' => $by === 'host'
                 ? "You cancelled {$booking->name}'s booking on {$when}."
                 : "{$booking->name} cancelled their booking on {$when}.",
-            'rescheduled' => "{$booking->name} moved their booking to {$when}.",
+            'rescheduled' => $by === 'host'
+                ? "You moved {$booking->name}'s booking to {$when}. They have been emailed."
+                : "{$booking->name} moved their booking to {$when}.",
             default => "{$booking->name} booked you for {$when}.",
         };
 

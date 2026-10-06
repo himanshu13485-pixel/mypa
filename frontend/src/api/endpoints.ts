@@ -983,7 +983,13 @@ export const meetings = {
             joined_peers?: import('../types').MeetingParticipant[]
             heartbeat_seconds?: number
           })
-        | { waiting: true }
+        /*
+         * Held outside, for one of two reasons: the host runs a waiting room
+         * and has not admitted this person, or the meeting was booked and
+         * its host has not started it yet. The screen says different things
+         * for the two, so the reason comes back with it.
+         */
+        | { waiting: true; awaiting_host?: boolean }
     }>(`/meetings/${code}/join`, opts).then((r) => r.data.data),
   invite: (code: string, app_ids: string[]) =>
     api.post<{ message: string }>(`/meetings/${code}/invite`, { app_ids }).then((r) => r.data),
@@ -1207,6 +1213,15 @@ export const bookingApi = {
   bookings: (past = false) =>
     api.get<{ data: BookingRow[] }>('/booking-page/bookings', { params: { past: past ? 1 : 0 } }).then((r) => r.data.data),
   cancel: (uuid: string) => api.post(`/booking-page/bookings/${uuid}/cancel`),
+  /*
+   * The host moving a booking. The guest has always been able to; the host
+   * could only cancel, which meant calling off a client's meeting to shift
+   * it half an hour. The guest is emailed either way.
+   */
+  reschedule: (uuid: string, starts_at: string) =>
+    api.post<{ message: string; data: BookingRow }>(
+      `/booking-page/bookings/${uuid}/reschedule`, { starts_at },
+    ).then((r) => r.data),
 }
 
 /**

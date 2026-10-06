@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarClock, Check, Copy, Plus, Trash2 } from 'lucide-react'
-import { bookingApi } from '../api/endpoints'
+import { clsx } from 'clsx'
+import { bookingApi, publicBookingApi } from '../api/endpoints'
 import { errorMessage } from '../api/client'
-import type { BookingHour, BookingPageConfig } from '../types'
+import type { BookingHour, BookingPageConfig, BookingRow } from '../types'
 import {
-  Button, Card, EmptyState, ErrorNote, Input, Label, Select, SkeletonList, Textarea,
+  Button, Card, EmptyState, ErrorNote, Input, Label, Modal, Select, SkeletonList, Textarea,
 } from '../components/ui'
 
 /**
@@ -288,15 +289,17 @@ export default function BookingLinkPage() {
         </div>
       </Card>
 
-      <Bookings />
+      <Bookings slug={data?.slug ?? ''} />
     </div>
   )
 }
 
 /** Who has booked you, soonest first. */
-function Bookings() {
+function Bookings({ slug }: { slug: string }) {
   const queryClient = useQueryClient()
   const [past, setPast] = useState(false)
+  /* The booking being moved, if the host has asked to move one. */
+  const [moving, setMoving] = useState<BookingRow | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['booking-page-bookings', past],
@@ -339,6 +342,8 @@ function Bookings() {
                   {new Date(booking.starts_at).toLocaleString(undefined, {
                     weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
                   })}
+                  {' - '}
+                  {new Date(booking.ends_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
                   {booking.status === 'cancelled' && (
                     <span className="ml-2 text-xs font-normal text-slate-400">cancelled</span>
                   )}
@@ -356,21 +361,138 @@ function Bookings() {
                 {booking.note && (
                   <p className="mt-1 whitespace-pre-line text-xs text-slate-400">{booking.note}</p>
                 )}
+                {/* Where it is held, so the host can open the room from the
+                    one screen that already knows the meeting exists. */}
+                {booking.status === 'confirmed' && (booking.meeting_code || booking.meeting_url) && (
+                  <p className="mt-1 text-xs">
+                    <a
+                      className="text-brand-600 hover:underline dark:text-brand-400"
+                      href={booking.meeting_url ?? `/meetings/room/${booking.meeting_code}`}
+                      target={booking.meeting_url ? '_blank' : undefined}
+                      rel={booking.meeting_url ? 'noreferrer' : undefined}
+                    >
+                      Open the meeting room
+                    </a>
+                  </p>
+                )}
               </div>
               {booking.status === 'confirmed' && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={cancel.isPending}
-                  onClick={() => cancel.mutate(booking.uuid)}
-                >
-                  Cancel
-                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => setMoving(booking)}>
+                    Reschedule
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={cancel.isPending}
+                    onClick={() => cancel.mutate(booking.uuid)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
               )}
             </div>
           ))}
         </div>
       )}
+
+      {moving && (
+        <RescheduleModal
+          slug={slug}
+          booking={moving}
+          onClose={() => setMoving(null)}
+          onMoved={() => {
+            setMoving(null)
+            queryClient.invalidateQueries({ queryKey: ['booking-page-bookings'] })
+            queryClient.invalidateQueries({ queryKey: ['calendar'] })
+            queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+          }}
+        />
+      )}
     </Card>
+  )
+}
+
+/**
+ * Moving somebody else's booking, from the host's side.
+ *
+ * The guest has always been able to move their own, through the link in
+ * their confirmation. The host could only cancel - so "could we make it half
+ * an hour later?" meant calling off a client's meeting and asking them to
+ * book again, which is a worse thing to do to a client than it sounds.
+ *
+ * The times offered are the host's own free slots, from the same endpoint
+ * the public page asks, so a host cannot move somebody on top of something
+ * else they have on. Whoever booked is emailed the moment it moves, and the
+ * button says so: a host should know they are about to write to a client
+ * before they press it, not after.
+ */
+function RescheduleModal({ slug, booking, onClose, onMoved }: {
+  slug: string
+  booking: BookingRow
+  onClose: () => void
+  onMoved: () => void
+}) {
+  const [day, setDay] = useState(() => new Date(booking.starts_at).toISOString().slice(0, 10))
+  const [picked, setPicked] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['booking-slots', slug, day],
+    queryFn: () => publicBookingApi.slots(slug, day, day),
+    enabled: !!slug,
+  })
+
+  const move = useMutation({
+    mutationFn: (startsAt: string) => bookingApi.reschedule(booking.uuid, startsAt),
+    onSuccess: onMoved,
+    onError: (err) => setError(errorMessage(err)),
+  })
+
+  return (
+    <Modal title={`Move ${booking.name}'s booking`} onClose={onClose}>
+      <div className="space-y-3">
+        <div>
+          <Label>Day</Label>
+          <Input type="date" value={day} onChange={(e) => { setDay(e.target.value); setPicked(null) }} />
+        </div>
+
+        {isLoading ? (
+          <p className="text-xs text-slate-500">Looking at your diary...</p>
+        ) : !data?.slots.length ? (
+          <p className="text-xs text-slate-500">Nothing free that day.</p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            {data.slots.map((slot) => (
+              <button
+                key={slot}
+                type="button"
+                onClick={() => setPicked(slot)}
+                className={clsx(
+                  'rounded-lg px-2 py-1.5 text-xs ring-1 ring-inset',
+                  picked === slot
+                    ? 'bg-brand-600 text-white ring-brand-600'
+                    : 'bg-white text-slate-600 ring-slate-200 hover:bg-slate-50 dark:bg-slate-800 dark:text-slate-300 dark:ring-slate-700',
+                )}
+              >
+                {new Date(slot).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <ErrorNote message={error} />
+
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button
+            disabled={!picked || move.isPending}
+            onClick={() => picked && move.mutate(picked)}
+          >
+            {move.isPending ? 'Moving...' : `Move and email ${booking.name}`}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }

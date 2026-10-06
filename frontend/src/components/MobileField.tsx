@@ -40,12 +40,19 @@ export function MobileField({
     <div>
       <Label>{label}</Label>
       <div className="flex gap-2">
-        {/* Wide enough to read the country, because the field is given a row
-            of its own. Squeezed beside another control it showed "Indi a"
-            and left the digits box too narrow to see a number in. */}
+        {/*
+          * Narrow, because the number is the point.
+          *
+          * It used to be wide enough to read "+91 · India" in full, which
+          * left the digits in a box barely wider than the code beside it -
+          * and the digits are what somebody is reading off a card while they
+          * type. The country is chosen once and glanced at thereafter, so it
+          * gets what a glance needs: the flag and the code. The whole list,
+          * names and all, is still there the moment it is opened.
+          */}
         <Select
           aria-label="Country dialling code"
-          className="w-36 shrink-0 sm:w-48"
+          className="w-[6.5rem] shrink-0 sm:w-28"
           value={countryCode}
           disabled={disabled}
           onChange={(e) => onCountryCode(e.target.value)}
@@ -60,7 +67,8 @@ export function MobileField({
           type="tel"
           inputMode="numeric"
           autoComplete="tel-national"
-          className="w-full"
+          // Takes whatever the code box gives back, which is most of the row.
+          className="w-full flex-1"
           value={number}
           disabled={disabled}
           required={required}

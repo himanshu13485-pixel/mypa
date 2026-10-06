@@ -130,6 +130,41 @@ class BookingPageController extends Controller
         return response()->json(['message' => 'Booking cancelled — ' . $row->name . ' has been emailed.']);
     }
 
+    /**
+     * Move a booking, from the host's side.
+     *
+     * The guest has always been able to move their own through the link in
+     * their confirmation. The host could only cancel - so "half an hour
+     * later?" meant cancelling somebody's meeting and asking them to book
+     * again, which is a worse thing to do to a client than it sounds.
+     *
+     * The same service the guest's own move goes through, so the diary, the
+     * room and the calendar entry all follow, and the guest is emailed. Only
+     * the message on the host's bell differs, because they already know.
+     */
+    public function rescheduleBooking(Request $request, string $booking): JsonResponse
+    {
+        $page = $this->pageFor($request);
+
+        $row = $page->bookings()->with(['host', 'meeting', 'page'])->where('uuid', $booking)->first();
+        abort_if($row === null, 404, 'We could not find that booking.');
+        abort_if($row->status === 'cancelled', 409, 'That booking was cancelled — it cannot be moved.');
+
+        $data = $request->validate(['starts_at' => ['required', 'date']]);
+
+        $moved = app(\App\Services\BookingService::class)
+            ->reschedule($row, \Carbon\CarbonImmutable::parse($data['starts_at'])->utc(), 'host');
+
+        // The same answer the guest gets, and for the same reason: the slot
+        // is outside the hours, too close to now, or already taken.
+        abort_if($moved === null, 409, 'That time is not free. Pick another.');
+
+        return response()->json([
+            'message' => 'Moved — ' . $row->name . ' has been emailed.',
+            'data' => $this->serializeBooking($moved->fresh()),
+        ]);
+    }
+
     protected function pageFor(Request $request): BookingPage
     {
         $user = $request->user();

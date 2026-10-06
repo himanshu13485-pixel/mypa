@@ -211,6 +211,40 @@ class MeetingController extends Controller
         // the thing the password stands in for. Who gets kept out is the
         // waiting room's job, and the host's.
 
+        /*
+         * A booked meeting does not begin because its guest turned up.
+         *
+         * The room's address and password go out by email days ahead, so
+         * whoever booked could open the link whenever they liked - and
+         * because the first person through the door marks the meeting
+         * started, the host's own screen would then say their Monday
+         * two o'clock had already happened.
+         *
+         * So they wait, and the host is told somebody is waiting. The same
+         * waiting room the approval setting uses, for the same reason and
+         * with the same way out.
+         */
+        if ($meeting->awaitsHost() && ! $moderator) {
+            $meeting->participants()->syncWithoutDetaching([
+                $me->id => [
+                    'status' => 'waiting',
+                    'display_name' => $data['display_name'] ?? null,
+                ],
+            ]);
+            \App\Support\Realtime::send(new MeetingSignal(
+                $meeting,
+                $me->uuid,
+                $data['display_name'] ?? $me->name,
+                $meeting->host->uuid,
+                'knock',
+            ));
+
+            return response()->json([
+                'message' => 'Waiting for the host to start the meeting.',
+                'data' => ['waiting' => true, 'awaiting_host' => true],
+            ], 202);
+        }
+
         // Waiting room: non-hosts must be admitted first (unless bypassed or
         // previously admitted/inside).
         if ($meeting->requires_approval && ! $moderator) {

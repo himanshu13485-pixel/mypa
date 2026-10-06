@@ -250,8 +250,30 @@ export default function CrmEmployeeFormPage() {
       && (editing ? existing?.crm_role === 'employee' : true)
       && me?.member?.uuid !== existing?.uuid)
 
+  /*
+   * The saved row into the form - once, and not again underneath somebody.
+   *
+   * This used to run on every change of `existing`, which sounds like "when
+   * the employee loads" and is not. The cards further down this same page -
+   * salary, documents, rights - each invalidate the employee query when they
+   * save, so adding a salary revision or uploading a document refetched the
+   * row, handed this effect a new object, and setForm put the saved values
+   * back over everything the person had typed into the profile above. They
+   * then pressed Save changes and sent the old values up, which is why it
+   * looked like the save had silently not worked.
+   *
+   * Seeded once per employee instead. The latch is released after a save of
+   * our own, so the form does follow the row it just wrote.
+   *
+   * The effect below this one already learned the same lesson about
+   * /crm/masters; this one never got the latch.
+   */
+  const seededFor = useRef<string | null>(null)
+
   useEffect(() => {
     if (!existing) return
+    if (seededFor.current === existing.uuid) return
+    seededFor.current = existing.uuid
     setForm({
       ...EMPTY,
       name: existing.name ?? '',
@@ -399,6 +421,9 @@ export default function CrmEmployeeFormPage() {
       })
     },
     onSuccess: (res: { message?: string; data?: { uuid?: string } }) => {
+      // Our own save: let the refetch below re-seed the form, so what is on
+      // screen afterwards is what the server actually stored.
+      seededFor.current = null
       queryClient.invalidateQueries({ queryKey: ['crm'] })
       toast(res.message ?? 'Saved.', 'success')
       if (!editing && res.data?.uuid) navigate(crmPath(`/crm/employees/${res.data.uuid}`), { replace: true })

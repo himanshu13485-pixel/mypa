@@ -29,6 +29,17 @@ class MeetingGuestController extends Controller
     public const GUEST_MINUTES = 30;
 
     /**
+     * How early somebody may arrive for a meeting with a time on it.
+     *
+     * Not none: turning up a few minutes early is what people do, and being
+     * refused at 1:58 for a two o'clock is the kind of thing that has
+     * somebody emailing the host to ask whether the link is broken. They
+     * still cannot start it - the room waits for its host either way - so
+     * this only decides how long they may sit outside the door.
+     */
+    public const EARLY_MINUTES = 10;
+
+    /**
      * What the join page needs before it can ask for anything.
      *
      * Booleans and nothing else: a guessed code learns only whether a password
@@ -67,6 +78,20 @@ class MeetingGuestController extends Controller
             'This meeting is for signed-in Netvork members. Ask the host to set a password, or sign in.',
         );
         abort_if($meeting->status === 'ended', 410, 'This meeting has ended.');
+
+        /*
+         * Not days early.
+         *
+         * A booking's confirmation carries the address and the password as
+         * soon as it is made, so without this the link works the moment it
+         * arrives - for a meeting that may be a fortnight away.
+         */
+        $opensAt = $meeting->scheduled_at?->copy()->subMinutes(self::EARLY_MINUTES);
+        if ($opensAt && now()->lt($opensAt) && $meeting->started_at === null) {
+            abort(409, 'This meeting starts at '
+                . $meeting->scheduled_at->timezone(config('app.timezone'))->format('D j M, g:ia')
+                . '. The link opens ' . self::EARLY_MINUTES . ' minutes before.');
+        }
         abort_if((bool) $meeting->is_locked, 423, 'This meeting is locked — the host is not letting anyone else in.');
 
         /*
