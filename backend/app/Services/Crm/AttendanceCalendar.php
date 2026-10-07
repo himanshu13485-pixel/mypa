@@ -74,7 +74,24 @@ class AttendanceCalendar
             ->get()
             ->keyBy(fn (Holiday $h) => $h->holiday_date->toDateString());
 
-        // Approved leave, spread over each day it covers.
+        /*
+         * Approved leave, spread over each day it covers - and over each day
+         * the balance could actually pay for.
+         *
+         * A leave is approved whether or not there is leave left to take: the
+         * account pays for what it can and the rest is unpaid, which is what
+         * paid_days and unpaid_days on the row mean. Three days taken with
+         * one day in hand is one paid day and two unpaid ones.
+         *
+         * That split has to be made here, per day, because pay is counted a
+         * day at a time. Asking only whether paid_days was more than zero -
+         * which is what this did - paid all three of those days in full, so
+         * leave beyond somebody's balance cost them nothing and the payroll
+         * said "without pay: 0" for a month it should not have.
+         *
+         * The paid days are the first ones. The balance is spent as the leave
+         * runs, so the days it ran out on are the later ones.
+         */
         $leaveDays = [];
         Leave::where('organization_id', $this->org->id)
             ->whereIn('member_id', $memberIds)
@@ -83,8 +100,19 @@ class AttendanceCalendar
             ->whereDate('date_from', '<=', $to->toDateString())
             ->get()
             ->each(function (Leave $leave) use (&$leaveDays) {
+                // What the account agreed to cover, in days.
+                $budget = (float) $leave->paid_days;
+
                 for ($day = $leave->date_from->copy(); $day->lte($leave->date_to); $day->addDay()) {
-                    $leaveDays[$leave->member_id . '|' . $day->toDateString()] = $leave;
+                    // A half-day leave is worth half a day, so it spends half.
+                    $worth = $leave->duration === 'half' ? 0.5 : 1.0;
+                    $paid = max(0.0, min($worth, $budget));
+                    $budget = round($budget - $paid, 2);
+
+                    $leaveDays[$leave->member_id . '|' . $day->toDateString()] = [
+                        'leave' => $leave,
+                        'paid' => $paid,
+                    ];
                 }
             });
 
@@ -95,9 +123,13 @@ class AttendanceCalendar
                 $key = $member->id . '|' . $day->toDateString();
                 $punch = ($punches[$key] ?? collect())->first();
                 $holiday = $holidays[$day->toDateString()] ?? null;
-                $leave = $leaveDays[$key] ?? null;
+                $onLeave = $leaveDays[$key] ?? null;
 
-                $rows->push($this->row($member, $day, $punch, $holiday, $leave, $weekOff, $policy));
+                $rows->push($this->row(
+                    $member, $day, $punch, $holiday,
+                    $onLeave['leave'] ?? null, $onLeave['paid'] ?? 0.0,
+                    $weekOff, $policy,
+                ));
             }
         }
 
@@ -115,6 +147,7 @@ class AttendanceCalendar
         ?Punch $punch,
         ?Holiday $holiday,
         ?Leave $leave,
+        float $leavePaid,
         array $weekOff,
         array $policy,
     ): array {
@@ -162,10 +195,33 @@ class AttendanceCalendar
             $status = 'absent';
         }
 
-        // A wholly unpaid leave day is worth nothing, whatever it is called.
+        /*
+         * A leave day is worth what the balance paid for it, and no more.
+         *
+         * Not what the status is called: "leave" covers both the days an
+         * account could pay for and the days it could not, and the second
+         * kind is unpaid however it is labelled. The split was worked out
+         * day by day where the leave was read - see build().
+         */
         $value = $status === null ? 0.0 : (self::DAY_VALUE[$status] ?? 0.0);
-        if ($leave && $status === 'leave' && (float) $leave->paid_days <= 0) {
-            $value = 0.0;
+
+        /*
+         * Capped at what was paid for, rather than zeroed.
+         *
+         * A half-day leave this office already costs half a day, paid or
+         * not - that is the house rule and CrmHrPolicyTest states it. So the
+         * cap, not a flat zero: a paid half-day stays at the half day it has
+         * always been, and an unpaid one loses the other half as well. The
+         * difference between a paid day and an unpaid one is then the same
+         * half day it is for a full day's leave, which is the only part of
+         * this that was ever wrong.
+         *
+         * A half day that came off the clock rather than off a leave form -
+         * somebody who went home at noon without asking - has no leave row
+         * and is untouched.
+         */
+        if ($leave && in_array($status, ['leave', 'half_day'], true)) {
+            $value = min($value, $leavePaid);
         }
 
         return [
