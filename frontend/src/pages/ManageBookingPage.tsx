@@ -69,7 +69,7 @@ export default function ManageBookingPage() {
     return (
       <Shell>
         <Card className="text-center">
-          <p className="text-sm font-medium">We could not find that booking.</p>
+          <p className="text-sm font-medium">We could not find that meeting.</p>
           <p className="mt-1 text-xs text-slate-500">
             The link may be incomplete — try copying it from your confirmation email again.
           </p>
@@ -101,7 +101,7 @@ export default function ManageBookingPage() {
 
             {cancelled ? (
               <p className="mt-3 text-sm text-slate-500">
-                This booking was cancelled.{' '}
+                This meeting was cancelled.{' '}
                 <a href={`/book/${it.slug}`} className="text-brand-600 underline">Book another time</a>.
               </p>
             ) : it.meeting ? (
@@ -133,7 +133,7 @@ export default function ManageBookingPage() {
               <CalendarDays className="size-4" /> {moving ? 'Keep this time' : 'Move it'}
             </Button>
             <Button size="sm" variant="danger" disabled={busy} onClick={() => act(() => publicBookingApi.cancel(token))}>
-              Cancel booking
+              Cancel meeting
             </Button>
           </div>
         )}

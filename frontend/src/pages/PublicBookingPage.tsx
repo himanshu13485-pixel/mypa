@@ -10,6 +10,7 @@ import type { BookingDetail } from '../types'
 import { Button, Card, ErrorNote, Input, Label, Skeleton, Textarea } from '../components/ui'
 import { MobileField } from '../components/MobileField'
 import { DEFAULT_DIAL, joinDial } from '../lib/countries'
+import { bookingWindow } from '../lib/bookingWindow'
 
 /**
  * The page a link hands to a stranger.
@@ -29,33 +30,23 @@ import { DEFAULT_DIAL, joinDial } from '../lib/countries'
 /** Whatever the browser believes, with a fallback for the ones that will not say. */
 const VIEWER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 
-const DAY_MS = 24 * 60 * 60 * 1000
 
-function startOfLocalDay(date: Date): Date {
-  const copy = new Date(date)
-  copy.setHours(0, 0, 0, 0)
-  return copy
-}
 
 export default function PublicBookingPage() {
   const { slug = '' } = useParams()
 
   /*
-   * A fortnight at a time.
-   *
-   * Long enough that most people find something without paging, short enough
-   * that the server is never asked to walk a year a day at a time. The window
-   * moves in whole weeks so the columns keep their weekday alignment.
+   * A fortnight at a time, and a fortnight at a step - see bookingWindow,
+   * where the arithmetic lives and is tested. It is there rather than here
+   * because the width and the step used to be two different numbers, and a
+   * window that shows a fortnight while the arrow moves a week repeats half
+   * of every page without looking as though anything is wrong.
    */
-  const [weekOffset, setWeekOffset] = useState(0)
+  const [pageOffset, setPageOffset] = useState(0)
   const [chosen, setChosen] = useState<string | null>(null)
   const [booked, setBooked] = useState<BookingDetail | null>(null)
 
-  const rangeStart = useMemo(
-    () => new Date(startOfLocalDay(new Date()).getTime() + weekOffset * 7 * DAY_MS),
-    [weekOffset],
-  )
-  const rangeEnd = useMemo(() => new Date(rangeStart.getTime() + 14 * DAY_MS), [rangeStart])
+  const { from: rangeStart, to: rangeEnd } = useMemo(() => bookingWindow(pageOffset), [pageOffset])
 
   const page = useQuery({
     queryKey: ['public-booking-page', slug],
@@ -95,7 +86,7 @@ export default function PublicBookingPage() {
     return (
       <Shell>
         <Card className="text-center">
-          <p className="text-sm font-medium">This booking link is not available.</p>
+          <p className="text-sm font-medium">This meeting link is not available.</p>
           <p className="mt-1 text-xs text-slate-500">
             It may have been turned off, or the address may be wrong. Ask whoever sent it for a new one.
           </p>
@@ -145,13 +136,13 @@ export default function PublicBookingPage() {
             <Button
               size="sm"
               variant="secondary"
-              onClick={() => setWeekOffset((w) => Math.max(0, w - 1))}
-              disabled={weekOffset === 0}
+              onClick={() => setPageOffset((p) => Math.max(0, p - 1))}
+              disabled={pageOffset === 0}
               aria-label="Earlier dates"
             >
               <ChevronLeft className="size-4" />
             </Button>
-            <Button size="sm" variant="secondary" onClick={() => setWeekOffset((w) => w + 1)} aria-label="Later dates">
+            <Button size="sm" variant="secondary" onClick={() => setPageOffset((p) => p + 1)} aria-label="Later dates">
               <ChevronRight className="size-4" />
             </Button>
           </div>
@@ -294,7 +285,7 @@ function BookingForm({
           <Label>Your email</Label>
           <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={255} />
           <p className="mt-1 text-xs text-slate-400">
-            The joining link goes here — and it is the only way back to this booking if you need to move it.
+            The joining link goes here — and it is the only way back to this meeting if you need to move it.
           </p>
         </div>
         {/* A country and then digits, the same field the rest of the app
@@ -318,7 +309,7 @@ function BookingForm({
           <HoneypotField value={guard.honeypot} onChange={guard.setHoneypot} />
           <TurnstileWidget onToken={guard.setToken} />
           <Button type="submit" disabled={busy || guard.waiting}>
-            {busy ? 'Booking…' : guard.waiting ? 'Verifying…' : 'Confirm booking'}
+            {busy ? 'Confirming…' : guard.waiting ? 'Verifying…' : 'Confirm meeting'}
           </Button>
           <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
             Pick another time
@@ -339,7 +330,7 @@ function Booked({ booking }: { booking: BookingDetail }) {
       <div className="flex items-start gap-3">
         <CheckCircle2 className="mt-0.5 size-6 shrink-0 text-emerald-500" />
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold">You are booked in</h1>
+          <h1 className="text-lg font-semibold">Your meeting is confirmed</h1>
           <p className="mt-0.5 text-sm text-slate-500 dark:text-slate-400">
             {when} with {booking.host_name}. A confirmation is on its way to {booking.email}.
           </p>

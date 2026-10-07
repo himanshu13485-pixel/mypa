@@ -117,7 +117,7 @@ class BookingUpdate extends Mailable
         {$room}
         <p><b>Need to change it?</b><br>
         <a href="{$manage}">{$manage}</a></p>
-        <p style="color:#64748b;font-size:12px">That link cancels or moves this booking. Keep this
+        <p style="color:#64748b;font-size:12px">That link cancels or moves this meeting. Keep this
         email — it is the only way back to it.</p>
         HTML;
 
