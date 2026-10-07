@@ -10,7 +10,7 @@ import type { BookingDetail } from '../types'
 import { Button, Card, ErrorNote, Input, Label, Skeleton, Textarea } from '../components/ui'
 import { MobileField } from '../components/MobileField'
 import { DEFAULT_DIAL, joinDial } from '../lib/countries'
-import { bookingWindow } from '../lib/bookingWindow'
+import { bookableRange, daysOnPage, pageCount } from '../lib/bookingWindow'
 
 /**
  * The page a link hands to a stranger.
@@ -35,18 +35,9 @@ const VIEWER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
 export default function PublicBookingPage() {
   const { slug = '' } = useParams()
 
-  /*
-   * A fortnight at a time, and a fortnight at a step - see bookingWindow,
-   * where the arithmetic lives and is tested. It is there rather than here
-   * because the width and the step used to be two different numbers, and a
-   * window that shows a fortnight while the arrow moves a week repeats half
-   * of every page without looking as though anything is wrong.
-   */
-  const [pageOffset, setPageOffset] = useState(0)
+  const [pageIndex, setPageIndex] = useState(0)
   const [chosen, setChosen] = useState<string | null>(null)
   const [booked, setBooked] = useState<BookingDetail | null>(null)
-
-  const { from: rangeStart, to: rangeEnd } = useMemo(() => bookingWindow(pageOffset), [pageOffset])
 
   const page = useQuery({
     queryKey: ['public-booking-page', slug],
@@ -54,9 +45,21 @@ export default function PublicBookingPage() {
     retry: false,
   })
 
+  /*
+   * Everything bookable, in one request.
+   *
+   * A page offers nothing past its own notice period, so there is nothing to
+   * be gained by asking further out - and having it all means paging is
+   * instant and never shows a spinner for days already fetched.
+   */
+  const range = useMemo(
+    () => bookableRange(page.data?.max_days_ahead ?? 30),
+    [page.data?.max_days_ahead],
+  )
+
   const slots = useQuery({
-    queryKey: ['public-booking-slots', slug, rangeStart.toISOString()],
-    queryFn: () => publicBookingApi.slots(slug, rangeStart.toISOString(), rangeEnd.toISOString()),
+    queryKey: ['public-booking-slots', slug, range.from.toISOString(), range.to.toISOString()],
+    queryFn: () => publicBookingApi.slots(slug, range.from.toISOString(), range.to.toISOString()),
     enabled: !!page.data,
   })
 
@@ -69,6 +72,24 @@ export default function PublicBookingPage() {
     }
     return [...groups.entries()]
   }, [slots.data])
+
+  /*
+   * Nine days to a page, and the rest on the next one.
+   *
+   * Paged on the days that have a time free rather than on the calendar,
+   * which is the distinction this got wrong before: a fortnight of calendar
+   * days is ten working days, or nine in a week with a holiday in it, so
+   * moving the calendar window by a fixed amount showed some days twice.
+   */
+  const pages = pageCount(byDay.length)
+  /*
+   * Clamped, because the days can shrink underneath the reader: somebody
+   * else takes the last free time on the last page while this one is open,
+   * and an index pointing past the end would show an empty grid with no
+   * sign of what had happened.
+   */
+  const current = Math.min(pageIndex, pages - 1)
+  const shown = useMemo(() => daysOnPage(byDay, current), [byDay, current])
 
   if (page.isLoading) {
     return (
@@ -132,25 +153,41 @@ export default function PublicBookingPage() {
           <h2 className="flex items-center gap-2 text-sm font-semibold">
             <CalendarDays className="size-4" /> Pick a time
           </h2>
-          <div className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setPageOffset((p) => Math.max(0, p - 1))}
-              disabled={pageOffset === 0}
-              aria-label="Earlier dates"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <Button size="sm" variant="secondary" onClick={() => setPageOffset((p) => p + 1)} aria-label="Later dates">
-              <ChevronRight className="size-4" />
-            </Button>
+          <div className="flex items-center gap-2">
+            {/* Said rather than left to be worked out from whether an arrow
+                is greyed: "page 2 of 3" is the difference between looking
+                further ahead and wondering if the page is broken. */}
+            {pages > 1 && (
+              <span className="text-xs text-slate-400">Page {current + 1} of {pages}</span>
+            )}
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setPageIndex(Math.max(0, current - 1))}
+                disabled={current === 0}
+                aria-label="Earlier dates"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setPageIndex(Math.min(pages - 1, current + 1))}
+                // Nothing further out to show: the whole bookable period was
+                // fetched, so the last page really is the last one.
+                disabled={current >= pages - 1}
+                aria-label="Later dates"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+            </div>
           </div>
         </div>
 
         {slots.isLoading ? (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }, (_, i) => (
+            {Array.from({ length: 9 }, (_, i) => (
               <div key={i} className="space-y-2">
                 <Skeleton className="h-3 w-24" />
                 <Skeleton className="h-8 w-full" />
@@ -160,12 +197,12 @@ export default function PublicBookingPage() {
           </div>
         ) : byDay.length === 0 ? (
           <div className="py-10 text-center">
-            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nothing free in this fortnight.</p>
-            <p className="mt-1 text-xs text-slate-400">Try the arrow above to look further ahead.</p>
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-200">Nothing free to book just now.</p>
+            <p className="mt-1 text-xs text-slate-400">Ask whoever sent you the link for another time.</p>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {byDay.map(([day, times]) => (
+            {shown.map(([day, times]) => (
               <div key={day}>
                 <p className="mb-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">{day}</p>
                 <div className="space-y-1.5">
